@@ -16,7 +16,7 @@ export default function ProjectsView() {
     async function load() {
       const [{ data: p }, { data: prof }] = await Promise.all([
         supabase.from("projects").select("*").order("name"),
-        supabase.from("profiles").select("id,full_name,avatar_url"),
+        supabase.from("profiles").select("id,display_name,avatar_url"),
       ]);
       setProjects(p || []);
       const map = {};
@@ -50,11 +50,11 @@ export default function ProjectsView() {
 
   const getInitials = (userId) => {
     const u = profiles[userId];
-    if (!u || !u.full_name) return "?";
-    return u.full_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+    if (!u || !u.display_name) return "?";
+    return u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
   };
 
-  const getName = (userId) => profiles[userId]?.full_name || "Unassigned";
+  const getName = (userId) => profiles[userId]?.display_name || "Unassigned";
 
   return (
     <div style={{ display: "flex", height: "100%" }}>
