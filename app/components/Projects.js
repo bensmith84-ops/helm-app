@@ -60,10 +60,16 @@ export default function ProjectsView() {
   const toggleTask = async (task, e) => {
     e.stopPropagation();
     const newStatus = task.status === "done" ? "todo" : "done";
-    // Optimistic update
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
     if (selectedTask?.id === task.id) setSelectedTask(prev => ({ ...prev, status: newStatus }));
     await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id);
+  };
+
+  const updateTask = async (field, value) => {
+    if (!selectedTask) return;
+    setSelectedTask(prev => ({ ...prev, [field]: value }));
+    setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, [field]: value } : t));
+    await supabase.from("tasks").update({ [field]: value }).eq("id", selectedTask.id);
   };
 
   return (
@@ -181,9 +187,22 @@ export default function ProjectsView() {
           background: T.surface, flexShrink: 0,
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: T.text, lineHeight: 1.3, flex: 1, marginRight: 8 }}>
-              {selectedTask.title}
-            </h3>
+            <input
+              value={selectedTask.title}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedTask(prev => ({ ...prev, title: val }));
+                setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, title: val } : t));
+              }}
+              onBlur={() => supabase.from("tasks").update({ title: selectedTask.title }).eq("id", selectedTask.id)}
+              onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+              style={{
+                fontSize: 15, fontWeight: 600, color: T.text, lineHeight: 1.3, flex: 1, marginRight: 8,
+                background: "transparent", border: "none", outline: "none", padding: 0, width: "100%",
+                borderBottom: `1px solid transparent`,
+              }}
+              onFocus={(e) => e.target.style.borderBottom = `1px solid ${T.accent}`}
+            />
             <button onClick={() => setSelectedTask(null)} style={{
               background: "none", border: "none", color: T.text3, cursor: "pointer",
               fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0,
@@ -206,35 +225,51 @@ export default function ProjectsView() {
 
             {/* Priority */}
             <DetailRow label="Priority">
-              {selectedTask.priority ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <StatusDot color={priorityColor(selectedTask.priority)} size={8} />
-                  <span style={{ fontSize: 13, color: T.text, textTransform: "capitalize" }}>{selectedTask.priority}</span>
-                </div>
-              ) : <span style={{ fontSize: 13, color: T.text3 }}>—</span>}
+              <select
+                value={selectedTask.priority || ""}
+                onChange={(e) => updateTask("priority", e.target.value || null)}
+                style={{
+                  fontSize: 12, color: T.text, background: T.surface2, border: `1px solid ${T.border}`,
+                  borderRadius: 4, padding: "3px 6px", cursor: "pointer", outline: "none",
+                }}
+              >
+                <option value="">None</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
             </DetailRow>
 
             {/* Assignee */}
             <DetailRow label="Assignee">
-              {selectedTask.assignee_id ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 24, height: 24, borderRadius: "50%",
-                    background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 10, fontWeight: 600, color: T.accent,
-                  }}>{getInitials(selectedTask.assignee_id)}</div>
-                  <span style={{ fontSize: 13, color: T.text }}>{getName(selectedTask.assignee_id)}</span>
-                </div>
-              ) : <span style={{ fontSize: 13, color: T.text3 }}>Unassigned</span>}
+              <select
+                value={selectedTask.assignee_id || ""}
+                onChange={(e) => updateTask("assignee_id", e.target.value || null)}
+                style={{
+                  fontSize: 12, color: T.text, background: T.surface2, border: `1px solid ${T.border}`,
+                  borderRadius: 4, padding: "3px 6px", cursor: "pointer", outline: "none", maxWidth: 180,
+                }}
+              >
+                <option value="">Unassigned</option>
+                {Object.values(profiles).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => (
+                  <option key={p.id} value={p.id}>{p.display_name}</option>
+                ))}
+              </select>
             </DetailRow>
 
             {/* Due Date */}
             <DetailRow label="Due Date">
-              {selectedTask.due_date ? (
-                <span style={{ fontSize: 13, color: new Date(selectedTask.due_date) < new Date() && selectedTask.status !== "done" ? T.red : T.text }}>
-                  {new Date(selectedTask.due_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-                </span>
-              ) : <span style={{ fontSize: 13, color: T.text3 }}>No due date</span>}
+              <input
+                type="date"
+                value={selectedTask.due_date || ""}
+                onChange={(e) => updateTask("due_date", e.target.value || null)}
+                style={{
+                  fontSize: 12, color: T.text, background: T.surface2, border: `1px solid ${T.border}`,
+                  borderRadius: 4, padding: "3px 6px", cursor: "pointer", outline: "none",
+                  colorScheme: "dark",
+                }}
+              />
             </DetailRow>
 
             {/* Section */}
@@ -245,14 +280,24 @@ export default function ProjectsView() {
             </DetailRow>
 
             {/* Description */}
-            {selectedTask.description && (
-              <div style={{ marginTop: 4 }}>
-                <div style={{ fontSize: 11, color: T.text3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}>Description</div>
-                <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.5, padding: 10, background: T.surface2, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                  {selectedTask.description}
-                </div>
-              </div>
-            )}
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}>Description</div>
+              <textarea
+                value={selectedTask.description || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedTask(prev => ({ ...prev, description: val }));
+                  setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, description: val } : t));
+                }}
+                onBlur={() => supabase.from("tasks").update({ description: selectedTask.description || null }).eq("id", selectedTask.id)}
+                placeholder="Add a description…"
+                style={{
+                  width: "100%", minHeight: 70, fontSize: 13, color: T.text2, lineHeight: 1.5,
+                  padding: 10, background: T.surface2, borderRadius: 6, border: `1px solid ${T.border}`,
+                  resize: "vertical", outline: "none", fontFamily: "inherit",
+                }}
+              />
+            </div>
 
             {/* Timestamps */}
             <div style={{ marginTop: 8, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
