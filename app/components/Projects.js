@@ -11,6 +11,8 @@ export default function ProjectsView() {
   const [profiles, setProfiles] = useState({});
   const [activeProject, setActiveProject] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
+  const [addingToSection, setAddingToSection] = useState(null);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -70,6 +72,22 @@ export default function ProjectsView() {
     setSelectedTask(prev => ({ ...prev, [field]: value }));
     setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, [field]: value } : t));
     await supabase.from("tasks").update({ [field]: value }).eq("id", selectedTask.id);
+  };
+
+  const createTask = async (sectionId) => {
+    if (!newTaskTitle.trim()) { setAddingToSection(null); return; }
+    const newTask = {
+      org_id: project.org_id,
+      project_id: activeProject,
+      section_id: sectionId,
+      title: newTaskTitle.trim(),
+      status: "todo",
+      priority: "medium",
+    };
+    const { data, error } = await supabase.from("tasks").insert(newTask).select().single();
+    if (data) setTasks(prev => [...prev, data]);
+    setNewTaskTitle("");
+    setAddingToSection(null);
   };
 
   return (
@@ -168,8 +186,41 @@ export default function ProjectsView() {
                           </div>
                         </div>
                       ))}
-                      {sectionTasks.length === 0 && (
+                      {sectionTasks.length === 0 && addingToSection !== section.id && (
                         <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: 8 }}>No tasks</div>
+                      )}
+                      {addingToSection === section.id ? (
+                        <div style={{ background: T.surface2, borderRadius: 8, padding: 10, border: `1px solid ${T.accent}` }}>
+                          <input
+                            autoFocus
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") createTask(section.id); if (e.key === "Escape") { setAddingToSection(null); setNewTaskTitle(""); } }}
+                            placeholder="Task name…"
+                            style={{
+                              width: "100%", fontSize: 13, color: T.text, background: "transparent",
+                              border: "none", outline: "none", marginBottom: 8, fontFamily: "inherit",
+                            }}
+                          />
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button onClick={() => createTask(section.id)} style={{
+                              padding: "4px 12px", fontSize: 11, fontWeight: 600, borderRadius: 4,
+                              border: "none", background: T.accent, color: "#fff", cursor: "pointer",
+                            }}>Add</button>
+                            <button onClick={() => { setAddingToSection(null); setNewTaskTitle(""); }} style={{
+                              padding: "4px 12px", fontSize: 11, borderRadius: 4,
+                              border: `1px solid ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer",
+                            }}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setAddingToSection(section.id); setNewTaskTitle(""); }} style={{
+                          width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px dashed ${T.border}`,
+                          background: "transparent", color: T.text3, cursor: "pointer", fontSize: 12,
+                          display: "flex", alignItems: "center", gap: 4, marginTop: 4,
+                        }}>
+                          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> Add task
+                        </button>
                       )}
                     </div>
                   </div>
