@@ -13,6 +13,7 @@ export default function ProjectsView() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [addingToSection, setAddingToSection] = useState(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [viewMode, setViewMode] = useState("board");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -121,10 +122,22 @@ export default function ProjectsView() {
               <div style={{ fontSize: 12, color: T.text3, marginBottom: 16, paddingLeft: 22 }}>{project.description}</div>
             )}
             {project.owner_id && profiles[project.owner_id] && (
-              <div style={{ fontSize: 11, color: T.text3, marginBottom: 16, paddingLeft: 22 }}>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, paddingLeft: 22 }}>
                 Owner: {getName(project.owner_id)}
               </div>
             )}
+            {/* View Switcher */}
+            <div style={{ display: "flex", gap: 2, marginBottom: 16, background: T.surface2, borderRadius: 6, padding: 2, border: `1px solid ${T.border}`, width: "fit-content" }}>
+              {[{ key: "board", label: "Board" }, { key: "list", label: "List" }].map(v => (
+                <button key={v.key} onClick={() => setViewMode(v.key)} style={{
+                  padding: "5px 14px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 500,
+                  background: viewMode === v.key ? T.surface3 : "transparent",
+                  color: viewMode === v.key ? T.text : T.text3, transition: "all 0.15s",
+                }}>{v.label}</button>
+              ))}
+            </div>
+
+            {viewMode === "board" ? (
             <div style={{ display: "flex", gap: 16, overflow: "auto", paddingBottom: 12 }}>
               {sections.map(section => {
                 const sectionTasks = tasks.filter(t => t.section_id === section.id);
@@ -227,6 +240,69 @@ export default function ProjectsView() {
                 );
               })}
             </div>
+            ) : (
+            /* List View */
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {/* List Header */}
+              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 100px 120px 100px", gap: 8, padding: "8px 12px", fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${T.border}` }}>
+                <span></span><span>Task</span><span>Priority</span><span>Assignee</span><span>Due Date</span>
+              </div>
+              {sections.map(section => {
+                const sectionTasks = tasks.filter(t => t.section_id === section.id);
+                return (
+                  <div key={section.id}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, padding: "10px 12px 4px", background: T.surface2, borderRadius: 4, marginTop: 6 }}>
+                      {section.name} <span style={{ fontWeight: 400, opacity: 0.6 }}>({sectionTasks.length})</span>
+                    </div>
+                    {sectionTasks.map(task => (
+                      <div key={task.id} onClick={() => setSelectedTask(task)} style={{
+                        display: "grid", gridTemplateColumns: "28px 1fr 100px 120px 100px", gap: 8,
+                        padding: "8px 12px", cursor: "pointer", alignItems: "center",
+                        borderBottom: `1px solid ${T.border}`,
+                        background: selectedTask?.id === task.id ? T.surface3 : "transparent",
+                        opacity: task.status === "done" ? 0.6 : 1,
+                        transition: "background 0.1s",
+                      }}>
+                        <div onClick={(e) => toggleTask(task, e)} style={{
+                          width: 16, height: 16, borderRadius: 4, cursor: "pointer",
+                          border: `2px solid ${task.status === "done" ? T.green : T.text3}`,
+                          background: task.status === "done" ? T.green : "transparent",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          transition: "all 0.15s ease",
+                        }}>
+                          {task.status === "done" && <span style={{ color: "#fff", fontSize: 10, lineHeight: 1 }}>✓</span>}
+                        </div>
+                        <span style={{
+                          fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          textDecoration: task.status === "done" ? "line-through" : "none",
+                          color: task.status === "done" ? T.text3 : T.text,
+                        }}>{task.title}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          {task.priority && <StatusDot color={priorityColor(task.priority)} size={6} />}
+                          <span style={{ fontSize: 11, color: T.text3, textTransform: "capitalize" }}>{task.priority || "—"}</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {task.assignee_id && (
+                            <div style={{
+                              width: 20, height: 20, borderRadius: "50%",
+                              background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 8, fontWeight: 600, color: T.accent,
+                            }}>{getInitials(task.assignee_id)}</div>
+                          )}
+                          <span style={{ fontSize: 11, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {task.assignee_id ? getName(task.assignee_id) : "—"}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: 11, color: task.due_date && new Date(task.due_date) < new Date() && task.status !== "done" ? T.red : T.text3 }}>
+                          {task.due_date ? new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            )}
           </>
         )}
       </div>
