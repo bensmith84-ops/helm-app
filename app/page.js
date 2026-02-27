@@ -1074,9 +1074,8 @@ export default function HelmApp() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body, #root { font-family: 'DM Sans', sans-serif; background: ${T.bg}; color: ${T.text}; }
+        body, #root { background: ${T.bg}; color: ${T.text}; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${T.border2}; border-radius: 3px; }
