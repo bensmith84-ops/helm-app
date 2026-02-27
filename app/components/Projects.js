@@ -57,6 +57,15 @@ export default function ProjectsView() {
 
   const getName = (userId) => profiles[userId]?.display_name || "Unassigned";
 
+  const toggleTask = async (task, e) => {
+    e.stopPropagation();
+    const newStatus = task.status === "done" ? "todo" : "done";
+    // Optimistic update
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
+    if (selectedTask?.id === task.id) setSelectedTask(prev => ({ ...prev, status: newStatus }));
+    await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id);
+  };
+
   return (
     <div style={{ display: "flex", height: "100%" }}>
       <div style={{ width: 220, borderRight: `1px solid ${T.border}`, padding: 12, overflow: "auto" }}>
@@ -110,10 +119,21 @@ export default function ProjectsView() {
                           opacity: task.status === "done" ? 0.6 : 1,
                           transition: "border-color 0.15s ease",
                         }}>
-                          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6,
-                            textDecoration: task.status === "done" ? "line-through" : "none",
-                            color: task.status === "done" ? T.text3 : T.text,
-                          }}>{task.title}</div>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                            <div onClick={(e) => toggleTask(task, e)} style={{
+                              width: 16, height: 16, borderRadius: 4, flexShrink: 0, marginTop: 1, cursor: "pointer",
+                              border: `2px solid ${task.status === "done" ? T.green : T.text3}`,
+                              background: task.status === "done" ? T.green : "transparent",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              transition: "all 0.15s ease",
+                            }}>
+                              {task.status === "done" && <span style={{ color: "#fff", fontSize: 10, lineHeight: 1 }}>✓</span>}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 500,
+                              textDecoration: task.status === "done" ? "line-through" : "none",
+                              color: task.status === "done" ? T.text3 : T.text,
+                            }}>{task.title}</div>
+                          </div>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               {task.priority && (
@@ -173,9 +193,15 @@ export default function ProjectsView() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Status */}
             <DetailRow label="Status">
-              <Badge color={selectedTask.status === "done" ? T.green : selectedTask.status === "in_progress" ? T.accent : T.text3}>
-                {selectedTask.status === "done" ? "Done" : selectedTask.status === "in_progress" ? "In Progress" : selectedTask.status === "todo" ? "To Do" : selectedTask.status || "—"}
-              </Badge>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Badge color={selectedTask.status === "done" ? T.green : selectedTask.status === "in_progress" ? T.accent : T.text3}>
+                  {selectedTask.status === "done" ? "Done" : selectedTask.status === "in_progress" ? "In Progress" : selectedTask.status === "todo" ? "To Do" : selectedTask.status || "—"}
+                </Badge>
+                <button onClick={(e) => toggleTask(selectedTask, e)} style={{
+                  background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px",
+                  fontSize: 10, color: T.text2, cursor: "pointer",
+                }}>{selectedTask.status === "done" ? "Reopen" : "Complete"}</button>
+              </div>
             </DetailRow>
 
             {/* Priority */}
