@@ -10,6 +10,7 @@ export default function ProjectsView() {
   const [tasks, setTasks] = useState([]);
   const [profiles, setProfiles] = useState({});
   const [activeProject, setActiveProject] = useState(null);
+  const [selectedTask, setSelectedTask] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -102,11 +103,12 @@ export default function ProjectsView() {
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {sectionTasks.map(task => (
-                        <div key={task.id} style={{
-                          background: T.surface2, borderRadius: 8, padding: 12,
-                          border: `1px solid ${T.border}`,
+                        <div key={task.id} onClick={() => setSelectedTask(task)} style={{
+                          background: T.surface2, borderRadius: 8, padding: 12, cursor: "pointer",
+                          border: `1px solid ${selectedTask?.id === task.id ? T.accent : T.border}`,
                           borderLeft: `3px solid ${task.status === "done" ? T.green : priorityColor(task.priority)}`,
                           opacity: task.status === "done" ? 0.6 : 1,
+                          transition: "border-color 0.15s ease",
                         }}>
                           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6,
                             textDecoration: task.status === "done" ? "line-through" : "none",
@@ -151,6 +153,106 @@ export default function ProjectsView() {
           </>
         )}
       </div>
+
+      {/* Task Detail Panel */}
+      {selectedTask && (
+        <div style={{
+          width: 340, borderLeft: `1px solid ${T.border}`, padding: 20, overflow: "auto",
+          background: T.surface, flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: T.text, lineHeight: 1.3, flex: 1, marginRight: 8 }}>
+              {selectedTask.title}
+            </h3>
+            <button onClick={() => setSelectedTask(null)} style={{
+              background: "none", border: "none", color: T.text3, cursor: "pointer",
+              fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0,
+            }}>×</button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Status */}
+            <DetailRow label="Status">
+              <Badge color={selectedTask.status === "done" ? T.green : selectedTask.status === "in_progress" ? T.accent : T.text3}>
+                {selectedTask.status === "done" ? "Done" : selectedTask.status === "in_progress" ? "In Progress" : selectedTask.status === "todo" ? "To Do" : selectedTask.status || "—"}
+              </Badge>
+            </DetailRow>
+
+            {/* Priority */}
+            <DetailRow label="Priority">
+              {selectedTask.priority ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <StatusDot color={priorityColor(selectedTask.priority)} size={8} />
+                  <span style={{ fontSize: 13, color: T.text, textTransform: "capitalize" }}>{selectedTask.priority}</span>
+                </div>
+              ) : <span style={{ fontSize: 13, color: T.text3 }}>—</span>}
+            </DetailRow>
+
+            {/* Assignee */}
+            <DetailRow label="Assignee">
+              {selectedTask.assignee_id ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 24, height: 24, borderRadius: "50%",
+                    background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 10, fontWeight: 600, color: T.accent,
+                  }}>{getInitials(selectedTask.assignee_id)}</div>
+                  <span style={{ fontSize: 13, color: T.text }}>{getName(selectedTask.assignee_id)}</span>
+                </div>
+              ) : <span style={{ fontSize: 13, color: T.text3 }}>Unassigned</span>}
+            </DetailRow>
+
+            {/* Due Date */}
+            <DetailRow label="Due Date">
+              {selectedTask.due_date ? (
+                <span style={{ fontSize: 13, color: new Date(selectedTask.due_date) < new Date() && selectedTask.status !== "done" ? T.red : T.text }}>
+                  {new Date(selectedTask.due_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                </span>
+              ) : <span style={{ fontSize: 13, color: T.text3 }}>No due date</span>}
+            </DetailRow>
+
+            {/* Section */}
+            <DetailRow label="Section">
+              <span style={{ fontSize: 13, color: T.text }}>
+                {sections.find(s => s.id === selectedTask.section_id)?.name || "—"}
+              </span>
+            </DetailRow>
+
+            {/* Description */}
+            {selectedTask.description && (
+              <div style={{ marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}>Description</div>
+                <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.5, padding: 10, background: T.surface2, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                  {selectedTask.description}
+                </div>
+              </div>
+            )}
+
+            {/* Timestamps */}
+            <div style={{ marginTop: 8, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+              {selectedTask.created_at && (
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>
+                  Created: {new Date(selectedTask.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                </div>
+              )}
+              {selectedTask.updated_at && (
+                <div style={{ fontSize: 11, color: T.text3 }}>
+                  Updated: {new Date(selectedTask.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailRow({ label, children }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}>{label}</span>
+      {children}
     </div>
   );
 }
