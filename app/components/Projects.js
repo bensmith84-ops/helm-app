@@ -151,6 +151,22 @@ export default function ProjectsView() {
     setNewTitle(""); setAddingTo(null);
   };
 
+  const createSubtask = async (parentTask) => {
+    const title = prompt("Subtask name:");
+    if (!title?.trim()) return;
+    const maxSort = tasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    const { data, error } = await supabase.from("tasks").insert({
+      org_id: proj.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id,
+      title: title.trim(), status: "todo", priority: "none", sort_order: maxSort + 1,
+    }).select().single();
+    if (error) { showToast("Failed to create subtask"); return; }
+    if (data) {
+      setTasks(p => [...p, data]);
+      setExpandedTasks(p => ({ ...p, [parentTask.id]: true }));
+      showToast("Subtask created", "success");
+    }
+  };
+
   /* ── Section mutations ── */
   const createSection = async () => {
     if (!newSectionName.trim()) { setAddingSection(false); return; }
@@ -829,6 +845,15 @@ export default function ProjectsView() {
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
         {/* Title */}
+        {selectedTask.parent_task_id && (() => {
+          const parent = tasks.find(t => t.id === selectedTask.parent_task_id);
+          return parent ? (
+            <div onClick={() => setSelectedTask(parent)} style={{ fontSize: 11, color: T.accent, cursor: "pointer", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M6 2L3 5l3 3" fill="none" stroke={T.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              {parent.title}
+            </div>
+          ) : null;
+        })()}
         <input value={selectedTask.title}
           onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, title: v })); setTasks(p => p.map(t => t.id === selectedTask.id ? { ...t, title: v } : t)); }}
           onBlur={() => supabase.from("tasks").update({ title: selectedTask.title }).eq("id", selectedTask.id)}
@@ -887,6 +912,50 @@ export default function ProjectsView() {
               padding: 14, background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`,
               resize: "vertical", outline: "none", fontFamily: "inherit",
             }} />
+        </div>
+        {/* Subtasks */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>Subtasks</div>
+            <button onClick={() => createSubtask(selectedTask)} style={{
+              padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4,
+              border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer",
+            }}>+ Add</button>
+          </div>
+          {getSubtasks(selectedTask.id).length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {getSubtasks(selectedTask.id).map(sub => (
+                <div key={sub.id} onClick={() => setSelectedTask(sub)} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 6,
+                  cursor: "pointer", background: T.surface2, border: `1px solid ${T.border}`,
+                }}>
+                  <Check on={sub.status === "done"} fn={e => { e.stopPropagation(); toggleDone(sub, e); }} sz={15} />
+                  <span style={{
+                    flex: 1, fontSize: 12, color: sub.status === "done" ? T.text3 : T.text,
+                    textDecoration: sub.status === "done" ? "line-through" : "none",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>{sub.title}</span>
+                  {sub.assignee_id && <Ava uid={sub.assignee_id} sz={18} />}
+                </div>
+              ))}
+              {/* Subtask progress bar */}
+              {(() => {
+                const subs = getSubtasks(selectedTask.id);
+                const doneCount = subs.filter(s => s.status === "done").length;
+                const pctDone = Math.round((doneCount / subs.length) * 100);
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                    <div style={{ flex: 1, height: 3, background: T.surface3, borderRadius: 3 }}>
+                      <div style={{ height: 3, borderRadius: 3, background: T.green, width: `${pctDone}%`, transition: "width 0.3s" }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: T.text3 }}>{doneCount}/{subs.length}</span>
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No subtasks yet</div>
+          )}
         </div>
         {/* Activity */}
         <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
