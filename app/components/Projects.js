@@ -60,6 +60,8 @@ export default function ProjectsView() {
   const [dependencies, setDependencies] = useState([]); // { id, predecessor_id, successor_id }
   const [attachments, setAttachments] = useState([]);
   const [tableSort, setTableSort] = useState({ col: "title", dir: "asc" });
+  const [myTasks, setMyTasks] = useState([]);
+  const [myTasksProjects, setMyTasksProjects] = useState({});
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -107,6 +109,19 @@ export default function ProjectsView() {
 
   useEffect(() => {
     if (!activeProject) return;
+    if (activeProject === "__my_tasks__") {
+      (async () => {
+        // Load all non-deleted tasks across all projects, with their project info
+        const { data: allTasks } = await supabase.from("tasks").select("*").is("deleted_at", null).is("parent_task_id", null).order("due_date", { ascending: true, nullsFirst: false });
+        setMyTasks(allTasks || []);
+        // Build project lookup from projects we already have
+        const projMap = {};
+        projects.forEach(p => { projMap[p.id] = p; });
+        setMyTasksProjects(projMap);
+        setSelectedTask(null);
+      })();
+      return;
+    }
     (async () => {
       const [{ data: s }, { data: t }, { data: m }] = await Promise.all([
         supabase.from("sections").select("*").eq("project_id", activeProject).order("sort_order"),
@@ -572,7 +587,20 @@ export default function ProjectsView() {
      ═══════════════════════════════════════════════════════ */
   const sidebar = (
     <div style={{ width: 248, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.bg, flexShrink: 0 }}>
-      <div style={{ padding: "20px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      {/* My Tasks nav */}
+      <div style={{ padding: "16px 8px 4px" }}>
+        <button onClick={() => { setActiveProject("__my_tasks__"); }}
+          style={{
+            width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8, border: "none",
+            cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13,
+            background: activeProject === "__my_tasks__" ? `${T.accent}15` : "transparent",
+            color: activeProject === "__my_tasks__" ? T.text : T.text2,
+          }}>
+          <div style={{ width: 26, height: 26, borderRadius: 6, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>✓</div>
+          <span style={{ fontWeight: activeProject === "__my_tasks__" ? 600 : 400 }}>My Tasks</span>
+        </button>
+      </div>
+      <div style={{ padding: "12px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Projects</span>
         <button onClick={openNewProject} title="New project" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 16, lineHeight: 1, padding: "0 2px" }}>+</button>
       </div>
@@ -1144,6 +1172,71 @@ export default function ProjectsView() {
   })();
 
   /* ═══════════════════════════════════════════════════════
+     MY TASKS VIEW (Cross-project personal task list)
+     ═══════════════════════════════════════════════════════ */
+  const myTasksView = (() => {
+    const grouped = {};
+    const MY_GROUPS = ["overdue", "today", "upcoming", "later", "no_date", "done"];
+    const GROUP_LABELS = { overdue: "Overdue", today: "Today", upcoming: "Next 7 Days", later: "Later", no_date: "No Due Date", done: "Completed" };
+    const todayStr = new Date().toISOString().split("T")[0];
+    const weekStr = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
+    MY_GROUPS.forEach(g => { grouped[g] = []; });
+    myTasks.forEach(t => {
+      if (t.status === "done") { grouped.done.push(t); return; }
+      if (!t.due_date) { grouped.no_date.push(t); return; }
+      if (t.due_date < todayStr) grouped.overdue.push(t);
+      else if (t.due_date === todayStr) grouped.today.push(t);
+      else if (t.due_date <= weekStr) grouped.upcoming.push(t);
+      else grouped.later.push(t);
+    });
+    const groupColors = { overdue: "#ef4444", today: T.accent, upcoming: T.green, later: T.text3, no_date: T.text3, done: T.green };
+    return (
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: "#fff" }}>✓</div>
+          <div>
+            <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>My Tasks</h2>
+            <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{myTasks.filter(t => t.status !== "done").length} tasks remaining</div>
+          </div>
+        </div>
+        {MY_GROUPS.filter(g => grouped[g].length > 0).map(g => (
+          <div key={g} style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: groupColors[g] }}>{GROUP_LABELS[g]}</span>
+              <span style={{ fontSize: 10, color: T.text3 }}>({grouped[g].length})</span>
+            </div>
+            {grouped[g].map(task => {
+              const proj = myTasksProjects[task.project_id];
+              const pcfg = PRIORITY[task.priority];
+              const dn = task.status === "done";
+              return (
+                <div key={task.id} onClick={() => { setActiveProject(task.project_id); setTimeout(() => setSelectedTask(task), 100); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 2,
+                    borderRadius: 6, cursor: "pointer", border: `1px solid ${T.border}30`, background: T.surface,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+                  <Check on={dn} fn={e => { e.stopPropagation(); toggleDone(task, e); }} sz={17} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: dn ? T.text3 : T.text, textDecoration: dn ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div>
+                    <div style={{ fontSize: 10, color: T.text3, display: "flex", gap: 8, marginTop: 2 }}>
+                      {proj && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 6, height: 6, borderRadius: 2, background: proj.color || T.accent }} />{proj.name}</span>}
+                      {task.due_date && <span>{new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+                    </div>
+                  </div>
+                  {pcfg && <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: pcfg.bg, color: pcfg.color }}>{pcfg.label}</span>}
+                  <Ava uid={task.assignee_id} sz={20} />
+                </div>
+              );
+            })}
+          </div>
+        ))}
+        {myTasks.length === 0 && <div style={{ textAlign: "center", color: T.text3, fontSize: 13, padding: 40 }}>No tasks found</div>}
+      </div>
+    );
+  })();
+
+  /* ═══════════════════════════════════════════════════════
      TABLE VIEW (Spreadsheet-style sortable)
      ═══════════════════════════════════════════════════════ */
   const tableView = (() => {
@@ -1629,13 +1722,17 @@ export default function ProjectsView() {
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
       {sidebar}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {header}
-        {proj && (viewMode === "list" ? listView : viewMode === "board" ? boardView : viewMode === "timeline" ? timelineView : viewMode === "calendar" ? calendarView : tableView)}
-        {!proj && !loading && (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 14, color: T.text3 }}>No projects yet</div>
-            <button onClick={openNewProject} style={{ padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Create your first project</button>
-          </div>
+        {activeProject === "__my_tasks__" ? myTasksView : (
+          <>
+            {header}
+            {proj && (viewMode === "list" ? listView : viewMode === "board" ? boardView : viewMode === "timeline" ? timelineView : viewMode === "calendar" ? calendarView : tableView)}
+            {!proj && !loading && (
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 14, color: T.text3 }}>No projects yet</div>
+                <button onClick={openNewProject} style={{ padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Create your first project</button>
+              </div>
+            )}
+          </>
         )}
       </div>
       {detail}
