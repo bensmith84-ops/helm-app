@@ -57,6 +57,7 @@ export default function ProjectsView() {
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
+  const [dependencies, setDependencies] = useState([]); // { id, predecessor_id, successor_id }
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -110,6 +111,12 @@ export default function ProjectsView() {
         supabase.from("milestones").select("*").eq("project_id", activeProject).order("sort_order"),
       ]);
       setSections(s || []); setTasks(t || []); setMilestones(m || []);
+      // Load dependencies for all project tasks
+      const taskIds = (t || []).map(x => x.id);
+      if (taskIds.length > 0) {
+        const { data: deps } = await supabase.from("task_dependencies").select("*").or(`predecessor_id.in.(${taskIds.join(",")}),successor_id.in.(${taskIds.join(",")})`);
+        setDependencies(deps || []);
+      } else { setDependencies([]); }
       setSelectedTask(null); setCollapsed({}); setEditingCell(null);
       setAddingTo(null); setAddingSection(false); setEditingSectionId(null); setSearch("");
     })();
@@ -341,6 +348,26 @@ export default function ProjectsView() {
     setComments(p => p.filter(c => c.id !== commentId));
     const { error } = await supabase.from("comments").update({ deleted_at: new Date().toISOString() }).eq("id", commentId);
     if (error) showToast("Failed to delete comment");
+  };
+
+  /* ── Dependency mutations ── */
+  const getBlockedBy = (taskId) => dependencies.filter(d => d.successor_id === taskId).map(d => ({ ...d, task: tasks.find(t => t.id === d.predecessor_id) })).filter(d => d.task);
+  const getBlocking = (taskId) => dependencies.filter(d => d.predecessor_id === taskId).map(d => ({ ...d, task: tasks.find(t => t.id === d.successor_id) })).filter(d => d.task);
+
+  const addDependency = async (predecessorId, successorId) => {
+    if (predecessorId === successorId) return;
+    if (dependencies.some(d => d.predecessor_id === predecessorId && d.successor_id === successorId)) return;
+    const { data, error } = await supabase.from("task_dependencies").insert({
+      predecessor_id: predecessorId, successor_id: successorId, dependency_type: "finish_to_start",
+    }).select().single();
+    if (error) { showToast("Failed to add dependency"); return; }
+    if (data) { setDependencies(p => [...p, data]); showToast("Dependency added", "success"); }
+  };
+
+  const removeDependency = async (depId) => {
+    setDependencies(p => p.filter(d => d.id !== depId));
+    const { error } = await supabase.from("task_dependencies").delete().eq("id", depId);
+    if (error) showToast("Failed to remove dependency");
   };
 
   if (loading) return (
@@ -1210,6 +1237,50 @@ export default function ProjectsView() {
               padding: 14, background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`,
               resize: "vertical", outline: "none", fontFamily: "inherit",
             }} />
+        </div>
+        {/* Dependencies */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 10 }}>Dependencies</div>
+          {/* Blocked by */}
+          {getBlockedBy(selectedTask.id).length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Blocked by</div>
+              {getBlockedBy(selectedTask.id).map(dep => (
+                <div key={dep.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", borderRadius: 4, background: "#ef444410", border: "1px solid #ef444420", marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 500 }}>🚫</span>
+                  <span onClick={() => setSelectedTask(dep.task)} style={{ fontSize: 12, color: T.text2, cursor: "pointer", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dep.task.title}</span>
+                  <button onClick={() => removeDependency(dep.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Blocking */}
+          {getBlocking(selectedTask.id).length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Blocking</div>
+              {getBlocking(selectedTask.id).map(dep => (
+                <div key={dep.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", borderRadius: 4, background: `${T.accent}10`, border: `1px solid ${T.accent}20`, marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, color: T.accent, fontWeight: 500 }}>⏳</span>
+                  <span onClick={() => setSelectedTask(dep.task)} style={{ fontSize: 12, color: T.text2, cursor: "pointer", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dep.task.title}</span>
+                  <button onClick={() => removeDependency(dep.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Add dependency */}
+          <div style={{ display: "flex", gap: 4 }}>
+            <select id="depTarget" defaultValue="" style={{ flex: 1, fontSize: 11, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 6px", outline: "none", fontFamily: "inherit" }}>
+              <option value="" disabled>Select task…</option>
+              {tasks.filter(t => t.id !== selectedTask.id && !t.parent_task_id).map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+            </select>
+            <button onClick={() => { const sel = document.getElementById("depTarget"); if (sel.value) { addDependency(sel.value, selectedTask.id); sel.value = ""; } }}
+              style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", whiteSpace: "nowrap" }}>+ Blocked by</button>
+            <button onClick={() => { const sel = document.getElementById("depTarget"); if (sel.value) { addDependency(selectedTask.id, sel.value); sel.value = ""; } }}
+              style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", whiteSpace: "nowrap" }}>+ Blocking</button>
+          </div>
+          {getBlockedBy(selectedTask.id).length === 0 && getBlocking(selectedTask.id).length === 0 && (
+            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic", marginTop: 6 }}>No dependencies</div>
+          )}
         </div>
         {/* Subtasks */}
         <div style={{ marginTop: 24 }}>
