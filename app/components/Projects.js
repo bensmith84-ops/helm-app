@@ -65,6 +65,10 @@ export default function ProjectsView() {
   const [dragTask, setDragTask] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState(new Set());
+  const [customFields, setCustomFields] = useState([]);
+  const [customFieldValues, setCustomFieldValues] = useState({}); // { taskId: { fieldId: value } }
+  const [showFieldForm, setShowFieldForm] = useState(false);
+  const [fieldForm, setFieldForm] = useState({ name: "", field_type: "text", options: "" });
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -138,6 +142,15 @@ export default function ProjectsView() {
         const { data: deps } = await supabase.from("task_dependencies").select("*").or(`predecessor_id.in.(${taskIds.join(",")}),successor_id.in.(${taskIds.join(",")})`);
         setDependencies(deps || []);
       } else { setDependencies([]); }
+      // Load custom fields
+      const { data: cf } = await supabase.from("custom_fields").select("*").eq("project_id", activeProject).order("sort_order");
+      setCustomFields(cf || []);
+      if (cf?.length > 0 && taskIds.length > 0) {
+        const { data: cfv } = await supabase.from("custom_field_values").select("*").in("task_id", taskIds);
+        const map = {};
+        (cfv || []).forEach(v => { if (!map[v.task_id]) map[v.task_id] = {}; map[v.task_id][v.field_id] = v.value; });
+        setCustomFieldValues(map);
+      } else { setCustomFieldValues({}); }
       setSelectedTask(null); setCollapsed({}); setEditingCell(null);
       setAddingTo(null); setAddingSection(false); setEditingSectionId(null); setSearch("");
     })();
@@ -444,6 +457,36 @@ export default function ProjectsView() {
 
   const getFileUrl = (path) => `https://upbjdmnykheubxkuknuj.supabase.co/storage/v1/object/public/attachments/${path}`;
 
+  /* ── Custom field mutations ── */
+  const createCustomField = async () => {
+    if (!fieldForm.name.trim()) return;
+    const maxSort = customFields.reduce((m, f) => Math.max(m, f.sort_order || 0), 0);
+    const opts = fieldForm.field_type === "select" && fieldForm.options.trim()
+      ? fieldForm.options.split(",").map(s => s.trim()).filter(Boolean) : null;
+    const { data, error } = await supabase.from("custom_fields").insert({
+      project_id: activeProject, name: fieldForm.name.trim(),
+      field_type: fieldForm.field_type, options: opts, sort_order: maxSort + 1,
+    }).select().single();
+    if (error) { showToast("Failed to create field"); return; }
+    if (data) { setCustomFields(p => [...p, data]); showToast("Custom field added", "success"); }
+    setShowFieldForm(false); setFieldForm({ name: "", field_type: "text", options: "" });
+  };
+
+  const deleteCustomField = async (fieldId) => {
+    if (!confirm("Delete this custom field and all its values?")) return;
+    setCustomFields(p => p.filter(f => f.id !== fieldId));
+    await supabase.from("custom_field_values").delete().eq("field_id", fieldId);
+    await supabase.from("custom_fields").delete().eq("id", fieldId);
+  };
+
+  const setCustomFieldValue = async (taskId, fieldId, value) => {
+    setCustomFieldValues(p => ({ ...p, [taskId]: { ...(p[taskId] || {}), [fieldId]: value } }));
+    const { error } = await supabase.from("custom_field_values").upsert({
+      task_id: taskId, field_id: fieldId, value: value || null,
+    }, { onConflict: "task_id,field_id" });
+    if (error) showToast("Failed to save field value");
+  };
+
   /* ── Drag & Drop reorder ── */
   const handleDrop = async (targetTaskId, targetSectionId) => {
     if (!dragTask) return;
@@ -744,6 +787,7 @@ export default function ProjectsView() {
         {/* Project actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 4, marginRight: 16 }}>
           <button onClick={openEditProject} title="Edit project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Edit</button>
+          <button onClick={() => setShowFieldForm(true)} title="Manage custom fields" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Fields</button>
           <button onClick={archiveProject} title="Archive project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: "#ef4444", fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Archive</button>
         </div>
         {/* Progress */}
@@ -1548,6 +1592,41 @@ export default function ProjectsView() {
             </PanelField>
           )}
         </div>
+        {/* Custom Fields */}
+        {customFields.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            {customFields.map(cf => {
+              const val = customFieldValues[selectedTask.id]?.[cf.id] || "";
+              return (
+                <PanelField key={cf.id} icon="🏷️" label={cf.name}>
+                  {cf.field_type === "text" && (
+                    <input value={val} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.value)}
+                      placeholder="—" style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", width: "100%" }} />
+                  )}
+                  {cf.field_type === "number" && (
+                    <input type="number" value={val} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.value)}
+                      placeholder="—" style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", width: 80 }} />
+                  )}
+                  {cf.field_type === "date" && (
+                    <input type="date" value={val} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.value)}
+                      style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", colorScheme: "dark" }} />
+                  )}
+                  {cf.field_type === "checkbox" && (
+                    <input type="checkbox" checked={val === "true"} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.checked ? "true" : "false")}
+                      style={{ cursor: "pointer" }} />
+                  )}
+                  {cf.field_type === "select" && (
+                    <select value={val} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.value)}
+                      style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                      <option value="">—</option>
+                      {(cf.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  )}
+                </PanelField>
+              );
+            })}
+          </div>
+        )}
         {/* Description */}
         <div style={{ marginTop: 24 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 10 }}>Description</div>
@@ -1950,6 +2029,53 @@ export default function ProjectsView() {
         </div>
       )}
       {/* Toast notification */}
+      {/* Custom field form modal */}
+      {showFieldForm && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowFieldForm(false)}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 380, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, zIndex: 101 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>New Custom Field</h3>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Name</label>
+              <input autoFocus value={fieldForm.name} onChange={e => setFieldForm(p => ({ ...p, name: e.target.value }))}
+                onKeyDown={e => { if (e.key === "Enter") createCustomField(); }}
+                placeholder="Field name…" style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Type</label>
+              <select value={fieldForm.field_type} onChange={e => setFieldForm(p => ({ ...p, field_type: e.target.value }))}
+                style={{ padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }}>
+                <option value="text">Text</option><option value="number">Number</option><option value="date">Date</option>
+                <option value="checkbox">Checkbox</option><option value="select">Dropdown</option>
+              </select>
+            </div>
+            {fieldForm.field_type === "select" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Options (comma separated)</label>
+                <input value={fieldForm.options} onChange={e => setFieldForm(p => ({ ...p, options: e.target.value }))}
+                  placeholder="Option A, Option B, Option C" style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowFieldForm(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+              <button onClick={createCustomField} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: fieldForm.name.trim() ? 1 : 0.5 }}>Create</button>
+            </div>
+            {/* Existing fields list */}
+            {customFields.length > 0 && (
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 6 }}>EXISTING FIELDS</div>
+                {customFields.map(cf => (
+                  <div key={cf.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: T.text2 }}>
+                    <span>🏷️ {cf.name} <span style={{ color: T.text3, fontSize: 10 }}>({cf.field_type})</span></span>
+                    <button onClick={() => deleteCustomField(cf.id)} style={{ background: "none", border: "none", color: "#ef4444", fontSize: 11, cursor: "pointer" }}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {toast && (
         <div style={{
           position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 200,
