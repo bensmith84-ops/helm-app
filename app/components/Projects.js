@@ -49,6 +49,7 @@ export default function ProjectsView() {
   const [showProjectForm, setShowProjectForm] = useState(false); // "new" | "edit" | false
   const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active" });
   const [toast, setToast] = useState(null); // { message, type: "error" | "success" }
+  const [expandedTasks, setExpandedTasks] = useState({}); // track which parent tasks show subtasks
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -106,6 +107,8 @@ export default function ProjectsView() {
   const total = tasks.length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const filt = search ? tasks.filter(t => t.title.toLowerCase().includes(search.toLowerCase())) : tasks;
+  const getSubtasks = (parentId) => filt.filter(t => t.parent_task_id === parentId);
+  const rootTasks = (sectionTasks) => sectionTasks.filter(t => !t.parent_task_id);
 
   /* ── Task mutations ── */
   const toggleDone = async (task, e) => {
@@ -577,49 +580,89 @@ export default function ProjectsView() {
               </div>
             )}
             {/* Task rows */}
-            {!cl && st.map(task => {
+            {!cl && rootTasks(st).map(task => {
               const sel = selectedTask?.id === task.id;
               const dn = task.status === "done";
               const hov = hoveredRow === task.id;
+              const subs = getSubtasks(task.id);
+              const expanded = expandedTasks[task.id];
               return (
-                <div key={task.id}
-                  onMouseEnter={() => setHoveredRow(task.id)}
-                  onMouseLeave={() => setHoveredRow(null)}
-                  onClick={() => setSelectedTask(task)}
-                  style={{
-                    display: "grid", gridTemplateColumns: "40px 1fr 90px 90px 150px 100px",
-                    gap: 0, padding: "0 28px", alignItems: "center", height: 38,
-                    cursor: "pointer", borderBottom: `1px solid ${T.border}`,
-                    background: sel ? `${T.accent}10` : hov ? `${T.text}06` : "transparent",
-                    borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent",
-                    transition: "background 0.1s",
-                  }}>
-                  {/* Checkbox */}
-                  <div style={{ display: "flex", justifyContent: "center" }}>
-                    <Check on={dn} fn={e => toggleDone(task, e)} sz={17} />
+                <div key={task.id}>
+                  <div
+                    onMouseEnter={() => setHoveredRow(task.id)}
+                    onMouseLeave={() => setHoveredRow(null)}
+                    onClick={() => setSelectedTask(task)}
+                    style={{
+                      display: "grid", gridTemplateColumns: "40px 1fr 90px 90px 150px 100px",
+                      gap: 0, padding: "0 28px", alignItems: "center", height: 38,
+                      cursor: "pointer", borderBottom: `1px solid ${T.border}`,
+                      background: sel ? `${T.accent}10` : hov ? `${T.text}06` : "transparent",
+                      borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent",
+                      transition: "background 0.1s",
+                    }}>
+                    {/* Checkbox */}
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      <Check on={dn} fn={e => toggleDone(task, e)} sz={17} />
+                    </div>
+                    {/* Title */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", paddingLeft: 4, paddingRight: 8 }}>
+                      {subs.length > 0 && (
+                        <svg onClick={e => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !p[task.id] })); }}
+                          width="10" height="10" viewBox="0 0 10 10" style={{ flexShrink: 0, cursor: "pointer", transition: "transform 0.15s", transform: expanded ? "rotate(0)" : "rotate(-90deg)" }}>
+                          <path d="M2 3l3 3.5L8 3" fill="none" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                      <span style={{
+                        fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        textDecoration: dn ? "line-through" : "none",
+                        color: dn ? T.text3 : T.text, fontWeight: sel ? 600 : 400,
+                      }}>{task.title}</span>
+                      {subs.length > 0 && (
+                        <span style={{ fontSize: 10, color: T.text3, background: T.surface3, borderRadius: 8, padding: "1px 6px", flexShrink: 0 }}>
+                          {subs.filter(s => s.status === "done").length}/{subs.length}
+                        </span>
+                      )}
+                      {hov && (
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, opacity: 0.4 }}>
+                          <path d="M6 3l5 5-5 5" stroke={T.text2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </div>
+                    <StatusCell task={task} />
+                    <PriorityCell task={task} />
+                    <AssigneeCell task={task} />
+                    <DateCell task={task} />
                   </div>
-                  {/* Title */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", paddingLeft: 4, paddingRight: 8 }}>
-                    <span style={{
-                      fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      textDecoration: dn ? "line-through" : "none",
-                      color: dn ? T.text3 : T.text, fontWeight: sel ? 600 : 400,
-                    }}>{task.title}</span>
-                    {/* Open detail icon on hover */}
-                    {hov && (
-                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, opacity: 0.4 }}>
-                        <path d="M6 3l5 5-5 5" stroke={T.text2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    )}
-                  </div>
-                  {/* Status */}
-                  <StatusCell task={task} />
-                  {/* Priority */}
-                  <PriorityCell task={task} />
-                  {/* Assignee */}
-                  <AssigneeCell task={task} />
-                  {/* Due date */}
-                  <DateCell task={task} />
+                  {/* Subtasks */}
+                  {expanded && subs.map(sub => {
+                    const subSel = selectedTask?.id === sub.id;
+                    const subDn = sub.status === "done";
+                    const subHov = hoveredRow === sub.id;
+                    return (
+                      <div key={sub.id}
+                        onMouseEnter={() => setHoveredRow(sub.id)}
+                        onMouseLeave={() => setHoveredRow(null)}
+                        onClick={() => setSelectedTask(sub)}
+                        style={{
+                          display: "grid", gridTemplateColumns: "40px 1fr 90px 90px 150px 100px",
+                          gap: 0, padding: "0 28px", alignItems: "center", height: 34,
+                          cursor: "pointer", borderBottom: `1px solid ${T.border}`,
+                          background: subSel ? `${T.accent}10` : subHov ? `${T.text}06` : `${T.surface}80`,
+                          borderLeft: subSel ? `3px solid ${T.accent}` : "3px solid transparent",
+                        }}>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <Check on={subDn} fn={e => toggleDone(sub, e)} sz={15} />
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", paddingLeft: 28, paddingRight: 8 }}>
+                          <span style={{ fontSize: 12, color: subDn ? T.text3 : T.text2, textDecoration: subDn ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
+                        </div>
+                        <StatusCell task={sub} />
+                        <PriorityCell task={sub} />
+                        <AssigneeCell task={sub} />
+                        <DateCell task={sub} />
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
