@@ -369,11 +369,15 @@ export default function ProjectsView() {
   };
 
   /* ── Inline Assignee Picker ── */
+  const [assigneeSearch, setAssigneeSearch] = useState("");
   const AssigneeCell = ({ task }) => {
     const editing = editingCell?.taskId === task.id && editingCell?.field === "assignee";
+    const filteredProfiles = Object.values(profiles)
+      .filter(p => !assigneeSearch || (p.display_name || "").toLowerCase().includes(assigneeSearch.toLowerCase()))
+      .sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
     return (
       <div style={{ position: "relative" }}>
-        <div onClick={(e) => { e.stopPropagation(); setEditingCell(editing ? null : { taskId: task.id, field: "assignee" }); }}
+        <div onClick={(e) => { e.stopPropagation(); setEditingCell(editing ? null : { taskId: task.id, field: "assignee" }); setAssigneeSearch(""); }}
           style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "2px 4px", borderRadius: 4, border: editing ? `1px solid ${T.accent}` : "1px solid transparent" }}>
           <Ava uid={task.assignee_id} sz={22} />
           <span style={{ fontSize: 12, color: task.assignee_id ? T.text2 : T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -381,16 +385,22 @@ export default function ProjectsView() {
           </span>
         </div>
         {editing && (
-          <Dropdown onClose={() => setEditingCell(null)} wide>
+          <Dropdown onClose={() => { setEditingCell(null); setAssigneeSearch(""); }} wide>
+            <div style={{ padding: "4px 8px", borderBottom: `1px solid ${T.border}` }}>
+              <input autoFocus value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)}
+                onClick={e => e.stopPropagation()} placeholder="Search people…"
+                style={{ width: "100%", fontSize: 12, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "5px 8px", outline: "none", fontFamily: "inherit" }} />
+            </div>
             <DropdownItem onClick={() => updateField(task.id, "assignee_id", null)}>
               <span style={{ color: T.text3 }}>Unassigned</span>
             </DropdownItem>
-            {Object.values(profiles).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => (
+            {filteredProfiles.map(p => (
               <DropdownItem key={p.id} onClick={() => updateField(task.id, "assignee_id", p.id)}>
                 <Ava uid={p.id} sz={18} />
                 <span>{p.display_name}</span>
               </DropdownItem>
             ))}
+            {filteredProfiles.length === 0 && <div style={{ padding: "8px 12px", fontSize: 12, color: T.text3, fontStyle: "italic" }}>No matches</div>}
           </Dropdown>
         )}
       </div>
@@ -862,13 +872,32 @@ export default function ProjectsView() {
         {/* Fields */}
         <div style={{ display: "flex", flexDirection: "column" }}>
           <PanelField icon="👤" label="Assignee">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Ava uid={selectedTask.assignee_id} sz={24} />
-              <select value={selectedTask.assignee_id || ""} onChange={e => updateField(selectedTask.id, "assignee_id", e.target.value || null)}
-                style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit", flex: 1 }}>
-                <option value="">Unassigned</option>
-                {Object.values(profiles).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-              </select>
+            <div style={{ position: "relative" }}>
+              <div onClick={() => setEditingCell(editingCell?.field === "panelAssignee" ? null : { taskId: selectedTask.id, field: "panelAssignee" })}
+                style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 4px", borderRadius: 4 }}>
+                <Ava uid={selectedTask.assignee_id} sz={24} />
+                <span style={{ fontSize: 13, color: selectedTask.assignee_id ? T.text : T.text3 }}>
+                  {selectedTask.assignee_id ? uname(selectedTask.assignee_id) : "Unassigned"}
+                </span>
+              </div>
+              {editingCell?.field === "panelAssignee" && (
+                <Dropdown onClose={() => { setEditingCell(null); setAssigneeSearch(""); }} wide>
+                  <div style={{ padding: "4px 8px", borderBottom: `1px solid ${T.border}` }}>
+                    <input autoFocus value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)}
+                      onClick={e => e.stopPropagation()} placeholder="Search people…"
+                      style={{ width: "100%", fontSize: 12, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "5px 8px", outline: "none", fontFamily: "inherit" }} />
+                  </div>
+                  <DropdownItem onClick={() => updateField(selectedTask.id, "assignee_id", null)}>
+                    <span style={{ color: T.text3 }}>Unassigned</span>
+                  </DropdownItem>
+                  {Object.values(profiles).filter(p => !assigneeSearch || (p.display_name || "").toLowerCase().includes(assigneeSearch.toLowerCase()))
+                    .sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => (
+                    <DropdownItem key={p.id} onClick={() => updateField(selectedTask.id, "assignee_id", p.id)}>
+                      <Ava uid={p.id} sz={18} /><span>{p.display_name}</span>
+                    </DropdownItem>
+                  ))}
+                </Dropdown>
+              )}
             </div>
           </PanelField>
           <PanelField icon="📅" label="Due date">
