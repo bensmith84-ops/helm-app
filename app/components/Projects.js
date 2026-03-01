@@ -62,6 +62,8 @@ export default function ProjectsView() {
   const [tableSort, setTableSort] = useState({ col: "title", dir: "asc" });
   const [myTasks, setMyTasks] = useState([]);
   const [myTasksProjects, setMyTasksProjects] = useState({});
+  const [dragTask, setDragTask] = useState(null);
+  const [dragOverTarget, setDragOverTarget] = useState(null);
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -413,6 +415,39 @@ export default function ProjectsView() {
   const formatSize = (bytes) => bytes < 1024 ? `${bytes}B` : bytes < 1048576 ? `${(bytes/1024).toFixed(1)}KB` : `${(bytes/1048576).toFixed(1)}MB`;
   const fileIcon = (mime) => mime?.startsWith("image/") ? "🖼" : mime?.includes("pdf") ? "📄" : mime?.includes("sheet") || mime?.includes("excel") || mime?.includes("csv") ? "📊" : "📎";
 
+  /* ── Drag & Drop reorder ── */
+  const handleDrop = async (targetTaskId, targetSectionId) => {
+    if (!dragTask) return;
+    const sourceId = dragTask.id;
+    if (sourceId === targetTaskId) { setDragTask(null); setDragOverTarget(null); return; }
+    // Get ordered tasks in target section
+    const secTasks = tasks.filter(t => t.section_id === targetSectionId && !t.parent_task_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    // Remove source from its current position
+    const without = secTasks.filter(t => t.id !== sourceId);
+    // Find target index
+    const targetIdx = targetTaskId ? without.findIndex(t => t.id === targetTaskId) : without.length;
+    // Insert at target position
+    without.splice(targetIdx >= 0 ? targetIdx : without.length, 0, { ...dragTask, section_id: targetSectionId });
+    // Update sort orders
+    const updates = without.map((t, i) => ({ id: t.id, sort_order: i + 1, section_id: targetSectionId }));
+    setTasks(prev => {
+      let next = prev.map(t => {
+        const upd = updates.find(u => u.id === t.id);
+        return upd ? { ...t, sort_order: upd.sort_order, section_id: upd.section_id } : t;
+      });
+      // Also update the dragged task's section if moved
+      if (dragTask.section_id !== targetSectionId) {
+        next = next.map(t => t.id === sourceId ? { ...t, section_id: targetSectionId } : t);
+      }
+      return next;
+    });
+    // Persist to DB
+    for (const u of updates) {
+      await supabase.from("tasks").update({ sort_order: u.sort_order, section_id: u.section_id }).eq("id", u.id);
+    }
+    setDragTask(null); setDragOverTarget(null);
+  };
+
   if (loading) return (
     <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
       <div style={{ width: 24, height: 24, border: `3px solid ${T.surface3}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
@@ -745,7 +780,10 @@ export default function ProjectsView() {
         return (
           <div key={sec.id}>
             {/* Section header */}
-            <div style={{
+            <div
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+              onDrop={(e) => { e.preventDefault(); handleDrop(null, sec.id); }}
+              style={{
               display: "flex", alignItems: "center", gap: 0,
               padding: "10px 28px", cursor: "pointer", userSelect: "none",
               background: T.surface, borderBottom: `1px solid ${T.border}`,
@@ -804,16 +842,24 @@ export default function ProjectsView() {
               return (
                 <div key={task.id}>
                   <div
+                    draggable
+                    onDragStart={(e) => { setDragTask(task); e.dataTransfer.effectAllowed = "move"; }}
+                    onDragEnd={() => { setDragTask(null); setDragOverTarget(null); }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverTarget(task.id); }}
+                    onDragLeave={() => setDragOverTarget(null)}
+                    onDrop={(e) => { e.preventDefault(); handleDrop(task.id, sec.id); }}
                     onMouseEnter={() => setHoveredRow(task.id)}
                     onMouseLeave={() => setHoveredRow(null)}
                     onClick={() => setSelectedTask(task)}
                     style={{
                       display: "grid", gridTemplateColumns: "40px 1fr 90px 90px 150px 100px",
                       gap: 0, padding: "0 28px", alignItems: "center", height: 38,
-                      cursor: "pointer", borderBottom: `1px solid ${T.border}`,
-                      background: sel ? `${T.accent}10` : hov ? `${T.text}06` : "transparent",
+                      cursor: dragTask ? "grabbing" : "pointer", borderBottom: `1px solid ${T.border}`,
+                      background: dragOverTarget === task.id && dragTask ? `${T.accent}20` : sel ? `${T.accent}10` : hov ? `${T.text}06` : "transparent",
                       borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent",
+                      borderTop: dragOverTarget === task.id && dragTask ? `2px solid ${T.accent}` : "2px solid transparent",
                       transition: "background 0.1s",
+                      opacity: dragTask?.id === task.id ? 0.4 : 1,
                     }}>
                     {/* Checkbox */}
                     <div style={{ display: "flex", justifyContent: "center" }}>
