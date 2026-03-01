@@ -84,25 +84,40 @@ export default function ProjectsView() {
   /* ── Task mutations ── */
   const toggleDone = async (task, e) => {
     e?.stopPropagation();
-    const ns = task.status === "done" ? "todo" : "done";
-    setTasks(p => p.map(t => t.id === task.id ? { ...t, status: ns } : t));
-    if (selectedTask?.id === task.id) setSelectedTask(p => ({ ...p, status: ns }));
-    await supabase.from("tasks").update({ status: ns }).eq("id", task.id);
+    const isDone = task.status !== "done";
+    const ns = isDone ? "done" : "todo";
+    const updates = { status: ns, completed_at: isDone ? new Date().toISOString() : null };
+    setTasks(p => p.map(t => t.id === task.id ? { ...t, ...updates } : t));
+    if (selectedTask?.id === task.id) setSelectedTask(p => ({ ...p, ...updates }));
+    const { error } = await supabase.from("tasks").update(updates).eq("id", task.id);
+    if (error) console.error("toggleDone failed:", error);
   };
 
   const updateField = async (taskId, field, value) => {
     setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t));
     if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value }));
-    await supabase.from("tasks").update({ [field]: value }).eq("id", taskId);
+    const { error } = await supabase.from("tasks").update({ [field]: value }).eq("id", taskId);
+    if (error) console.error("updateField failed:", error);
     setEditingCell(null);
+  };
+
+  const deleteTask = async (taskId) => {
+    setTasks(p => p.filter(t => t.id !== taskId));
+    if (selectedTask?.id === taskId) setSelectedTask(null);
+    const { error } = await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId);
+    if (error) console.error("deleteTask failed:", error);
   };
 
   const createTask = async (sid) => {
     if (!newTitle.trim()) { setAddingTo(null); return; }
-    const { data } = await supabase.from("tasks").insert({
+    const sectionTasks = tasks.filter(t => t.section_id === sid);
+    const maxSort = sectionTasks.reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    const { data, error } = await supabase.from("tasks").insert({
       org_id: proj.org_id, project_id: activeProject, section_id: sid,
       title: newTitle.trim(), status: "todo", priority: "medium",
+      sort_order: maxSort + 1,
     }).select().single();
+    if (error) { console.error("createTask failed:", error); return; }
     if (data) setTasks(p => [...p, data]);
     setNewTitle(""); setAddingTo(null);
   };
@@ -640,6 +655,14 @@ export default function ProjectsView() {
               </div>
             )}
           </div>
+        </div>
+        {/* Delete */}
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
+          <button onClick={() => { if (confirm("Delete this task?")) deleteTask(selectedTask.id); }}
+            style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            Delete task
+          </button>
         </div>
       </div>
     </div>
