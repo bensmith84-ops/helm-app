@@ -55,6 +55,8 @@ export default function ProjectsView() {
   const [milestoneForm, setMilestoneForm] = useState({ name: "", target_date: "", description: "" });
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [assigneeSearch, setAssigneeSearch] = useState("");
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -73,6 +75,17 @@ export default function ProjectsView() {
     document.addEventListener("keydown", fn);
     return () => document.removeEventListener("keydown", fn);
   }, [showProjectForm, selectedTask, editingSectionId]);
+
+  /* ── Load comments for selected task ── */
+  useEffect(() => {
+    if (!selectedTask) { setComments([]); setNewComment(""); return; }
+    (async () => {
+      const { data } = await supabase.from("comments").select("*")
+        .eq("entity_type", "task").eq("entity_id", selectedTask.id)
+        .is("deleted_at", null).order("created_at", { ascending: true });
+      setComments(data || []);
+    })();
+  }, [selectedTask?.id]);
 
   /* ── Data loading ── */
   useEffect(() => {
@@ -310,6 +323,24 @@ export default function ProjectsView() {
   const updateMilestoneStatus = async (msId, status) => {
     setMilestones(p => p.map(m => m.id === msId ? { ...m, status } : m));
     await supabase.from("milestones").update({ status }).eq("id", msId);
+  };
+
+  /* ── Comment mutations ── */
+  const addComment = async () => {
+    if (!newComment.trim() || !selectedTask) return;
+    const { data, error } = await supabase.from("comments").insert({
+      org_id: proj.org_id, entity_type: "task", entity_id: selectedTask.id,
+      content: newComment.trim(),
+    }).select().single();
+    if (error) { showToast("Failed to post comment"); return; }
+    if (data) setComments(p => [...p, data]);
+    setNewComment("");
+  };
+
+  const deleteComment = async (commentId) => {
+    setComments(p => p.filter(c => c.id !== commentId));
+    const { error } = await supabase.from("comments").update({ deleted_at: new Date().toISOString() }).eq("id", commentId);
+    if (error) showToast("Failed to delete comment");
   };
 
   if (loading) return (
@@ -1224,20 +1255,72 @@ export default function ProjectsView() {
             <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No subtasks yet</div>
           )}
         </div>
-        {/* Activity */}
+        {/* Comments & Activity */}
         <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 12 }}>Activity</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 12 }}>Comments & Activity</div>
+          {/* Comment input */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>You</div>
+            <div style={{ flex: 1 }}>
+              <textarea value={newComment} onChange={e => setNewComment(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addComment(); } }}
+                placeholder="Write a comment… (Enter to send)"
+                style={{
+                  width: "100%", minHeight: 60, fontSize: 13, color: T.text, lineHeight: 1.5,
+                  padding: "8px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}`,
+                  resize: "vertical", outline: "none", fontFamily: "inherit",
+                }} />
+              {newComment.trim() && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                  <button onClick={addComment} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Comment</button>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Comments list */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {comments.map(c => {
+              const author = profiles[c.author_id];
+              const timeAgo = (() => {
+                const diff = Date.now() - new Date(c.created_at).getTime();
+                const mins = Math.floor(diff / 60000);
+                if (mins < 1) return "just now";
+                if (mins < 60) return `${mins}m ago`;
+                const hrs = Math.floor(mins / 60);
+                if (hrs < 24) return `${hrs}h ago`;
+                const days = Math.floor(hrs / 24);
+                if (days < 30) return `${days}d ago`;
+                return new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              })();
+              return (
+                <div key={c.id} style={{ display: "flex", gap: 8 }}>
+                  <Ava uid={c.author_id} sz={28} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{author?.display_name || "Anonymous"}</span>
+                      <span style={{ fontSize: 10, color: T.text3 }}>{timeAgo}</span>
+                      <div style={{ flex: 1 }} />
+                      <button onClick={() => deleteComment(c.id)} title="Delete comment"
+                        style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: "0 2px", opacity: 0.5, lineHeight: 1 }}>×</button>
+                    </div>
+                    <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{c.content}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Activity log */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: comments.length > 0 ? 16 : 0, paddingTop: comments.length > 0 ? 12 : 0, borderTop: comments.length > 0 ? `1px solid ${T.border}30` : "none" }}>
             {selectedTask.created_at && (
-              <div style={{ fontSize: 12, color: T.text3, display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 6, height: 6, borderRadius: 6, background: T.green, flexShrink: 0 }} />
+              <div style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 5, height: 5, borderRadius: 5, background: T.green, flexShrink: 0 }} />
                 Task created · {new Date(selectedTask.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </div>
             )}
-            {selectedTask.updated_at && selectedTask.updated_at !== selectedTask.created_at && (
-              <div style={{ fontSize: 12, color: T.text3, display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 6, height: 6, borderRadius: 6, background: T.accent, flexShrink: 0 }} />
-                Last updated · {new Date(selectedTask.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            {selectedTask.completed_at && (
+              <div style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 5, height: 5, borderRadius: 5, background: T.green, flexShrink: 0 }} />
+                Completed · {new Date(selectedTask.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </div>
             )}
           </div>
