@@ -48,6 +48,25 @@ export default function ProjectsView() {
   const [newSectionName, setNewSectionName] = useState("");
   const [showProjectForm, setShowProjectForm] = useState(false); // "new" | "edit" | false
   const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active" });
+  const [toast, setToast] = useState(null); // { message, type: "error" | "success" }
+
+  const showToast = useCallback((message, type = "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  /* ── Keyboard shortcuts ── */
+  useEffect(() => {
+    const fn = (e) => {
+      if (e.key === "Escape") {
+        if (showProjectForm) setShowProjectForm(false);
+        else if (selectedTask) setSelectedTask(null);
+        else if (editingSectionId) setEditingSectionId(null);
+      }
+    };
+    document.addEventListener("keydown", fn);
+    return () => document.removeEventListener("keydown", fn);
+  }, [showProjectForm, selectedTask, editingSectionId]);
 
   /* ── Data loading ── */
   useEffect(() => {
@@ -72,6 +91,7 @@ export default function ProjectsView() {
       ]);
       setSections(s || []); setTasks(t || []);
       setSelectedTask(null); setCollapsed({}); setEditingCell(null);
+      setAddingTo(null); setAddingSection(false); setEditingSectionId(null); setSearch("");
     })();
   }, [activeProject]);
 
@@ -96,14 +116,14 @@ export default function ProjectsView() {
     setTasks(p => p.map(t => t.id === task.id ? { ...t, ...updates } : t));
     if (selectedTask?.id === task.id) setSelectedTask(p => ({ ...p, ...updates }));
     const { error } = await supabase.from("tasks").update(updates).eq("id", task.id);
-    if (error) console.error("toggleDone failed:", error);
+    if (error) showToast("Failed to update task status");
   };
 
   const updateField = async (taskId, field, value) => {
     setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t));
     if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value }));
     const { error } = await supabase.from("tasks").update({ [field]: value }).eq("id", taskId);
-    if (error) console.error("updateField failed:", error);
+    if (error) showToast("Failed to update task");
     setEditingCell(null);
   };
 
@@ -111,7 +131,7 @@ export default function ProjectsView() {
     setTasks(p => p.filter(t => t.id !== taskId));
     if (selectedTask?.id === taskId) setSelectedTask(null);
     const { error } = await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId);
-    if (error) console.error("deleteTask failed:", error);
+    if (error) showToast("Failed to delete task");
   };
 
   const createTask = async (sid) => {
@@ -123,8 +143,8 @@ export default function ProjectsView() {
       title: newTitle.trim(), status: "todo", priority: "medium",
       sort_order: maxSort + 1,
     }).select().single();
-    if (error) { console.error("createTask failed:", error); return; }
-    if (data) setTasks(p => [...p, data]);
+    if (error) { showToast("Failed to create task"); return; }
+    if (data) { setTasks(p => [...p, data]); showToast("Task created", "success"); }
     setNewTitle(""); setAddingTo(null);
   };
 
@@ -135,7 +155,7 @@ export default function ProjectsView() {
     const { data, error } = await supabase.from("sections").insert({
       project_id: activeProject, name: newSectionName.trim(), sort_order: maxSort + 1,
     }).select().single();
-    if (error) { console.error("createSection failed:", error); return; }
+    if (error) { showToast("Failed to create section"); return; }
     if (data) setSections(p => [...p, data]);
     setNewSectionName(""); setAddingSection(false);
   };
@@ -144,7 +164,7 @@ export default function ProjectsView() {
     if (!editingSectionName.trim()) { setEditingSectionId(null); return; }
     setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s));
     const { error } = await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId);
-    if (error) console.error("renameSection failed:", error);
+    if (error) showToast("Failed to rename section");
     setEditingSectionId(null);
   };
 
@@ -158,7 +178,7 @@ export default function ProjectsView() {
     }
     setSections(p => p.filter(s => s.id !== secId));
     const { error } = await supabase.from("sections").delete().eq("id", secId);
-    if (error) console.error("deleteSection failed:", error);
+    if (error) showToast("Failed to delete section");
   };
 
   const moveSectionUp = async (secId) => {
@@ -203,7 +223,7 @@ export default function ProjectsView() {
         org_id: orgId, name: projectForm.name.trim(), description: projectForm.description.trim() || null,
         color: projectForm.color, status: projectForm.status, visibility: "public", default_view: "list",
       }).select().single();
-      if (error) { console.error("createProject failed:", error); return; }
+      if (error) { showToast("Failed to create project"); return; }
       if (data) {
         setProjects(p => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
         setActiveProject(data.id);
@@ -218,7 +238,7 @@ export default function ProjectsView() {
         name: projectForm.name.trim(), description: projectForm.description.trim() || null,
         color: projectForm.color, status: projectForm.status,
       }).eq("id", activeProject);
-      if (error) console.error("updateProject failed:", error);
+      if (error) showToast("Failed to update project");
     }
     setShowProjectForm(false);
   };
@@ -231,7 +251,13 @@ export default function ProjectsView() {
     setSections([]); setTasks([]); setSelectedTask(null);
   };
 
-  if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading projects…</div>;
+  if (loading) return (
+    <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+      <div style={{ width: 24, height: 24, border: `3px solid ${T.surface3}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <span style={{ color: T.text3, fontSize: 13 }}>Loading projects…</span>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
+    </div>
+  );
 
   /* ═══════════════════════════════════════════════════════
      REUSABLE COMPONENTS
@@ -486,6 +512,13 @@ export default function ProjectsView() {
      ═══════════════════════════════════════════════════════ */
   const listView = (
     <div style={{ flex: 1, overflow: "auto" }} onClick={() => setEditingCell(null)}>
+      {sections.length === 0 && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 20px", gap: 10 }}>
+          <div style={{ fontSize: 13, color: T.text3 }}>This project has no sections yet</div>
+          <button onClick={() => { setAddingSection(true); setNewSectionName(""); }}
+            style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add a section</button>
+        </div>
+      )}
       {sections.map((sec, si) => {
         const st = filt.filter(t => t.section_id === sec.id);
         const sd = st.filter(t => t.status === "done").length;
@@ -591,6 +624,10 @@ export default function ProjectsView() {
               );
             })}
             {/* Add task */}
+            {/* Empty section message */}
+            {!cl && st.length === 0 && (
+              <div style={{ padding: "16px 28px 8px 52px", color: T.text3, fontSize: 12, fontStyle: "italic" }}>No tasks in this section</div>
+            )}
             {!cl && <AddRow sid={sec.id} />}
           </div>
         );
@@ -919,6 +956,15 @@ export default function ProjectsView() {
       </div>
       {detail}
       {projectModal}
+      {/* Toast notification */}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 200,
+          padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+          background: toast.type === "error" ? "#ef4444" : "#22c55e", color: "#fff",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.3)", animation: "fadeIn 0.2s ease",
+        }}>{toast.message}</div>
+      )}
     </div>
   );
 }
