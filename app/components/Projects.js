@@ -71,6 +71,9 @@ export default function ProjectsView() {
   const [fieldForm, setFieldForm] = useState({ name: "", field_type: "text", options: "" });
   const [templates, setTemplates] = useState([]);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterPriority, setFilterPriority] = useState("");
+  const [filterAssignee, setFilterAssignee] = useState("");
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -160,6 +163,7 @@ export default function ProjectsView() {
       } else { setCustomFieldValues({}); }
       setSelectedTask(null); setCollapsed({}); setEditingCell(null);
       setAddingTo(null); setAddingSection(false); setEditingSectionId(null); setSearch("");
+      setFilterStatus(""); setFilterPriority(""); setFilterAssignee("");
     })();
   }, [activeProject]);
 
@@ -173,7 +177,14 @@ export default function ProjectsView() {
   const done = tasks.filter(t => t.status === "done").length;
   const total = tasks.length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const filt = search ? tasks.filter(t => t.title.toLowerCase().includes(search.toLowerCase())) : tasks;
+  const filt = tasks.filter(t => {
+    if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStatus && t.status !== filterStatus) return false;
+    if (filterPriority && t.priority !== filterPriority) return false;
+    if (filterAssignee === "__unassigned__" && t.assignee_id) return false;
+    if (filterAssignee && filterAssignee !== "__unassigned__" && t.assignee_id !== filterAssignee) return false;
+    return true;
+  });
   const getSubtasks = (parentId) => filt.filter(t => t.parent_task_id === parentId);
   const rootTasks = (sectionTasks) => sectionTasks.filter(t => !t.parent_task_id);
 
@@ -928,6 +939,27 @@ export default function ProjectsView() {
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, fontFamily: "inherit" }} />
           {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>}
         </div>
+        {/* Filters */}
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+          style={{ fontSize: 11, color: filterStatus ? T.text : T.text3, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 8px", outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+          <option value="">All statuses</option>
+          {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)}
+          style={{ fontSize: 11, color: filterPriority ? T.text : T.text3, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 8px", outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+          <option value="">All priorities</option>
+          {Object.entries(PRIORITY).filter(([k]) => k !== "none").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}
+          style={{ fontSize: 11, color: filterAssignee ? T.text : T.text3, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 8px", outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+          <option value="">All assignees</option>
+          <option value="__unassigned__">Unassigned</option>
+          {Object.values(profiles).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+        </select>
+        {(filterStatus || filterPriority || filterAssignee) && (
+          <button onClick={() => { setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }}
+            style={{ fontSize: 10, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>Clear filters</button>
+        )}
       </div>
     </div>
   );
