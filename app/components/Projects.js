@@ -46,6 +46,8 @@ export default function ProjectsView() {
   const [editingSectionName, setEditingSectionName] = useState("");
   const [addingSection, setAddingSection] = useState(false);
   const [newSectionName, setNewSectionName] = useState("");
+  const [showProjectForm, setShowProjectForm] = useState(false); // "new" | "edit" | false
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active" });
 
   /* ── Data loading ── */
   useEffect(() => {
@@ -177,6 +179,56 @@ export default function ProjectsView() {
     const updated = newSections.map((s, i) => ({ ...s, sort_order: i + 1 }));
     setSections(updated);
     await Promise.all(updated.map(s => supabase.from("sections").update({ sort_order: s.sort_order }).eq("id", s.id)));
+  };
+
+  /* ── Project mutations ── */
+  const PROJECT_COLORS = ["#3b82f6", "#a855f7", "#22c55e", "#eab308", "#ef4444", "#ec4899", "#f97316", "#06b6d4", "#6366f1", "#14b8a6"];
+
+  const openNewProject = () => {
+    setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active" });
+    setShowProjectForm("new");
+  };
+
+  const openEditProject = () => {
+    if (!proj) return;
+    setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active" });
+    setShowProjectForm("edit");
+  };
+
+  const saveProject = async () => {
+    if (!projectForm.name.trim()) return;
+    if (showProjectForm === "new") {
+      const orgId = projects[0]?.org_id || "a0000000-0000-0000-0000-000000000001";
+      const { data, error } = await supabase.from("projects").insert({
+        org_id: orgId, name: projectForm.name.trim(), description: projectForm.description.trim() || null,
+        color: projectForm.color, status: projectForm.status, visibility: "public", default_view: "list",
+      }).select().single();
+      if (error) { console.error("createProject failed:", error); return; }
+      if (data) {
+        setProjects(p => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
+        setActiveProject(data.id);
+        // Create a default section
+        await supabase.from("sections").insert({ project_id: data.id, name: "To Do", sort_order: 1 });
+        const { data: newSecs } = await supabase.from("sections").select("*").eq("project_id", data.id).order("sort_order");
+        setSections(newSecs || []); setTasks([]);
+      }
+    } else {
+      setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...projectForm } : pr));
+      const { error } = await supabase.from("projects").update({
+        name: projectForm.name.trim(), description: projectForm.description.trim() || null,
+        color: projectForm.color, status: projectForm.status,
+      }).eq("id", activeProject);
+      if (error) console.error("updateProject failed:", error);
+    }
+    setShowProjectForm(false);
+  };
+
+  const archiveProject = async () => {
+    if (!confirm("Archive this project? It will be hidden from the list.")) return;
+    setProjects(p => p.filter(pr => pr.id !== activeProject));
+    await supabase.from("projects").update({ status: "archived", deleted_at: new Date().toISOString() }).eq("id", activeProject);
+    setActiveProject(projects.find(p => p.id !== activeProject)?.id || null);
+    setSections([]); setTasks([]); setSelectedTask(null);
   };
 
   if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading projects…</div>;
@@ -338,8 +390,9 @@ export default function ProjectsView() {
      ═══════════════════════════════════════════════════════ */
   const sidebar = (
     <div style={{ width: 248, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.bg, flexShrink: 0 }}>
-      <div style={{ padding: "20px 20px 14px" }}>
+      <div style={{ padding: "20px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Projects</span>
+        <button onClick={openNewProject} title="New project" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 16, lineHeight: 1, padding: "0 2px" }}>+</button>
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "0 8px 16px" }}>
         {projects.map(p => {
@@ -377,6 +430,11 @@ export default function ProjectsView() {
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>{proj.name}</h2>
           {proj.owner_id && profiles[proj.owner_id] && <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Owned by {uname(proj.owner_id)}</div>}
+        </div>
+        {/* Project actions */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginRight: 16 }}>
+          <button onClick={openEditProject} title="Edit project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Edit</button>
+          <button onClick={archiveProject} title="Archive project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: "#ef4444", fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Archive</button>
         </div>
         {/* Progress */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -781,6 +839,69 @@ export default function ProjectsView() {
   );
 
   /* ═══════════════════════════════════════════════════════
+     PROJECT FORM MODAL
+     ═══════════════════════════════════════════════════════ */
+  const projectModal = showProjectForm && (
+    <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={() => setShowProjectForm(false)}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+      <div onClick={e => e.stopPropagation()} style={{
+        position: "relative", width: 420, background: T.surface, borderRadius: 12,
+        border: `1px solid ${T.border}`, padding: 28, zIndex: 101,
+      }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
+          {showProjectForm === "new" ? "New Project" : "Edit Project"}
+        </h3>
+        {/* Name */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Name</label>
+          <input autoFocus value={projectForm.name} onChange={e => setProjectForm(p => ({ ...p, name: e.target.value }))}
+            onKeyDown={e => { if (e.key === "Enter") saveProject(); }}
+            placeholder="Project name…" style={{ width: "100%", padding: "8px 12px", fontSize: 14, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
+        </div>
+        {/* Description */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Description</label>
+          <textarea value={projectForm.description} onChange={e => setProjectForm(p => ({ ...p, description: e.target.value }))}
+            placeholder="What's this project about?" rows={3}
+            style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", resize: "vertical" }} />
+        </div>
+        {/* Color */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Color</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {PROJECT_COLORS.map(c => (
+              <div key={c} onClick={() => setProjectForm(p => ({ ...p, color: c }))} style={{
+                width: 28, height: 28, borderRadius: 6, background: c, cursor: "pointer",
+                border: projectForm.color === c ? "2px solid #fff" : "2px solid transparent",
+                transition: "border 0.15s",
+              }} />
+            ))}
+          </div>
+        </div>
+        {/* Status (only for edit) */}
+        {showProjectForm === "edit" && (
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Status</label>
+            <select value={projectForm.status} onChange={e => setProjectForm(p => ({ ...p, status: e.target.value }))}
+              style={{ padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+              <option value="planning">Planning</option><option value="active">Active</option><option value="paused">Paused</option>
+              <option value="completed">Completed</option><option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        )}
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={() => setShowProjectForm(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+          <button onClick={saveProject} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: projectForm.name.trim() ? 1 : 0.5 }}>
+            {showProjectForm === "new" ? "Create" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ═══════════════════════════════════════════════════════
      LAYOUT
      ═══════════════════════════════════════════════════════ */
   return (
@@ -789,8 +910,15 @@ export default function ProjectsView() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {header}
         {proj && (viewMode === "list" ? listView : boardView)}
+        {!proj && !loading && (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 14, color: T.text3 }}>No projects yet</div>
+            <button onClick={openNewProject} style={{ padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Create your first project</button>
+          </div>
+        )}
       </div>
       {detail}
+      {projectModal}
     </div>
   );
 }
