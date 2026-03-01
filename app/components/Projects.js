@@ -50,6 +50,9 @@ export default function ProjectsView() {
   const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active" });
   const [toast, setToast] = useState(null); // { message, type: "error" | "success" }
   const [expandedTasks, setExpandedTasks] = useState({}); // track which parent tasks show subtasks
+  const [milestones, setMilestones] = useState([]);
+  const [showMilestoneForm, setShowMilestoneForm] = useState(false);
+  const [milestoneForm, setMilestoneForm] = useState({ name: "", target_date: "", description: "" });
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -86,11 +89,12 @@ export default function ProjectsView() {
   useEffect(() => {
     if (!activeProject) return;
     (async () => {
-      const [{ data: s }, { data: t }] = await Promise.all([
+      const [{ data: s }, { data: t }, { data: m }] = await Promise.all([
         supabase.from("sections").select("*").eq("project_id", activeProject).order("sort_order"),
         supabase.from("tasks").select("*").eq("project_id", activeProject).is("deleted_at", null).order("sort_order"),
+        supabase.from("milestones").select("*").eq("project_id", activeProject).order("sort_order"),
       ]);
-      setSections(s || []); setTasks(t || []);
+      setSections(s || []); setTasks(t || []); setMilestones(m || []);
       setSelectedTask(null); setCollapsed({}); setEditingCell(null);
       setAddingTo(null); setAddingSection(false); setEditingSectionId(null); setSearch("");
     })();
@@ -268,6 +272,42 @@ export default function ProjectsView() {
     await supabase.from("projects").update({ status: "archived", deleted_at: new Date().toISOString() }).eq("id", activeProject);
     setActiveProject(projects.find(p => p.id !== activeProject)?.id || null);
     setSections([]); setTasks([]); setSelectedTask(null);
+  };
+
+  /* ── Milestone mutations ── */
+  const MILESTONE_STATUS = {
+    upcoming: { label: "Upcoming", color: "#8b93a8", bg: "#1c2030" },
+    in_progress: { label: "In Progress", color: "#3b82f6", bg: "#1d3a6a" },
+    completed: { label: "Completed", color: "#22c55e", bg: "#0d3a20" },
+    missed: { label: "Missed", color: "#ef4444", bg: "#3d1111" },
+  };
+
+  const createMilestone = async () => {
+    if (!milestoneForm.name.trim()) return;
+    const maxSort = milestones.reduce((m, ms) => Math.max(m, ms.sort_order || 0), 0);
+    const { data, error } = await supabase.from("milestones").insert({
+      project_id: activeProject, name: milestoneForm.name.trim(),
+      description: milestoneForm.description.trim() || null,
+      target_date: milestoneForm.target_date || null, status: "upcoming",
+      sort_order: maxSort + 1,
+    }).select().single();
+    if (error) { showToast("Failed to create milestone"); return; }
+    if (data) { setMilestones(p => [...p, data]); showToast("Milestone created", "success"); }
+    setShowMilestoneForm(false); setMilestoneForm({ name: "", target_date: "", description: "" });
+  };
+
+  const deleteMilestone = async (msId) => {
+    if (!confirm("Delete this milestone?")) return;
+    setMilestones(p => p.filter(m => m.id !== msId));
+    // Unlink tasks from milestone
+    await supabase.from("tasks").update({ milestone_id: null }).eq("milestone_id", msId);
+    const { error } = await supabase.from("milestones").delete().eq("id", msId);
+    if (error) showToast("Failed to delete milestone");
+  };
+
+  const updateMilestoneStatus = async (msId, status) => {
+    setMilestones(p => p.map(m => m.id === msId ? { ...m, status } : m));
+    await supabase.from("milestones").update({ status }).eq("id", msId);
   };
 
   if (loading) return (
@@ -507,6 +547,37 @@ export default function ProjectsView() {
           </div>
         </div>
       </div>
+      {/* Milestones bar */}
+      {milestones.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 28px 4px", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em" }}>Milestones</span>
+          {milestones.map(ms => {
+            const cfg = MILESTONE_STATUS[ms.status] || MILESTONE_STATUS.upcoming;
+            const linked = tasks.filter(t => t.milestone_id === ms.id);
+            const done = linked.filter(t => t.status === "done").length;
+            return (
+              <div key={ms.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 6, background: cfg.bg, border: `1px solid ${cfg.color}30`, fontSize: 11 }}>
+                <span style={{ color: cfg.color, fontWeight: 600 }}>🏁 {ms.name}</span>
+                {ms.target_date && <span style={{ color: T.text3, fontSize: 10 }}>{new Date(ms.target_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+                {linked.length > 0 && <span style={{ color: T.text3, fontSize: 10 }}>{done}/{linked.length}</span>}
+                <select value={ms.status} onChange={e => updateMilestoneStatus(ms.id, e.target.value)} onClick={e => e.stopPropagation()}
+                  style={{ fontSize: 9, color: cfg.color, background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", outline: "none" }}>
+                  {Object.entries(MILESTONE_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+                <button onClick={() => deleteMilestone(ms.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
+              </div>
+            );
+          })}
+          <button onClick={() => setShowMilestoneForm(true)} style={{ padding: "3px 8px", borderRadius: 4, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer", fontSize: 10, fontWeight: 600 }}>+ Add</button>
+        </div>
+      )}
+      {milestones.length === 0 && (
+        <div style={{ padding: "6px 28px 2px" }}>
+          <button onClick={() => setShowMilestoneForm(true)} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 13 }}>🏁</span> Add milestone…
+          </button>
+        </div>
+      )}
       {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
         {[
@@ -1086,6 +1157,15 @@ export default function ProjectsView() {
               {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </PanelField>
+          {milestones.length > 0 && (
+            <PanelField icon="🏁" label="Milestone">
+              <select value={selectedTask.milestone_id || ""} onChange={e => updateField(selectedTask.id, "milestone_id", e.target.value || null)}
+                style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                <option value="">None</option>
+                {milestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </PanelField>
+          )}
         </div>
         {/* Description */}
         <div style={{ marginTop: 24 }}>
@@ -1255,6 +1335,36 @@ export default function ProjectsView() {
       </div>
       {detail}
       {projectModal}
+      {/* Milestone form modal */}
+      {showMilestoneForm && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowMilestoneForm(false)}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 380, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, zIndex: 101 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>New Milestone</h3>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Name</label>
+              <input autoFocus value={milestoneForm.name} onChange={e => setMilestoneForm(p => ({ ...p, name: e.target.value }))}
+                onKeyDown={e => { if (e.key === "Enter") createMilestone(); }}
+                placeholder="Milestone name…" style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Target Date</label>
+              <input type="date" value={milestoneForm.target_date} onChange={e => setMilestoneForm(p => ({ ...p, target_date: e.target.value }))}
+                style={{ padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", colorScheme: "dark" }} />
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Description</label>
+              <input value={milestoneForm.description} onChange={e => setMilestoneForm(p => ({ ...p, description: e.target.value }))}
+                placeholder="Optional description…" style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowMilestoneForm(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+              <button onClick={createMilestone} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: milestoneForm.name.trim() ? 1 : 0.5 }}>Create</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Toast notification */}
       {toast && (
         <div style={{
