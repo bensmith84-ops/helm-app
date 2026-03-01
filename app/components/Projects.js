@@ -1617,6 +1617,10 @@ export default function ProjectsView() {
             <input type="date" value={selectedTask.start_date || ""} onChange={e => updateField(selectedTask.id, "start_date", e.target.value || null)}
               style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", colorScheme: "dark", fontFamily: "inherit" }} />
           </PanelField>
+          <PanelField icon="📅" label="Start date">
+            <input type="date" value={selectedTask.start_date || ""} onChange={e => updateField(selectedTask.id, "start_date", e.target.value || null)}
+              style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", colorScheme: "dark", fontFamily: "inherit" }} />
+          </PanelField>
           <PanelField icon="📅" label="Due date">
             <input type="date" value={selectedTask.due_date || ""} onChange={e => updateField(selectedTask.id, "due_date", e.target.value || null)}
               style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", colorScheme: "dark", fontFamily: "inherit" }} />
