@@ -69,10 +69,17 @@ export default function ProjectsView() {
   const [customFieldValues, setCustomFieldValues] = useState({}); // { taskId: { fieldId: value } }
   const [showFieldForm, setShowFieldForm] = useState(false);
   const [fieldForm, setFieldForm] = useState({ name: "", field_type: "text", options: "" });
+  const [templates, setTemplates] = useState([]);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  /* ── Load templates ── */
+  useEffect(() => {
+    supabase.from("project_templates").select("*").order("created_at", { ascending: false }).then(({ data }) => setTemplates(data || []));
   }, []);
 
   /* ── Keyboard shortcuts ── */
@@ -487,6 +494,60 @@ export default function ProjectsView() {
     if (error) showToast("Failed to save field value");
   };
 
+  /* ── Template mutations ── */
+  const saveAsTemplate = async () => {
+    const name = prompt("Template name:", proj?.name + " Template");
+    if (!name?.trim()) return;
+    const templateData = {
+      sections: sections.map(sec => ({
+        name: sec.name,
+        tasks: tasks.filter(t => t.section_id === sec.id && !t.parent_task_id).map(t => ({
+          title: t.title, priority: t.priority, status: "todo",
+        })),
+      })),
+    };
+    const { data, error } = await supabase.from("project_templates").insert({
+      org_id: proj.org_id, name: name.trim(), template_data: templateData,
+    }).select().single();
+    if (error) { showToast("Failed to save template"); return; }
+    if (data) { setTemplates(p => [data, ...p]); showToast("Template saved", "success"); }
+  };
+
+  const createFromTemplate = async (template) => {
+    const name = prompt("New project name:", "New " + template.name.replace(" Template", ""));
+    if (!name?.trim()) return;
+    const { data: newProj, error: pErr } = await supabase.from("projects").insert({
+      org_id: proj?.org_id || "a0000000-0000-0000-0000-000000000001",
+      name: name.trim(), color: "#3b82f6", status: "active",
+    }).select().single();
+    if (pErr || !newProj) { showToast("Failed to create project"); return; }
+    // Create sections and tasks from template
+    const td = template.template_data;
+    for (let si = 0; si < (td.sections || []).length; si++) {
+      const secDef = td.sections[si];
+      const { data: newSec } = await supabase.from("sections").insert({
+        project_id: newProj.id, name: secDef.name, sort_order: si + 1,
+      }).select().single();
+      if (newSec) {
+        for (let ti = 0; ti < (secDef.tasks || []).length; ti++) {
+          const taskDef = secDef.tasks[ti];
+          await supabase.from("tasks").insert({
+            org_id: newProj.org_id, project_id: newProj.id, section_id: newSec.id,
+            title: taskDef.title, priority: taskDef.priority || "none", status: taskDef.status || "todo",
+            sort_order: ti + 1,
+          });
+        }
+      }
+    }
+    setProjects(p => [...p, newProj]); setActiveProject(newProj.id);
+    setShowTemplates(false); showToast("Project created from template", "success");
+  };
+
+  const deleteTemplate = async (tplId) => {
+    setTemplates(p => p.filter(t => t.id !== tplId));
+    await supabase.from("project_templates").delete().eq("id", tplId);
+  };
+
   /* ── Drag & Drop reorder ── */
   const handleDrop = async (targetTaskId, targetSectionId) => {
     if (!dragTask) return;
@@ -745,6 +806,7 @@ export default function ProjectsView() {
       <div style={{ padding: "12px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Projects</span>
         <button onClick={openNewProject} title="New project" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 16, lineHeight: 1, padding: "0 2px" }}>+</button>
+        {templates.length > 0 && <button onClick={() => setShowTemplates(true)} title="New from template" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 10, lineHeight: 1, padding: "0 2px", fontWeight: 600 }}>📋</button>}
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "0 8px 16px" }}>
         {projects.map(p => {
@@ -788,6 +850,7 @@ export default function ProjectsView() {
         <div style={{ display: "flex", alignItems: "center", gap: 4, marginRight: 16 }}>
           <button onClick={openEditProject} title="Edit project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Edit</button>
           <button onClick={() => setShowFieldForm(true)} title="Manage custom fields" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Fields</button>
+          <button onClick={saveAsTemplate} title="Save project as template" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Save Template</button>
           <button onClick={archiveProject} title="Archive project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: "#ef4444", fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Archive</button>
         </div>
         {/* Progress */}
@@ -2073,6 +2136,40 @@ export default function ProjectsView() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* Template picker modal */}
+      {showTemplates && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowTemplates(false)}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 420, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, zIndex: 101, maxHeight: "70vh", overflow: "auto" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Create from Template</h3>
+            {templates.length === 0 ? (
+              <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: 20 }}>No templates saved yet. Open a project and click "Save Template" to create one.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {templates.map(tpl => {
+                  const td = tpl.template_data;
+                  const secCount = td.sections?.length || 0;
+                  const taskCount = td.sections?.reduce((sum, s) => sum + (s.tasks?.length || 0), 0) || 0;
+                  return (
+                    <div key={tpl.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, cursor: "pointer" }}
+                      onClick={() => createFromTemplate(tpl)}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tpl.name}</div>
+                        <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{secCount} sections · {taskCount} tasks</div>
+                      </div>
+                      <button onClick={e => { e.stopPropagation(); deleteTemplate(tpl.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: "0 4px" }}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowTemplates(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Close</button>
+            </div>
           </div>
         </div>
       )}
