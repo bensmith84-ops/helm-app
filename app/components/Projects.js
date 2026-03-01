@@ -58,6 +58,7 @@ export default function ProjectsView() {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
   const [dependencies, setDependencies] = useState([]); // { id, predecessor_id, successor_id }
+  const [attachments, setAttachments] = useState([]);
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -77,14 +78,15 @@ export default function ProjectsView() {
     return () => document.removeEventListener("keydown", fn);
   }, [showProjectForm, selectedTask, editingSectionId]);
 
-  /* ── Load comments for selected task ── */
+  /* ── Load comments + attachments for selected task ── */
   useEffect(() => {
-    if (!selectedTask) { setComments([]); setNewComment(""); return; }
+    if (!selectedTask) { setComments([]); setNewComment(""); setAttachments([]); return; }
     (async () => {
-      const { data } = await supabase.from("comments").select("*")
-        .eq("entity_type", "task").eq("entity_id", selectedTask.id)
-        .is("deleted_at", null).order("created_at", { ascending: true });
-      setComments(data || []);
+      const [{ data: c }, { data: a }] = await Promise.all([
+        supabase.from("comments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
+        supabase.from("attachments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }),
+      ]);
+      setComments(c || []); setAttachments(a || []);
     })();
   }, [selectedTask?.id]);
 
@@ -369,6 +371,31 @@ export default function ProjectsView() {
     const { error } = await supabase.from("task_dependencies").delete().eq("id", depId);
     if (error) showToast("Failed to remove dependency");
   };
+
+  /* ── Attachment mutations ── */
+  const uploadAttachment = async (file) => {
+    if (!file || !selectedTask) return;
+    const path = `tasks/${selectedTask.id}/${Date.now()}_${file.name}`;
+    const { error: uploadErr } = await supabase.storage.from("attachments").upload(path, file);
+    if (uploadErr) { showToast("Failed to upload file"); return; }
+    const { data, error } = await supabase.from("attachments").insert({
+      org_id: proj.org_id, entity_type: "task", entity_id: selectedTask.id,
+      filename: file.name, file_path: path, file_size: file.size, mime_type: file.type,
+    }).select().single();
+    if (error) { showToast("Failed to save attachment"); return; }
+    if (data) { setAttachments(p => [data, ...p]); showToast("File attached", "success"); }
+  };
+
+  const deleteAttachment = async (att) => {
+    setAttachments(p => p.filter(a => a.id !== att.id));
+    await supabase.storage.from("attachments").remove([att.file_path]);
+    const { error } = await supabase.from("attachments").delete().eq("id", att.id);
+    if (error) showToast("Failed to delete attachment");
+  };
+
+  const getFileUrl = (path) => `https://upbjdmnykheubxkuknuj.supabase.co/storage/v1/object/public/attachments/${path}`;
+  const formatSize = (bytes) => bytes < 1024 ? `${bytes}B` : bytes < 1048576 ? `${(bytes/1024).toFixed(1)}KB` : `${(bytes/1048576).toFixed(1)}MB`;
+  const fileIcon = (mime) => mime?.startsWith("image/") ? "🖼" : mime?.includes("pdf") ? "📄" : mime?.includes("sheet") || mime?.includes("excel") || mime?.includes("csv") ? "📊" : "📎";
 
   if (loading) return (
     <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
@@ -1280,6 +1307,42 @@ export default function ProjectsView() {
           </div>
           {getBlockedBy(selectedTask.id).length === 0 && getBlocking(selectedTask.id).length === 0 && (
             <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic", marginTop: 6 }}>No dependencies</div>
+          )}
+        </div>
+        {/* Attachments */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>Attachments</div>
+            <label style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>
+              + Upload
+              <input type="file" hidden onChange={e => { if (e.target.files[0]) uploadAttachment(e.target.files[0]); e.target.value = ""; }} />
+            </label>
+          </div>
+          {attachments.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {attachments.map(att => {
+                const isImage = att.mime_type?.startsWith("image/");
+                return (
+                  <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}` }}>
+                    {isImage ? (
+                      <img src={getFileUrl(att.file_path)} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
+                    ) : (
+                      <span style={{ fontSize: 18, flexShrink: 0 }}>{fileIcon(att.mime_type)}</span>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <a href={getFileUrl(att.file_path)} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 12, color: T.accent, textDecoration: "none", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {att.filename}
+                      </a>
+                      <span style={{ fontSize: 10, color: T.text3 }}>{formatSize(att.file_size)}</span>
+                    </div>
+                    <button onClick={() => deleteAttachment(att)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No attachments</div>
           )}
         </div>
         {/* Subtasks */}
