@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
-import { T, OBJECTIVES, KEY_RESULTS, getUser } from "../tokens";
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "../lib/supabase";
+import { T } from "../tokens";
 
 const HEALTH = {
   on_track:  { label: "On Track",  color: "#22c55e", bg: "#0d3a20" },
@@ -8,152 +9,265 @@ const HEALTH = {
   off_track: { label: "Off Track", color: "#ef4444", bg: "#3d1111" },
 };
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
+const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 
 export default function OKRsView() {
-  const [expandedObj, setExpandedObj] = useState(OBJECTIVES.map(o => o.id));
+  const [cycles, setCycles] = useState([]);
+  const [activeCycle, setActiveCycle] = useState(null);
+  const [objectives, setObjectives] = useState([]);
+  const [keyResults, setKeyResults] = useState([]);
+  const [profiles, setProfiles] = useState({});
+  const [expanded, setExpanded] = useState([]);
   const [selectedKR, setSelectedKR] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const toggle = (id) => setExpandedObj(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  useEffect(() => {
+    (async () => {
+      const [{ data: c }, { data: prof }] = await Promise.all([
+        supabase.from("okr_cycles").select("*").order("start_date", { ascending: false }),
+        supabase.from("profiles").select("id,display_name,avatar_url"),
+      ]);
+      setCycles(c || []);
+      const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
+      const active = (c || []).find(cy => cy.status === "active") || c?.[0];
+      if (active) setActiveCycle(active.id);
+      setLoading(false);
+    })();
+  }, []);
 
-  const overallProgress = OBJECTIVES.length > 0 ? Math.round(OBJECTIVES.reduce((s, o) => s + o.progress, 0) / OBJECTIVES.length) : 0;
-  const onTrackCount = OBJECTIVES.filter(o => o.health === "on_track").length;
-  const atRiskCount = OBJECTIVES.filter(o => o.health === "at_risk" || o.health === "off_track").length;
+  useEffect(() => {
+    if (!activeCycle) return;
+    (async () => {
+      const [{ data: obj }, { data: kr }] = await Promise.all([
+        supabase.from("objectives").select("*").eq("cycle_id", activeCycle).is("deleted_at", null).order("sort_order"),
+        supabase.from("key_results").select("*").is("deleted_at", null).order("sort_order"),
+      ]);
+      setObjectives(obj || []);
+      const filteredKR = (kr || []).filter(k => (obj || []).some(o => o.id === k.objective_id));
+      setKeyResults(filteredKR);
+      setExpanded((obj || []).map(o => o.id));
+      setSelectedKR(null);
+    })();
+  }, [activeCycle]);
+
+  const ini = (uid) => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
+  const uname = (uid) => profiles[uid]?.display_name || "";
+  const toggle = (id) => setExpanded(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+
+  const updateKRValue = async (krId, value) => {
+    const kr = keyResults.find(k => k.id === krId);
+    if (!kr) return;
+    const newProgress = kr.target_value > 0 ? Math.min(100, Math.round((value / kr.target_value) * 100)) : 0;
+    setKeyResults(p => p.map(k => k.id === krId ? { ...k, current_value: value, progress: newProgress } : k));
+    await supabase.from("key_results").update({ current_value: value, progress: newProgress }).eq("id", krId);
+    const objId = kr.objective_id;
+    const objKRs = keyResults.map(k => k.id === krId ? { ...k, progress: newProgress } : k).filter(k => k.objective_id === objId);
+    const avgProgress = objKRs.length > 0 ? Math.round(objKRs.reduce((s, k) => s + Number(k.progress || 0), 0) / objKRs.length) : 0;
+    setObjectives(p => p.map(o => o.id === objId ? { ...o, progress: avgProgress } : o));
+    await supabase.from("objectives").update({ progress: avgProgress }).eq("id", objId);
+  };
+
+  const updateHealth = async (objId, health) => {
+    setObjectives(p => p.map(o => o.id === objId ? { ...o, health } : o));
+    await supabase.from("objectives").update({ health }).eq("id", objId);
+  };
+
+  if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading OKRs…</div>;
+
+  const cycle = cycles.find(c => c.id === activeCycle);
+  const overallProgress = objectives.length > 0 ? Math.round(objectives.reduce((s, o) => s + Number(o.progress || 0), 0) / objectives.length) : 0;
+  const onTrackCount = objectives.filter(o => o.health === "on_track").length;
+  const atRiskCount = objectives.filter(o => o.health === "at_risk" || o.health === "off_track").length;
+  const daysLeft = cycle ? Math.max(0, Math.ceil((new Date(cycle.end_date) - new Date()) / 86400000)) : 0;
 
   const Ava = ({ uid, sz = 24 }) => {
-    const u = getUser(uid);
-    const c = AVATAR_COLORS[uid.charCodeAt(1) % AVATAR_COLORS.length];
+    if (!uid) return <div style={{ width: sz, height: sz }} />;
+    const c = acol(uid);
     return (
-      <div title={u.name} style={{
-        width: sz, height: sz, borderRadius: "50%", background: `${c}18`, border: `1.5px solid ${c}50`,
+      <div title={uname(uid)} style={{
+        width: sz, height: sz, borderRadius: "50%",
+        background: `${c}18`, border: `1.5px solid ${c}50`,
         display: "flex", alignItems: "center", justifyContent: "center",
         fontSize: Math.max(sz * 0.38, 9), fontWeight: 700, color: c, flexShrink: 0,
-      }}>{u.avatar}</div>
+      }}>{ini(uid)}</div>
     );
   };
 
-  const Ring = ({ pct, size = 48, stroke = 5, color = T.green }) => (
-    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-      <circle cx={size/2} cy={size/2} r={(size-stroke)/2} fill="none" stroke={T.surface3} strokeWidth={stroke} />
-      <circle cx={size/2} cy={size/2} r={(size-stroke)/2} fill="none" stroke={color} strokeWidth={stroke}
-        strokeDasharray={`${pct * ((size-stroke)*Math.PI)/100} ${(size-stroke)*Math.PI}`}
-        strokeLinecap="round" style={{ transition: "stroke-dasharray 0.8s ease" }} />
-    </svg>
+  const ConfidenceDot = ({ value }) => {
+    const pct = Number(value || 0) * 100;
+    const color = pct >= 70 ? T.green : pct >= 40 ? T.yellow : T.red;
+    return (
+      <div title={`${Math.round(pct)}% confidence`} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ width: 8, height: 8, borderRadius: 8, background: color }} />
+        <span style={{ fontSize: 11, color: T.text3 }}>{Math.round(pct)}%</span>
+      </div>
+    );
+  };
+
+  const header = (
+    <div style={{ padding: "24px 28px 0", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Objectives &amp; Key Results</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12 }}>
+            <select value={activeCycle || ""} onChange={e => setActiveCycle(e.target.value)}
+              style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: "4px 8px", fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }}>
+              {cycles.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {cycle && <span style={{ color: T.text3 }}>{daysLeft} days remaining</span>}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+          <div style={{ position: "relative", width: 52, height: 52 }}>
+            <svg width={52} height={52} style={{ transform: "rotate(-90deg)" }}>
+              <circle cx={26} cy={26} r={22} fill="none" stroke={T.surface3} strokeWidth={4} />
+              <circle cx={26} cy={26} r={22} fill="none" stroke={T.accent} strokeWidth={4}
+                strokeDasharray={`${overallProgress * 1.38} 200`} strokeLinecap="round"
+                style={{ transition: "stroke-dasharray 0.6s ease" }} />
+            </svg>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: T.accent }}>{overallProgress}%</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 8, background: T.green }} />
+              <span style={{ color: T.text2 }}>{onTrackCount} on track</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 8, background: T.yellow }} />
+              <span style={{ color: T.text2 }}>{atRiskCount} need attention</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 0 }}>
+        <div style={{ padding: "9px 16px", fontSize: 13, fontWeight: 500, color: T.text, borderBottom: `2px solid ${T.accent}`, cursor: "pointer" }}>All Objectives</div>
+      </div>
+    </div>
   );
+
+  const detail = selectedKR && (() => {
+    const kr = keyResults.find(k => k.id === selectedKR);
+    if (!kr) return null;
+    const obj = objectives.find(o => o.id === kr.objective_id);
+    const pct = Number(kr.progress || 0);
+    const conf = Number(kr.confidence || 0) * 100;
+    const confColor = conf >= 70 ? T.green : conf >= 40 ? T.yellow : T.red;
+    return (
+      <div style={{ width: 380, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.surface, flexShrink: 0, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 20px", borderBottom: `1px solid ${T.border}` }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: T.text3 }}>Key Result</span>
+          <button onClick={() => setSelectedKR(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.3, marginBottom: 8 }}>{kr.title}</h3>
+          {obj && <div style={{ fontSize: 12, color: T.text3, marginBottom: 20 }}>Part of: {obj.title}</div>}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 12, color: T.text3 }}>Progress</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: pct >= 70 ? T.green : pct >= 40 ? T.yellow : T.text2 }}>{Math.round(pct)}%</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 8, background: T.surface3, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", borderRadius: 8, background: pct >= 70 ? T.green : pct >= 40 ? T.yellow : T.accent, transition: "width 0.5s" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <PanelField label="Owner"><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Ava uid={kr.owner_id} sz={22} /><span style={{ fontSize: 13 }}>{uname(kr.owner_id)}</span></div></PanelField>
+            <PanelField label="Current">{kr.current_value} / {kr.target_value} {kr.unit}</PanelField>
+            <PanelField label="Start">{kr.start_value} {kr.unit}</PanelField>
+            <PanelField label="Confidence">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 8, background: confColor }} />
+                <span style={{ fontSize: 13, color: confColor, fontWeight: 600 }}>{Math.round(conf)}%</span>
+              </div>
+            </PanelField>
+          </div>
+          <div style={{ marginTop: 24, padding: 16, background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Update Progress</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="number" defaultValue={kr.current_value}
+                onKeyDown={e => { if (e.key === "Enter") updateKRValue(kr.id, Number(e.target.value)); }}
+                style={{ flex: 1, padding: "8px 12px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, fontSize: 13, outline: "none", fontFamily: "inherit" }}
+              />
+              <span style={{ fontSize: 12, color: T.text3 }}>/ {kr.target_value} {kr.unit}</span>
+            </div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>Press Enter to save</div>
+          </div>
+        </div>
+      </div>
+    );
+  })();
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Main content */}
-      <div style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
-          <div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>Objectives & Key Results</h2>
-            <p style={{ fontSize: 13, color: T.text3 }}>Q1 2026 · Jan 1 – Mar 31</p>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ position: "relative", width: 56, height: 56 }}>
-                <Ring pct={overallProgress} size={56} stroke={5} color={T.green} />
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: T.green }}>{overallProgress}%</span>
-                </div>
-              </div>
-              <div style={{ fontSize: 9, color: T.text3, marginTop: 4 }}>Overall</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Stats bar */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
-          {[
-            { label: "Objectives", value: OBJECTIVES.length, color: T.accent },
-            { label: "Key Results", value: KEY_RESULTS.length, color: T.purple },
-            { label: "On Track", value: onTrackCount, color: T.green },
-            { label: "Needs Attention", value: atRiskCount, color: atRiskCount > 0 ? T.yellow : T.text3 },
-          ].map(s => (
-            <div key={s.label} style={{ padding: "12px 18px", background: T.surface, borderRadius: 10, border: `1px solid ${T.border}`, flex: 1 }}>
-              <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Objectives */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {OBJECTIVES.map(obj => {
-            const krs = KEY_RESULTS.filter(kr => kr.objective === obj.id);
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {header}
+        <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+          {objectives.map((obj) => {
+            const objKRs = keyResults.filter(k => k.objective_id === obj.id);
+            const isExp = expanded.includes(obj.id);
+            const pct = Number(obj.progress || 0);
             const h = HEALTH[obj.health] || HEALTH.on_track;
-            const expanded = expandedObj.includes(obj.id);
             return (
-              <div key={obj.id} style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                {/* Objective header */}
-                <div onClick={() => toggle(obj.id)} style={{
-                  padding: "18px 22px", cursor: "pointer", display: "flex", alignItems: "center", gap: 14,
-                  borderBottom: expanded ? `1px solid ${T.border}` : "none",
-                }}>
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill={T.text3} style={{ transition: "transform 0.2s", transform: expanded ? "rotate(0)" : "rotate(-90deg)", flexShrink: 0 }}>
+              <div key={obj.id} style={{ marginBottom: 16, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                <div onClick={() => toggle(obj.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer", userSelect: "none" }}>
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill={T.text3}
+                    style={{ transition: "transform 0.2s", transform: isExp ? "rotate(0)" : "rotate(-90deg)", flexShrink: 0 }}>
                     <path d="M2 3l3 3.5L8 3" fill="none" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  <div style={{ position: "relative", width: 40, height: 40, flexShrink: 0 }}>
-                    <Ring pct={obj.progress} size={40} stroke={4} color={h.color} />
-                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <span style={{ fontSize: 10, fontWeight: 800, color: h.color }}>{obj.progress}%</span>
-                    </div>
-                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 3 }}>{obj.title}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Ava uid={obj.owner} sz={18} />
-                      <span style={{ fontSize: 11, color: T.text3 }}>{getUser(obj.owner).name}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700 }}>{obj.title}</span>
+                      <span onClick={e => e.stopPropagation()}>
+                        <HealthPill obj={obj} onUpdate={updateHealth} />
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12, color: T.text3 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Ava uid={obj.owner_id} sz={18} /> {uname(obj.owner_id)}</span>
+                      <span>·</span>
+                      <span>{objKRs.length} key results</span>
                     </div>
                   </div>
-                  <div style={{
-                    padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600,
-                    background: h.bg, color: h.color,
-                  }}>{h.label}</div>
-                </div>
-
-                {/* Key Results */}
-                {expanded && (
-                  <div style={{ padding: "4px 0" }}>
-                    {/* Column headers */}
-                    <div style={{
-                      display: "grid", gridTemplateColumns: "1fr 100px 80px 60px",
-                      padding: "6px 22px 6px 80px", fontSize: 10, fontWeight: 600, color: T.text3,
-                      textTransform: "uppercase", letterSpacing: "0.06em",
-                    }}>
-                      <span>Key Result</span><span>Progress</span><span>Target</span><span>Current</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                    <div style={{ width: 120, height: 6, borderRadius: 6, background: T.surface3, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", borderRadius: 6, background: h.color, transition: "width 0.5s" }} />
                     </div>
-                    {krs.map(kr => {
-                      const sel = selectedKR?.id === kr.id;
+                    <span style={{ fontSize: 14, fontWeight: 700, color: h.color, minWidth: 36, textAlign: "right" }}>{Math.round(pct)}%</span>
+                  </div>
+                </div>
+                {isExp && objKRs.length > 0 && (
+                  <div style={{ borderTop: `1px solid ${T.border}` }}>
+                    <div style={{
+                      display: "grid", gridTemplateColumns: "1fr 160px 80px 80px 60px",
+                      gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 28,
+                      fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em",
+                      borderBottom: `1px solid ${T.border}`, background: T.bg,
+                    }}>
+                      <span>Key Result</span><span>Progress</span><span>Value</span><span>Confidence</span><span>Owner</span>
+                    </div>
+                    {objKRs.map(kr => {
+                      const p = Number(kr.progress || 0);
+                      const sel = selectedKR === kr.id;
                       return (
-                        <div key={kr.id} onClick={() => setSelectedKR(sel ? null : kr)} style={{
-                          display: "grid", gridTemplateColumns: "1fr 100px 80px 60px",
-                          padding: "12px 22px 12px 80px", alignItems: "center", cursor: "pointer",
-                          borderBottom: `1px solid ${T.border}`,
+                        <div key={kr.id} onClick={() => setSelectedKR(kr.id)} style={{
+                          display: "grid", gridTemplateColumns: "1fr 160px 80px 80px 60px",
+                          gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42,
+                          cursor: "pointer", borderBottom: `1px solid ${T.border}`,
                           background: sel ? `${T.accent}10` : "transparent",
                           borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent",
                           transition: "background 0.1s",
                         }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <div style={{
-                              width: 6, height: 6, borderRadius: 6, flexShrink: 0,
-                              background: kr.progress >= 75 ? T.green : kr.progress >= 40 ? T.yellow : T.red,
-                            }} />
-                            <span style={{ fontSize: 13, fontWeight: 500 }}>{kr.title}</span>
-                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>{kr.title}</span>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}>
-                              <div style={{
-                                width: `${kr.progress}%`, height: "100%", borderRadius: 5,
-                                background: kr.progress >= 75 ? T.green : kr.progress >= 40 ? T.yellow : T.red,
-                                transition: "width 0.5s",
-                              }} />
+                              <div style={{ width: `${p}%`, height: "100%", borderRadius: 5, background: p >= 70 ? T.green : p >= 40 ? T.yellow : T.accent, transition: "width 0.3s" }} />
                             </div>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: T.text2, minWidth: 28 }}>{kr.progress}%</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: p >= 70 ? T.green : p >= 40 ? T.yellow : T.text2, minWidth: 28 }}>{Math.round(p)}%</span>
                           </div>
-                          <span style={{ fontSize: 12, color: T.text3 }}>{kr.target}</span>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: T.text2 }}>{kr.current}</span>
+                          <span style={{ fontSize: 12, color: T.text2 }}>{kr.current_value}/{kr.target_value}</span>
+                          <ConfidenceDot value={kr.confidence} />
+                          <Ava uid={kr.owner_id} sz={22} />
                         </div>
                       );
                     })}
@@ -162,49 +276,64 @@ export default function OKRsView() {
               </div>
             );
           })}
+          {objectives.length === 0 && (
+            <div style={{ textAlign: "center", padding: 60, color: T.text3, fontSize: 14 }}>No objectives found for this cycle.</div>
+          )}
         </div>
       </div>
+      {detail}
+    </div>
+  );
+}
 
-      {/* Detail panel */}
-      {selectedKR && (
-        <div style={{ width: 360, borderLeft: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: T.text3 }}>Key Result Detail</span>
-            <button onClick={() => setSelectedKR(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
-            </button>
-          </div>
-          <div style={{ padding: "20px 24px", flex: 1 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, lineHeight: 1.3 }}>{selectedKR.title}</div>
-            {/* Progress ring */}
-            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
-              <div style={{ position: "relative", width: 64, height: 64 }}>
-                <Ring pct={selectedKR.progress} size={64} stroke={6} color={selectedKR.progress >= 75 ? T.green : selectedKR.progress >= 40 ? T.yellow : T.red} />
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: selectedKR.progress >= 75 ? T.green : selectedKR.progress >= 40 ? T.yellow : T.red }}>{selectedKR.progress}%</span>
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: T.text3, marginBottom: 4 }}>Current / Target</div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{selectedKR.current} <span style={{ color: T.text3, fontWeight: 400 }}>/ {selectedKR.target}</span></div>
-              </div>
+function PanelField({ label, children }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", padding: "10px 0", borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
+      <span style={{ fontSize: 12, color: T.text3 }}>{label}</span>
+      <div style={{ fontSize: 13, color: T.text }}>{children}</div>
+    </div>
+  );
+}
+
+function HealthPill({ obj, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const H = {
+    on_track:  { label: "On Track",  color: "#22c55e", bg: "#0d3a20" },
+    at_risk:   { label: "At Risk",   color: "#eab308", bg: "#3d3000" },
+    off_track: { label: "Off Track", color: "#ef4444", bg: "#3d1111" },
+  };
+  const h = H[obj.health] || H.on_track;
+
+  useEffect(() => {
+    if (!open) return;
+    const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <div onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{
+        display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 4,
+        fontSize: 10, fontWeight: 700, cursor: "pointer",
+        background: h.bg, color: h.color, border: open ? `1px solid ${h.color}` : "1px solid transparent",
+      }}>{h.label}</div>
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 100,
+          background: "#1a1f2e", border: `1px solid ${T.border2}`, borderRadius: 8,
+          padding: 4, minWidth: 120, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+        }}>
+          {Object.entries(H).map(([k, v]) => (
+            <div key={k} onClick={(e) => { e.stopPropagation(); onUpdate(obj.id, k); setOpen(false); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 4, cursor: "pointer", fontSize: 12, color: v.color, transition: "background 0.1s" }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: v.color }} />
+              {v.label}
             </div>
-            {/* Fields */}
-            {[
-              { icon: "🎯", label: "Objective", value: OBJECTIVES.find(o => o.id === selectedKR.objective)?.title || "" },
-              { icon: "📊", label: "Progress", value: `${selectedKR.progress}%` },
-              { icon: "🏁", label: "Target", value: selectedKR.target },
-              { icon: "📈", label: "Current", value: selectedKR.current },
-              { icon: "⚡", label: "Status", value: selectedKR.progress >= 75 ? "Strong" : selectedKR.progress >= 40 ? "Moderate" : "Behind" },
-            ].map(f => (
-              <div key={f.label} style={{ display: "grid", gridTemplateColumns: "110px 1fr", padding: "10px 0", borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text3 }}>
-                  <span style={{ fontSize: 14 }}>{f.icon}</span><span>{f.label}</span>
-                </div>
-                <span style={{ fontSize: 13, color: T.text }}>{f.value}</span>
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
       )}
     </div>

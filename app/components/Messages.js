@@ -1,227 +1,202 @@
 "use client";
-import { useState } from "react";
-import { T, CHANNELS, MESSAGES, getUser, USERS } from "../tokens";
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "../lib/supabase";
+import { T } from "../tokens";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
+const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 
 export default function MessagesView() {
-  const [ch, setCh] = useState("ch1");
+  const [channels, setChannels] = useState([]);
+  const [activeCh, setActiveCh] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [profiles, setProfiles] = useState({});
   const [input, setInput] = useState("");
-  const [localMsgs, setLocalMsgs] = useState({});
-  const [hoveredMsg, setHoveredMsg] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const bottomRef = useRef(null);
 
-  const channel = CHANNELS.find(c => c.id === ch);
-  const baseMsgs = MESSAGES[ch] || [];
-  const extra = localMsgs[ch] || [];
-  const msgs = [...baseMsgs, ...extra];
+  useEffect(() => {
+    (async () => {
+      const [{ data: ch }, { data: prof }] = await Promise.all([
+        supabase.from("channels").select("*").eq("is_archived", false).order("name"),
+        supabase.from("profiles").select("id,display_name,avatar_url"),
+      ]);
+      setChannels(ch || []);
+      const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
+      if (ch?.length) setActiveCh(ch[0].id);
+      setLoading(false);
+    })();
+  }, []);
 
-  const sendMessage = () => {
-    if (!input.trim()) return;
-    const msg = { id: `local-${Date.now()}`, user: "u1", text: input.trim(), time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), reactions: [] };
-    setLocalMsgs(p => ({ ...p, [ch]: [...(p[ch] || []), msg] }));
+  useEffect(() => {
+    if (!activeCh) return;
+    (async () => {
+      const { data: msgs } = await supabase.from("messages").select("*")
+        .eq("channel_id", activeCh).is("deleted_at", null)
+        .order("created_at", { ascending: true });
+      setMessages(msgs || []);
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    })();
+  }, [activeCh]);
+
+  const ini = (uid) => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
+  const uname = (uid) => profiles[uid]?.display_name || "Unknown";
+
+  const sendMessage = async () => {
+    if (!input.trim() || !activeCh) return;
+    const ch = channels.find(c => c.id === activeCh);
+    const tempMsg = {
+      id: `temp-${Date.now()}`,
+      channel_id: activeCh,
+      author_id: "10000000-0000-0000-0000-000000000001",
+      content: input.trim(),
+      created_at: new Date().toISOString(),
+    };
+    setMessages(p => [...p, tempMsg]);
     setInput("");
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    const { data } = await supabase.from("messages").insert({
+      channel_id: activeCh,
+      author_id: "10000000-0000-0000-0000-000000000001",
+      content: tempMsg.content,
+    }).select().single();
+    if (data) setMessages(p => p.map(m => m.id === tempMsg.id ? data : m));
   };
 
-  const Ava = ({ uid, sz = 32 }) => {
-    const u = getUser(uid);
-    const c = AVATAR_COLORS[uid.charCodeAt(1) % AVATAR_COLORS.length];
+  if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading messages…</div>;
+
+  const channel = channels.find(c => c.id === activeCh);
+  const filteredCh = search ? channels.filter(c => c.name.toLowerCase().includes(search.toLowerCase())) : channels;
+
+  // Group messages by date
+  const grouped = [];
+  let lastDate = "";
+  messages.forEach(msg => {
+    const d = new Date(msg.created_at).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    if (d !== lastDate) { grouped.push({ type: "date", date: d }); lastDate = d; }
+    grouped.push({ type: "msg", ...msg });
+  });
+
+  const Ava = ({ uid, sz = 36 }) => {
+    const c = acol(uid);
     return (
-      <div style={{
-        width: sz, height: sz, borderRadius: "50%", background: `${c}18`, border: `1.5px solid ${c}50`,
+      <div title={uname(uid)} style={{
+        width: sz, height: sz, borderRadius: "50%",
+        background: `${c}18`, border: `1.5px solid ${c}50`,
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: Math.max(sz * 0.36, 9), fontWeight: 700, color: c, flexShrink: 0,
-      }}>{u.avatar}</div>
+        fontSize: Math.max(sz * 0.34, 10), fontWeight: 700, color: c, flexShrink: 0,
+      }}>{ini(uid)}</div>
     );
   };
 
-  const totalUnread = CHANNELS.reduce((s, c) => s + c.unread, 0);
-
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Sidebar */}
+      {/* Channel sidebar */}
       <div style={{ width: 240, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.bg, flexShrink: 0 }}>
-        {/* Sidebar header */}
-        <div style={{ padding: "20px 16px 14px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Messages</span>
-            {totalUnread > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, background: T.accent, color: "#fff", borderRadius: 10, padding: "1px 7px" }}>{totalUnread}</span>
-            )}
+        <div style={{ padding: "16px 16px 10px" }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Channels</span>
+        </div>
+        <div style={{ padding: "0 8px 8px" }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "5px 10px",
+            background: T.surface2, borderRadius: 6, border: `1px solid ${T.border}`,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill={T.text3}><circle cx="7" cy="7" r="5.5" fill="none" stroke={T.text3} strokeWidth="2"/><line x1="11" y1="11" x2="15" y2="15" stroke={T.text3} strokeWidth="2" strokeLinecap="round"/></svg>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, fontFamily: "inherit" }} />
           </div>
         </div>
-
-        {/* Search */}
-        <div style={{ padding: "0 12px 12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.5" stroke={T.text3} strokeWidth="2" fill="none"/><line x1="11" y1="11" x2="15" y2="15" stroke={T.text3} strokeWidth="2" strokeLinecap="round"/></svg>
-            <span style={{ fontSize: 12, color: T.text3 }}>Search messages…</span>
-          </div>
-        </div>
-
-        {/* Channels section */}
-        <div style={{ padding: "0 8px" }}>
-          <div style={{ padding: "8px 12px 6px", fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.06em", textTransform: "uppercase" }}>Channels</div>
-          {CHANNELS.map(c => {
-            const on = ch === c.id;
+        <div style={{ flex: 1, overflow: "auto", padding: "0 8px" }}>
+          {filteredCh.map(ch => {
+            const on = activeCh === ch.id;
             return (
-              <button key={c.id} onClick={() => setCh(c.id)} style={{
+              <button key={ch.id} onClick={() => setActiveCh(ch.id)} style={{
                 width: "100%", textAlign: "left", padding: "8px 12px", borderRadius: 8, border: "none",
-                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: on ? `${T.accent}15` : "transparent", color: on ? T.text : T.text2,
-                fontSize: 13, marginBottom: 1, transition: "all 0.12s", fontWeight: on ? 600 : 400,
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, marginBottom: 1,
+                background: on ? `${T.accent}15` : "transparent",
+                color: on ? T.text : T.text2, fontWeight: on ? 600 : 400,
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ color: T.text3, fontSize: 14 }}>#</span>
-                  <span>{c.name}</span>
-                </div>
-                {c.unread > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, background: T.accent, color: "#fff", borderRadius: 10, padding: "1px 7px", minWidth: 18, textAlign: "center" }}>{c.unread}</span>
-                )}
+                <span style={{ color: T.text3, fontSize: 15 }}>#</span>
+                {ch.name}
               </button>
-            );
-          })}
-        </div>
-
-        {/* DMs section */}
-        <div style={{ padding: "12px 8px 0" }}>
-          <div style={{ padding: "8px 12px 6px", fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.06em", textTransform: "uppercase" }}>Direct Messages</div>
-          {USERS.slice(1, 5).map(u => {
-            const c = AVATAR_COLORS[u.id.charCodeAt(1) % AVATAR_COLORS.length];
-            return (
-              <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 12px", borderRadius: 8, cursor: "pointer", transition: "background 0.1s" }}>
-                <div style={{ position: "relative" }}>
-                  <div style={{ width: 24, height: 24, borderRadius: 12, background: `${c}18`, border: `1px solid ${c}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: c }}>{u.avatar}</div>
-                  <div style={{ position: "absolute", bottom: -1, right: -1, width: 8, height: 8, borderRadius: 8, background: T.green, border: `2px solid ${T.bg}` }} />
-                </div>
-                <span style={{ fontSize: 12, color: T.text2 }}>{u.name}</span>
-              </div>
             );
           })}
         </div>
       </div>
 
-      {/* Main chat area */}
+      {/* Message area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Channel header */}
-        <div style={{ padding: "12px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: T.surface, flexShrink: 0 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 16, color: T.text3 }}>#</span>
-              <span style={{ fontSize: 16, fontWeight: 700 }}>{channel?.name}</span>
-            </div>
-            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
-              {channel?.name === "general" && "Company-wide announcements and work-based matters"}
-              {channel?.name === "engineering" && "Engineering team discussions, PRs, and architecture"}
-              {channel?.name === "design" && "Design system, reviews, and visual updates"}
-              {channel?.name === "product-updates" && "Product launches, feature updates, and roadmap"}
+        {channel && (
+          <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: T.surface }}>
+            <span style={{ fontSize: 18, color: T.text3 }}>#</span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{channel.name}</div>
+              {channel.description && <div style={{ fontSize: 11, color: T.text3 }}>{channel.description}</div>}
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke={T.text3} strokeWidth="1.5"/><circle cx="8" cy="8" r="2" fill={T.text3}/></svg>
-              <span style={{ fontSize: 11, color: T.text3 }}>{USERS.length} members</span>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Messages */}
-        <div style={{ flex: 1, overflow: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 4 }}>
-          {/* Date divider */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "8px 0 16px" }}>
-            <div style={{ flex: 1, height: 1, background: T.border }} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: T.text3, padding: "2px 10px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>Today</span>
-            <div style={{ flex: 1, height: 1, background: T.border }} />
-          </div>
-
-          {msgs.map(m => {
-            const u = getUser(m.user);
-            const hov = hoveredMsg === m.id;
-            return (
-              <div key={m.id}
-                onMouseEnter={() => setHoveredMsg(m.id)}
-                onMouseLeave={() => setHoveredMsg(null)}
-                style={{
-                  display: "flex", gap: 12, padding: "8px 12px", borderRadius: 8, position: "relative",
-                  background: hov ? `${T.text}04` : "transparent", transition: "background 0.1s",
-                }}>
-                <Ava uid={m.user} sz={36} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700 }}>{u.name}</span>
-                    <span style={{ fontSize: 11, color: T.text3 }}>{m.time}</span>
-                  </div>
-                  <div style={{ fontSize: 14, color: T.text2, lineHeight: 1.55 }}>{m.text}</div>
-                  {m.reactions.length > 0 && (
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      {m.reactions.map((r, i) => (
-                        <span key={i} style={{
-                          background: T.surface2, padding: "3px 8px", borderRadius: 12,
-                          fontSize: 12, border: `1px solid ${T.border}`, cursor: "pointer",
-                          display: "flex", alignItems: "center", gap: 4,
-                        }}>
-                          {r.emoji} <span style={{ fontSize: 11, fontWeight: 600, color: T.text2 }}>{r.count}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
+        <div style={{ flex: 1, overflow: "auto", padding: "16px 20px" }}>
+          {grouped.map((item, i) => {
+            if (item.type === "date") {
+              return (
+                <div key={`date-${i}`} style={{ display: "flex", alignItems: "center", gap: 16, margin: "20px 0 12px", userSelect: "none" }}>
+                  <div style={{ flex: 1, height: 1, background: T.border }} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: T.text3, whiteSpace: "nowrap" }}>{item.date}</span>
+                  <div style={{ flex: 1, height: 1, background: T.border }} />
                 </div>
-                {/* Hover actions */}
-                {hov && (
-                  <div style={{
-                    position: "absolute", top: -4, right: 12, display: "flex", gap: 2,
-                    background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}`,
-                    padding: 2, boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                  }}>
-                    {["😊", "👍", "🧵", "⋯"].map(e => (
-                      <button key={e} style={{
-                        width: 28, height: 28, borderRadius: 6, border: "none",
-                        background: "transparent", cursor: "pointer", fontSize: 13,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        color: T.text3,
-                      }}>{e}</button>
-                    ))}
+              );
+            }
+            const time = new Date(item.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+            // Check if same author as previous message (compact mode)
+            const prev = grouped[i - 1];
+            const compact = prev?.type === "msg" && prev.author_id === item.author_id;
+
+            if (compact) {
+              return (
+                <div key={item.id} style={{ padding: "2px 0 2px 52px", fontSize: 14, color: T.text2, lineHeight: 1.5 }}>
+                  {item.content}
+                </div>
+              );
+            }
+
+            return (
+              <div key={item.id} style={{ display: "flex", gap: 12, padding: "8px 0" }}>
+                <Ava uid={item.author_id} sz={36} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: acol(item.author_id) }}>{uname(item.author_id)}</span>
+                    <span style={{ fontSize: 11, color: T.text3 }}>{time}</span>
                   </div>
-                )}
+                  <div style={{ fontSize: 14, color: T.text2, lineHeight: 1.5 }}>{item.content}</div>
+                </div>
               </div>
             );
           })}
+          <div ref={bottomRef} />
         </div>
 
-        {/* Composer */}
-        <div style={{ padding: "12px 24px 16px", borderTop: `1px solid ${T.border}`, background: T.surface }}>
+        {/* Input */}
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
           <div style={{
-            display: "flex", alignItems: "flex-end", gap: 8,
-            background: T.surface2, borderRadius: 12, border: `1px solid ${input ? T.accent : T.border}`,
-            padding: "10px 14px", transition: "border-color 0.15s",
+            display: "flex", alignItems: "center", gap: 10,
+            background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`,
+            padding: "10px 14px",
           }}>
-            {/* Formatting toolbar */}
-            <div style={{ display: "flex", gap: 4, paddingBottom: 2, flexShrink: 0 }}>
-              {["B", "I", "🔗", "📎"].map(b => (
-                <button key={b} style={{
-                  width: 28, height: 28, borderRadius: 6, border: "none",
-                  background: "transparent", cursor: "pointer", fontSize: 12,
-                  color: T.text3, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontWeight: b === "B" ? 800 : b === "I" ? 400 : 400,
-                  fontStyle: b === "I" ? "italic" : "normal",
-                }}>{b}</button>
-              ))}
-            </div>
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
+            <input value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder={`Message #${channel?.name}…`}
-              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 14, fontFamily: "inherit", padding: "2px 0" }}
+              placeholder={channel ? `Message #${channel.name}` : "Type a message…"}
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 14, fontFamily: "inherit" }}
             />
-            <button onClick={sendMessage} disabled={!input.trim()} style={{
-              width: 32, height: 32, borderRadius: 8, border: "none", flexShrink: 0,
-              background: input.trim() ? T.accent : T.surface3, cursor: input.trim() ? "pointer" : "default",
-              display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s",
-            }}>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M2 8h12M10 4l4 4-4 4" stroke={input.trim() ? "#fff" : T.text3} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+            <button onClick={sendMessage} style={{
+              background: input.trim() ? T.accent : T.surface3,
+              border: "none", borderRadius: 6, padding: "6px 14px", cursor: input.trim() ? "pointer" : "default",
+              color: input.trim() ? "#fff" : T.text3, fontSize: 12, fontWeight: 600,
+              transition: "all 0.15s",
+            }}>Send</button>
           </div>
         </div>
       </div>

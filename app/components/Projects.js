@@ -7,16 +7,19 @@ import { T } from "../tokens";
    CONFIG
    ═══════════════════════════════════════════════════════ */
 const STATUS = {
+  backlog:     { label: "Backlog",     color: "#6b7280", bg: "#1a1d2a" },
   todo:        { label: "To Do",       color: "#8b93a8", bg: "#1c2030" },
   in_progress: { label: "Working",     color: "#3b82f6", bg: "#1d3a6a" },
+  in_review:   { label: "In Review",   color: "#a855f7", bg: "#2d1650" },
   done:        { label: "Done",        color: "#22c55e", bg: "#0d3a20" },
-  blocked:     { label: "Blocked",     color: "#ef4444", bg: "#3d1111" },
+  cancelled:   { label: "Cancelled",   color: "#ef4444", bg: "#3d1111" },
 };
 const PRIORITY = {
-  critical: { label: "Critical", color: "#fff",    bg: "#ef4444", dot: "#ef4444" },
-  high:     { label: "High",     color: "#ef4444", bg: "#3d1111", dot: "#ef4444" },
-  medium:   { label: "Medium",   color: "#eab308", bg: "#3d3000", dot: "#eab308" },
-  low:      { label: "Low",      color: "#22c55e", bg: "#0d3a20", dot: "#22c55e" },
+  urgent:   { label: "Urgent",  color: "#fff",    bg: "#ef4444", dot: "#ef4444" },
+  high:     { label: "High",    color: "#ef4444", bg: "#3d1111", dot: "#ef4444" },
+  medium:   { label: "Medium",  color: "#eab308", bg: "#3d3000", dot: "#eab308" },
+  low:      { label: "Low",     color: "#22c55e", bg: "#0d3a20", dot: "#22c55e" },
+  none:     { label: "None",    color: "#6b7280", bg: "#1a1d2a", dot: "#6b7280" },
 };
 const SECTION_COLORS = ["#3b82f6", "#a855f7", "#22c55e", "#eab308", "#ef4444", "#ec4899", "#f97316", "#06b6d4"];
 const AVATAR_COLORS = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#f97316", "#22c55e", "#84cc16", "#ef4444"];
@@ -44,7 +47,7 @@ export default function ProjectsView() {
   useEffect(() => {
     (async () => {
       const [{ data: p }, { data: prof }] = await Promise.all([
-        supabase.from("projects").select("*").order("name"),
+        supabase.from("projects").select("*").is("deleted_at", null).order("name"),
         supabase.from("profiles").select("id,display_name,avatar_url"),
       ]);
       setProjects(p || []);
@@ -59,7 +62,7 @@ export default function ProjectsView() {
     (async () => {
       const [{ data: s }, { data: t }] = await Promise.all([
         supabase.from("sections").select("*").eq("project_id", activeProject).order("sort_order"),
-        supabase.from("tasks").select("*").eq("project_id", activeProject),
+        supabase.from("tasks").select("*").eq("project_id", activeProject).is("deleted_at", null).order("sort_order"),
       ]);
       setSections(s || []); setTasks(t || []);
       setSelectedTask(null); setCollapsed({}); setEditingCell(null);
@@ -190,10 +193,6 @@ export default function ProjectsView() {
                 <span style={{ color: v.color }}>{v.label}</span>
               </DropdownItem>
             ))}
-            <DropdownItem onClick={() => updateField(task.id, "priority", null)}>
-              <span style={{ width: 6, height: 6, borderRadius: 6, background: T.text3 }} />
-              <span style={{ color: T.text3 }}>None</span>
-            </DropdownItem>
           </Dropdown>
         )}
       </div>
@@ -591,7 +590,7 @@ export default function ProjectsView() {
               {PRIORITY[selectedTask.priority] && <span style={{ width: 8, height: 8, borderRadius: 8, background: PRIORITY[selectedTask.priority].dot }} />}
               <select value={selectedTask.priority || ""} onChange={e => updateField(selectedTask.id, "priority", e.target.value || null)}
                 style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                <option value="">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
+                <option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
               </select>
             </div>
           </PanelField>
@@ -600,7 +599,7 @@ export default function ProjectsView() {
               <span style={{ width: 8, height: 8, borderRadius: 2, background: STATUS[selectedTask.status]?.color || T.text3 }} />
               <select value={selectedTask.status || "todo"} onChange={e => updateField(selectedTask.id, "status", e.target.value)}
                 style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                <option value="todo">To Do</option><option value="in_progress">In Progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+                <option value="backlog">Backlog</option><option value="todo">To Do</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option><option value="done">Done</option><option value="cancelled">Cancelled</option>
               </select>
             </div>
           </PanelField>
