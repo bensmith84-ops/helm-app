@@ -64,6 +64,7 @@ export default function ProjectsView() {
   const [myTasksProjects, setMyTasksProjects] = useState({});
   const [dragTask, setDragTask] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState(new Set());
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -446,6 +447,41 @@ export default function ProjectsView() {
       await supabase.from("tasks").update({ sort_order: u.sort_order, section_id: u.section_id }).eq("id", u.id);
     }
     setDragTask(null); setDragOverTarget(null);
+  };
+
+  /* ── Bulk actions ── */
+  const toggleSelectTask = (taskId, e) => {
+    e.stopPropagation();
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId); else next.add(taskId);
+      return next;
+    });
+  };
+  const selectAllInSection = (sectionId) => {
+    const ids = tasks.filter(t => t.section_id === sectionId && !t.parent_task_id).map(t => t.id);
+    setSelectedTaskIds(new Set(ids));
+  };
+  const clearSelection = () => setSelectedTaskIds(new Set());
+  const bulkUpdateStatus = async (status) => {
+    const ids = [...selectedTaskIds];
+    setTasks(p => p.map(t => ids.includes(t.id) ? { ...t, status } : t));
+    for (const id of ids) await supabase.from("tasks").update({ status }).eq("id", id);
+    showToast(`${ids.length} tasks updated`, "success"); clearSelection();
+  };
+  const bulkUpdateAssignee = async (assigneeId) => {
+    const ids = [...selectedTaskIds];
+    setTasks(p => p.map(t => ids.includes(t.id) ? { ...t, assignee_id: assigneeId } : t));
+    for (const id of ids) await supabase.from("tasks").update({ assignee_id: assigneeId }).eq("id", id);
+    showToast(`${ids.length} tasks assigned`, "success"); clearSelection();
+  };
+  const bulkDelete = async () => {
+    if (!confirm(`Delete ${selectedTaskIds.size} tasks?`)) return;
+    const ids = [...selectedTaskIds];
+    setTasks(p => p.filter(t => !ids.includes(t.id)));
+    for (const id of ids) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    showToast(`${ids.length} tasks deleted`, "success"); clearSelection();
+    if (selectedTask && ids.includes(selectedTask.id)) setSelectedTask(null);
   };
 
   if (loading) return (
@@ -850,13 +886,13 @@ export default function ProjectsView() {
                     onDrop={(e) => { e.preventDefault(); handleDrop(task.id, sec.id); }}
                     onMouseEnter={() => setHoveredRow(task.id)}
                     onMouseLeave={() => setHoveredRow(null)}
-                    onClick={() => setSelectedTask(task)}
+                    onClick={(e) => { if (e.ctrlKey || e.metaKey) { toggleSelectTask(task.id, e); } else { clearSelection(); setSelectedTask(task); } }}
                     style={{
                       display: "grid", gridTemplateColumns: "40px 1fr 90px 90px 150px 100px",
                       gap: 0, padding: "0 28px", alignItems: "center", height: 38,
                       cursor: dragTask ? "grabbing" : "pointer", borderBottom: `1px solid ${T.border}`,
-                      background: dragOverTarget === task.id && dragTask ? `${T.accent}20` : sel ? `${T.accent}10` : hov ? `${T.text}06` : "transparent",
-                      borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent",
+                      background: selectedTaskIds.has(task.id) ? `${T.accent}18` : dragOverTarget === task.id && dragTask ? `${T.accent}20` : sel ? `${T.accent}10` : hov ? `${T.text}06` : "transparent",
+                      borderLeft: selectedTaskIds.has(task.id) ? `3px solid ${T.accent}` : sel ? `3px solid ${T.accent}` : "3px solid transparent",
                       borderTop: dragOverTarget === task.id && dragTask ? `2px solid ${T.accent}` : "2px solid transparent",
                       transition: "background 0.1s",
                       opacity: dragTask?.id === task.id ? 0.4 : 1,
@@ -1771,6 +1807,31 @@ export default function ProjectsView() {
         {activeProject === "__my_tasks__" ? myTasksView : (
           <>
             {header}
+            {/* Bulk actions toolbar */}
+            {selectedTaskIds.size > 0 && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "8px 28px",
+                background: `${T.accent}15`, borderBottom: `1px solid ${T.accent}30`,
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{selectedTaskIds.size} selected</span>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <select onChange={e => { if (e.target.value) bulkUpdateStatus(e.target.value); e.target.value = ""; }}
+                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer", fontFamily: "inherit" }}>
+                    <option value="">Set status…</option>
+                    <option value="backlog">Backlog</option><option value="todo">To Do</option><option value="in_progress">In Progress</option>
+                    <option value="in_review">In Review</option><option value="done">Done</option><option value="cancelled">Cancelled</option>
+                  </select>
+                  <select onChange={e => { if (e.target.value !== "") bulkUpdateAssignee(e.target.value || null); e.target.value = ""; }}
+                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer", fontFamily: "inherit" }}>
+                    <option value="">Assign to…</option><option value="">Unassigned</option>
+                    {Object.values(profiles).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+                  </select>
+                  <button onClick={bulkDelete} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 4, border: "1px solid #ef444440", background: "#ef444410", color: "#ef4444", cursor: "pointer", fontWeight: 600 }}>Delete</button>
+                </div>
+                <div style={{ flex: 1 }} />
+                <button onClick={clearSelection} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
+              </div>
+            )}
             {proj && (viewMode === "list" ? listView : viewMode === "board" ? boardView : viewMode === "timeline" ? timelineView : viewMode === "calendar" ? calendarView : tableView)}
             {!proj && !loading && (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
