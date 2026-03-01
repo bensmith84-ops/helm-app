@@ -59,6 +59,7 @@ export default function ProjectsView() {
   const [newComment, setNewComment] = useState("");
   const [dependencies, setDependencies] = useState([]); // { id, predecessor_id, successor_id }
   const [attachments, setAttachments] = useState([]);
+  const [tableSort, setTableSort] = useState({ col: "title", dir: "asc" });
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -671,6 +672,7 @@ export default function ProjectsView() {
           { k: "board", l: "Board", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="14" rx="1"/><rect x="6" y="1" width="4" height="10" rx="1"/><rect x="11" y="1" width="4" height="7" rx="1"/></svg> },
           { k: "timeline", l: "Timeline", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="8" height="2" rx="1"/><rect x="4" y="7" width="10" height="2" rx="1"/><rect x="2" y="12" width="6" height="2" rx="1"/></svg> },
           { k: "calendar", l: "Calendar", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="3" width="14" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="7" x2="15" y2="7" stroke="currentColor" strokeWidth="1.5"/><line x1="5" y1="1" x2="5" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="11" y1="1" x2="11" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+          { k: "table", l: "Table", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="14" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="5.5" x2="15" y2="5.5" stroke="currentColor" strokeWidth="1"/><line x1="1" y1="10" x2="15" y2="10" stroke="currentColor" strokeWidth="1"/><line x1="6" y1="1" x2="6" y2="15" stroke="currentColor" strokeWidth="1"/></svg> },
         ].map(v => (
           <button key={v.k} onClick={() => setViewMode(v.k)} style={{
             padding: "9px 16px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500,
@@ -1142,6 +1144,92 @@ export default function ProjectsView() {
   })();
 
   /* ═══════════════════════════════════════════════════════
+     TABLE VIEW (Spreadsheet-style sortable)
+     ═══════════════════════════════════════════════════════ */
+  const tableView = (() => {
+    const rootFiltered = filt.filter(t => !t.parent_task_id);
+    const COLS = [
+      { key: "title", label: "Task", flex: 3 },
+      { key: "status", label: "Status", flex: 1 },
+      { key: "priority", label: "Priority", flex: 1 },
+      { key: "assignee_id", label: "Assignee", flex: 1.5 },
+      { key: "section_id", label: "Section", flex: 1 },
+      { key: "due_date", label: "Due Date", flex: 1 },
+      { key: "created_at", label: "Created", flex: 1 },
+    ];
+    const toggleSort = (col) => setTableSort(p => ({ col, dir: p.col === col && p.dir === "asc" ? "desc" : "asc" }));
+    const sorted = [...rootFiltered].sort((a, b) => {
+      const { col, dir } = tableSort;
+      let av = a[col], bv = b[col];
+      if (col === "assignee_id") { av = uname(av) || "zzz"; bv = uname(bv) || "zzz"; }
+      if (col === "section_id") { av = sections.find(s => s.id === av)?.name || ""; bv = sections.find(s => s.id === bv)?.name || ""; }
+      if (av == null) av = ""; if (bv == null) bv = "";
+      const cmp = typeof av === "string" ? av.localeCompare(bv) : av > bv ? 1 : av < bv ? -1 : 0;
+      return dir === "asc" ? cmp : -cmp;
+    });
+    const arrow = (col) => tableSort.col === col ? (tableSort.dir === "asc" ? " ↑" : " ↓") : "";
+    const hStyle = { padding: "8px 10px", fontSize: 11, fontWeight: 700, color: T.text3, cursor: "pointer", userSelect: "none", borderBottom: `2px solid ${T.border}`, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: "0.04em" };
+    const cStyle = { padding: "7px 10px", fontSize: 12, color: T.text2, borderBottom: `1px solid ${T.border}30`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+    return (
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+          <thead style={{ position: "sticky", top: 0, background: T.surface, zIndex: 5 }}>
+            <tr>
+              {COLS.map(c => (
+                <th key={c.key} onClick={() => toggleSort(c.key)} style={{ ...hStyle, width: c.flex === 3 ? "auto" : undefined, textAlign: "left" }}>
+                  {c.label}{arrow(c.key)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(task => {
+              const dn = task.status === "done";
+              const secName = sections.find(s => s.id === task.section_id)?.name || "—";
+              const pcfg = PRIORITY[task.priority];
+              const scfg = STATUS[task.status];
+              return (
+                <tr key={task.id} onClick={() => setSelectedTask(task)} style={{ cursor: "pointer", background: "transparent" }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <td style={{ ...cStyle, fontWeight: 500, color: dn ? T.text3 : T.text, textDecoration: dn ? "line-through" : "none" }}>{task.title}</td>
+                  <td style={cStyle}>
+                    <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: scfg?.bg || T.surface2, color: scfg?.color || T.text3, border: `1px solid ${scfg?.color || T.border}30` }}>
+                      {scfg?.label || task.status}
+                    </span>
+                  </td>
+                  <td style={cStyle}>
+                    {pcfg ? (
+                      <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: pcfg.bg, color: pcfg.color, border: `1px solid ${pcfg.color}30` }}>
+                        {pcfg.label}
+                      </span>
+                    ) : <span style={{ color: T.text3 }}>—</span>}
+                  </td>
+                  <td style={cStyle}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Ava uid={task.assignee_id} sz={20} />
+                      <span style={{ color: task.assignee_id ? T.text2 : T.text3 }}>{task.assignee_id ? uname(task.assignee_id) : "—"}</span>
+                    </div>
+                  </td>
+                  <td style={{ ...cStyle, color: T.text3 }}>{secName}</td>
+                  <td style={{ ...cStyle, color: task.due_date ? T.text2 : T.text3 }}>
+                    {task.due_date ? new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                  </td>
+                  <td style={{ ...cStyle, color: T.text3, fontSize: 11 }}>
+                    {task.created_at ? new Date(task.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {sorted.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>No tasks to display</div>
+        )}
+      </div>
+    );
+  })();
+
+  /* ═══════════════════════════════════════════════════════
      DETAIL PANEL (Asana-style slide-over)
      ═══════════════════════════════════════════════════════ */
   const detail = selectedTask && (
@@ -1542,7 +1630,7 @@ export default function ProjectsView() {
       {sidebar}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {header}
-        {proj && (viewMode === "list" ? listView : viewMode === "board" ? boardView : viewMode === "timeline" ? timelineView : calendarView)}
+        {proj && (viewMode === "list" ? listView : viewMode === "board" ? boardView : viewMode === "timeline" ? timelineView : viewMode === "calendar" ? calendarView : tableView)}
         {!proj && !loading && (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 14, color: T.text3 }}>No projects yet</div>
