@@ -42,6 +42,10 @@ export default function ProjectsView() {
   const [collapsed, setCollapsed] = useState({});
   const [editingCell, setEditingCell] = useState(null); // { taskId, field }
   const [hoveredRow, setHoveredRow] = useState(null);
+  const [editingSectionId, setEditingSectionId] = useState(null);
+  const [editingSectionName, setEditingSectionName] = useState("");
+  const [addingSection, setAddingSection] = useState(false);
+  const [newSectionName, setNewSectionName] = useState("");
 
   /* ── Data loading ── */
   useEffect(() => {
@@ -120,6 +124,59 @@ export default function ProjectsView() {
     if (error) { console.error("createTask failed:", error); return; }
     if (data) setTasks(p => [...p, data]);
     setNewTitle(""); setAddingTo(null);
+  };
+
+  /* ── Section mutations ── */
+  const createSection = async () => {
+    if (!newSectionName.trim()) { setAddingSection(false); return; }
+    const maxSort = sections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0);
+    const { data, error } = await supabase.from("sections").insert({
+      project_id: activeProject, name: newSectionName.trim(), sort_order: maxSort + 1,
+    }).select().single();
+    if (error) { console.error("createSection failed:", error); return; }
+    if (data) setSections(p => [...p, data]);
+    setNewSectionName(""); setAddingSection(false);
+  };
+
+  const renameSection = async (secId) => {
+    if (!editingSectionName.trim()) { setEditingSectionId(null); return; }
+    setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s));
+    const { error } = await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId);
+    if (error) console.error("renameSection failed:", error);
+    setEditingSectionId(null);
+  };
+
+  const deleteSection = async (secId) => {
+    const secTasks = tasks.filter(t => t.section_id === secId);
+    if (secTasks.length > 0 && !confirm(`This section has ${secTasks.length} task(s). Delete section and all its tasks?`)) return;
+    // Soft-delete tasks in section
+    if (secTasks.length > 0) {
+      setTasks(p => p.filter(t => t.section_id !== secId));
+      await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("section_id", secId);
+    }
+    setSections(p => p.filter(s => s.id !== secId));
+    const { error } = await supabase.from("sections").delete().eq("id", secId);
+    if (error) console.error("deleteSection failed:", error);
+  };
+
+  const moveSectionUp = async (secId) => {
+    const idx = sections.findIndex(s => s.id === secId);
+    if (idx <= 0) return;
+    const newSections = [...sections];
+    [newSections[idx - 1], newSections[idx]] = [newSections[idx], newSections[idx - 1]];
+    const updated = newSections.map((s, i) => ({ ...s, sort_order: i + 1 }));
+    setSections(updated);
+    await Promise.all(updated.map(s => supabase.from("sections").update({ sort_order: s.sort_order }).eq("id", s.id)));
+  };
+
+  const moveSectionDown = async (secId) => {
+    const idx = sections.findIndex(s => s.id === secId);
+    if (idx < 0 || idx >= sections.length - 1) return;
+    const newSections = [...sections];
+    [newSections[idx], newSections[idx + 1]] = [newSections[idx + 1], newSections[idx]];
+    const updated = newSections.map((s, i) => ({ ...s, sort_order: i + 1 }));
+    setSections(updated);
+    await Promise.all(updated.map(s => supabase.from("sections").update({ sort_order: s.sort_order }).eq("id", s.id)));
   };
 
   if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading projects…</div>;
@@ -384,19 +441,38 @@ export default function ProjectsView() {
               padding: "10px 28px", cursor: "pointer", userSelect: "none",
               background: T.surface, borderBottom: `1px solid ${T.border}`,
               position: "sticky", top: 0, zIndex: 2,
-            }} onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))}>
+            }}>
               {/* Color bar */}
               <div style={{ width: 4, height: 20, borderRadius: 2, background: sc, marginRight: 12, flexShrink: 0 }} />
-              <svg width="10" height="10" viewBox="0 0 10 10" fill={T.text3} style={{ transition: "transform 0.2s", transform: cl ? "rotate(-90deg)" : "rotate(0)", marginRight: 10, flexShrink: 0 }}>
+              <svg onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))} width="10" height="10" viewBox="0 0 10 10" fill={T.text3} style={{ transition: "transform 0.2s", transform: cl ? "rotate(-90deg)" : "rotate(0)", marginRight: 10, flexShrink: 0, cursor: "pointer" }}>
                 <path d="M2 3l3 3.5L8 3" fill="none" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{sec.name}</span>
-              <span style={{ fontSize: 11, color: T.text3, marginLeft: 8 }}>{sd}/{st.length}</span>
+              {editingSectionId === sec.id ? (
+                <input autoFocus value={editingSectionName}
+                  onChange={e => setEditingSectionName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") renameSection(sec.id); if (e.key === "Escape") setEditingSectionId(null); }}
+                  onBlur={() => renameSection(sec.id)}
+                  onClick={e => e.stopPropagation()}
+                  style={{ fontSize: 14, fontWeight: 700, color: T.text, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, outline: "none", padding: "2px 8px", fontFamily: "inherit" }} />
+              ) : (
+                <span onDoubleClick={(e) => { e.stopPropagation(); setEditingSectionId(sec.id); setEditingSectionName(sec.name); }}
+                  onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))}
+                  style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{sec.name}</span>
+              )}
+              <span style={{ fontSize: 11, color: T.text3, marginLeft: 8 }} onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))}>{sd}/{st.length}</span>
               {st.length > 0 && (
                 <div style={{ width: 48, height: 3, borderRadius: 3, background: T.surface3, overflow: "hidden", marginLeft: 10 }}>
                   <div style={{ width: `${st.length > 0 ? (sd / st.length) * 100 : 0}%`, height: "100%", borderRadius: 3, background: sc, transition: "width 0.3s" }} />
                 </div>
               )}
+              <div style={{ flex: 1 }} />
+              {/* Section actions */}
+              <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={e => e.stopPropagation()}>
+                {si > 0 && <button onClick={() => moveSectionUp(sec.id)} title="Move up" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: "2px 4px", lineHeight: 1 }}>↑</button>}
+                {si < sections.length - 1 && <button onClick={() => moveSectionDown(sec.id)} title="Move down" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: "2px 4px", lineHeight: 1 }}>↓</button>}
+                <button onClick={() => { setEditingSectionId(sec.id); setEditingSectionName(sec.name); }} title="Rename" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: "2px 4px", lineHeight: 1 }}>✏️</button>
+                <button onClick={() => deleteSection(sec.id)} title="Delete section" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: "2px 4px", lineHeight: 1 }}>🗑</button>
+              </div>
             </div>
             {/* Column headers */}
             {!cl && st.length > 0 && (
@@ -461,6 +537,20 @@ export default function ProjectsView() {
           </div>
         );
       })}
+      {/* Add section */}
+      {addingSection ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 28px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+          <input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") { setAddingSection(false); setNewSectionName(""); } }}
+            placeholder="Section name…" style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit" }} />
+          <button onClick={createSection} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add</button>
+          <button onClick={() => { setAddingSection(false); setNewSectionName(""); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+        </div>
+      ) : (
+        <div onClick={() => { setAddingSection(true); setNewSectionName(""); }} style={{ padding: "10px 28px", cursor: "pointer", color: T.text3, fontSize: 13, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6, transition: "color 0.15s" }}>
+          <span style={{ fontSize: 15, fontWeight: 300, lineHeight: 1 }}>+</span> Add section…
+        </div>
+      )}
     </div>
   );
 
@@ -548,6 +638,28 @@ export default function ProjectsView() {
           </div>
         );
       })}
+      {/* Add section column */}
+      <div style={{ minWidth: 290, width: 290, flexShrink: 0 }}>
+        {addingSection ? (
+          <div style={{ background: T.surface2, borderRadius: 10, padding: 12 }}>
+            <input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") { setAddingSection(false); setNewSectionName(""); } }}
+              placeholder="Section name…" style={{ width: "100%", fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", marginBottom: 8 }} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={createSection} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add</button>
+              <button onClick={() => { setAddingSection(false); setNewSectionName(""); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>×</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => { setAddingSection(true); setNewSectionName(""); }} style={{
+            width: "100%", padding: "12px", borderRadius: 10, border: `1px dashed ${T.border2}`,
+            background: "transparent", color: T.text3, cursor: "pointer", fontSize: 13, fontWeight: 600,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}>
+            <span style={{ fontSize: 16, fontWeight: 300, lineHeight: 1 }}>+</span> Add section
+          </button>
+        )}
+      </div>
     </div>
   );
 
