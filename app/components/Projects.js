@@ -7,16 +7,19 @@ import { T } from "../tokens";
    CONFIG
    ═══════════════════════════════════════════════════════ */
 const STATUS = {
+  backlog:     { label: "Backlog",     color: "#6b7280", bg: "#1a1d2a" },
   todo:        { label: "To Do",       color: "#8b93a8", bg: "#1c2030" },
   in_progress: { label: "Working",     color: "#3b82f6", bg: "#1d3a6a" },
+  in_review:   { label: "In Review",   color: "#a855f7", bg: "#2d1650" },
   done:        { label: "Done",        color: "#22c55e", bg: "#0d3a20" },
-  blocked:     { label: "Blocked",     color: "#ef4444", bg: "#3d1111" },
+  cancelled:   { label: "Cancelled",   color: "#ef4444", bg: "#3d1111" },
 };
 const PRIORITY = {
-  critical: { label: "Critical", color: "#fff",    bg: "#ef4444", dot: "#ef4444" },
-  high:     { label: "High",     color: "#ef4444", bg: "#3d1111", dot: "#ef4444" },
-  medium:   { label: "Medium",   color: "#eab308", bg: "#3d3000", dot: "#eab308" },
-  low:      { label: "Low",      color: "#22c55e", bg: "#0d3a20", dot: "#22c55e" },
+  urgent:   { label: "Urgent",  color: "#fff",    bg: "#ef4444", dot: "#ef4444" },
+  high:     { label: "High",    color: "#ef4444", bg: "#3d1111", dot: "#ef4444" },
+  medium:   { label: "Medium",  color: "#eab308", bg: "#3d3000", dot: "#eab308" },
+  low:      { label: "Low",     color: "#22c55e", bg: "#0d3a20", dot: "#22c55e" },
+  none:     { label: "None",    color: "#6b7280", bg: "#1a1d2a", dot: "#6b7280" },
 };
 const SECTION_COLORS = ["#3b82f6", "#a855f7", "#22c55e", "#eab308", "#ef4444", "#ec4899", "#f97316", "#06b6d4"];
 const AVATAR_COLORS = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#f97316", "#22c55e", "#84cc16", "#ef4444"];
@@ -39,12 +42,37 @@ export default function ProjectsView() {
   const [collapsed, setCollapsed] = useState({});
   const [editingCell, setEditingCell] = useState(null); // { taskId, field }
   const [hoveredRow, setHoveredRow] = useState(null);
+  const [editingSectionId, setEditingSectionId] = useState(null);
+  const [editingSectionName, setEditingSectionName] = useState("");
+  const [addingSection, setAddingSection] = useState(false);
+  const [newSectionName, setNewSectionName] = useState("");
+  const [showProjectForm, setShowProjectForm] = useState(false); // "new" | "edit" | false
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active" });
+  const [toast, setToast] = useState(null); // { message, type: "error" | "success" }
+
+  const showToast = useCallback((message, type = "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  /* ── Keyboard shortcuts ── */
+  useEffect(() => {
+    const fn = (e) => {
+      if (e.key === "Escape") {
+        if (showProjectForm) setShowProjectForm(false);
+        else if (selectedTask) setSelectedTask(null);
+        else if (editingSectionId) setEditingSectionId(null);
+      }
+    };
+    document.addEventListener("keydown", fn);
+    return () => document.removeEventListener("keydown", fn);
+  }, [showProjectForm, selectedTask, editingSectionId]);
 
   /* ── Data loading ── */
   useEffect(() => {
     (async () => {
       const [{ data: p }, { data: prof }] = await Promise.all([
-        supabase.from("projects").select("*").order("name"),
+        supabase.from("projects").select("*").is("deleted_at", null).order("name"),
         supabase.from("profiles").select("id,display_name,avatar_url"),
       ]);
       setProjects(p || []);
@@ -59,10 +87,11 @@ export default function ProjectsView() {
     (async () => {
       const [{ data: s }, { data: t }] = await Promise.all([
         supabase.from("sections").select("*").eq("project_id", activeProject).order("sort_order"),
-        supabase.from("tasks").select("*").eq("project_id", activeProject),
+        supabase.from("tasks").select("*").eq("project_id", activeProject).is("deleted_at", null).order("sort_order"),
       ]);
       setSections(s || []); setTasks(t || []);
       setSelectedTask(null); setCollapsed({}); setEditingCell(null);
+      setAddingTo(null); setAddingSection(false); setEditingSectionId(null); setSearch("");
     })();
   }, [activeProject]);
 
@@ -81,30 +110,154 @@ export default function ProjectsView() {
   /* ── Task mutations ── */
   const toggleDone = async (task, e) => {
     e?.stopPropagation();
-    const ns = task.status === "done" ? "todo" : "done";
-    setTasks(p => p.map(t => t.id === task.id ? { ...t, status: ns } : t));
-    if (selectedTask?.id === task.id) setSelectedTask(p => ({ ...p, status: ns }));
-    await supabase.from("tasks").update({ status: ns }).eq("id", task.id);
+    const isDone = task.status !== "done";
+    const ns = isDone ? "done" : "todo";
+    const updates = { status: ns, completed_at: isDone ? new Date().toISOString() : null };
+    setTasks(p => p.map(t => t.id === task.id ? { ...t, ...updates } : t));
+    if (selectedTask?.id === task.id) setSelectedTask(p => ({ ...p, ...updates }));
+    const { error } = await supabase.from("tasks").update(updates).eq("id", task.id);
+    if (error) showToast("Failed to update task status");
   };
 
   const updateField = async (taskId, field, value) => {
     setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t));
     if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value }));
-    await supabase.from("tasks").update({ [field]: value }).eq("id", taskId);
+    const { error } = await supabase.from("tasks").update({ [field]: value }).eq("id", taskId);
+    if (error) showToast("Failed to update task");
     setEditingCell(null);
+  };
+
+  const deleteTask = async (taskId) => {
+    setTasks(p => p.filter(t => t.id !== taskId));
+    if (selectedTask?.id === taskId) setSelectedTask(null);
+    const { error } = await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId);
+    if (error) showToast("Failed to delete task");
   };
 
   const createTask = async (sid) => {
     if (!newTitle.trim()) { setAddingTo(null); return; }
-    const { data } = await supabase.from("tasks").insert({
+    const sectionTasks = tasks.filter(t => t.section_id === sid);
+    const maxSort = sectionTasks.reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    const { data, error } = await supabase.from("tasks").insert({
       org_id: proj.org_id, project_id: activeProject, section_id: sid,
       title: newTitle.trim(), status: "todo", priority: "medium",
+      sort_order: maxSort + 1,
     }).select().single();
-    if (data) setTasks(p => [...p, data]);
+    if (error) { showToast("Failed to create task"); return; }
+    if (data) { setTasks(p => [...p, data]); showToast("Task created", "success"); }
     setNewTitle(""); setAddingTo(null);
   };
 
-  if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading projects…</div>;
+  /* ── Section mutations ── */
+  const createSection = async () => {
+    if (!newSectionName.trim()) { setAddingSection(false); return; }
+    const maxSort = sections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0);
+    const { data, error } = await supabase.from("sections").insert({
+      project_id: activeProject, name: newSectionName.trim(), sort_order: maxSort + 1,
+    }).select().single();
+    if (error) { showToast("Failed to create section"); return; }
+    if (data) setSections(p => [...p, data]);
+    setNewSectionName(""); setAddingSection(false);
+  };
+
+  const renameSection = async (secId) => {
+    if (!editingSectionName.trim()) { setEditingSectionId(null); return; }
+    setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s));
+    const { error } = await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId);
+    if (error) showToast("Failed to rename section");
+    setEditingSectionId(null);
+  };
+
+  const deleteSection = async (secId) => {
+    const secTasks = tasks.filter(t => t.section_id === secId);
+    if (secTasks.length > 0 && !confirm(`This section has ${secTasks.length} task(s). Delete section and all its tasks?`)) return;
+    // Soft-delete tasks in section
+    if (secTasks.length > 0) {
+      setTasks(p => p.filter(t => t.section_id !== secId));
+      await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("section_id", secId);
+    }
+    setSections(p => p.filter(s => s.id !== secId));
+    const { error } = await supabase.from("sections").delete().eq("id", secId);
+    if (error) showToast("Failed to delete section");
+  };
+
+  const moveSectionUp = async (secId) => {
+    const idx = sections.findIndex(s => s.id === secId);
+    if (idx <= 0) return;
+    const newSections = [...sections];
+    [newSections[idx - 1], newSections[idx]] = [newSections[idx], newSections[idx - 1]];
+    const updated = newSections.map((s, i) => ({ ...s, sort_order: i + 1 }));
+    setSections(updated);
+    await Promise.all(updated.map(s => supabase.from("sections").update({ sort_order: s.sort_order }).eq("id", s.id)));
+  };
+
+  const moveSectionDown = async (secId) => {
+    const idx = sections.findIndex(s => s.id === secId);
+    if (idx < 0 || idx >= sections.length - 1) return;
+    const newSections = [...sections];
+    [newSections[idx], newSections[idx + 1]] = [newSections[idx + 1], newSections[idx]];
+    const updated = newSections.map((s, i) => ({ ...s, sort_order: i + 1 }));
+    setSections(updated);
+    await Promise.all(updated.map(s => supabase.from("sections").update({ sort_order: s.sort_order }).eq("id", s.id)));
+  };
+
+  /* ── Project mutations ── */
+  const PROJECT_COLORS = ["#3b82f6", "#a855f7", "#22c55e", "#eab308", "#ef4444", "#ec4899", "#f97316", "#06b6d4", "#6366f1", "#14b8a6"];
+
+  const openNewProject = () => {
+    setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active" });
+    setShowProjectForm("new");
+  };
+
+  const openEditProject = () => {
+    if (!proj) return;
+    setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active" });
+    setShowProjectForm("edit");
+  };
+
+  const saveProject = async () => {
+    if (!projectForm.name.trim()) return;
+    if (showProjectForm === "new") {
+      const orgId = projects[0]?.org_id || "a0000000-0000-0000-0000-000000000001";
+      const { data, error } = await supabase.from("projects").insert({
+        org_id: orgId, name: projectForm.name.trim(), description: projectForm.description.trim() || null,
+        color: projectForm.color, status: projectForm.status, visibility: "public", default_view: "list",
+      }).select().single();
+      if (error) { showToast("Failed to create project"); return; }
+      if (data) {
+        setProjects(p => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
+        setActiveProject(data.id);
+        // Create a default section
+        await supabase.from("sections").insert({ project_id: data.id, name: "To Do", sort_order: 1 });
+        const { data: newSecs } = await supabase.from("sections").select("*").eq("project_id", data.id).order("sort_order");
+        setSections(newSecs || []); setTasks([]);
+      }
+    } else {
+      setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...projectForm } : pr));
+      const { error } = await supabase.from("projects").update({
+        name: projectForm.name.trim(), description: projectForm.description.trim() || null,
+        color: projectForm.color, status: projectForm.status,
+      }).eq("id", activeProject);
+      if (error) showToast("Failed to update project");
+    }
+    setShowProjectForm(false);
+  };
+
+  const archiveProject = async () => {
+    if (!confirm("Archive this project? It will be hidden from the list.")) return;
+    setProjects(p => p.filter(pr => pr.id !== activeProject));
+    await supabase.from("projects").update({ status: "archived", deleted_at: new Date().toISOString() }).eq("id", activeProject);
+    setActiveProject(projects.find(p => p.id !== activeProject)?.id || null);
+    setSections([]); setTasks([]); setSelectedTask(null);
+  };
+
+  if (loading) return (
+    <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+      <div style={{ width: 24, height: 24, border: `3px solid ${T.surface3}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <span style={{ color: T.text3, fontSize: 13 }}>Loading projects…</span>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
+    </div>
+  );
 
   /* ═══════════════════════════════════════════════════════
      REUSABLE COMPONENTS
@@ -190,10 +343,6 @@ export default function ProjectsView() {
                 <span style={{ color: v.color }}>{v.label}</span>
               </DropdownItem>
             ))}
-            <DropdownItem onClick={() => updateField(task.id, "priority", null)}>
-              <span style={{ width: 6, height: 6, borderRadius: 6, background: T.text3 }} />
-              <span style={{ color: T.text3 }}>None</span>
-            </DropdownItem>
           </Dropdown>
         )}
       </div>
@@ -267,8 +416,9 @@ export default function ProjectsView() {
      ═══════════════════════════════════════════════════════ */
   const sidebar = (
     <div style={{ width: 248, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.bg, flexShrink: 0 }}>
-      <div style={{ padding: "20px 20px 14px" }}>
+      <div style={{ padding: "20px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Projects</span>
+        <button onClick={openNewProject} title="New project" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 16, lineHeight: 1, padding: "0 2px" }}>+</button>
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "0 8px 16px" }}>
         {projects.map(p => {
@@ -306,6 +456,11 @@ export default function ProjectsView() {
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>{proj.name}</h2>
           {proj.owner_id && profiles[proj.owner_id] && <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Owned by {uname(proj.owner_id)}</div>}
+        </div>
+        {/* Project actions */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginRight: 16 }}>
+          <button onClick={openEditProject} title="Edit project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Edit</button>
+          <button onClick={archiveProject} title="Archive project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: "#ef4444", fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Archive</button>
         </div>
         {/* Progress */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -357,6 +512,13 @@ export default function ProjectsView() {
      ═══════════════════════════════════════════════════════ */
   const listView = (
     <div style={{ flex: 1, overflow: "auto" }} onClick={() => setEditingCell(null)}>
+      {sections.length === 0 && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 20px", gap: 10 }}>
+          <div style={{ fontSize: 13, color: T.text3 }}>This project has no sections yet</div>
+          <button onClick={() => { setAddingSection(true); setNewSectionName(""); }}
+            style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add a section</button>
+        </div>
+      )}
       {sections.map((sec, si) => {
         const st = filt.filter(t => t.section_id === sec.id);
         const sd = st.filter(t => t.status === "done").length;
@@ -370,19 +532,38 @@ export default function ProjectsView() {
               padding: "10px 28px", cursor: "pointer", userSelect: "none",
               background: T.surface, borderBottom: `1px solid ${T.border}`,
               position: "sticky", top: 0, zIndex: 2,
-            }} onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))}>
+            }}>
               {/* Color bar */}
               <div style={{ width: 4, height: 20, borderRadius: 2, background: sc, marginRight: 12, flexShrink: 0 }} />
-              <svg width="10" height="10" viewBox="0 0 10 10" fill={T.text3} style={{ transition: "transform 0.2s", transform: cl ? "rotate(-90deg)" : "rotate(0)", marginRight: 10, flexShrink: 0 }}>
+              <svg onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))} width="10" height="10" viewBox="0 0 10 10" fill={T.text3} style={{ transition: "transform 0.2s", transform: cl ? "rotate(-90deg)" : "rotate(0)", marginRight: 10, flexShrink: 0, cursor: "pointer" }}>
                 <path d="M2 3l3 3.5L8 3" fill="none" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{sec.name}</span>
-              <span style={{ fontSize: 11, color: T.text3, marginLeft: 8 }}>{sd}/{st.length}</span>
+              {editingSectionId === sec.id ? (
+                <input autoFocus value={editingSectionName}
+                  onChange={e => setEditingSectionName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") renameSection(sec.id); if (e.key === "Escape") setEditingSectionId(null); }}
+                  onBlur={() => renameSection(sec.id)}
+                  onClick={e => e.stopPropagation()}
+                  style={{ fontSize: 14, fontWeight: 700, color: T.text, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, outline: "none", padding: "2px 8px", fontFamily: "inherit" }} />
+              ) : (
+                <span onDoubleClick={(e) => { e.stopPropagation(); setEditingSectionId(sec.id); setEditingSectionName(sec.name); }}
+                  onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))}
+                  style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{sec.name}</span>
+              )}
+              <span style={{ fontSize: 11, color: T.text3, marginLeft: 8 }} onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))}>{sd}/{st.length}</span>
               {st.length > 0 && (
                 <div style={{ width: 48, height: 3, borderRadius: 3, background: T.surface3, overflow: "hidden", marginLeft: 10 }}>
                   <div style={{ width: `${st.length > 0 ? (sd / st.length) * 100 : 0}%`, height: "100%", borderRadius: 3, background: sc, transition: "width 0.3s" }} />
                 </div>
               )}
+              <div style={{ flex: 1 }} />
+              {/* Section actions */}
+              <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={e => e.stopPropagation()}>
+                {si > 0 && <button onClick={() => moveSectionUp(sec.id)} title="Move up" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: "2px 4px", lineHeight: 1 }}>↑</button>}
+                {si < sections.length - 1 && <button onClick={() => moveSectionDown(sec.id)} title="Move down" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: "2px 4px", lineHeight: 1 }}>↓</button>}
+                <button onClick={() => { setEditingSectionId(sec.id); setEditingSectionName(sec.name); }} title="Rename" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: "2px 4px", lineHeight: 1 }}>✏️</button>
+                <button onClick={() => deleteSection(sec.id)} title="Delete section" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: "2px 4px", lineHeight: 1 }}>🗑</button>
+              </div>
             </div>
             {/* Column headers */}
             {!cl && st.length > 0 && (
@@ -443,10 +624,28 @@ export default function ProjectsView() {
               );
             })}
             {/* Add task */}
+            {/* Empty section message */}
+            {!cl && st.length === 0 && (
+              <div style={{ padding: "16px 28px 8px 52px", color: T.text3, fontSize: 12, fontStyle: "italic" }}>No tasks in this section</div>
+            )}
             {!cl && <AddRow sid={sec.id} />}
           </div>
         );
       })}
+      {/* Add section */}
+      {addingSection ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 28px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+          <input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") { setAddingSection(false); setNewSectionName(""); } }}
+            placeholder="Section name…" style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit" }} />
+          <button onClick={createSection} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add</button>
+          <button onClick={() => { setAddingSection(false); setNewSectionName(""); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+        </div>
+      ) : (
+        <div onClick={() => { setAddingSection(true); setNewSectionName(""); }} style={{ padding: "10px 28px", cursor: "pointer", color: T.text3, fontSize: 13, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6, transition: "color 0.15s" }}>
+          <span style={{ fontSize: 15, fontWeight: 300, lineHeight: 1 }}>+</span> Add section…
+        </div>
+      )}
     </div>
   );
 
@@ -534,6 +733,28 @@ export default function ProjectsView() {
           </div>
         );
       })}
+      {/* Add section column */}
+      <div style={{ minWidth: 290, width: 290, flexShrink: 0 }}>
+        {addingSection ? (
+          <div style={{ background: T.surface2, borderRadius: 10, padding: 12 }}>
+            <input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") { setAddingSection(false); setNewSectionName(""); } }}
+              placeholder="Section name…" style={{ width: "100%", fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", marginBottom: 8 }} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={createSection} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add</button>
+              <button onClick={() => { setAddingSection(false); setNewSectionName(""); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>×</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => { setAddingSection(true); setNewSectionName(""); }} style={{
+            width: "100%", padding: "12px", borderRadius: 10, border: `1px dashed ${T.border2}`,
+            background: "transparent", color: T.text3, cursor: "pointer", fontSize: 13, fontWeight: 600,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}>
+            <span style={{ fontSize: 16, fontWeight: 300, lineHeight: 1 }}>+</span> Add section
+          </button>
+        )}
+      </div>
     </div>
   );
 
@@ -591,7 +812,7 @@ export default function ProjectsView() {
               {PRIORITY[selectedTask.priority] && <span style={{ width: 8, height: 8, borderRadius: 8, background: PRIORITY[selectedTask.priority].dot }} />}
               <select value={selectedTask.priority || ""} onChange={e => updateField(selectedTask.id, "priority", e.target.value || null)}
                 style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                <option value="">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
+                <option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
               </select>
             </div>
           </PanelField>
@@ -600,7 +821,7 @@ export default function ProjectsView() {
               <span style={{ width: 8, height: 8, borderRadius: 2, background: STATUS[selectedTask.status]?.color || T.text3 }} />
               <select value={selectedTask.status || "todo"} onChange={e => updateField(selectedTask.id, "status", e.target.value)}
                 style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                <option value="todo">To Do</option><option value="in_progress">In Progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+                <option value="backlog">Backlog</option><option value="todo">To Do</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option><option value="done">Done</option><option value="cancelled">Cancelled</option>
               </select>
             </div>
           </PanelField>
@@ -642,6 +863,77 @@ export default function ProjectsView() {
             )}
           </div>
         </div>
+        {/* Delete */}
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
+          <button onClick={() => { if (confirm("Delete this task?")) deleteTask(selectedTask.id); }}
+            style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            Delete task
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ═══════════════════════════════════════════════════════
+     PROJECT FORM MODAL
+     ═══════════════════════════════════════════════════════ */
+  const projectModal = showProjectForm && (
+    <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={() => setShowProjectForm(false)}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+      <div onClick={e => e.stopPropagation()} style={{
+        position: "relative", width: 420, background: T.surface, borderRadius: 12,
+        border: `1px solid ${T.border}`, padding: 28, zIndex: 101,
+      }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
+          {showProjectForm === "new" ? "New Project" : "Edit Project"}
+        </h3>
+        {/* Name */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Name</label>
+          <input autoFocus value={projectForm.name} onChange={e => setProjectForm(p => ({ ...p, name: e.target.value }))}
+            onKeyDown={e => { if (e.key === "Enter") saveProject(); }}
+            placeholder="Project name…" style={{ width: "100%", padding: "8px 12px", fontSize: 14, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
+        </div>
+        {/* Description */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Description</label>
+          <textarea value={projectForm.description} onChange={e => setProjectForm(p => ({ ...p, description: e.target.value }))}
+            placeholder="What's this project about?" rows={3}
+            style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", resize: "vertical" }} />
+        </div>
+        {/* Color */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Color</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {PROJECT_COLORS.map(c => (
+              <div key={c} onClick={() => setProjectForm(p => ({ ...p, color: c }))} style={{
+                width: 28, height: 28, borderRadius: 6, background: c, cursor: "pointer",
+                border: projectForm.color === c ? "2px solid #fff" : "2px solid transparent",
+                transition: "border 0.15s",
+              }} />
+            ))}
+          </div>
+        </div>
+        {/* Status (only for edit) */}
+        {showProjectForm === "edit" && (
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Status</label>
+            <select value={projectForm.status} onChange={e => setProjectForm(p => ({ ...p, status: e.target.value }))}
+              style={{ padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+              <option value="planning">Planning</option><option value="active">Active</option><option value="paused">Paused</option>
+              <option value="completed">Completed</option><option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        )}
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={() => setShowProjectForm(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+          <button onClick={saveProject} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: projectForm.name.trim() ? 1 : 0.5 }}>
+            {showProjectForm === "new" ? "Create" : "Save"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -655,8 +947,24 @@ export default function ProjectsView() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {header}
         {proj && (viewMode === "list" ? listView : boardView)}
+        {!proj && !loading && (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 14, color: T.text3 }}>No projects yet</div>
+            <button onClick={openNewProject} style={{ padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Create your first project</button>
+          </div>
+        )}
       </div>
       {detail}
+      {projectModal}
+      {/* Toast notification */}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 200,
+          padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+          background: toast.type === "error" ? "#ef4444" : "#22c55e", color: "#fff",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.3)", animation: "fadeIn 0.2s ease",
+        }}>{toast.message}</div>
+      )}
     </div>
   );
 }
