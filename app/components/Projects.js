@@ -512,6 +512,8 @@ export default function ProjectsView() {
         {[
           { k: "list",  l: "List",  icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="12" width="14" height="2" rx="1"/></svg> },
           { k: "board", l: "Board", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="14" rx="1"/><rect x="6" y="1" width="4" height="10" rx="1"/><rect x="11" y="1" width="4" height="7" rx="1"/></svg> },
+          { k: "timeline", l: "Timeline", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="8" height="2" rx="1"/><rect x="4" y="7" width="10" height="2" rx="1"/><rect x="2" y="12" width="6" height="2" rx="1"/></svg> },
+          { k: "calendar", l: "Calendar", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="3" width="14" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="7" x2="15" y2="7" stroke="currentColor" strokeWidth="1.5"/><line x1="5" y1="1" x2="5" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="11" y1="1" x2="11" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
         ].map(v => (
           <button key={v.k} onClick={() => setViewMode(v.k)} style={{
             padding: "9px 16px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500,
@@ -828,6 +830,162 @@ export default function ProjectsView() {
   );
 
   /* ═══════════════════════════════════════════════════════
+     TIMELINE VIEW (Gantt-style)
+     ═══════════════════════════════════════════════════════ */
+  const timelineView = (() => {
+    const tasksWithDates = filt.filter(t => t.due_date && !t.parent_task_id);
+    if (tasksWithDates.length === 0) return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 10, color: T.text3, fontSize: 13 }}>
+        <span>No tasks with due dates to display</span>
+        <span style={{ fontSize: 11 }}>Add due dates to your tasks to see them on the timeline</span>
+      </div>
+    );
+    // Compute date range
+    const dates = tasksWithDates.map(t => new Date(t.due_date));
+    const starts = tasksWithDates.map(t => t.start_date ? new Date(t.start_date) : new Date(t.due_date));
+    const allDates = [...dates, ...starts];
+    let minDate = new Date(Math.min(...allDates)); let maxDate = new Date(Math.max(...allDates));
+    minDate.setDate(minDate.getDate() - 3); maxDate.setDate(maxDate.getDate() + 7);
+    const totalDays = Math.max(Math.ceil((maxDate - minDate) / 86400000), 14);
+    const dayWidth = 36;
+    const getX = (d) => Math.round(((new Date(d) - minDate) / 86400000) * dayWidth);
+    // Build day columns
+    const dayCols = [];
+    for (let i = 0; i <= totalDays; i++) {
+      const d = new Date(minDate); d.setDate(d.getDate() + i);
+      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+      const isToday = d.toDateString() === new Date().toDateString();
+      dayCols.push({ date: d, isWeekend, isToday, label: d.getDate() === 1 || i === 0 ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : d.getDate().toString() });
+    }
+    // Group by section
+    const secGroups = sections.map(sec => ({
+      sec, tasks: tasksWithDates.filter(t => t.section_id === sec.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
+    })).filter(g => g.tasks.length > 0);
+    return (
+      <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
+        {/* Day header */}
+        <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 5, background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ width: 200, flexShrink: 0, padding: "8px 12px", fontSize: 11, fontWeight: 600, color: T.text3, borderRight: `1px solid ${T.border}` }}>Task</div>
+          <div style={{ display: "flex" }}>
+            {dayCols.map((d, i) => (
+              <div key={i} style={{
+                width: dayWidth, textAlign: "center", fontSize: 9, padding: "6px 0", color: d.isToday ? T.accent : d.isWeekend ? T.text3 + "60" : T.text3,
+                fontWeight: d.isToday ? 700 : 400, background: d.isToday ? `${T.accent}10` : d.isWeekend ? `${T.text}04` : "transparent",
+                borderRight: `1px solid ${T.border}30`,
+              }}>{d.label}</div>
+            ))}
+          </div>
+        </div>
+        {/* Rows */}
+        {secGroups.map(({ sec, tasks: secTasks }, si) => (
+          <div key={sec.id}>
+            <div style={{ display: "flex", background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ width: 200, flexShrink: 0, padding: "6px 12px", fontSize: 12, fontWeight: 700, color: T.text }}>{sec.name}</div>
+            </div>
+            {secTasks.map(task => {
+              const start = task.start_date || task.due_date;
+              const end = task.due_date;
+              const left = getX(start);
+              const width = Math.max(getX(end) - left, dayWidth);
+              const pcfg = PRIORITY[task.priority];
+              const dn = task.status === "done";
+              return (
+                <div key={task.id} style={{ display: "flex", borderBottom: `1px solid ${T.border}30`, height: 36, alignItems: "center" }}>
+                  <div onClick={() => setSelectedTask(task)} style={{
+                    width: 200, flexShrink: 0, padding: "0 12px", fontSize: 12, color: dn ? T.text3 : T.text,
+                    textDecoration: dn ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis",
+                    whiteSpace: "nowrap", cursor: "pointer",
+                  }}>{task.title}</div>
+                  <div style={{ position: "relative", flex: 1, height: "100%" }}>
+                    {/* Today line */}
+                    {dayCols.some(d => d.isToday) && (
+                      <div style={{ position: "absolute", left: getX(new Date().toISOString().split("T")[0]), top: 0, bottom: 0, width: 2, background: T.accent, opacity: 0.3, zIndex: 1 }} />
+                    )}
+                    <div onClick={() => setSelectedTask(task)} style={{
+                      position: "absolute", left, top: 6, height: 24, width,
+                      background: dn ? T.surface3 : pcfg?.bg || `${T.accent}30`,
+                      border: `1px solid ${dn ? T.border : pcfg?.color || T.accent}40`,
+                      borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", paddingLeft: 8,
+                      fontSize: 10, color: dn ? T.text3 : pcfg?.color || T.accent, fontWeight: 600, overflow: "hidden",
+                    }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    );
+  })();
+
+  /* ═══════════════════════════════════════════════════════
+     CALENDAR VIEW
+     ═══════════════════════════════════════════════════════ */
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const calendarView = (() => {
+    const year = calMonth.getFullYear(), month = calMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date().toISOString().split("T")[0];
+    const cells = [];
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    const getTasksForDay = (day) => {
+      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      return filt.filter(t => t.due_date === dateStr && !t.parent_task_id);
+    };
+    return (
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+        {/* Month nav */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <button onClick={() => setCalMonth(new Date(year, month - 1, 1))} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, padding: "4px 10px", fontSize: 14 }}>←</button>
+          <span style={{ fontSize: 16, fontWeight: 700, color: T.text, minWidth: 160, textAlign: "center" }}>
+            {calMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+          </span>
+          <button onClick={() => setCalMonth(new Date(year, month + 1, 1))} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, padding: "4px 10px", fontSize: 14 }}>→</button>
+          <button onClick={() => setCalMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, padding: "4px 10px", fontSize: 11, fontWeight: 600 }}>Today</button>
+        </div>
+        {/* Day names */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1 }}>
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+            <div key={d} style={{ padding: "6px 8px", fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", textAlign: "center" }}>{d}</div>
+          ))}
+        </div>
+        {/* Cells */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1 }}>
+          {cells.map((day, i) => {
+            if (!day) return <div key={i} style={{ background: T.surface2 + "40", minHeight: 90 }} />;
+            const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const isToday = dateStr === today;
+            const dayTasks = getTasksForDay(day);
+            return (
+              <div key={i} style={{
+                minHeight: 90, padding: 6, background: T.surface, border: `1px solid ${T.border}30`,
+                borderColor: isToday ? T.accent + "60" : T.border + "30",
+              }}>
+                <div style={{
+                  fontSize: 11, fontWeight: isToday ? 700 : 400, marginBottom: 4, textAlign: "right",
+                  color: isToday ? T.accent : T.text3,
+                }}>{day}</div>
+                {dayTasks.slice(0, 3).map(task => (
+                  <div key={task.id} onClick={() => setSelectedTask(task)} style={{
+                    fontSize: 10, padding: "2px 5px", borderRadius: 3, marginBottom: 2, cursor: "pointer",
+                    background: PRIORITY[task.priority]?.bg || T.surface2, color: PRIORITY[task.priority]?.color || T.text2,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500,
+                  }}>{task.title}</div>
+                ))}
+                {dayTasks.length > 3 && <div style={{ fontSize: 9, color: T.text3, textAlign: "center" }}>+{dayTasks.length - 3} more</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  })();
+
+  /* ═══════════════════════════════════════════════════════
      DETAIL PANEL (Asana-style slide-over)
      ═══════════════════════════════════════════════════════ */
   const detail = selectedTask && (
@@ -1087,7 +1245,7 @@ export default function ProjectsView() {
       {sidebar}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {header}
-        {proj && (viewMode === "list" ? listView : boardView)}
+        {proj && (viewMode === "list" ? listView : viewMode === "board" ? boardView : viewMode === "timeline" ? timelineView : calendarView)}
         {!proj && !loading && (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 14, color: T.text3 }}>No projects yet</div>
