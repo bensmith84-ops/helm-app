@@ -53,6 +53,8 @@ export default function ProjectsView() {
   const [milestones, setMilestones] = useState([]);
   const [showMilestoneForm, setShowMilestoneForm] = useState(false);
   const [milestoneForm, setMilestoneForm] = useState({ name: "", target_date: "", description: "" });
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [assigneeSearch, setAssigneeSearch] = useState("");
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -409,7 +411,6 @@ export default function ProjectsView() {
   };
 
   /* ── Inline Assignee Picker ── */
-  const [assigneeSearch, setAssigneeSearch] = useState("");
   const AssigneeCell = ({ task }) => {
     const editing = editingCell?.taskId === task.id && editingCell?.field === "assignee";
     const filteredProfiles = Object.values(profiles)
@@ -994,7 +995,6 @@ export default function ProjectsView() {
   /* ═══════════════════════════════════════════════════════
      CALENDAR VIEW
      ═══════════════════════════════════════════════════════ */
-  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const calendarView = (() => {
     const year = calMonth.getFullYear(), month = calMonth.getMonth();
     const firstDay = new Date(year, month, 1).getDay();
