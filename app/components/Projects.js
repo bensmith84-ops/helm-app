@@ -184,6 +184,19 @@ export default function ProjectsView() {
     if (error) showToast("Failed to delete task");
   };
 
+  const duplicateTask = async (task) => {
+    const maxSort = tasks.filter(t => t.section_id === task.section_id && !t.parent_task_id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    const { data, error } = await supabase.from("tasks").insert({
+      org_id: proj?.org_id, project_id: activeProject, section_id: task.section_id,
+      title: task.title + " (copy)", description: task.description,
+      status: "todo", priority: task.priority, assignee_id: task.assignee_id,
+      due_date: task.due_date, start_date: task.start_date,
+      milestone_id: task.milestone_id, sort_order: maxSort + 1,
+    }).select().single();
+    if (error) { showToast("Failed to duplicate task"); return; }
+    if (data) { setTasks(p => [...p, data]); showToast("Task duplicated", "success"); setSelectedTask(data); }
+  };
+
   const createTask = async (sid) => {
     if (!newTitle.trim()) { setAddingTo(null); return; }
     const sectionTasks = tasks.filter(t => t.section_id === sid);
@@ -1722,12 +1735,17 @@ export default function ProjectsView() {
             )}
           </div>
         </div>
-        {/* Delete */}
-        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
+        {/* Actions */}
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${T.border}`, display: "flex", gap: 8 }}>
+          <button onClick={() => duplicateTask(selectedTask)}
+            style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            Duplicate
+          </button>
           <button onClick={() => { if (confirm("Delete this task?")) deleteTask(selectedTask.id); }}
             style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-            Delete task
+            Delete
           </button>
         </div>
       </div>
