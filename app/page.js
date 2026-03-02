@@ -16,6 +16,7 @@ import PLMView from "./components/PLM";
 import AutomationView from "./components/Automation";
 import ReportsView from "./components/Reports";
 import CommandPalette from "./components/CommandPalette";
+import NotificationBell from "./components/NotificationBell";
 
 export default function HelmApp() {
   const { user, profile, loading: authLoading, signOut } = useAuth();
@@ -76,6 +77,7 @@ export default function HelmApp() {
               ⌘K Search...
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <NotificationBell setActive={setActive} />
               <span style={{ fontSize: 12, color: T.text2, fontWeight: 500 }}>{profile?.display_name || user?.email?.split("@")[0]}</span>
               <button onClick={signOut} title="Sign out" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Sign out</button>
             </div>
