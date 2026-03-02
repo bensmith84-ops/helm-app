@@ -24,7 +24,7 @@ export default function OKRsView() {
   const [profiles, setProfiles] = useState({});
   const [expanded, setExpanded] = useState([]);
   const [selectedKR, setSelectedKR] = useState(null);
-  const { gridTemplate: okrGrid, onResizeStart: okrResize } = useResizableColumns([250, 160, 80, 80, 60]);
+  const { gridTemplate: okrGrid, onResizeStart: okrResize } = useResizableColumns([250, 160, 80, 80, 60], "okrs");
   const ORH = ({ index }) => (<div onMouseDown={(e) => okrResize(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
   const [loading, setLoading] = useState(true);
 

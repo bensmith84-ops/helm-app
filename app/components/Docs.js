@@ -31,7 +31,7 @@ export default function DocsView() {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [activeFolder, setActiveFolder] = useState("all");
   const [search, setSearch] = useState("");
-  const { gridTemplate: docsGrid, onResizeStart: docsResize } = useResizableColumns([300, 120, 100, 90]);
+  const { gridTemplate: docsGrid, onResizeStart: docsResize } = useResizableColumns([300, 120, 100, 90], "docs");
   const DRH = ({ index }) => (<div onMouseDown={(e) => docsResize(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
   const [loading, setLoading] = useState(true);
 
