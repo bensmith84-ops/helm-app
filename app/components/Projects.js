@@ -81,8 +81,11 @@ export default function ProjectsView() {
   /* ── Load templates ── */
   useEffect(() => {
     supabase.from("project_templates").select("*").order("created_at", { ascending: false }).then(({ data }) => setTemplates(data || []));
-    // Load favorites from profile
-    if (profile?.preferences?.favorites) setFavorites(profile.preferences.favorites);
+    // Load favorites from database
+    if (user?.id) {
+      supabase.from("favorites").select("entity_id").eq("user_id", user.id).eq("entity_type", "project")
+        .then(({ data }) => setFavorites((data || []).map(f => f.entity_id)));
+    }
   }, []);
 
   /* ── Keyboard shortcuts ── */
@@ -611,10 +614,13 @@ export default function ProjectsView() {
 
   /* ── Favorites ── */
   const toggleFavorite = async (projectId) => {
-    const newFavs = favorites.includes(projectId) ? favorites.filter(f => f !== projectId) : [...favorites, projectId];
-    setFavorites(newFavs);
-    if (user?.id) {
-      await supabase.from("profiles").update({ preferences: { ...(profile?.preferences || {}), favorites: newFavs } }).eq("id", user.id);
+    const isFav = favorites.includes(projectId);
+    if (isFav) {
+      setFavorites(p => p.filter(f => f !== projectId));
+      await supabase.from("favorites").delete().eq("user_id", user.id).eq("entity_type", "project").eq("entity_id", projectId);
+    } else {
+      setFavorites(p => [...p, projectId]);
+      await supabase.from("favorites").insert({ user_id: user.id, entity_type: "project", entity_id: projectId });
     }
   };
 
