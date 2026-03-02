@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, Suspense, lazy } from "react";
+import { useState, useEffect, Suspense, lazy, Component } from "react";
 import { T } from "./tokens";
 import { useAuth } from "./lib/auth";
 import AuthPage from "./components/AuthPage";
@@ -26,6 +26,23 @@ const ActivityView = lazy(() => import("./components/Activity"));
 const LazyFallback = () => (
   <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading…</div>
 );
+
+class ChunkErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error) {
+    if (error?.name === "ChunkLoadError") { window.location.reload(); }
+  }
+  render() {
+    if (this.state.hasError) return (
+      <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#94a3b8" }}>
+        <div style={{ fontSize: 14 }}>Something went wrong loading this page.</div>
+        <button onClick={() => window.location.reload()} style={{ padding: "8px 16px", fontSize: 13, borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer" }}>Reload</button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
 
 export default function HelmApp() {
   const { user, profile, loading: authLoading, signOut } = useAuth();
@@ -137,9 +154,11 @@ export default function HelmApp() {
             </div>
           </div>
           <div style={{ flex: 1, overflow: "auto" }}>
-            <Suspense fallback={<LazyFallback />}>
-              {renderView()}
-            </Suspense>
+            <ChunkErrorBoundary>
+              <Suspense fallback={<LazyFallback />}>
+                {renderView()}
+              </Suspense>
+            </ChunkErrorBoundary>
           </div>
         </div>
       </div>
