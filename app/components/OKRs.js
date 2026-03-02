@@ -33,6 +33,7 @@ export default function OKRsView() {
   const [profiles, setProfiles] = useState({});
   const [expanded, setExpanded] = useState([]);
   const [selectedKR, setSelectedKR] = useState(null);
+  const [editItem, setEditItem] = useState(null); // { type: 'objective'|'kr'|'milestone', data: {...} }
   const [viewMode, setViewMode] = useState(() => {
     if (typeof window !== "undefined") { try { return localStorage.getItem("okr_view") || "list"; } catch {} }
     return "list";
@@ -206,6 +207,44 @@ export default function OKRsView() {
     await supabase.from("okr_milestones").delete().eq("id", id);
   };
 
+  // Edit functions
+  const editObjective = (obj) => setEditItem({ type: "objective", data: { ...obj } });
+  const editKR = (kr) => { setSelectedKR(null); setEditItem({ type: "kr", data: { ...kr } }); };
+  const editMilestone = (ms) => setEditItem({ type: "milestone", data: { ...ms } });
+
+  const saveEdit = async () => {
+    if (!editItem) return;
+    const { type, data } = editItem;
+    if (type === "objective") {
+      const { id, ...rest } = data;
+      const updates = { title: rest.title, description: rest.description, health: rest.health, owner_id: rest.owner_id || null, timeframe: rest.timeframe, start_date: rest.start_date || null, end_date: rest.end_date || null };
+      setObjectives(p => p.map(o => o.id === id ? { ...o, ...updates } : o));
+      await supabase.from("objectives").update(updates).eq("id", id);
+    } else if (type === "kr") {
+      const { id, ...rest } = data;
+      const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0 };
+      updates.progress = updates.target_value > 0 ? Math.min(100, Math.round((updates.current_value / updates.target_value) * 100)) : 0;
+      setKeyResults(p => p.map(k => k.id === id ? { ...k, ...updates } : k));
+      await supabase.from("key_results").update(updates).eq("id", id);
+      // Recalc objective progress
+      const kr = keyResults.find(k => k.id === id);
+      if (kr) {
+        const objKRs = keyResults.map(k => k.id === id ? { ...k, ...updates } : k).filter(k => k.objective_id === kr.objective_id);
+        const avg = objKRs.length > 0 ? Math.round(objKRs.reduce((s, k) => s + Number(k.progress || 0), 0) / objKRs.length) : 0;
+        setObjectives(p => p.map(o => o.id === kr.objective_id ? { ...o, progress: avg } : o));
+        await supabase.from("objectives").update({ progress: avg }).eq("id", kr.objective_id);
+      }
+    } else if (type === "milestone") {
+      const { id, ...rest } = data;
+      const updates = { title: rest.title, start_date: rest.start_date, end_date: rest.end_date, color: rest.color };
+      setMilestones(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
+      await supabase.from("okr_milestones").update(updates).eq("id", id);
+    }
+    setEditItem(null);
+  };
+
+  const editSet = (k, v) => setEditItem(p => ({ ...p, data: { ...p.data, [k]: v } }));
+
   if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading OKRs…</div>;
 
   const cycle = cycles.find(c => c.id === activeCycle);
@@ -306,7 +345,7 @@ export default function OKRsView() {
                 <div key={obj.id} style={{ display: "flex", borderBottom: `1px solid ${T.border}`, minHeight: rowH }}>
                   {/* Objective cell */}
                   <div style={{ width: leftColW, padding: "10px 12px 10px 16px", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3, marginBottom: 4 }}>{obj.title}</div>
+                    <div onClick={() => editObjective(obj)} style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3, marginBottom: 4, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{obj.title}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: h.bg, color: h.color }}>{h.label}</span>
                       <span style={{ fontSize: 10, color: T.text3 }}>{Math.round(obj.progress || 0)}%</span>
@@ -361,8 +400,9 @@ export default function OKRsView() {
                     const bar = posBar(ms.start_date, ms.end_date);
                     return (
                       <div key={ms.id} style={{ position: "relative", height: 24, marginBottom: 2, zIndex: 1 }}>
-                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}`}
-                          style={{ position: "absolute", ...bar, height: 22, borderRadius: 4, background: ms.color || "#6366f1", display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "default" }}>
+                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\nClick to edit`}
+                          onClick={() => editMilestone(ms)}
+                          style={{ position: "absolute", ...bar, height: 22, borderRadius: 4, background: ms.color || "#6366f1", display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer" }}>
                           <span style={{ fontSize: 10, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ms.title}</span>
                           <button onClick={() => deleteMilestone(ms.id)} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.5 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>×</button>
                         </div>
@@ -413,7 +453,7 @@ export default function OKRsView() {
               </svg>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700 }}>{obj.title}</span>
+                  <span onClick={e => { e.stopPropagation(); editObjective(obj); }} style={{ fontSize: 15, fontWeight: 700, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{obj.title}</span>
                   <span onClick={e => e.stopPropagation()}><HealthPill obj={obj} onUpdate={updateHealth} /></span>
                   {/* Timeframe badge */}
                   <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: T.surface3, color: T.text3, fontWeight: 600 }}>
@@ -444,7 +484,7 @@ export default function OKRsView() {
                 {objKRs.map(kr => {
                   const p = Number(kr.progress || 0); const sel = selectedKR === kr.id;
                   return (
-                    <div key={kr.id} onClick={() => setSelectedKR(kr.id)} style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent", transition: "background 0.1s" }}>
+                    <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent", transition: "background 0.1s" }}>
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>{kr.title}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${p}%`, height: "100%", borderRadius: 5, background: p >= 70 ? T.green : p >= 40 ? T.yellow : T.accent, transition: "width 0.3s" }} /></div>
@@ -471,41 +511,84 @@ export default function OKRsView() {
   );
 
   // Detail panel
-  const detail = selectedKR && (() => {
-    const kr = keyResults.find(k => k.id === selectedKR); if (!kr) return null;
-    const obj = objectives.find(o => o.id === kr.objective_id);
-    const pct = Number(kr.progress || 0);
-    const conf = Number(kr.confidence || 0) * 100;
-    const confColor = conf >= 70 ? T.green : conf >= 40 ? T.yellow : T.red;
+  // Edit modal for objectives, KRs, milestones
+  const _elbl = { fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 };
+  const _einp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: "inherit" };
+  const editModal = editItem && (() => {
+    const { type, data: d } = editItem;
+    const typeLabel = type === "objective" ? "Objective" : type === "kr" ? "Key Result" : "Milestone";
     return (
-      <div style={{ width: 380, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.surface, flexShrink: 0, overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 20px", borderBottom: `1px solid ${T.border}` }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: T.text3 }}>Key Result</span>
-          <button onClick={() => setSelectedKR(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
-          </button>
-        </div>
-        <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
-          <h3 style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.3, marginBottom: 8 }}>{kr.title}</h3>
-          {obj && <div style={{ fontSize: 12, color: T.text3, marginBottom: 20 }}>Part of: {obj.title}</div>}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: T.text3 }}>Progress</span><span style={{ fontSize: 14, fontWeight: 700, color: pct >= 70 ? T.green : pct >= 40 ? T.yellow : T.text2 }}>{Math.round(pct)}%</span></div>
-            <div style={{ height: 8, borderRadius: 8, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", borderRadius: 8, background: pct >= 70 ? T.green : pct >= 40 ? T.yellow : T.accent, transition: "width 0.5s" }} /></div>
+      <div onClick={() => setEditItem(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: type === "milestone" ? 420 : 500, maxHeight: "80vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "16px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Edit {typeLabel}</h3>
+            <button onClick={() => setEditItem(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>×</button>
           </div>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <PanelField label="Owner"><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Ava uid={kr.owner_id} sz={22} /><span style={{ fontSize: 13 }}>{uname(kr.owner_id)}</span></div></PanelField>
-            <PanelField label="Current">{kr.current_value} / {kr.target_value} {kr.unit}</PanelField>
-            <PanelField label="Start">{kr.start_value} {kr.unit}</PanelField>
-            <PanelField label="Confidence"><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 8, height: 8, borderRadius: 8, background: confColor }} /><span style={{ fontSize: 13, color: confColor, fontWeight: 600 }}>{Math.round(conf)}%</span></div></PanelField>
+          <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+            {/* OBJECTIVE EDIT */}
+            {type === "objective" && <>
+              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
+              <div style={{ marginBottom: 12 }}><label style={_elbl}>Description</label><textarea value={d.description || ""} onChange={e => editSet("description", e.target.value)} rows={2} style={{ ..._einp, resize: "vertical" }} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
+                <div><label style={_elbl}>Health</label>
+                  <select value={d.health || "on_track"} onChange={e => editSet("health", e.target.value)} style={{ ..._einp, cursor: "pointer" }}>
+                    {Object.entries(HEALTH).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div><label style={_elbl}>Timeframe</label>
+                  <select value={d.timeframe || "quarter"} onChange={e => editSet("timeframe", e.target.value)} style={{ ..._einp, cursor: "pointer" }}>
+                    {TIMEFRAME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div><label style={_elbl}>Start Date</label><input type="date" value={d.start_date || ""} onChange={e => editSet("start_date", e.target.value)} style={_einp} /></div>
+                <div><label style={_elbl}>End Date</label><input type="date" value={d.end_date || ""} onChange={e => editSet("end_date", e.target.value)} style={_einp} /></div>
+              </div>
+            </>}
+            {/* KEY RESULT EDIT */}
+            {type === "kr" && <>
+              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} style={_einp} /></div>
+                <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => editSet("target_value", e.target.value)} style={_einp} /></div>
+                <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, %" style={_einp} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
+                <div>
+                  <label style={_elbl}>Progress</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                    <div style={{ flex: 1, height: 8, borderRadius: 8, background: T.surface3, overflow: "hidden" }}>
+                      <div style={{ width: `${d.target_value > 0 ? Math.min(100, Math.round(((d.current_value || 0) / d.target_value) * 100)) : 0}%`, height: "100%", borderRadius: 8, background: T.accent, transition: "width 0.3s" }} />
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>{d.target_value > 0 ? Math.min(100, Math.round(((d.current_value || 0) / d.target_value) * 100)) : 0}%</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div><label style={_elbl}>Start Date</label><input type="date" value={d.start_date || ""} onChange={e => editSet("start_date", e.target.value)} style={_einp} /></div>
+                <div><label style={_elbl}>End Date</label><input type="date" value={d.end_date || ""} onChange={e => editSet("end_date", e.target.value)} style={_einp} /></div>
+              </div>
+            </>}
+            {/* MILESTONE EDIT */}
+            {type === "milestone" && <>
+              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div><label style={_elbl}>Start Date</label><input type="date" value={d.start_date || ""} onChange={e => editSet("start_date", e.target.value)} style={_einp} /></div>
+                <div><label style={_elbl}>End Date</label><input type="date" value={d.end_date || ""} onChange={e => editSet("end_date", e.target.value)} style={_einp} /></div>
+              </div>
+              <div><label style={_elbl}>Color</label>
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  {MS_COLORS.map(c => <div key={c} onClick={() => editSet("color", c)} style={{ width: 24, height: 24, borderRadius: 6, background: c, cursor: "pointer", border: d.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: d.color === c ? `0 0 0 2px ${c}` : "none" }} />)}
+                </div>
+              </div>
+            </>}
           </div>
-          <div style={{ marginTop: 24, padding: 16, background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Update Progress</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="number" defaultValue={kr.current_value} onKeyDown={e => { if (e.key === "Enter") updateKRValue(kr.id, Number(e.target.value)); }}
-                style={{ flex: 1, padding: "8px 12px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-              <span style={{ fontSize: 12, color: T.text3 }}>/ {kr.target_value} {kr.unit}</span>
-            </div>
-            <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>Press Enter to save</div>
+          <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setEditItem(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={saveEdit} style={{ padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Save</button>
           </div>
         </div>
       </div>
@@ -583,7 +666,7 @@ export default function OKRsView() {
         {header}
         {viewMode === "list" ? <ListView /> : <RoadmapView />}
       </div>
-      {viewMode === "list" && detail}
+      {editModal}
       <MilestoneModal />
       {objFormModal}
     </div>
