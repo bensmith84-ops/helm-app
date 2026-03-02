@@ -15,8 +15,8 @@ export default function DashboardView({ setActive }) {
   useEffect(() => {
     (async () => {
       const [{ data: p }, { data: t }, { data: prof }] = await Promise.all([
-        supabase.from("projects").select("*").order("name"),
-        supabase.from("tasks").select("*"),
+        supabase.from("projects").select("*").is("deleted_at", null).order("name"),
+        supabase.from("tasks").select("*").is("deleted_at", null),
         supabase.from("profiles").select("id,display_name"),
       ]);
       setProjects(p || []);
@@ -87,7 +87,7 @@ export default function DashboardView({ setActive }) {
         <p style={{ color: T.text3, fontSize: 13 }}>{dateStr} — Here&apos;s your workspace at a glance.</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 28 }}>
         <StatCard label="Active Projects" value={projects.length} sub={`${projStats.filter(p=>p.pct>=50).length} past halfway`} color={T.accent}
           icon={<><rect x="1" y="1" width="6" height="14" rx="1"/><rect x="9" y="5" width="6" height="10" rx="1"/></>} />
         <StatCard label="Open Tasks" value={totalTasks - doneTasks} sub={`${overdue} overdue`} color={overdue > 0 ? T.red : T.yellow}
@@ -98,7 +98,7 @@ export default function DashboardView({ setActive }) {
           icon={<circle cx="8" cy="8" r="6" fill="none" stroke={T.accent} strokeWidth="2" strokeDasharray="8 4"/>} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 28 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20, marginBottom: 28 }}>
         <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <span style={{ fontSize: 15, fontWeight: 700 }}>Projects</span>
@@ -149,7 +149,7 @@ export default function DashboardView({ setActive }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20 }}>
         <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 20 }}>
           <span style={{ fontSize: 15, fontWeight: 700, display: "block", marginBottom: 16 }}>Team Workload</span>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
