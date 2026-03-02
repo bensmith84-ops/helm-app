@@ -59,6 +59,22 @@ export default function HelmApp() {
     return () => { document.removeEventListener("keydown", fn); clearTimeout(gTimer); };
   }, []);
 
+  // Load sidebar badge counts
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const now = new Date().toISOString().split("T")[0];
+      const [{ count: overdue }, { count: notifCount }] = await Promise.all([
+        supabase.from("tasks").select("id", { count: "exact", head: true }).is("deleted_at", null).lt("due_date", now).neq("status", "done"),
+        supabase.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("is_read", false),
+      ]);
+      setBadges(b => ({
+        ...b,
+        projects: overdue > 0 ? overdue : null,
+      }));
+    })();
+  }, [user?.id, active]);
+
   if (authLoading) return (
     <div style={{ display: "flex", height: "100vh", width: "100vw", alignItems: "center", justifyContent: "center", background: T.bg }}>
       <div style={{ color: T.text3, fontSize: 13 }}>Loading…</div>
@@ -101,7 +117,7 @@ export default function HelmApp() {
         button:hover { opacity: 0.85; }
       `}</style>
       <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", background: T.bg }}>
-        <Sidebar active={active} setActive={setActive} expanded={expanded} setExpanded={setExpanded} />
+        <Sidebar active={active} setActive={setActive} expanded={expanded} setExpanded={setExpanded} badges={badges} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ height: 44, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 20px", gap: 12, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
