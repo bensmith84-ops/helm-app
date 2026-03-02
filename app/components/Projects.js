@@ -75,14 +75,14 @@ export default function ProjectsView() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  const showToast = useCallback((message, type = "error") => {
-
   const logActivity = (action, entityType, entityId, entityName) => {
     supabase.from("activity_log").insert({
       org_id: profile?.org_id, user_id: user?.id,
       action, entity_type: entityType, entity_id: entityId, entity_name: entityName,
-    }).catch(() => {});
+    }).then(() => {}).catch(() => {});
   };
+
+  const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);

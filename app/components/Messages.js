@@ -65,7 +65,7 @@ export default function MessagesView() {
     const name = await showPrompt("New Channel", "Channel name");
     if (!name?.trim()) return;
     const { data, error } = await supabase.from("channels").insert({
-      org_id: profile?.org_id, name: name.trim(), is_archived: false,
+      org_id: profile?.org_id, name: name.trim(), slug: name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), is_archived: false,
     }).select().single();
     if (data) { setChannels(p => [...p, data]); setActiveCh(data.id); }
   };
