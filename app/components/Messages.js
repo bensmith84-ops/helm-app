@@ -40,6 +40,32 @@ export default function MessagesView() {
     })();
   }, [activeCh]);
 
+  /* ── Realtime messages ── */
+  useEffect(() => {
+    if (!activeCh) return;
+    const channel = supabase.channel(`msgs-${activeCh}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `channel_id=eq.${activeCh}` }, (payload) => {
+        setMessages(p => {
+          if (p.some(m => m.id === payload.new.id)) return p;
+          // Replace temp message if exists
+          const withoutTemp = p.filter(m => !m.id.startsWith("temp-") || m.content !== payload.new.content);
+          return [...withoutTemp, payload.new];
+        });
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeCh]);
+
+  const createChannel = async () => {
+    const name = prompt("Channel name:");
+    if (!name?.trim()) return;
+    const { data, error } = await supabase.from("channels").insert({
+      org_id: "a0000000-0000-0000-0000-000000000001", name: name.trim(), is_archived: false,
+    }).select().single();
+    if (data) { setChannels(p => [...p, data]); setActiveCh(data.id); }
+  };
+
   const ini = (uid) => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const uname = (uid) => profiles[uid]?.display_name || "Unknown";
 
@@ -95,7 +121,10 @@ export default function MessagesView() {
       {/* Channel sidebar */}
       <div style={{ width: 240, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.bg, flexShrink: 0 }}>
         <div style={{ padding: "16px 16px 10px" }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Channels</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Channels</span>
+            <button onClick={createChannel} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: 0, lineHeight: 1 }}>+</button>
+          </div>
         </div>
         <div style={{ padding: "0 8px 8px" }}>
           <div style={{
