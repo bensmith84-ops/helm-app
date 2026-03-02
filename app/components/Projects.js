@@ -214,11 +214,21 @@ export default function ProjectsView() {
   };
 
   const updateField = async (taskId, field, value) => {
+    const oldTask = tasks.find(t => t.id === taskId);
     setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t));
     if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value }));
     const { error } = await supabase.from("tasks").update({ [field]: value }).eq("id", taskId);
     if (error) showToast("Failed to update task");
     setEditingCell(null);
+    // Notify on assignment
+    if (field === "assignee_id" && value && value !== user?.id && value !== oldTask?.assignee_id) {
+      await supabase.from("notifications").insert({
+        user_id: value, type: "task_assigned",
+        title: `You were assigned "${oldTask?.title || "a task"}"`,
+        body: `in ${proj?.name || "a project"}`,
+        link: `/projects/${oldTask?.project_id}`,
+      }).catch(() => {});
+    }
   };
 
   const deleteTask = async (taskId) => {
@@ -420,6 +430,15 @@ export default function ProjectsView() {
     if (error) { showToast("Failed to post comment"); return; }
     if (data) setComments(p => [...p, data]);
     setNewComment("");
+    // Notify task assignee about comment
+    if (selectedTask.assignee_id && selectedTask.assignee_id !== user?.id) {
+      await supabase.from("notifications").insert({
+        user_id: selectedTask.assignee_id, type: "comment",
+        title: `New comment on "${selectedTask.title}"`,
+        body: newComment.trim().slice(0, 100),
+        link: `/projects/${selectedTask.project_id}`,
+      }).catch(() => {});
+    }
   };
 
   const deleteComment = async (commentId) => {
