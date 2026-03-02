@@ -8,7 +8,7 @@ const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 
 export default function MessagesView() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [channels, setChannels] = useState([]);
   const [activeCh, setActiveCh] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -63,7 +63,7 @@ export default function MessagesView() {
     const name = prompt("Channel name:");
     if (!name?.trim()) return;
     const { data, error } = await supabase.from("channels").insert({
-      org_id: "a0000000-0000-0000-0000-000000000001", name: name.trim(), is_archived: false,
+      org_id: profile?.org_id, name: name.trim(), is_archived: false,
     }).select().single();
     if (data) { setChannels(p => [...p, data]); setActiveCh(data.id); }
   };

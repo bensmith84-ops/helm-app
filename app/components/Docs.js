@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useAuth } from "../lib/auth";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
@@ -21,6 +22,7 @@ const FOLDERS = [
 ];
 
 export default function DocsView() {
+  const { user, profile } = useAuth();
   const [docs, setDocs] = useState([]);
   const [profiles, setProfiles] = useState({});
   const [selectedDoc, setSelectedDoc] = useState(null);
@@ -51,7 +53,7 @@ export default function DocsView() {
     const title = prompt("Document title:");
     if (!title?.trim()) return;
     const { data } = await supabase.from("docs").insert({
-      org_id: "a0000000-0000-0000-0000-000000000001",
+      org_id: profile?.org_id,
       title: title.trim(), status: "draft", folder: activeFolder === "all" ? "general" : activeFolder,
     }).select().single();
     if (data) { setDocs(p => [data, ...p]); setSelectedDoc(data); }

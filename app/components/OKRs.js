@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useAuth } from "../lib/auth";
 
 const HEALTH = {
   on_track:  { label: "On Track",  color: "#22c55e", bg: "#0d3a20" },
@@ -12,6 +13,7 @@ const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 
 export default function OKRsView() {
+  const { user, profile } = useAuth();
   const [cycles, setCycles] = useState([]);
   const [activeCycle, setActiveCycle] = useState(null);
   const [objectives, setObjectives] = useState([]);
@@ -77,7 +79,7 @@ export default function OKRsView() {
     if (!title?.trim()) return;
     const maxSort = objectives.reduce((m, o) => Math.max(m, o.sort_order || 0), 0);
     const { data, error } = await supabase.from("objectives").insert({
-      org_id: "a0000000-0000-0000-0000-000000000001", cycle_id: activeCycle,
+      org_id: profile?.org_id, cycle_id: activeCycle,
       title: title.trim(), health: "on_track", progress: 0, sort_order: maxSort + 1,
     }).select().single();
     if (error) return;

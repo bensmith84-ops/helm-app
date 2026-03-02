@@ -37,6 +37,7 @@ export function AuthProvider({ children }) {
         id: userId,
         display_name: user?.email?.split("@")[0] || "User",
         email: user?.email,
+        org_id: "a0000000-0000-0000-0000-000000000001",
       }, { onConflict: "id" }).select().single();
       setProfile(newProfile);
     }
@@ -49,6 +50,7 @@ export function AuthProvider({ children }) {
     if (data.user) {
       await supabase.from("profiles").upsert({
         id: data.user.id, display_name: displayName || email.split("@")[0], email,
+        org_id: "a0000000-0000-0000-0000-000000000001",
       }, { onConflict: "id" });
     }
     return { data };

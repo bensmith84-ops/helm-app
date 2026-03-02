@@ -2,10 +2,12 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useAuth } from "../lib/auth";
 
 const TYPE_ICONS = { scheduled: "📅", huddle: "💬", recurring: "🔄" };
 
 export default function CallsView() {
+  const { user, profile } = useAuth();
   const [calls, setCalls] = useState([]);
   const [selectedCall, setSelectedCall] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -23,7 +25,7 @@ export default function CallsView() {
     const title = prompt("Call title:");
     if (!title?.trim()) return;
     const { data } = await supabase.from("calls").insert({
-      org_id: "a0000000-0000-0000-0000-000000000001",
+      org_id: profile?.org_id,
       title: title.trim(), call_type: "scheduled",
       scheduled_at: new Date().toISOString(), status: "upcoming",
     }).select().single();

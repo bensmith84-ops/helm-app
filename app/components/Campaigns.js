@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useAuth } from "../lib/auth";
 
 const STATUS_CFG = {
   draft: { label: "Draft", color: "#eab308", bg: "#3d3000" },
@@ -13,6 +14,7 @@ const STATUS_CFG = {
 const CHANNELS = ["email", "social", "paid_ads", "content", "seo", "events"];
 
 export default function CampaignsView() {
+  const { user, profile } = useAuth();
   const [campaigns, setCampaigns] = useState([]);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -30,7 +32,7 @@ export default function CampaignsView() {
     const name = prompt("Campaign name:");
     if (!name?.trim()) return;
     const { data } = await supabase.from("campaigns").insert({
-      org_id: "a0000000-0000-0000-0000-000000000001", name: name.trim(), status: "draft",
+      org_id: profile?.org_id, name: name.trim(), status: "draft",
     }).select().single();
     if (data) { setCampaigns(p => [data, ...p]); setSelected(data); }
   };

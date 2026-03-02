@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useAuth } from "../lib/auth";
 
 const CATEGORY_COLORS = {
   tasks: "#22c55e", projects: "#3b82f6", notifications: "#a855f7",
@@ -22,6 +23,7 @@ const ACTION_TYPES = [
 ];
 
 export default function AutomationView() {
+  const { user, profile } = useAuth();
   const [rules, setRules] = useState([]);
   const [selectedRule, setSelectedRule] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -49,7 +51,7 @@ export default function AutomationView() {
   const createRule = async () => {
     if (!form.name.trim()) return;
     const { data, error } = await supabase.from("automations").insert({
-      org_id: "a0000000-0000-0000-0000-000000000001",
+      org_id: profile?.org_id,
       name: form.name.trim(), description: form.description,
       trigger_type: form.trigger_type, action_type: form.action_type,
       category: form.category, active: true, runs: 0,

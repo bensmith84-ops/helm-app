@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
@@ -8,6 +9,7 @@ import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════ */
 export default function ProjectsView() {
+  const { user, profile } = useAuth();
   const [projects, setProjects] = useState([]);
   const [sections, setSections] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -337,7 +339,7 @@ export default function ProjectsView() {
   const saveProject = async () => {
     if (!projectForm.name.trim()) return;
     if (showProjectForm === "new") {
-      const orgId = projects[0]?.org_id || "a0000000-0000-0000-0000-000000000001";
+      const orgId = profile?.org_id;
       const { data, error } = await supabase.from("projects").insert({
         org_id: orgId, name: projectForm.name.trim(), description: projectForm.description.trim() || null,
         color: projectForm.color, status: projectForm.status, visibility: "public", default_view: "list",
@@ -537,7 +539,7 @@ export default function ProjectsView() {
     const name = prompt("New project name:", "New " + template.name.replace(" Template", ""));
     if (!name?.trim()) return;
     const { data: newProj, error: pErr } = await supabase.from("projects").insert({
-      org_id: proj?.org_id || "a0000000-0000-0000-0000-000000000001",
+      org_id: profile?.org_id,
       name: name.trim(), color: "#3b82f6", status: "active",
     }).select().single();
     if (pErr || !newProj) { showToast("Failed to create project"); return; }
