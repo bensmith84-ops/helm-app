@@ -112,6 +112,7 @@ export default function OKRsView() {
       start_date: c?.start_date || "", end_date: c?.end_date || "",
       owner_id: user?.id || "", team_id: "",
       keyResults: [{ title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "" }],
+      milestones: [],
     });
   };
 
@@ -140,8 +141,21 @@ export default function OKRsView() {
       const { data: krData } = await supabase.from("key_results").insert(krInserts).select();
       newKRs = krData || [];
     }
+    // Create milestones
+    const validMS = (objForm.milestones || []).filter(m => m.title.trim() && m.start_date && m.end_date);
+    let newMS = [];
+    if (validMS.length > 0) {
+      const msInserts = validMS.map((m, i) => ({
+        objective_id: objData.id, title: m.title.trim(),
+        start_date: m.start_date, end_date: m.end_date,
+        color: m.color || MS_COLORS[i % MS_COLORS.length], sort_order: i,
+      }));
+      const { data: msData } = await supabase.from("okr_milestones").insert(msInserts).select();
+      newMS = msData || [];
+    }
     setObjectives(p => [...p, objData]);
     setKeyResults(p => [...p, ...newKRs]);
+    setMilestones(p => [...p, ...newMS]);
     setExpanded(p => [...p, objData.id]);
     setObjForm(null);
   };
@@ -654,6 +668,16 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
     kr.splice(idx + 1, 0, copy);
     return { ...p, keyResults: kr };
   }), [setObjForm]);
+  const setMS = useCallback((idx, k, v) => setObjForm(p => ({ ...p, milestones: p.milestones.map((m, i) => i === idx ? { ...m, [k]: v } : m) })), [setObjForm]);
+  const addMS = useCallback(() => setObjForm(p => ({ ...p, milestones: [...(p.milestones || []), { title: "", start_date: "", end_date: "", color: MS_COLORS[(p.milestones || []).length % MS_COLORS.length] }] })), [setObjForm]);
+  const removeMS = useCallback((idx) => setObjForm(p => ({ ...p, milestones: p.milestones.filter((_, i) => i !== idx) })), [setObjForm]);
+  const cloneMS = useCallback((idx) => setObjForm(p => {
+    const src = p.milestones[idx];
+    const copy = { ...src, title: src.title ? src.title + " (copy)" : "" };
+    const ms = [...p.milestones];
+    ms.splice(idx + 1, 0, copy);
+    return { ...p, milestones: ms };
+  }), [setObjForm]);
   const f = objForm;
 
   return (
@@ -715,6 +739,43 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
                 </div>
               </div>
             ))}
+          </div>
+          {/* Milestones section */}
+          <div style={{ borderTop: `1px solid ${T.border}`, margin: "18px 0", paddingTop: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700 }}>Milestones</span>
+                <span style={{ fontSize: 10, color: T.text3 }}>Timeline bars on roadmap</span>
+              </div>
+              <button onClick={addMS} style={{ padding: "4px 12px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: `${T.accent}10`, color: T.accent, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>+ Add Milestone</button>
+            </div>
+            {(f.milestones || []).map((ms, idx) => (
+              <div key={idx} style={{ padding: "10px 14px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 3, background: ms.color || MS_COLORS[0], flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Milestone {idx + 1}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => cloneMS(idx)} title="Clone Milestone" style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: 600 }} onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = T.text3; }}>⧉ Clone</button>
+                    <button onClick={() => removeMS(idx)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 0 }}>×</button>
+                  </div>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <input value={ms.title} onChange={e => setMS(idx, "title", e.target.value)} placeholder="e.g. Launch Australia & UK GWP" style={{ ..._inp, fontSize: 12 }} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 8 }}>
+                  <div><label style={{ ..._lbl, fontSize: 10 }}>Start Date</label><input type="date" value={ms.start_date || ""} onChange={e => setMS(idx, "start_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
+                  <div><label style={{ ..._lbl, fontSize: 10 }}>End Date</label><input type="date" value={ms.end_date || ""} onChange={e => setMS(idx, "end_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
+                  <div><label style={{ ..._lbl, fontSize: 10 }}>Color</label>
+                    <div style={{ display: "flex", gap: 3, flexWrap: "wrap", paddingTop: 2 }}>
+                      {MS_COLORS.map(c => <div key={c} onClick={() => setMS(idx, "color", c)} style={{ width: 16, height: 16, borderRadius: 4, background: c, cursor: "pointer", border: ms.color === c ? "2px solid #fff" : "2px solid transparent", boxShadow: ms.color === c ? `0 0 0 1px ${c}` : "none" }} />)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {(f.milestones || []).length === 0 && <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: "4px 0" }}>No milestones — add some to see them on the roadmap timeline</div>}
           </div>
         </div>
         <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
