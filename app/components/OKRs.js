@@ -647,6 +647,13 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
   const setKR = useCallback((idx, k, v) => setObjForm(p => ({ ...p, keyResults: p.keyResults.map((kr, i) => i === idx ? { ...kr, [k]: v } : kr) })), [setObjForm]);
   const addKR = useCallback(() => setObjForm(p => ({ ...p, keyResults: [...p.keyResults, { title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "" }] })), [setObjForm]);
   const removeKR = useCallback((idx) => setObjForm(p => ({ ...p, keyResults: p.keyResults.filter((_, i) => i !== idx) })), [setObjForm]);
+  const cloneKR = useCallback((idx) => setObjForm(p => {
+    const src = p.keyResults[idx];
+    const copy = { ...src, title: src.title ? src.title + " (copy)" : "" };
+    const kr = [...p.keyResults];
+    kr.splice(idx + 1, 0, copy);
+    return { ...p, keyResults: kr };
+  }), [setObjForm]);
   const f = objForm;
 
   return (
@@ -689,7 +696,10 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
               <div key={idx} style={{ padding: "12px 14px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                   <span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>KR {idx + 1}</span>
-                  {f.keyResults.length > 1 && <button onClick={() => removeKR(idx)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 0 }}>×</button>}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => cloneKR(idx)} title="Clone KR" style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: 600 }} onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = T.text3; }}>⧉ Clone</button>
+                    {f.keyResults.length > 1 && <button onClick={() => removeKR(idx)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 0 }}>×</button>}
+                  </div>
                 </div>
                 <div style={{ marginBottom: 8 }}>
                   <input value={kr.title} onChange={e => setKR(idx, "title", e.target.value)} placeholder="e.g. $10M Net Revenue @ 40% Margin" style={{ ..._inp, fontSize: 12 }} />
