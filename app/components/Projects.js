@@ -39,6 +39,10 @@ export default function ProjectsView() {
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [comments, setComments] = useState([]);
   const [activityLog, setActivityLog] = useState([]);
+  const [timeEntries, setTimeEntries] = useState([]);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerStart, setTimerStart] = useState(null);
+  const [timerElapsed, setTimerElapsed] = useState(0);
   const [newComment, setNewComment] = useState("");
   const [dependencies, setDependencies] = useState([]); // { id, predecessor_id, successor_id }
   const [attachments, setAttachments] = useState([]);
@@ -102,8 +106,9 @@ export default function ProjectsView() {
         supabase.from("comments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
         supabase.from("attachments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }),
         supabase.from("activity_log").select("*").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }).limit(10),
+        supabase.from("time_entries").select("*").eq("task_id", selectedTask.id).order("created_at", { ascending: false }),
       ]);
-      setComments(c || []); setAttachments(a || []); setActivityLog(al || []);
+      setComments(c || []); setAttachments(a || []); setActivityLog(al || []); setTimeEntries(te || []);
     })();
   }, [selectedTask?.id]);
 
@@ -612,6 +617,28 @@ export default function ProjectsView() {
       await supabase.from("profiles").update({ preferences: { ...(profile?.preferences || {}), favorites: newFavs } }).eq("id", user.id);
     }
   };
+
+  /* ── Time Tracking ── */
+  useEffect(() => {
+    if (!timerRunning) return;
+    const iv = setInterval(() => setTimerElapsed(Math.floor((Date.now() - timerStart) / 1000)), 1000);
+    return () => clearInterval(iv);
+  }, [timerRunning, timerStart]);
+
+  const startTimer = () => { setTimerStart(Date.now()); setTimerRunning(true); setTimerElapsed(0); };
+  const stopTimer = async () => {
+    if (!timerRunning || !selectedTask) return;
+    const dur = Math.floor((Date.now() - timerStart) / 1000);
+    setTimerRunning(false);
+    if (dur < 5) return; // ignore < 5s
+    const { data } = await supabase.from("time_entries").insert({
+      task_id: selectedTask.id, user_id: user?.id,
+      duration_seconds: dur, started_at: new Date(timerStart).toISOString(), ended_at: new Date().toISOString(),
+    }).select().single();
+    if (data) setTimeEntries(p => [data, ...p]);
+    setTimerElapsed(0);
+  };
+  const fmtDur = (s) => { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60; return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : `${sec}s`; };
 
   /* ── CSV Import ── */
   const handleCSVImport = async (file) => {
@@ -2048,6 +2075,34 @@ export default function ProjectsView() {
             </div>
           ) : (
             <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No attachments</div>
+          )}
+        </div>
+        {/* Time Tracking */}
+        <div style={{ padding: "16px 24px", borderBottom: `1px solid ${T.border}20` }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 10 }}>Time Tracking</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            {timerRunning ? (
+              <>
+                <div style={{ fontSize: 20, fontWeight: 700, color: T.accent, fontVariantNumeric: "tabular-nums" }}>{fmtDur(timerElapsed)}</div>
+                <div style={{ width: 8, height: 8, borderRadius: 8, background: "#ef4444", animation: "pulse 1s infinite" }} />
+                <button onClick={stopTimer} style={{ marginLeft: "auto", padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none", background: "#ef4444", color: "#fff", cursor: "pointer" }}>Stop</button>
+              </>
+            ) : (
+              <button onClick={startTimer} style={{ padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.accent, cursor: "pointer" }}>▶ Start Timer</button>
+            )}
+          </div>
+          {timeEntries.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>
+                Total: {fmtDur(timeEntries.reduce((s, e) => s + (e.duration_seconds || 0), 0))}
+              </div>
+              {timeEntries.slice(0, 5).map(e => (
+                <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: T.text3 }}>
+                  <span>{fmtDur(e.duration_seconds)}</span>
+                  <span>{e.started_at ? new Date(e.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
         {/* Comments & Activity */}
