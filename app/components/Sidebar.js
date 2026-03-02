@@ -1,6 +1,5 @@
 "use client";
 import { T } from "../tokens";
-import { Avatar } from "./ui";
 
 export const NAV_ITEMS = [
   { key: "dashboard", icon: "⬡", label: "Home" },
@@ -22,7 +21,7 @@ export const NAV_ITEMS = [
   { key: "settings", icon: "⚙", label: "Settings" },
 ];
 
-export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {} }) {
+export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile }) {
   const w = expanded ? 200 : 52;
   return (
     <div style={{
@@ -81,10 +80,13 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
         {expanded && <span style={{ fontSize: 12, whiteSpace: "nowrap" }}>Collapse</span>}
       </button>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: expanded ? "0 12px" : "0", justifyContent: expanded ? "flex-start" : "center", marginBottom: 12 }}>
-        <Avatar user="u1" size={28} />
+        <div style={{
+          width: 28, height: 28, borderRadius: 14, background: `${T.accent}25`, border: `1.5px solid ${T.accent}40`,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, flexShrink: 0,
+        }}>{profile?.display_name ? profile.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"}</div>
         {expanded && <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>Ben Harper</div>
-          <div style={{ fontSize: 10, color: T.text3 }}>CEO</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{profile?.display_name || "User"}</div>
+          <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profile?.email || ""}</div>
         </div>}
       </div>
     </div>

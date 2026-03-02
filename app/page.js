@@ -117,7 +117,7 @@ export default function HelmApp() {
         button:hover { opacity: 0.85; }
       `}</style>
       <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", background: T.bg }}>
-        <Sidebar active={active} setActive={setActive} expanded={expanded} setExpanded={setExpanded} badges={badges} />
+        <Sidebar active={active} setActive={setActive} expanded={expanded} setExpanded={setExpanded} badges={badges} profile={profile} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ height: 44, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 20px", gap: 12, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
