@@ -72,6 +72,44 @@ export default function OKRsView() {
     await supabase.from("objectives").update({ health }).eq("id", objId);
   };
 
+  const createObjective = async () => {
+    const title = prompt("Objective title:");
+    if (!title?.trim()) return;
+    const maxSort = objectives.reduce((m, o) => Math.max(m, o.sort_order || 0), 0);
+    const { data, error } = await supabase.from("objectives").insert({
+      org_id: "a0000000-0000-0000-0000-000000000001", cycle_id: activeCycle,
+      title: title.trim(), health: "on_track", progress: 0, sort_order: maxSort + 1,
+    }).select().single();
+    if (error) return;
+    if (data) { setObjectives(p => [...p, data]); setExpanded(p => [...p, data.id]); }
+  };
+
+  const createKeyResult = async (objId) => {
+    const title = prompt("Key Result title:");
+    if (!title?.trim()) return;
+    const target = prompt("Target value:", "100");
+    const maxSort = keyResults.filter(k => k.objective_id === objId).reduce((m, k) => Math.max(m, k.sort_order || 0), 0);
+    const { data, error } = await supabase.from("key_results").insert({
+      objective_id: objId, title: title.trim(), target_value: Number(target) || 100,
+      start_value: 0, current_value: 0, progress: 0, sort_order: maxSort + 1,
+    }).select().single();
+    if (error) return;
+    if (data) setKeyResults(p => [...p, data]);
+  };
+
+  const deleteObjective = async (objId) => {
+    if (!confirm("Delete this objective and all its key results?")) return;
+    setObjectives(p => p.filter(o => o.id !== objId));
+    setKeyResults(p => p.filter(k => k.objective_id !== objId));
+    await supabase.from("key_results").update({ deleted_at: new Date().toISOString() }).eq("objective_id", objId);
+    await supabase.from("objectives").update({ deleted_at: new Date().toISOString() }).eq("id", objId);
+  };
+
+  const deleteKeyResult = async (krId) => {
+    setKeyResults(p => p.filter(k => k.id !== krId));
+    await supabase.from("key_results").update({ deleted_at: new Date().toISOString() }).eq("id", krId);
+  };
+
   if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading OKRs…</div>;
 
   const cycle = cycles.find(c => c.id === activeCycle);
@@ -204,6 +242,12 @@ export default function OKRsView() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {header}
         <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+          {objectives.length === 0 && (
+            <div style={{ textAlign: "center", padding: 40, color: T.text3 }}>
+              <div style={{ fontSize: 14, marginBottom: 8 }}>No objectives yet</div>
+              <button onClick={createObjective} style={{ padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Create your first objective</button>
+            </div>
+          )}
           {objectives.map((obj) => {
             const objKRs = keyResults.filter(k => k.objective_id === obj.id);
             const isExp = expanded.includes(obj.id);
@@ -227,6 +271,9 @@ export default function OKRsView() {
                       <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Ava uid={obj.owner_id} sz={18} /> {uname(obj.owner_id)}</span>
                       <span>·</span>
                       <span>{objKRs.length} key results</span>
+                      <span>·</span>
+                      <button onClick={e => { e.stopPropagation(); createKeyResult(obj.id); }} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>+ Add KR</button>
+                      <button onClick={e => { e.stopPropagation(); deleteObjective(obj.id); }} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
@@ -267,7 +314,10 @@ export default function OKRsView() {
                           </div>
                           <span style={{ fontSize: 12, color: T.text2 }}>{kr.current_value}/{kr.target_value}</span>
                           <ConfidenceDot value={kr.confidence} />
-                          <Ava uid={kr.owner_id} sz={22} />
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Ava uid={kr.owner_id} sz={22} />
+                            <button onClick={e => { e.stopPropagation(); deleteKeyResult(kr.id); }} title="Delete" style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1, opacity: 0.4 }}>×</button>
+                          </div>
                         </div>
                       );
                     })}
@@ -276,8 +326,11 @@ export default function OKRsView() {
               </div>
             );
           })}
-          {objectives.length === 0 && (
-            <div style={{ textAlign: "center", padding: 60, color: T.text3, fontSize: 14 }}>No objectives found for this cycle.</div>
+          {objectives.length > 0 && (
+            <button onClick={createObjective} style={{
+              padding: "10px 18px", fontSize: 13, fontWeight: 600, borderRadius: 8, marginTop: 12,
+              border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer", width: "100%",
+            }}>+ Add Objective</button>
           )}
         </div>
       </div>
