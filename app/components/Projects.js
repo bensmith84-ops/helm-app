@@ -38,7 +38,11 @@ export default function ProjectsView() {
   const [addingSubtaskTo, setAddingSubtaskTo] = useState(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [showProjectForm, setShowProjectForm] = useState(false);
-  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active" });
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: "", start_date: "", target_end_date: "", default_view: "List", members: [] });
+  const [teams, setTeams] = useState([]);
+  const [objectives, setObjectives] = useState([]);
+  const [allProfiles, setAllProfiles] = useState([]);
+  const [formStep, setFormStep] = useState(1);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
@@ -56,6 +60,7 @@ export default function ProjectsView() {
 
   const showToast = useCallback((msg, type = "error") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const ini = (uid) => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
+  const iniName = (name) => name ? name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?";
   const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
   const uname = (uid) => profiles[uid]?.display_name || "";
   const secColor = (i) => SECTION_COLORS[i % SECTION_COLORS.length];
@@ -67,13 +72,16 @@ export default function ProjectsView() {
     const load = async () => {
       setLoading(true);
       try {
-        const [pR, sR, tR, prR] = await Promise.all([
+        const [pR, sR, tR, prR, tmR, obR] = await Promise.all([
           supabase.from("projects").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("sections").select("*").order("sort_order"),
           supabase.from("tasks").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("sort_order"),
           supabase.from("profiles").select("*").eq("org_id", profile.org_id),
+          supabase.from("teams").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
+          supabase.from("objectives").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
         ]);
         setProjects(pR.data || []); setSections(sR.data || []); setTasks(tR.data || []);
+        setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
       } catch (e) { showToast("Failed to load data"); }
@@ -134,9 +142,9 @@ export default function ProjectsView() {
   const createSection = async () => { if (!newSectionName.trim()) return; const mx = projSections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0); const { data, error } = await supabase.from("sections").insert({ project_id: activeProject, name: newSectionName.trim(), sort_order: mx + 1 }).select().single(); if (!error && data) setSections(p => [...p, data]); setNewSectionName(""); setAddingSection(false); };
   const renameSection = async (secId) => { if (!editingSectionName.trim()) return; await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId); setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s)); setEditingSectionId(null); };
   const deleteSection = async (secId) => { const st = tasks.filter(t => t.section_id === secId); const ok = await showConfirm("Delete Section", st.length ? `Delete ${st.length} task(s) too?` : "Delete this section?"); if (!ok) return; if (st.length) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("section_id", secId); await supabase.from("sections").delete().eq("id", secId); setSections(p => p.filter(s => s.id !== secId)); setTasks(p => p.filter(t => t.section_id !== secId)); };
-  const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active" }); setShowProjectForm("new"); };
-  const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active" }); setShowProjectForm("edit"); };
-  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (showProjectForm === "new") { const { data, error } = await supabase.from("projects").insert({ org_id: profile.org_id, name: projectForm.name.trim(), description: projectForm.description, color: projectForm.color, status: projectForm.status, created_by: user.id }).select().single(); if (error) return showToast("Failed to create project"); setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } } else { const { error } = await supabase.from("projects").update({ name: projectForm.name.trim(), description: projectForm.description, color: projectForm.color, status: projectForm.status }).eq("id", activeProject); if (error) return showToast("Failed to update project"); setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...projectForm } : pr)); } setShowProjectForm(false); };
+  const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: user?.id || "", start_date: "", target_end_date: "", default_view: "List", members: [] }); setFormStep(1); setShowProjectForm("new"); };
+  const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active", visibility: proj.visibility || "private", join_policy: proj.join_policy || "invite_only", team_id: proj.team_id || "", objective_id: proj.objective_id || "", owner_id: proj.owner_id || "", start_date: proj.start_date || "", target_end_date: proj.target_end_date || "", default_view: proj.default_view || "List", members: [] }); setFormStep(1); setShowProjectForm("edit"); };
+  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); const payload = { name: projectForm.name.trim(), description: projectForm.description, color: projectForm.color, status: projectForm.status, visibility: projectForm.visibility, join_policy: projectForm.join_policy, team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = user.id; const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) return showToast("Failed to create project"); setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) return showToast("Failed to update project"); setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
   const addComment = async () => { if (!newComment.trim() || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: newComment.trim() }).select().single(); if (!error && data) setComments(p => [...p, data]); setNewComment(""); };
   const uploadAttachment = async (file) => { if (!selectedTask) return; const path = `${profile.org_id}/${selectedTask.id}/${Date.now()}_${file.name}`; const { error: ue } = await supabase.storage.from("attachments").upload(path, file); if (ue) return showToast("Upload failed"); const { data, error } = await supabase.from("attachments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user.id }).select().single(); if (!error && data) setAttachments(p => [...p, data]); };
   const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
@@ -331,14 +339,86 @@ export default function ProjectsView() {
         </div>
       </div>
     </div>); };
-  const ProjectFormModal = () => { if (!showProjectForm) return null; const isNew = showProjectForm === "new"; const colors = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"]; return (
+  const ProjectFormModal = () => { if (!showProjectForm) return null; const isNew = showProjectForm === "new"; const colors = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"]; const f = projectForm; const set = (k, v) => setProjectForm(p => ({ ...p, [k]: v })); const toggleMember = (uid) => set("members", f.members.includes(uid) ? f.members.filter(id => id !== uid) : [...f.members, uid]); const lbl = { fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }; const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }; const sel = { ...inp, cursor: "pointer" }; const stepNames = ["Details", "Access & Privacy", "People"]; return (
     <div onClick={() => setShowProjectForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 420, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>{isNew ? "New Project" : "Edit Project"}</h3>
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Name</label><input value={projectForm.name} onChange={e => setProjectForm(p => ({ ...p, name: e.target.value }))} autoFocus style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Description</label><textarea value={projectForm.description} onChange={e => setProjectForm(p => ({ ...p, description: e.target.value }))} rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} /></div>
-        <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 6 }}>Color</label><div style={{ display: "flex", gap: 6 }}>{colors.map(c => <div key={c} onClick={() => setProjectForm(p => ({ ...p, color: c }))} style={{ width: 24, height: 24, borderRadius: 12, background: c, cursor: "pointer", border: projectForm.color === c ? "2px solid #fff" : "2px solid transparent" }} />)}</div></div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button onClick={() => setShowProjectForm(false)} style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button><button onClick={saveProject} style={{ padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>{isNew ? "Create" : "Save"}</button></div>
+      <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{ padding: "20px 24px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: 0 }}>{isNew ? "New Project" : "Edit Project"}</h3>
+            <button onClick={() => setShowProjectForm(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
+          </div>
+          {/* Step indicator */}
+          <div style={{ display: "flex", gap: 0, marginBottom: 16 }}>
+            {stepNames.map((s, i) => (<button key={s} onClick={() => setFormStep(i + 1)} style={{ flex: 1, padding: "8px 0", fontSize: 12, fontWeight: formStep === i + 1 ? 600 : 400, color: formStep === i + 1 ? T.accent : T.text3, background: "none", border: "none", borderBottom: formStep === i + 1 ? `2px solid ${T.accent}` : `2px solid ${T.border}`, cursor: "pointer" }}>{i + 1}. {s}</button>))}
+          </div>
+        </div>
+        {/* Body */}
+        <div style={{ flex: 1, overflow: "auto", padding: "0 24px 16px" }}>
+          {formStep === 1 && <>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Project Name *</label><input value={f.name} onChange={e => set("name", e.target.value)} autoFocus placeholder="e.g. Q2 Marketing Campaign" style={inp} /></div>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Description</label><textarea value={f.description} onChange={e => set("description", e.target.value)} rows={3} placeholder="What is this project about?" style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Start Date</label><input type="date" value={f.start_date} onChange={e => set("start_date", e.target.value)} style={inp} /></div>
+              <div><label style={lbl}>Target End Date</label><input type="date" value={f.target_end_date} onChange={e => set("target_end_date", e.target.value)} style={inp} /></div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Status</label><select value={f.status} onChange={e => set("status", e.target.value)} style={sel}><option value="active">Active</option><option value="on_hold">On Hold</option><option value="completed">Completed</option><option value="archived">Archived</option></select></div>
+              <div><label style={lbl}>Default View</label><select value={f.default_view} onChange={e => set("default_view", e.target.value)} style={sel}><option value="List">List</option><option value="Board">Board</option><option value="Timeline">Timeline</option><option value="Calendar">Calendar</option></select></div>
+            </div>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Color</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{colors.map(c => <div key={c} onClick={() => set("color", c)} style={{ width: 28, height: 28, borderRadius: 14, background: c, cursor: "pointer", border: f.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: f.color === c ? `0 0 0 2px ${c}` : "none", transition: "all 0.15s" }} />)}</div></div>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Link to Goal / OKR</label><select value={f.objective_id} onChange={e => set("objective_id", e.target.value)} style={sel}><option value="">None</option>{objectives.map(o => <option key={o.id} value={o.id}>{o.title}</option>)}</select>{f.objective_id && <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: T.accentDim, fontSize: 11, color: T.accent }}>Linked to: {objectives.find(o => o.id === f.objective_id)?.title}</div>}</div>
+          </>}
+          {formStep === 2 && <>
+            {/* Visibility */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ ...lbl, marginBottom: 8 }}>Visibility</label>
+              {[{ v: "private", l: "Private", d: "Only added members can see this project", icon: "🔒" }, { v: "team", l: "Team", d: "Visible to everyone on the assigned team", icon: "👥" }, { v: "public", l: "Public", d: "Anyone in the organization can search, view, and join", icon: "🌐" }].map(opt => (
+                <div key={opt.v} onClick={() => set("visibility", opt.v)} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px", borderRadius: 8, border: `1.5px solid ${f.visibility === opt.v ? T.accent : T.border}`, background: f.visibility === opt.v ? T.accentDim : "transparent", marginBottom: 8, cursor: "pointer", transition: "all 0.15s" }}>
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>{opt.icon}</span>
+                  <div><div style={{ fontSize: 13, fontWeight: 600, color: f.visibility === opt.v ? T.accent : T.text }}>{opt.l}</div><div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{opt.d}</div></div>
+                  <div style={{ marginLeft: "auto", width: 18, height: 18, borderRadius: 9, border: `2px solid ${f.visibility === opt.v ? T.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>{f.visibility === opt.v && <div style={{ width: 10, height: 10, borderRadius: 5, background: T.accent }} />}</div>
+                </div>))}
+            </div>
+            {/* Team assignment - show when visibility is team or always as optional */}
+            <div style={{ marginBottom: 16 }}><label style={lbl}>Assign to Team</label><select value={f.team_id} onChange={e => set("team_id", e.target.value)} style={sel}><option value="">No team</option>{teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>{teams.length === 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>No teams created yet</div>}</div>
+            {/* Join policy */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ ...lbl, marginBottom: 8 }}>Who can join?</label>
+              {[{ v: "invite_only", l: "Invite only", d: "Only project admins can add members" }, { v: "request_to_join", l: "Request to join", d: "People can request access, admins approve" }, { v: "open", l: "Open", d: "Anyone can join freely" }].map(opt => (
+                <div key={opt.v} onClick={() => set("join_policy", opt.v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 6, border: `1.5px solid ${f.join_policy === opt.v ? T.accent : T.border}`, background: f.join_policy === opt.v ? T.accentDim : "transparent", marginBottom: 6, cursor: "pointer", transition: "all 0.15s" }}>
+                  <div style={{ width: 16, height: 16, borderRadius: 8, border: `2px solid ${f.join_policy === opt.v ? T.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{f.join_policy === opt.v && <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent }} />}</div>
+                  <div><div style={{ fontSize: 13, fontWeight: f.join_policy === opt.v ? 600 : 400, color: f.join_policy === opt.v ? T.accent : T.text }}>{opt.l}</div><div style={{ fontSize: 11, color: T.text3 }}>{opt.d}</div></div>
+                </div>))}
+            </div>
+            {f.visibility === "team" && f.team_id && <div style={{ padding: "8px 12px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text2 }}>Team members will have access. {f.join_policy === "open" ? "Others in the org can also join." : f.join_policy === "request_to_join" ? "Others can request to join." : "Only invited members outside the team can access."}</div>}
+          </>}
+          {formStep === 3 && <>
+            {/* Owner */}
+            <div style={{ marginBottom: 16 }}><label style={lbl}>Project Owner</label><select value={f.owner_id} onChange={e => set("owner_id", e.target.value)} style={sel}><option value="">Unassigned</option>{allProfiles.map(u => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}</select></div>
+            {/* Add members */}
+            <div style={{ marginBottom: 12 }}><label style={{ ...lbl, marginBottom: 8 }}>Add Members {f.members.length > 0 && <span style={{ color: T.accent, fontWeight: 600 }}>({f.members.length} selected)</span>}</label>
+              <div style={{ maxHeight: 240, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                {allProfiles.filter(u => u.id !== f.owner_id).map(u => { const isSel = f.members.includes(u.id); const c = acol(u.id); return (
+                  <div key={u.id} onClick={() => toggleMember(u.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", background: isSel ? T.accentDim : "transparent", borderBottom: `1px solid ${T.border}` }} onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = T.surface2; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${isSel ? T.accent : T.border}`, background: isSel ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSel && <svg width="8" height="8" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" /></svg>}</div>
+                    <div style={{ width: 26, height: 26, borderRadius: 13, background: `${c}18`, border: `1.5px solid ${c}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: c, flexShrink: 0 }}>{iniName(u.display_name)}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{u.display_name || "Unknown"}</div><div style={{ fontSize: 11, color: T.text3 }}>{u.email}</div></div>
+                  </div>); })}
+              </div>
+            </div>
+            {f.members.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{f.members.map(uid => { const u = allProfiles.find(p => p.id === uid); const c = acol(uid); return (<span key={uid} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px 3px 4px", borderRadius: 12, background: `${c}15`, fontSize: 11, color: T.text2 }}><div style={{ width: 16, height: 16, borderRadius: 8, background: `${c}30`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700 }}>{iniName(u?.display_name)}</div>{u?.display_name?.split(" ")[0]}<span onClick={() => toggleMember(uid)} style={{ cursor: "pointer", color: T.text3, marginLeft: 2 }}>×</span></span>); })}</div>}
+          </>}
+        </div>
+        {/* Footer */}
+        <div style={{ padding: "12px 24px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 11, color: T.text3 }}>Step {formStep} of 3</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {formStep > 1 && <button onClick={() => setFormStep(p => p - 1)} style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Back</button>}
+            <button onClick={() => setShowProjectForm(false)} style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            {formStep < 3 ? <button onClick={() => { if (formStep === 1 && !f.name.trim()) return showToast("Project name required"); setFormStep(p => p + 1); }} style={{ padding: "8px 20px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Next</button> : <button onClick={saveProject} style={{ padding: "8px 20px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>{isNew ? "Create Project" : "Save Changes"}</button>}
+          </div>
+        </div>
       </div>
     </div>); };
   // MAIN RENDER
