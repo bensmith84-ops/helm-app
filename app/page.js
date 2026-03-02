@@ -15,6 +15,7 @@ import CampaignsView from "./components/Campaigns";
 import PLMView from "./components/PLM";
 import AutomationView from "./components/Automation";
 import ReportsView from "./components/Reports";
+import SettingsView from "./components/Settings";
 import CommandPalette from "./components/CommandPalette";
 import NotificationBell from "./components/NotificationBell";
 
@@ -51,6 +52,7 @@ export default function HelmApp() {
       case "plm": return <PLMView />;
       case "automation": return <AutomationView />;
       case "reports": return <ReportsView />;
+      case "settings": return <SettingsView />;
       default: return <DashboardView setActive={setActive} />;
     }
   };

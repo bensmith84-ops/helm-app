@@ -17,6 +17,8 @@ export const NAV_ITEMS = [
   { type: "divider" },
   { key: "automation", icon: "⚡", label: "Automation" },
   { key: "reports", icon: "▥", label: "Reports" },
+  { type: "divider" },
+  { key: "settings", icon: "⚙", label: "Settings" },
 ];
 
 export default function Sidebar({ active, setActive, expanded, setExpanded }) {
@@ -33,8 +35,8 @@ export default function Sidebar({ active, setActive, expanded, setExpanded }) {
           width: 32, height: 32, borderRadius: 8, background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`,
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 900,
           color: "#fff", letterSpacing: "-0.5px", flexShrink: 0,
-        }}>H</div>
-        {expanded && <span style={{ fontSize: 15, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>Helm</span>}
+        }}>N</div>
+        {expanded && <span style={{ fontSize: 15, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>Nexus</span>}
       </div>
       {NAV_ITEMS.map((item, i) =>
         item.type === "divider" ? (
