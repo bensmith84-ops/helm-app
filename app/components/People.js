@@ -27,6 +27,9 @@ export default function PeopleView() {
   const [inviteRole, setInviteRole] = useState("member");
   const [tab, setTab] = useState("overview"); // overview | permissions
   const [filterRole, setFilterRole] = useState("");
+  const [viewMode, setViewMode] = useState("cards"); // cards | list
+  const [hoveredRow, setHoveredRow] = useState(null);
+  const [actionMenu, setActionMenu] = useState(null);
 
   const showToast = (msg, type = "error") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
   const ini = (name) => name ? name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?";
@@ -151,6 +154,40 @@ export default function PeopleView() {
         </div>
       </div>); })}
   </div>);
+
+  const ToggleSwitch = ({ on, onClick, small }) => (<button onClick={onClick} style={{ width: small ? 30 : 36, height: small ? 16 : 20, borderRadius: 10, border: "none", cursor: "pointer", background: on ? T.green : T.surface3, position: "relative", transition: "background 0.2s", flexShrink: 0 }}><div style={{ width: small ? 12 : 16, height: small ? 12 : 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: on ? (small ? 16 : 18) : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} /></button>);
+
+  const ActionBtn = ({ icon, label, color, onClick }) => (<button onClick={(e) => { e.stopPropagation(); onClick(); }} title={label} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 6, border: `1px solid ${color || T.border}`, background: "transparent", cursor: "pointer", color: color || T.text3, transition: "background 0.1s" }} onMouseEnter={e => e.currentTarget.style.background = (color || T.text3) + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{icon}</button>);
+
+  const MemberList = () => { const colH = { fontSize: 11, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", padding: "8px 12px" }; return (
+    <div style={{ borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,1fr) 140px 100px 90px 80px 80px 120px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+        <div style={colH}>Name</div><div style={colH}>Email</div><div style={colH}>Role</div><div style={colH}>Tasks</div><div style={colH}>Status</div><div style={colH}>Projects</div><div style={{ ...colH, textAlign: "right" }}>Actions</div>
+      </div>
+      {filtered.map(member => { const c = acol(member.id); const stats = getStats(member.id); const om = getMembership(member.id); const isMe = member.id === user?.id; const active = om?.is_active !== false; const isOwner = om?.role === "owner"; const hov = hoveredRow === member.id; const sel = selected?.id === member.id; return (
+        <div key={member.id} onClick={() => setSelected(member)} onMouseEnter={() => setHoveredRow(member.id)} onMouseLeave={() => setHoveredRow(null)}
+          style={{ display: "grid", gridTemplateColumns: "minmax(200px,1fr) 140px 100px 90px 80px 80px 120px", alignItems: "center", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: sel ? T.accentDim : hov ? T.surface2 : "transparent", opacity: active ? 1 : 0.5, transition: "background 0.1s" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
+            <div style={{ width: 32, height: 32, borderRadius: 16, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: c, flexShrink: 0 }}>{ini(member.display_name)}</div>
+            <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.display_name || "Unknown"}</span>
+              {isMe && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: T.accentDim, color: T.accent }}>You</span>}
+            </div>
+          </div>
+          <div style={{ padding: "0 12px", fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.email || "—"}</div>
+          <div style={{ padding: "0 12px" }}><select value={om?.role || "member"} onChange={e => { e.stopPropagation(); updateRole(member.id, e.target.value); }} onClick={e => e.stopPropagation()} disabled={isOwner && isMe} style={{ padding: "3px 6px", borderRadius: 5, border: "1px solid transparent", background: (ROLE_COLORS[om?.role] || T.text3) + "15", color: ROLE_COLORS[om?.role] || T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", outline: "none", textTransform: "capitalize", width: "100%" }}>{ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}</select></div>
+          <div style={{ padding: "0 12px", display: "flex", gap: 6, fontSize: 12 }}><span style={{ color: T.text }}>{stats.open}</span><span style={{ color: T.text3 }}>/</span><span style={{ color: T.green }}>{stats.done}</span>{stats.overdue > 0 && <span style={{ color: T.red, fontWeight: 600 }}>({stats.overdue})</span>}</div>
+          <div style={{ padding: "0 12px" }}>{active ? <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 8, background: T.greenDim, color: T.green }}>Active</span> : <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 8, background: T.redDim, color: T.red }}>Inactive</span>}</div>
+          <div style={{ padding: "0 12px", fontSize: 12, color: T.text2 }}>{stats.projs.length}</div>
+          <div style={{ padding: "0 12px", display: "flex", gap: 4, justifyContent: "flex-end" }}>
+            {(hov || sel) && !isMe && <>
+              <ActionBtn onClick={() => deactivateUser(member.id)} color={active ? "#f59e0b" : T.green} label={active ? "Deactivate" : "Reactivate"} icon={active ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M4 12h16"/></svg> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/></svg>} />
+              {!isOwner && <ActionBtn onClick={() => deleteUser(member.id)} color={T.red} label="Remove" icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>} />}
+            </>}
+          </div>
+        </div>); })}
+    </div>); };
+
   const DetailPanel = () => { if (!selected) return null; const c = acol(selected.id); const stats = getStats(selected.id); const om = getMembership(selected.id); const memberTasks = tasks.filter(t => t.assignee_id === selected.id && t.status !== "done").sort((a, b) => { if (!a.due_date) return 1; if (!b.due_date) return -1; return new Date(a.due_date) - new Date(b.due_date); }).slice(0, 12); const memberProjs = stats.projs.map(pid => projects.find(p => p.id === pid)).filter(Boolean); const isMe = selected.id === user?.id; const isOwner = om?.role === "owner"; return (
     <div style={{ width: 380, borderLeft: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
@@ -206,9 +243,7 @@ export default function PeopleView() {
             {MODULES.map(mod => { const has = hasModuleAccess(selected.id, mod); const locked = om?.role === "owner" || om?.role === "admin"; return (
               <div key={mod} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
                 <span style={{ fontSize: 13, color: T.text, textTransform: "capitalize" }}>{mod}</span>
-                <button onClick={() => { if (!locked) toggleModuleAccess(selected.id, mod); }} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: locked ? "default" : "pointer", background: has ? T.green : T.surface3, position: "relative", transition: "background 0.2s", opacity: locked ? 0.5 : 1 }}>
-                  <div style={{ width: 16, height: 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: has ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
-                </button>
+                <ToggleSwitch on={has} onClick={() => { if (!locked) toggleModuleAccess(selected.id, mod); }} />
               </div>); })}
           </div>
           {/* Project-level access */}
@@ -220,9 +255,7 @@ export default function PeopleView() {
                   <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent }} />
                   <span style={{ fontSize: 13, color: T.text }}>{p.name}</span>
                 </div>
-                <button onClick={() => toggleProjectAccess(selected.id, p.id)} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: has ? T.green : T.surface3, position: "relative", transition: "background 0.2s" }}>
-                  <div style={{ width: 16, height: 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: has ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
-                </button>
+                <ToggleSwitch on={has} onClick={() => toggleProjectAccess(selected.id, p.id)} />
               </div>); })}
           </div>
         </>}
@@ -248,12 +281,17 @@ export default function PeopleView() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
           <div><h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>Team</h1><p style={{ fontSize: 12, color: T.text3 }}>{members.length} member{members.length !== 1 ? "s" : ""} · {memberships.filter(m => m.is_active !== false).length} active</p></div>
           <div style={{ display: "flex", gap: 8 }}>
+            {/* View toggle */}
+            <div style={{ display: "flex", borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+              <button onClick={() => setViewMode("cards")} style={{ padding: "7px 10px", background: viewMode === "cards" ? T.accent : T.surface2, color: viewMode === "cards" ? "#fff" : T.text3, border: "none", cursor: "pointer", display: "flex", alignItems: "center" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+              <button onClick={() => setViewMode("list")} style={{ padding: "7px 10px", background: viewMode === "list" ? T.accent : T.surface2, color: viewMode === "list" ? "#fff" : T.text3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", borderLeft: `1px solid ${T.border}` }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+            </div>
             <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: filterRole ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">All roles</option>{ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}</select>
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search team…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: 140, fontFamily: "inherit" }} /></div>
             <button onClick={() => setShowInvite(true)} style={{ padding: "7px 16px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>Add Member</button>
           </div>
         </div>
-        <MemberCards />
+        {viewMode === "cards" ? <MemberCards /> : <MemberList />}
       </div>
       <DetailPanel />
       <InviteModal />
