@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, Suspense, lazy, Component } from "react";
 import { T } from "./tokens";
+import { supabase } from "./lib/supabase";
 import { useAuth } from "./lib/auth";
 import AuthPage from "./components/AuthPage";
 import Sidebar, { NAV_ITEMS } from "./components/Sidebar";
@@ -81,15 +82,17 @@ export default function HelmApp() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const now = new Date().toISOString().split("T")[0];
-      const [{ count: overdue }, { count: notifCount }] = await Promise.all([
-        supabase.from("tasks").select("id", { count: "exact", head: true }).is("deleted_at", null).lt("due_date", now).neq("status", "done"),
-        supabase.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("is_read", false),
-      ]);
-      setBadges(b => ({
-        ...b,
-        projects: overdue > 0 ? overdue : null,
-      }));
+      try {
+        const now = new Date().toISOString().split("T")[0];
+        const [{ count: overdue }, { count: notifCount }] = await Promise.all([
+          supabase.from("tasks").select("id", { count: "exact", head: true }).is("deleted_at", null).lt("due_date", now).neq("status", "done"),
+          supabase.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("is_read", false),
+        ]);
+        setBadges(b => ({
+          ...b,
+          projects: overdue > 0 ? overdue : null,
+        }));
+      } catch (e) { console.warn("Badge count fetch failed:", e); }
     })();
   }, [user?.id, active]);
 
