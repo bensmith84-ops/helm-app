@@ -74,6 +74,14 @@ export default function ProjectsView() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(true);
+
+  useEffect(() => {
+    const check = () => { const m = window.innerWidth < 768; setIsMobile(m); if (m) setShowSidebar(false); };
+    check(); window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const showToast = useCallback((message, type = "error") => {
     setToast({ message, type });
@@ -824,7 +832,7 @@ export default function ProjectsView() {
           const on = activeProject === p.id;
           // Compute per-project task counts (we already have full data for active project)
           return (
-            <button key={p.id} onClick={() => setActiveProject(p.id)} style={{
+            <button key={p.id} onClick={() => { setActiveProject(p.id); if (isMobile) setShowSidebar(false); }} style={{
               width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8, border: "none",
               cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, marginBottom: 1,
               background: on ? `${T.accent}15` : "transparent",
@@ -2054,8 +2062,24 @@ export default function ProjectsView() {
      LAYOUT
      ═══════════════════════════════════════════════════════ */
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {sidebar}
+    <div style={{ display: "flex", height: "100%", overflow: "hidden", position: "relative" }}>
+      {/* Mobile sidebar toggle */}
+      {isMobile && !showSidebar && (
+        <button onClick={() => setShowSidebar(true)} style={{
+          position: "absolute", top: 8, left: 8, zIndex: 20, width: 32, height: 32, borderRadius: 6,
+          background: T.surface2, border: `1px solid ${T.border}`, cursor: "pointer", color: T.text3,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
+        }}>☰</button>
+      )}
+      {/* Sidebar - overlay on mobile */}
+      {showSidebar && (
+        <>
+          {isMobile && <div onClick={() => setShowSidebar(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 30 }} />}
+          <div style={{
+            ...(isMobile ? { position: "absolute", left: 0, top: 0, bottom: 0, zIndex: 31 } : {}),
+          }}>{sidebar}</div>
+        </>
+      )}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {activeProject === "__my_tasks__" ? myTasksView : (
           <>
@@ -2095,7 +2119,10 @@ export default function ProjectsView() {
           </>
         )}
       </div>
-      {detail}
+      {/* Detail panel - overlay on mobile */}
+      {selectedTask && isMobile ? (
+        <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, zIndex: 20, width: "100%", maxWidth: 400 }}>{detail}</div>
+      ) : detail}
       {projectModal}
       {/* Milestone form modal */}
       {showMilestoneForm && (
