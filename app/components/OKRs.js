@@ -42,6 +42,7 @@ export default function OKRsView() {
   const [loading, setLoading] = useState(true);
   // Milestone form
   const [msForm, setMsForm] = useState(null); // { objectiveId, title, start_date, end_date, color }
+  const [objForm, setObjForm] = useState(null); // full objective creation form
 
   const setView = (v) => { setViewMode(v); try { localStorage.setItem("okr_view", v); } catch {} };
 
@@ -104,17 +105,47 @@ export default function OKRsView() {
     await supabase.from("objectives").update({ [field]: value }).eq("id", objId);
   };
 
-  const createObjective = async () => {
-    const title = await showPrompt("New Objective", "Objective title");
-    if (!title?.trim()) return;
-    const maxSort = objectives.reduce((m, o) => Math.max(m, o.sort_order || 0), 0);
-    const { data, error } = await supabase.from("objectives").insert({
-      org_id: profile?.org_id, cycle_id: activeCycle,
-      title: title.trim(), health: "on_track", progress: 0, sort_order: maxSort + 1, timeframe: "quarter",
-    }).select().single();
-    if (error) return;
-    if (data) { setObjectives(p => [...p, data]); setExpanded(p => [...p, data.id]); }
+  const openObjectiveForm = () => {
+    const c = cycles.find(cy => cy.id === activeCycle);
+    setObjForm({
+      title: "", description: "", health: "on_track", timeframe: "quarter",
+      start_date: c?.start_date || "", end_date: c?.end_date || "",
+      owner_id: user?.id || "", team_id: "",
+      keyResults: [{ title: "", target_value: 100, unit: "", owner_id: "" }],
+    });
   };
+
+  const saveObjective = async () => {
+    if (!objForm?.title?.trim()) return;
+    const maxSort = objectives.reduce((m, o) => Math.max(m, o.sort_order || 0), 0);
+    const { data: objData, error: objErr } = await supabase.from("objectives").insert({
+      org_id: profile?.org_id, cycle_id: activeCycle,
+      title: objForm.title.trim(), description: objForm.description || null,
+      health: objForm.health, progress: 0, sort_order: maxSort + 1,
+      timeframe: objForm.timeframe,
+      start_date: objForm.start_date || null, end_date: objForm.end_date || null,
+      owner_id: objForm.owner_id || null, team_id: objForm.team_id || null,
+    }).select().single();
+    if (objErr || !objData) return;
+    // Create key results
+    const validKRs = objForm.keyResults.filter(kr => kr.title.trim());
+    const krInserts = validKRs.map((kr, i) => ({
+      objective_id: objData.id, title: kr.title.trim(),
+      target_value: Number(kr.target_value) || 100, start_value: 0, current_value: 0,
+      progress: 0, unit: kr.unit || null, owner_id: kr.owner_id || null, sort_order: i + 1,
+    }));
+    let newKRs = [];
+    if (krInserts.length > 0) {
+      const { data: krData } = await supabase.from("key_results").insert(krInserts).select();
+      newKRs = krData || [];
+    }
+    setObjectives(p => [...p, objData]);
+    setKeyResults(p => [...p, ...newKRs]);
+    setExpanded(p => [...p, objData.id]);
+    setObjForm(null);
+  };
+
+  const createObjective = openObjectiveForm;
 
   const createKeyResult = async (objId) => {
     const title = await showPrompt("New Key Result", "Key Result title");
@@ -487,6 +518,120 @@ export default function OKRsView() {
     </div>); };
 
   // Header
+  // ============================
+  // OBJECTIVE CREATION FORM
+  // ============================
+  const ObjectiveFormModal = () => { if (!objForm) return null;
+    const f = objForm;
+    const set = (k, v) => setObjForm(p => ({ ...p, [k]: v }));
+    const setKR = (idx, k, v) => setObjForm(p => ({ ...p, keyResults: p.keyResults.map((kr, i) => i === idx ? { ...kr, [k]: v } : kr) }));
+    const addKR = () => setObjForm(p => ({ ...p, keyResults: [...p.keyResults, { title: "", target_value: 100, unit: "", owner_id: "" }] }));
+    const removeKR = (idx) => setObjForm(p => ({ ...p, keyResults: p.keyResults.filter((_, i) => i !== idx) }));
+    const profList = Object.values(profiles);
+    const lbl = { fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 };
+    const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: "inherit" };
+    // Owner search
+    const [ownerQ, setOwnerQ] = useState("");
+    const [krOwnerQ, setKrOwnerQ] = useState({});
+    const filtOwner = (q) => profList.filter(u => !q || u.display_name?.toLowerCase().includes(q.toLowerCase()));
+
+    const OwnerPicker = ({ value, onChange, searchKey }) => {
+      const [open, setOpen] = useState(false);
+      const [q, setQ] = useState("");
+      const ref = useRef(null);
+      const sel = profiles[value];
+      useEffect(() => { if (!open) return; const fn = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", fn); return () => document.removeEventListener("mousedown", fn); }, [open]);
+      return (
+        <div ref={ref} style={{ position: "relative" }}>
+          <div onClick={() => setOpen(!open)} style={{ ...inp, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: 36 }}>
+            {sel ? <><div style={{ width: 20, height: 20, borderRadius: 10, background: `${acol(value)}18`, border: `1.5px solid ${acol(value)}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: acol(value) }}>{ini(value)}</div><span style={{ fontSize: 12 }}>{sel.display_name}</span></> : <span style={{ color: T.text3, fontSize: 12 }}>Select owner…</span>}
+          </div>
+          {open && <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", overflow: "hidden" }}>
+            <div style={{ padding: 6, borderBottom: `1px solid ${T.border}` }}><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" autoFocus style={{ ...inp, padding: "6px 8px", fontSize: 11 }} /></div>
+            <div style={{ maxHeight: 160, overflow: "auto" }}>
+              {value && <div onClick={() => { onChange(""); setOpen(false); }} style={{ padding: "6px 10px", fontSize: 11, color: T.text3, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Clear</div>}
+              {filtOwner(q).map(u => { const c = acol(u.id); return (
+                <div key={u.id} onClick={() => { onChange(u.id); setOpen(false); setQ(""); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", cursor: "pointer", background: u.id === value ? T.accentDim : "transparent" }} onMouseEnter={e => { if (u.id !== value) e.currentTarget.style.background = T.surface2; }} onMouseLeave={e => { e.currentTarget.style.background = u.id === value ? T.accentDim : "transparent"; }}>
+                  <div style={{ width: 22, height: 22, borderRadius: 11, background: `${c}18`, border: `1.5px solid ${c}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: c }}>{ini(u.id)}</div>
+                  <div><div style={{ fontSize: 12, fontWeight: 500 }}>{u.display_name}</div></div>
+                </div>); })}
+            </div>
+          </div>}
+        </div>
+      );
+    };
+
+    return (
+      <div onClick={() => setObjForm(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 560, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>New Objective</h3>
+            <button onClick={() => setObjForm(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>×</button>
+          </div>
+          {/* Scrollable body */}
+          <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+            {/* Title */}
+            <div style={{ marginBottom: 14 }}><label style={lbl}>Objective Title *</label>
+              <input value={f.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Win and Lead the Category at Mass Retail" autoFocus style={inp} />
+            </div>
+            {/* Description */}
+            <div style={{ marginBottom: 14 }}><label style={lbl}>Description</label>
+              <textarea value={f.description} onChange={e => set("description", e.target.value)} rows={2} placeholder="Optional context or details" style={{ ...inp, resize: "vertical", minHeight: 48 }} />
+            </div>
+            {/* Owner + Health row */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div><label style={lbl}>Owner</label><OwnerPicker value={f.owner_id} onChange={v => set("owner_id", v)} searchKey="obj" /></div>
+              <div><label style={lbl}>Health</label>
+                <select value={f.health} onChange={e => set("health", e.target.value)} style={{ ...inp, cursor: "pointer" }}>
+                  {Object.entries(HEALTH).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+            </div>
+            {/* Timeframe + dates */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div><label style={lbl}>Timeframe</label>
+                <select value={f.timeframe} onChange={e => set("timeframe", e.target.value)} style={{ ...inp, cursor: "pointer" }}>
+                  {TIMEFRAME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div><label style={lbl}>Start Date</label><input type="date" value={f.start_date} onChange={e => set("start_date", e.target.value)} style={inp} /></div>
+              <div><label style={lbl}>End Date</label><input type="date" value={f.end_date} onChange={e => set("end_date", e.target.value)} style={inp} /></div>
+            </div>
+            {/* Divider */}
+            <div style={{ borderTop: `1px solid ${T.border}`, margin: "18px 0", paddingTop: 18 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontSize: 14, fontWeight: 700 }}>Key Results</span>
+                <button onClick={addKR} style={{ padding: "4px 12px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: `${T.accent}10`, color: T.accent, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>+ Add KR</button>
+              </div>
+              {f.keyResults.map((kr, idx) => (
+                <div key={idx} style={{ padding: "12px 14px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>KR {idx + 1}</span>
+                    {f.keyResults.length > 1 && <button onClick={() => removeKR(idx)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 0 }}>×</button>}
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <input value={kr.title} onChange={e => setKR(idx, "title", e.target.value)} placeholder="e.g. $10M Net Revenue @ 40% Margin" style={{ ...inp, fontSize: 12 }} />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    <div><label style={{ ...lbl, fontSize: 10 }}>Target Value</label><input type="number" value={kr.target_value} onChange={e => setKR(idx, "target_value", e.target.value)} style={{ ...inp, fontSize: 12 }} /></div>
+                    <div><label style={{ ...lbl, fontSize: 10 }}>Unit</label><input value={kr.unit} onChange={e => setKR(idx, "unit", e.target.value)} placeholder="e.g. $, %, users" style={{ ...inp, fontSize: 12 }} /></div>
+                    <div><label style={{ ...lbl, fontSize: 10 }}>KR Owner</label><OwnerPicker value={kr.owner_id} onChange={v => setKR(idx, "owner_id", v)} searchKey={`kr${idx}`} /></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Footer */}
+          <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setObjForm(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={saveObjective} disabled={!f.title.trim()} style={{ padding: "9px 18px", borderRadius: 8, background: f.title.trim() ? T.accent : T.surface3, color: f.title.trim() ? "#fff" : T.text3, border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Create Objective</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const header = (
     <div style={{ padding: "24px 28px 0", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
@@ -529,6 +674,7 @@ export default function OKRsView() {
       </div>
       {viewMode === "list" && detail}
       <MilestoneModal />
+      <ObjectiveFormModal />
     </div>
   );
 }
