@@ -3,9 +3,11 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useTheme } from "../lib/theme";
 
 export default function SettingsView() {
   const { user, profile, signOut } = useAuth();
+  const { mode, toggle } = useTheme();
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [timezone, setTimezone] = useState("");
@@ -80,10 +82,10 @@ export default function SettingsView() {
       </Section>
 
       <Section title="Appearance">
-        <div style={{ fontSize: 13, color: T.text2, marginBottom: 12 }}>Theme is currently set to dark mode. Light mode coming soon.</div>
+        <div style={{ fontSize: 13, color: T.text2, marginBottom: 12 }}>Select your preferred theme.</div>
         <div style={{ display: "flex", gap: 8 }}>
-          <div style={{ padding: "12px 20px", borderRadius: 8, border: `2px solid ${T.accent}`, background: T.bg, color: T.text, fontSize: 12, fontWeight: 600 }}>🌙 Dark</div>
-          <div style={{ padding: "12px 20px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, fontSize: 12, fontWeight: 500, opacity: 0.5 }}>☀️ Light</div>
+          <div onClick={() => toggle("dark")} style={{ padding: "12px 20px", borderRadius: 8, border: `2px solid ${mode === "dark" ? T.accent : T.border}`, background: mode === "dark" ? T.accentDim : T.surface2, color: mode === "dark" ? T.text : T.text3, fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all .15s" }}>🌙 Dark</div>
+          <div onClick={() => toggle("light")} style={{ padding: "12px 20px", borderRadius: 8, border: `2px solid ${mode === "light" ? T.accent : T.border}`, background: mode === "light" ? T.accentDim : T.surface2, color: mode === "light" ? T.text : T.text3, fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all .15s" }}>☀️ Light</div>
         </div>
       </Section>
 

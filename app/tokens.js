@@ -1,31 +1,9 @@
 // ─── DESIGN TOKENS ───
-export const T = {
-  bg: "#08090b",
-  surface: "#0f1117",
-  surface2: "#161922",
-  surface3: "#1c2030",
-  surface4: "#232838",
-  border: "#242a38",
-  border2: "#2f3748",
-  text: "#e6e9f0",
-  text2: "#8b93a8",
-  text3: "#5a6380",
-  accent: "#3b82f6",
-  accentHover: "#60a5fa",
-  accentDim: "#1d3a6a",
-  green: "#22c55e",
-  greenDim: "#0d3a20",
-  yellow: "#eab308",
-  yellowDim: "#3d3000",
-  red: "#ef4444",
-  redDim: "#3d1111",
-  orange: "#f97316",
-  purple: "#a855f7",
-  purpleDim: "#2d1854",
-  cyan: "#06b6d4",
-  pink: "#ec4899",
-  lime: "#84cc16",
-};
+import { getTokens } from "./lib/theme";
+
+export const T = new Proxy({}, {
+  get(_, key) { return getTokens()[key]; }
+});
 
 // ─── DEMO DATA ───
 export const USERS = [

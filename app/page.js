@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense, lazy, Component } from "react";
 import { T } from "./tokens";
 import { supabase } from "./lib/supabase";
 import { useAuth } from "./lib/auth";
+import { useTheme, _setTokens } from "./lib/theme";
 import AuthPage from "./components/AuthPage";
 import Sidebar, { NAV_ITEMS } from "./components/Sidebar";
 import DashboardView from "./components/Dashboard";
@@ -47,6 +48,8 @@ class ChunkErrorBoundary extends Component {
 
 export default function HelmApp() {
   const { user, profile, loading: authLoading, signOut } = useAuth();
+  const { tokens, mode } = useTheme();
+  _setTokens(tokens); // sync theme tokens to global singleton for T proxy
   const [active, setActive] = useState("dashboard");
   const [expanded, setExpanded] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
