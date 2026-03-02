@@ -55,6 +55,7 @@ export default function ProjectsView() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importStatus, setImportStatus] = useState("");
+  const [favorites, setFavorites] = useState([]);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
@@ -75,6 +76,8 @@ export default function ProjectsView() {
   /* ── Load templates ── */
   useEffect(() => {
     supabase.from("project_templates").select("*").order("created_at", { ascending: false }).then(({ data }) => setTemplates(data || []));
+    // Load favorites from profile
+    if (profile?.preferences?.favorites) setFavorites(profile.preferences.favorites);
   }, []);
 
   /* ── Keyboard shortcuts ── */
@@ -591,6 +594,15 @@ export default function ProjectsView() {
     await supabase.from("project_templates").delete().eq("id", tplId);
   };
 
+  /* ── Favorites ── */
+  const toggleFavorite = async (projectId) => {
+    const newFavs = favorites.includes(projectId) ? favorites.filter(f => f !== projectId) : [...favorites, projectId];
+    setFavorites(newFavs);
+    if (user?.id) {
+      await supabase.from("profiles").update({ preferences: { ...(profile?.preferences || {}), favorites: newFavs } }).eq("id", user.id);
+    }
+  };
+
   /* ── CSV Import ── */
   const handleCSVImport = async (file) => {
     if (!file) return;
@@ -939,9 +951,13 @@ export default function ProjectsView() {
         <button onClick={() => setShowImport(true)} title="Import CSV" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 10, lineHeight: 1, padding: "0 2px", fontWeight: 600 }}>📥</button>
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "0 8px 16px" }}>
-        {projects.map(p => {
+        {[...projects].sort((a, b) => {
+          const aFav = favorites.includes(a.id) ? 0 : 1;
+          const bFav = favorites.includes(b.id) ? 0 : 1;
+          return aFav - bFav;
+        }).map(p => {
           const on = activeProject === p.id;
-          // Compute per-project task counts (we already have full data for active project)
+          const isFav = favorites.includes(p.id);
           return (
             <button key={p.id} onClick={() => { setActiveProject(p.id); if (isMobile) setShowSidebar(false); }} style={{
               width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8, border: "none",
@@ -956,6 +972,11 @@ export default function ProjectsView() {
                 fontSize: 11, fontWeight: 800, color: "#fff",
               }}>{p.name.charAt(0).toUpperCase()}</div>
               <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: on ? 600 : 400 }}>{p.name}</div>
+              <span onClick={e => { e.stopPropagation(); toggleFavorite(p.id); }}
+                style={{ fontSize: 12, opacity: isFav ? 1 : 0.2, transition: "opacity 0.15s", cursor: "pointer", flexShrink: 0 }}
+                title={isFav ? "Unfavorite" : "Favorite"}>
+                {isFav ? "★" : "☆"}
+              </span>
             </button>
           );
         })}
