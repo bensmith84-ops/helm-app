@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { T } from "./tokens";
+import { useAuth } from "./lib/auth";
+import AuthPage from "./components/AuthPage";
 import Sidebar, { NAV_ITEMS } from "./components/Sidebar";
 import DashboardView from "./components/Dashboard";
 import ProjectsView from "./components/Projects";
@@ -16,6 +18,7 @@ import ReportsView from "./components/Reports";
 import CommandPalette from "./components/CommandPalette";
 
 export default function HelmApp() {
+  const { user, profile, loading: authLoading, signOut } = useAuth();
   const [active, setActive] = useState("dashboard");
   const [expanded, setExpanded] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -25,6 +28,14 @@ export default function HelmApp() {
     document.addEventListener("keydown", fn);
     return () => document.removeEventListener("keydown", fn);
   }, []);
+
+  if (authLoading) return (
+    <div style={{ display: "flex", height: "100vh", width: "100vw", alignItems: "center", justifyContent: "center", background: T.bg }}>
+      <div style={{ color: T.text3, fontSize: 13 }}>Loading…</div>
+    </div>
+  );
+
+  if (!user) return <AuthPage />;
 
   const renderView = () => {
     switch (active) {
@@ -63,6 +74,10 @@ export default function HelmApp() {
             <div style={{ flex: 1 }} />
             <div onClick={() => setCmdOpen(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3, cursor: "pointer" }}>
               ⌘K Search...
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: T.text2, fontWeight: 500 }}>{profile?.display_name || user?.email?.split("@")[0]}</span>
+              <button onClick={signOut} title="Sign out" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Sign out</button>
             </div>
           </div>
           <div style={{ flex: 1, overflow: "auto" }}>
