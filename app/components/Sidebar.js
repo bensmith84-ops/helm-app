@@ -18,6 +18,7 @@ export const NAV_ITEMS = [
   { key: "automation", icon: "⚡", label: "Automation" },
   { key: "reports", icon: "▥", label: "Reports" },
   { type: "divider" },
+  { key: "people", icon: "👥", label: "Team" },
   { key: "settings", icon: "⚙", label: "Settings" },
 ];
 
