@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useModal } from "../lib/modal";
 
 const CATEGORY_COLORS = {
   tasks: "#22c55e", projects: "#3b82f6", notifications: "#a855f7",
@@ -24,6 +25,7 @@ const ACTION_TYPES = [
 
 export default function AutomationView() {
   const { user, profile } = useAuth();
+  const { showPrompt, showConfirm } = useModal();
   const [rules, setRules] = useState([]);
   const [selectedRule, setSelectedRule] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -60,7 +62,7 @@ export default function AutomationView() {
   };
 
   const deleteRule = async (id) => {
-    if (!confirm("Delete this automation?")) return;
+    if (!(await showConfirm("Delete Automation", "Are you sure you want to delete this automation?"))) return;
     setRules(p => p.filter(r => r.id !== id));
     if (selectedRule?.id === id) setSelectedRule(null);
     await supabase.from("automations").delete().eq("id", id);

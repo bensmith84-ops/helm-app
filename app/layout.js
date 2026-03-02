@@ -1,7 +1,7 @@
 import Providers from "./providers";
 
 export const metadata = {
-  title: "Nexus",
+  title: "Helm",
   description: "Unified Business OS",
 };
 

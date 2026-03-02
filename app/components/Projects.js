@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
+import { useModal } from "../lib/modal";
 import { T } from "../tokens";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
@@ -10,6 +11,7 @@ import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig
    ═══════════════════════════════════════════════════════ */
 export default function ProjectsView() {
   const { user, profile } = useAuth();
+  const { showPrompt, showConfirm } = useModal();
   const [projects, setProjects] = useState([]);
   const [sections, setSections] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -297,7 +299,7 @@ export default function ProjectsView() {
   };
 
   const createSubtask = async (parentTask) => {
-    const title = prompt("Subtask name:");
+    const title = await showPrompt("New Subtask", "Subtask name");
     if (!title?.trim()) return;
     const maxSort = tasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
     const { data, error } = await supabase.from("tasks").insert({
@@ -334,7 +336,7 @@ export default function ProjectsView() {
 
   const deleteSection = async (secId) => {
     const secTasks = tasks.filter(t => t.section_id === secId);
-    if (secTasks.length > 0 && !confirm(`This section has ${secTasks.length} task(s). Delete section and all its tasks?`)) return;
+    if (secTasks.length > 0 && !(await showConfirm("Delete Section", `This section has ${secTasks.length} task(s). Delete section and all its tasks?`))) return;
     // Soft-delete tasks in section
     if (secTasks.length > 0) {
       setTasks(p => p.filter(t => t.section_id !== secId));
@@ -409,7 +411,7 @@ export default function ProjectsView() {
   };
 
   const archiveProject = async () => {
-    if (!confirm("Archive this project? It will be hidden from the list.")) return;
+    if (!(await showConfirm("Archive Project", "Archive this project? It will be hidden from the list."))) return;
     setProjects(p => p.filter(pr => pr.id !== activeProject));
     await supabase.from("projects").update({ status: "archived", deleted_at: new Date().toISOString() }).eq("id", activeProject);
     setActiveProject(projects.find(p => p.id !== activeProject)?.id || null);
@@ -439,7 +441,7 @@ export default function ProjectsView() {
   };
 
   const deleteMilestone = async (msId) => {
-    if (!confirm("Delete this milestone?")) return;
+    if (!(await showConfirm("Delete Milestone", "Are you sure you want to delete this milestone?"))) return;
     setMilestones(p => p.filter(m => m.id !== msId));
     // Unlink tasks from milestone
     await supabase.from("tasks").update({ milestone_id: null }).eq("milestone_id", msId);
@@ -555,7 +557,7 @@ export default function ProjectsView() {
   };
 
   const deleteCustomField = async (fieldId) => {
-    if (!confirm("Delete this custom field and all its values?")) return;
+    if (!(await showConfirm("Delete Custom Field", "This will delete the field and all its values."))) return;
     setCustomFields(p => p.filter(f => f.id !== fieldId));
     await supabase.from("custom_field_values").delete().eq("field_id", fieldId);
     await supabase.from("custom_fields").delete().eq("id", fieldId);
@@ -571,7 +573,7 @@ export default function ProjectsView() {
 
   /* ── Template mutations ── */
   const saveAsTemplate = async () => {
-    const name = prompt("Template name:", proj?.name + " Template");
+    const name = await showPrompt("Save as Template", "Template name", proj?.name + " Template");
     if (!name?.trim()) return;
     const templateData = {
       sections: sections.map(sec => ({
@@ -589,7 +591,7 @@ export default function ProjectsView() {
   };
 
   const createFromTemplate = async (template) => {
-    const name = prompt("New project name:", "New " + template.name.replace(" Template", ""));
+    const name = await showPrompt("Create from Template", "Project name", "New " + template.name.replace(" Template", ""));
     if (!name?.trim()) return;
     const { data: newProj, error: pErr } = await supabase.from("projects").insert({
       org_id: profile?.org_id,
@@ -803,7 +805,7 @@ export default function ProjectsView() {
     showToast(`${ids.length} tasks assigned`, "success"); clearSelection();
   };
   const bulkDelete = async () => {
-    if (!confirm(`Delete ${selectedTaskIds.size} tasks?`)) return;
+    if (!(await showConfirm("Delete Tasks", `Delete ${selectedTaskIds.size} tasks? This cannot be undone.`))) return;
     const ids = [...selectedTaskIds];
     setTasks(p => p.filter(t => !ids.includes(t.id)));
     for (const id of ids) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", id);
@@ -2223,7 +2225,7 @@ export default function ProjectsView() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
             Duplicate
           </button>
-          <button onClick={() => { if (confirm("Delete this task?")) deleteTask(selectedTask.id); }}
+          <button onClick={async () => { if (await showConfirm("Delete Task", "Are you sure you want to delete this task?")) deleteTask(selectedTask.id); }}
             style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
             Delete

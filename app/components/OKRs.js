@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useModal } from "../lib/modal";
 
 const HEALTH = {
   on_track:  { label: "On Track",  color: "#22c55e", bg: "#0d3a20" },
@@ -14,6 +15,7 @@ const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATA
 
 export default function OKRsView() {
   const { user, profile } = useAuth();
+  const { showPrompt, showConfirm } = useModal();
   const [cycles, setCycles] = useState([]);
   const [activeCycle, setActiveCycle] = useState(null);
   const [objectives, setObjectives] = useState([]);
@@ -75,7 +77,7 @@ export default function OKRsView() {
   };
 
   const createObjective = async () => {
-    const title = prompt("Objective title:");
+    const title = await showPrompt("New Objective", "Objective title");
     if (!title?.trim()) return;
     const maxSort = objectives.reduce((m, o) => Math.max(m, o.sort_order || 0), 0);
     const { data, error } = await supabase.from("objectives").insert({
@@ -87,9 +89,9 @@ export default function OKRsView() {
   };
 
   const createKeyResult = async (objId) => {
-    const title = prompt("Key Result title:");
+    const title = await showPrompt("New Key Result", "Key Result title");
     if (!title?.trim()) return;
-    const target = prompt("Target value:", "100");
+    const target = await showPrompt("Target Value", "Target value", "100");
     const maxSort = keyResults.filter(k => k.objective_id === objId).reduce((m, k) => Math.max(m, k.sort_order || 0), 0);
     const { data, error } = await supabase.from("key_results").insert({
       objective_id: objId, title: title.trim(), target_value: Number(target) || 100,
@@ -100,7 +102,7 @@ export default function OKRsView() {
   };
 
   const deleteObjective = async (objId) => {
-    if (!confirm("Delete this objective and all its key results?")) return;
+    if (!(await showConfirm("Delete Objective", "This will delete the objective and all its key results."))) return;
     setObjectives(p => p.filter(o => o.id !== objId));
     setKeyResults(p => p.filter(k => k.objective_id !== objId));
     await supabase.from("key_results").update({ deleted_at: new Date().toISOString() }).eq("objective_id", objId);

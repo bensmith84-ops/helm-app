@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useModal } from "../lib/modal";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
@@ -23,6 +24,7 @@ const FOLDERS = [
 
 export default function DocsView() {
   const { user, profile } = useAuth();
+  const { showPrompt, showConfirm } = useModal();
   const [docs, setDocs] = useState([]);
   const [profiles, setProfiles] = useState({});
   const [selectedDoc, setSelectedDoc] = useState(null);
@@ -50,7 +52,7 @@ export default function DocsView() {
   };
 
   const createDoc = async () => {
-    const title = prompt("Document title:");
+    const title = await showPrompt("New Document", "Document title");
     if (!title?.trim()) return;
     const { data } = await supabase.from("docs").insert({
       org_id: profile?.org_id,
@@ -67,7 +69,7 @@ export default function DocsView() {
   };
 
   const deleteDoc = async (id) => {
-    if (!confirm("Delete this document?")) return;
+    if (!(await showConfirm("Delete Document", "Are you sure you want to delete this document?"))) return;
     setDocs(p => p.filter(d => d.id !== id));
     if (selectedDoc?.id === id) setSelectedDoc(null);
     await supabase.from("docs").update({ deleted_at: new Date().toISOString() }).eq("id", id);

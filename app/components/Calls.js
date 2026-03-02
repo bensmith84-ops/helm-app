@@ -3,11 +3,13 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useModal } from "../lib/modal";
 
 const TYPE_ICONS = { scheduled: "📅", huddle: "💬", recurring: "🔄" };
 
 export default function CallsView() {
   const { user, profile } = useAuth();
+  const { showPrompt, showConfirm } = useModal();
   const [calls, setCalls] = useState([]);
   const [selectedCall, setSelectedCall] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -22,7 +24,7 @@ export default function CallsView() {
   }, []);
 
   const createCall = async () => {
-    const title = prompt("Call title:");
+    const title = await showPrompt("Schedule Call", "Call title");
     if (!title?.trim()) return;
     const { data } = await supabase.from("calls").insert({
       org_id: profile?.org_id,
@@ -39,7 +41,7 @@ export default function CallsView() {
   };
 
   const deleteCall = async (id) => {
-    if (!confirm("Delete this call?")) return;
+    if (!(await showConfirm("Delete Call", "Are you sure you want to delete this call?"))) return;
     setCalls(p => p.filter(c => c.id !== id));
     if (selectedCall?.id === id) setSelectedCall(null);
     await supabase.from("calls").delete().eq("id", id);

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useModal } from "../lib/modal";
 
 const STATUS_CFG = {
   draft: { label: "Draft", color: "#eab308", bg: "#3d3000" },
@@ -15,6 +16,7 @@ const CHANNELS = ["email", "social", "paid_ads", "content", "seo", "events"];
 
 export default function CampaignsView() {
   const { user, profile } = useAuth();
+  const { showPrompt, showConfirm } = useModal();
   const [campaigns, setCampaigns] = useState([]);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -29,7 +31,7 @@ export default function CampaignsView() {
   }, []);
 
   const createCampaign = async () => {
-    const name = prompt("Campaign name:");
+    const name = await showPrompt("New Campaign", "Campaign name");
     if (!name?.trim()) return;
     const { data } = await supabase.from("campaigns").insert({
       org_id: profile?.org_id, name: name.trim(), status: "draft",
@@ -45,7 +47,7 @@ export default function CampaignsView() {
   };
 
   const deleteCampaign = async (id) => {
-    if (!confirm("Delete this campaign?")) return;
+    if (!(await showConfirm("Delete Campaign", "Are you sure you want to delete this campaign?"))) return;
     setCampaigns(p => p.filter(c => c.id !== id));
     if (selected?.id === id) setSelected(null);
     await supabase.from("campaigns").update({ deleted_at: new Date().toISOString() }).eq("id", id);

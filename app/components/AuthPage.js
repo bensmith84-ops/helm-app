@@ -33,7 +33,7 @@ export default function AuthPage() {
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ width: 48, height: 48, borderRadius: 12, background: T.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 12 }}>N</div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: T.text, marginBottom: 4 }}>Nexus</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: T.text, marginBottom: 4 }}>Helm</h1>
           <p style={{ fontSize: 13, color: T.text3 }}>{mode === "signin" ? "Sign in to your workspace" : "Create your account"}</p>
         </div>
 

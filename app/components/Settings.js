@@ -103,7 +103,7 @@ export default function SettingsView() {
 
       <Section title="About">
         <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.6 }}>
-          <strong>Nexus</strong> — Unified Business OS<br />
+          <strong>Helm</strong> — Unified Business OS<br />
           Version 1.0<br />
           Built with Next.js, Supabase, and Vercel.
         </div>

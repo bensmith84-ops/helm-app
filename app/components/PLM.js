@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useModal } from "../lib/modal";
 
 const STAGES = [
   { id: "concept", label: "Concept", color: "#a855f7" },
@@ -17,6 +18,7 @@ const PRIORITIES = { high: "#ef4444", medium: "#eab308", low: "#22c55e" };
 
 export default function PLMView() {
   const { user, profile } = useAuth();
+  const { showPrompt, showConfirm } = useModal();
   const [products, setProducts] = useState([]);
   const [selected, setSelected] = useState(null);
   const [viewMode, setViewMode] = useState("pipeline");
@@ -31,7 +33,7 @@ export default function PLMView() {
   }, []);
 
   const createProduct = async () => {
-    const name = prompt("Product name:");
+    const name = await showPrompt("New Product", "Product name");
     if (!name?.trim()) return;
     const { data } = await supabase.from("plm_products").insert({
       org_id: profile?.org_id, name: name.trim(), stage: "concept",
@@ -47,7 +49,7 @@ export default function PLMView() {
   };
 
   const deleteProduct = async (id) => {
-    if (!confirm("Delete this product?")) return;
+    if (!(await showConfirm("Delete Product", "Are you sure you want to delete this product?"))) return;
     setProducts(p => p.filter(pr => pr.id !== id));
     if (selected?.id === id) setSelected(null);
     await supabase.from("plm_products").update({ deleted_at: new Date().toISOString() }).eq("id", id);

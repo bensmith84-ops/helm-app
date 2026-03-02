@@ -3,12 +3,14 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useModal } from "../lib/modal";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 
 export default function MessagesView() {
   const { user, profile } = useAuth();
+  const { showPrompt } = useModal();
   const [channels, setChannels] = useState([]);
   const [activeCh, setActiveCh] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -60,7 +62,7 @@ export default function MessagesView() {
   }, [activeCh]);
 
   const createChannel = async () => {
-    const name = prompt("Channel name:");
+    const name = await showPrompt("New Channel", "Channel name");
     if (!name?.trim()) return;
     const { data, error } = await supabase.from("channels").insert({
       org_id: profile?.org_id, name: name.trim(), is_archived: false,
