@@ -1,232 +1,179 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 
-const REPORTS = [
-  { id: "r1", name: "Weekly Sprint Report", type: "project", icon: "📊", schedule: "Every Monday 9 AM", lastRun: "Feb 24", description: "Task completion rates, blockers, and velocity metrics across all active projects.", metrics: [{ label: "Tasks Completed", value: "24", change: "+12%" }, { label: "Velocity", value: "34 pts", change: "+8%" }] },
-  { id: "r2", name: "OKR Progress Dashboard", type: "okr", icon: "🎯", schedule: "Manual", lastRun: "Feb 26", description: "Progress tracking for Q1 2026 objectives and key results.", metrics: [{ label: "Avg Progress", value: "40%", change: "+5%" }, { label: "On Track", value: "2/3", change: "—" }] },
-  { id: "r3", name: "PLM Pipeline Overview", type: "plm", icon: "⬢", schedule: "Every Friday", lastRun: "Feb 21", description: "Product lifecycle status, stage progression, and pipeline health.", metrics: [{ label: "Active Programs", value: "3", change: "—" }, { label: "In Pilot", value: "1", change: "New" }] },
-  { id: "r4", name: "Campaign Performance", type: "marketing", icon: "📣", schedule: "Daily 8 AM", lastRun: "Feb 27", description: "Campaign spend, ROI, content pipeline status, and channel performance.", metrics: [{ label: "Budget Used", value: "67%", change: "+3%" }, { label: "Content Live", value: "8", change: "+2" }] },
-  { id: "r5", name: "Team Workload Report", type: "workload", icon: "👥", schedule: "Every Monday 8 AM", lastRun: "Feb 24", description: "Task distribution, utilization rates, and capacity planning.", metrics: [{ label: "Avg Utilization", value: "72%", change: "-3%" }, { label: "Overloaded", value: "1", change: "—" }] },
-  { id: "r6", name: "Automation Analytics", type: "automation", icon: "⚡", schedule: "Weekly", lastRun: "Feb 25", description: "Automation rule performance, trigger frequency, and time saved.", metrics: [{ label: "Rules Active", value: "4", change: "—" }, { label: "Time Saved", value: "18h", change: "+3h" }] },
-];
-
-const TYPE_COLORS = {
-  project: T.accent, okr: T.green, plm: T.cyan, marketing: T.orange, workload: T.yellow, automation: T.purple,
-};
-
-const CHART_DATA = {
-  completion: [65, 72, 58, 80, 75, 88, 87],
-  velocity: [28, 32, 24, 36, 30, 34, 34],
-  workload: [60, 75, 88, 70, 65, 72, 72],
+const STATUS_COLORS = {
+  backlog: "#6b7280", todo: "#8b93a8", in_progress: "#3b82f6",
+  in_review: "#a855f7", done: "#22c55e", cancelled: "#ef4444",
 };
 
 export default function ReportsView() {
-  const [selectedReport, setSelectedReport] = useState(null);
-  const [filter, setFilter] = useState("all");
+  const [projects, setProjects] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [profiles, setProfiles] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState("overview");
 
-  const filtered = filter === "all" ? REPORTS : REPORTS.filter(r => r.type === filter);
+  useEffect(() => {
+    (async () => {
+      const [{ data: p }, { data: t }, { data: prof }] = await Promise.all([
+        supabase.from("projects").select("*").is("deleted_at", null),
+        supabase.from("tasks").select("*").is("deleted_at", null),
+        supabase.from("profiles").select("id,display_name"),
+      ]);
+      setProjects(p || []); setTasks(t || []);
+      const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
+      setLoading(false);
+    })();
+  }, []);
 
-  const MiniChart = ({ data, color, height = 40 }) => {
-    const max = Math.max(...data);
-    const w = 100;
-    const barW = (w / data.length) - 3;
-    return (
-      <svg width={w} height={height} viewBox={`0 0 ${w} ${height}`}>
-        {data.map((v, i) => {
-          const h = (v / max) * (height - 4);
-          const x = i * (barW + 3) + 1;
-          const isLast = i === data.length - 1;
-          return <rect key={i} x={x} y={height - h - 2} width={barW} height={h} rx={2} fill={isLast ? color : `${color}50`} />;
-        })}
-      </svg>
-    );
-  };
+  if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading reports…</div>;
 
-  const Sparkline = ({ data, color, width = 80, height = 24 }) => {
-    const max = Math.max(...data);
-    const min = Math.min(...data);
-    const range = max - min || 1;
-    const points = data.map((v, i) => `${(i / (data.length - 1)) * width},${height - 2 - ((v - min) / range) * (height - 4)}`).join(" ");
-    return (
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-        <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  };
+  const total = tasks.length;
+  const done = tasks.filter(t => t.status === "done").length;
+  const overdue = tasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== "done").length;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  // Status distribution
+  const statusCounts = {};
+  tasks.filter(t => !t.parent_task_id).forEach(t => { statusCounts[t.status] = (statusCounts[t.status] || 0) + 1; });
+
+  // Priority distribution
+  const priCounts = {};
+  tasks.filter(t => !t.parent_task_id && t.status !== "done").forEach(t => { priCounts[t.priority || "none"] = (priCounts[t.priority || "none"] || 0) + 1; });
+
+  // Per-project stats
+  const projStats = projects.map(p => {
+    const pt = tasks.filter(t => t.project_id === p.id && !t.parent_task_id);
+    const pd = pt.filter(t => t.status === "done").length;
+    return { ...p, total: pt.length, done: pd, pct: pt.length > 0 ? Math.round((pd / pt.length) * 100) : 0, overdue: pt.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== "done").length };
+  }).sort((a, b) => b.total - a.total);
+
+  // Assignee workload
+  const assigneeCounts = {};
+  tasks.filter(t => t.assignee_id && t.status !== "done" && !t.parent_task_id).forEach(t => {
+    assigneeCounts[t.assignee_id] = (assigneeCounts[t.assignee_id] || 0) + 1;
+  });
+  const topAssignees = Object.entries(assigneeCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const maxWork = topAssignees[0]?.[1] || 1;
+
+  // Tasks created per day (last 14 days)
+  const daysBack = 14;
+  const dayLabels = [];
+  const dayCounts = [];
+  for (let i = daysBack - 1; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const ds = d.toISOString().split("T")[0];
+    dayLabels.push(d.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+    dayCounts.push(tasks.filter(t => t.created_at?.startsWith(ds)).length);
+  }
+  const maxDay = Math.max(...dayCounts, 1);
+
+  const Bar = ({ value, max, color, label, count }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+      <span style={{ fontSize: 11, color: T.text2, width: 80, textAlign: "right" }}>{label}</span>
+      <div style={{ flex: 1, height: 20, background: T.surface3, borderRadius: 4, overflow: "hidden" }}>
+        <div style={{ width: `${max > 0 ? (value / max) * 100 : 0}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.4s" }} />
+      </div>
+      <span style={{ fontSize: 12, fontWeight: 600, color: T.text, width: 30 }}>{count}</span>
+    </div>
+  );
+
+  const Card = ({ title, children }) => (
+    <div style={{ background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 20 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>{title}</div>
+      {children}
+    </div>
+  );
+
+  const StatBox = ({ label, value, color }) => (
+    <div style={{ padding: "16px 20px", background: T.surface, borderRadius: 10, border: `1px solid ${T.border}`, textAlign: "center" }}>
+      <div style={{ fontSize: 28, fontWeight: 800, color: color || T.text, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>{label}</div>
+    </div>
+  );
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Main */}
-      <div style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-          <div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>Reports & Analytics</h2>
-            <p style={{ fontSize: 13, color: T.text3 }}>Dashboards, scheduled reports, and workspace analytics</p>
-          </div>
-          <button style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></svg>
-            New Report
-          </button>
-        </div>
-
-        {/* Metric cards with charts */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 28 }}>
-          {[
-            { label: "Task Completion", value: "87%", change: "+5%", data: CHART_DATA.completion, color: T.green },
-            { label: "Team Velocity", value: "34 pts", change: "+2 pts", data: CHART_DATA.velocity, color: T.accent },
-            { label: "Workload Balance", value: "72%", change: "-3%", data: CHART_DATA.workload, color: T.yellow },
-          ].map(m => (
-            <div key={m.label} style={{ padding: "18px 20px", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{m.label}</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontSize: 28, fontWeight: 800, color: m.color }}>{m.value}</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: m.change.startsWith("+") ? T.green : m.change.startsWith("-") ? T.red : T.text3 }}>{m.change}</span>
-                  </div>
-                </div>
-                <Sparkline data={m.data} color={m.color} />
-              </div>
-              <MiniChart data={m.data} color={m.color} height={36} />
-              <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>Last 7 days</div>
-            </div>
+    <div style={{ padding: "28px 32px", overflow: "auto", maxWidth: 1200 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800 }}>Reports</h1>
+        <div style={{ display: "flex", gap: 4 }}>
+          {["overview", "projects", "workload"].map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer",
+              background: view === v ? `${T.accent}20` : T.surface2, color: view === v ? T.accent : T.text3,
+              border: `1px solid ${view === v ? T.accent + "40" : T.border}`,
+            }}>{v.charAt(0).toUpperCase() + v.slice(1)}</button>
           ))}
-        </div>
-
-        {/* Filter tabs */}
-        <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${T.border}` }}>
-          {[
-            { key: "all", label: "All Reports" },
-            { key: "project", label: "Projects" },
-            { key: "marketing", label: "Marketing" },
-            { key: "okr", label: "OKRs" },
-            { key: "plm", label: "PLM" },
-          ].map(f => (
-            <button key={f.key} onClick={() => setFilter(f.key)} style={{
-              padding: "10px 18px", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer",
-              background: "transparent", color: filter === f.key ? T.text : T.text3,
-              borderBottom: `2px solid ${filter === f.key ? T.accent : "transparent"}`, transition: "all 0.15s",
-            }}>{f.label}</button>
-          ))}
-        </div>
-
-        {/* Report list */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {filtered.map(report => {
-            const sel = selectedReport?.id === report.id;
-            const typeColor = TYPE_COLORS[report.type] || T.accent;
-            return (
-              <div key={report.id} onClick={() => setSelectedReport(report)} style={{
-                display: "flex", alignItems: "center", gap: 16, padding: "16px 18px",
-                borderRadius: 12, cursor: "pointer", transition: "all 0.12s",
-                background: sel ? `${T.accent}08` : T.surface,
-                border: `1px solid ${sel ? T.accent : T.border}`,
-              }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                  background: `${typeColor}15`, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 18,
-                }}>{report.icon}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 3 }}>{report.name}</div>
-                  <div style={{ fontSize: 12, color: T.text3 }}>{report.schedule} · Last: {report.lastRun}</div>
-                </div>
-                <span style={{
-                  fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 6,
-                  background: `${typeColor}15`, color: typeColor,
-                }}>{report.type}</span>
-              </div>
-            );
-          })}
         </div>
       </div>
 
-      {/* Detail panel */}
-      {selectedReport && (
-        <div style={{ width: 380, borderLeft: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: T.text3 }}>Report Details</span>
-            <button onClick={() => setSelectedReport(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
-            </button>
-          </div>
-          <div style={{ padding: "20px 24px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 12, background: `${TYPE_COLORS[selectedReport.type] || T.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{selectedReport.icon}</div>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>{selectedReport.name}</div>
-                <span style={{
-                  fontSize: 10, fontWeight: 600, padding: "2px 10px", borderRadius: 6,
-                  background: `${TYPE_COLORS[selectedReport.type] || T.accent}15`,
-                  color: TYPE_COLORS[selectedReport.type] || T.accent,
-                }}>{selectedReport.type}</span>
-              </div>
-            </div>
+      {/* Stats row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 }}>
+        <StatBox label="Total Tasks" value={total} />
+        <StatBox label="Completed" value={done} color={T.green} />
+        <StatBox label="Completion %" value={`${pct}%`} color={pct >= 70 ? T.green : pct >= 40 ? T.yellow : T.text} />
+        <StatBox label="Overdue" value={overdue} color={overdue > 0 ? "#ef4444" : T.text3} />
+        <StatBox label="Projects" value={projects.length} color={T.accent} />
+      </div>
 
-            <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.6, padding: 14, background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 24 }}>
-              {selectedReport.description}
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-              <button style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Run Now</button>
-              <button style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, fontWeight: 500, cursor: "pointer" }}>Export</button>
-            </div>
-
-            {/* Fields */}
-            {[
-              { icon: "📅", label: "Schedule", value: selectedReport.schedule },
-              { icon: "🕐", label: "Last Run", value: selectedReport.lastRun },
-              { icon: "📁", label: "Category", value: selectedReport.type },
-            ].map(f => (
-              <div key={f.label} style={{ display: "grid", gridTemplateColumns: "110px 1fr", padding: "10px 0", borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text3 }}>
-                  <span style={{ fontSize: 14 }}>{f.icon}</span><span>{f.label}</span>
-                </div>
-                <span style={{ fontSize: 13, color: T.text }}>{f.value}</span>
-              </div>
+      {view === "overview" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20 }}>
+          <Card title="Status Distribution">
+            {Object.entries(STATUS_COLORS).map(([k, c]) => (
+              <Bar key={k} label={k.replace("_", " ")} value={statusCounts[k] || 0} max={total} color={c} count={statusCounts[k] || 0} />
             ))}
-
-            {/* Key Metrics */}
-            {selectedReport.metrics && (
-              <div style={{ marginTop: 24 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Key Metrics</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  {selectedReport.metrics.map(m => (
-                    <div key={m.label} style={{ padding: 14, background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
-                      <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>{m.label}</div>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                        <span style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{m.value}</span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: m.change.startsWith("+") ? T.green : m.change.startsWith("-") ? T.red : T.text3 }}>{m.change}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Run history */}
-            <div style={{ marginTop: 24 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Run History</div>
-              {[
-                { date: selectedReport.lastRun, status: "success", duration: "2.3s" },
-                { date: "Feb 20", status: "success", duration: "1.8s" },
-                { date: "Feb 17", status: "success", duration: "2.1s" },
-                { date: "Feb 13", status: "failed", duration: "0.5s" },
-                { date: "Feb 10", status: "success", duration: "1.9s" },
-              ].map((r, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-                  <div style={{ width: 8, height: 8, borderRadius: 8, background: r.status === "success" ? T.green : T.red }} />
-                  <span style={{ fontSize: 12, flex: 1 }}>{r.date}</span>
-                  <span style={{ fontSize: 11, color: T.text3 }}>{r.duration}</span>
-                  <span style={{ fontSize: 11, color: r.status === "success" ? T.green : T.red, fontWeight: 500 }}>{r.status}</span>
+          </Card>
+          <Card title="Task Creation (Last 14 Days)">
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 120 }}>
+              {dayCounts.map((c, i) => (
+                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <span style={{ fontSize: 8, color: T.text3 }}>{c > 0 ? c : ""}</span>
+                  <div style={{ width: "100%", height: `${(c / maxDay) * 100}px`, background: T.accent, borderRadius: 2, minHeight: c > 0 ? 4 : 0 }} />
+                  <span style={{ fontSize: 7, color: T.text3, transform: "rotate(-45deg)", transformOrigin: "top left", whiteSpace: "nowrap" }}>{i % 2 === 0 ? dayLabels[i] : ""}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
+          <Card title="Priority Breakdown">
+            {[
+              { k: "urgent", l: "Urgent", c: "#ef4444" }, { k: "high", l: "High", c: "#f97316" },
+              { k: "medium", l: "Medium", c: "#eab308" }, { k: "low", l: "Low", c: "#22c55e" },
+              { k: "none", l: "None", c: "#6b7280" },
+            ].map(p => <Bar key={p.k} label={p.l} value={priCounts[p.k] || 0} max={total} color={p.c} count={priCounts[p.k] || 0} />)}
+          </Card>
         </div>
+      )}
+
+      {view === "projects" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {projStats.map(p => (
+            <div key={p.id} style={{ background: T.surface, borderRadius: 10, border: `1px solid ${T.border}`, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: p.color || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#fff" }}>{p.name.charAt(0)}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{p.name}</div>
+                <div style={{ height: 6, borderRadius: 6, background: T.surface3, overflow: "hidden" }}>
+                  <div style={{ width: `${p.pct}%`, height: "100%", borderRadius: 6, background: p.color || T.accent }} />
+                </div>
+              </div>
+              <div style={{ textAlign: "right", minWidth: 80 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: p.pct >= 50 ? T.green : T.text2 }}>{p.pct}%</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>{p.done}/{p.total} done{p.overdue > 0 ? ` · ${p.overdue} overdue` : ""}</div>
+              </div>
+            </div>
+          ))}
+          {projStats.length === 0 && <div style={{ textAlign: "center", color: T.text3, padding: 40 }}>No projects</div>}
+        </div>
+      )}
+
+      {view === "workload" && (
+        <Card title="Team Workload (Open Tasks)">
+          {topAssignees.map(([uid, count]) => (
+            <Bar key={uid} label={profiles[uid]?.display_name || "?"} value={count} max={maxWork} color={T.accent} count={count} />
+          ))}
+          {topAssignees.length === 0 && <div style={{ color: T.text3, fontSize: 13, padding: 12 }}>No assigned tasks</div>}
+        </Card>
       )}
     </div>
   );
