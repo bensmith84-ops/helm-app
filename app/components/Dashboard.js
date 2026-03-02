@@ -89,6 +89,24 @@ export default function DashboardView({ setActive }) {
         <p style={{ color: T.text3, fontSize: 13 }}>{dateStr} — Here&apos;s your workspace at a glance.</p>
       </div>
 
+      {/* Quick Actions */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 22, flexWrap: "wrap" }}>
+        {[
+          { label: "New Task", icon: "☐", mod: "projects" },
+          { label: "New Doc", icon: "📄", mod: "docs" },
+          { label: "Schedule Call", icon: "📞", mod: "calls" },
+          { label: "View Reports", icon: "📊", mod: "reports" },
+        ].map(a => (
+          <button key={a.label} onClick={() => setActive(a.mod)} style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8,
+            border: `1px solid ${T.border}`, background: T.surface, color: T.text2, fontSize: 12,
+            fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+          }}>
+            <span>{a.icon}</span>{a.label}
+          </button>
+        ))}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 28 }}>
         <StatCard label="Active Projects" value={projects.length} sub={`${projStats.filter(p=>p.pct>=50).length} past halfway`} color={T.accent}
           icon={<><rect x="1" y="1" width="6" height="14" rx="1"/><rect x="9" y="5" width="6" height="10" rx="1"/></>} />
@@ -99,6 +117,35 @@ export default function DashboardView({ setActive }) {
         <StatCard label="In Progress" value={inProgress} sub="Actively being worked" color={T.accent}
           icon={<circle cx="8" cy="8" r="6" fill="none" stroke={T.accent} strokeWidth="2" strokeDasharray="8 4"/>} />
       </div>
+
+      {/* Overdue Tasks */}
+      {overdue > 0 && (() => {
+        const overdueTasks = tasks.filter(t => t.due_date && new Date(t.due_date) < now && t.status !== "done").sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).slice(0, 5);
+        return (
+          <div style={{ background: "#ef444408", borderRadius: 14, border: "1px solid #ef444420", padding: 20, marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 14 }}>🚨</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#ef4444" }}>Overdue Tasks</span>
+              <span style={{ fontSize: 11, color: T.text3, marginLeft: 4 }}>{overdue} total</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {overdueTasks.map(t => {
+                const proj = projects.find(p => p.id === t.project_id);
+                const daysLate = Math.ceil((now - new Date(t.due_date)) / (1000 * 60 * 60 * 24));
+                return (
+                  <div key={t.id} onClick={() => setActive("projects")} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, cursor: "pointer" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{proj?.name || "—"}</div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", flexShrink: 0 }}>{daysLate}d late</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20, marginBottom: 28 }}>
         <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 20 }}>
