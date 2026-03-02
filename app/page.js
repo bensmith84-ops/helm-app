@@ -33,12 +33,28 @@ export default function HelmApp() {
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   useEffect(() => {
+    let gPressed = false; let gTimer = null;
     const fn = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen(p => !p); }
-      if (e.key === "?" && !e.target.matches("input,textarea,select")) { e.preventDefault(); setShowShortcuts(p => !p); }
+      const isInput = e.target.matches("input,textarea,select,[contenteditable]");
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen(p => !p); return; }
+      if (isInput) return;
+      if (e.key === "?") { e.preventDefault(); setShowShortcuts(p => !p); return; }
+      // G+key navigation (press G then a letter)
+      if (e.key === "g" || e.key === "G") { gPressed = true; clearTimeout(gTimer); gTimer = setTimeout(() => { gPressed = false; }, 800); return; }
+      if (gPressed) {
+        gPressed = false;
+        const navMap = { d: "dashboard", p: "projects", o: "okrs", m: "messages", c: "calendar", r: "reports", s: "settings" };
+        if (navMap[e.key]) { e.preventDefault(); setActive(navMap[e.key]); return; }
+      }
+      // Number shortcuts: 1-9 for sidebar items
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= 9) {
+        const items = NAV_ITEMS.filter(n => n.key !== "settings");
+        if (items[num - 1]) { setActive(items[num - 1].key); }
+      }
     };
     document.addEventListener("keydown", fn);
-    return () => document.removeEventListener("keydown", fn);
+    return () => { document.removeEventListener("keydown", fn); clearTimeout(gTimer); };
   }, []);
 
   if (authLoading) return (
@@ -118,9 +134,15 @@ export default function HelmApp() {
             {[
               { keys: "⌘ K", desc: "Open command palette" },
               { keys: "?", desc: "Show keyboard shortcuts" },
+              { keys: "1-9", desc: "Switch to module by number" },
+              { keys: "G D", desc: "Go to Dashboard" },
+              { keys: "G P", desc: "Go to Projects" },
+              { keys: "G O", desc: "Go to OKRs" },
+              { keys: "G M", desc: "Go to Messages" },
+              { keys: "G C", desc: "Go to Calendar" },
+              { keys: "G R", desc: "Go to Reports" },
+              { keys: "G S", desc: "Go to Settings" },
               { keys: "Esc", desc: "Close panel / modal / cancel" },
-              { keys: "Enter", desc: "Save / confirm" },
-              { keys: "↑ ↓", desc: "Navigate search results" },
             ].map(s => (
               <div key={s.keys} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
                 <span style={{ fontSize: 13, color: T.text2 }}>{s.desc}</span>
