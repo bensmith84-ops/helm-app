@@ -114,7 +114,7 @@ export default function ProjectsView() {
   useEffect(() => {
     if (!selectedTask) { setComments([]); setNewComment(""); setAttachments([]); return; }
     (async () => {
-      const [{ data: c }, { data: a }, { data: al }] = await Promise.all([
+      const [{ data: c }, { data: a }, { data: al }, { data: te }] = await Promise.all([
         supabase.from("comments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
         supabase.from("attachments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }),
         supabase.from("activity_log").select("*").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }).limit(10),
