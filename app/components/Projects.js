@@ -38,6 +38,7 @@ export default function ProjectsView() {
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [comments, setComments] = useState([]);
+  const [activityLog, setActivityLog] = useState([]);
   const [newComment, setNewComment] = useState("");
   const [dependencies, setDependencies] = useState([]); // { id, predecessor_id, successor_id }
   const [attachments, setAttachments] = useState([]);
@@ -97,11 +98,12 @@ export default function ProjectsView() {
   useEffect(() => {
     if (!selectedTask) { setComments([]); setNewComment(""); setAttachments([]); return; }
     (async () => {
-      const [{ data: c }, { data: a }] = await Promise.all([
+      const [{ data: c }, { data: a }, { data: al }] = await Promise.all([
         supabase.from("comments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
         supabase.from("attachments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }),
+        supabase.from("activity_log").select("*").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }).limit(10),
       ]);
-      setComments(c || []); setAttachments(a || []);
+      setComments(c || []); setAttachments(a || []); setActivityLog(al || []);
     })();
   }, [selectedTask?.id]);
 
@@ -218,11 +220,19 @@ export default function ProjectsView() {
 
   const updateField = async (taskId, field, value) => {
     const oldTask = tasks.find(t => t.id === taskId);
+    const oldValue = oldTask ? String(oldTask[field] || "") : "";
     setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t));
     if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value }));
     const { error } = await supabase.from("tasks").update({ [field]: value }).eq("id", taskId);
     if (error) showToast("Failed to update task");
     setEditingCell(null);
+    // Log activity
+    if (oldValue !== String(value || "")) {
+      await supabase.from("activity_log").insert({
+        entity_type: "task", entity_id: taskId, action: "updated",
+        field, old_value: oldValue, new_value: String(value || ""), user_id: user?.id,
+      }).catch(() => {});
+    }
     // Notify on assignment
     if (field === "assignee_id" && value && value !== user?.id && value !== oldTask?.assignee_id) {
       await supabase.from("notifications").insert({
@@ -2096,6 +2106,20 @@ export default function ProjectsView() {
           </div>
           {/* Activity log */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: comments.length > 0 ? 16 : 0, paddingTop: comments.length > 0 ? 12 : 0, borderTop: comments.length > 0 ? `1px solid ${T.border}30` : "none" }}>
+            {activityLog.map(log => {
+              const who = log.user_id ? (profiles[log.user_id]?.display_name || "Someone") : "System";
+              const fieldLabel = log.field?.replace("_", " ") || "";
+              const desc = log.action === "updated" && log.field
+                ? `${who} changed ${fieldLabel} from "${log.old_value || "—"}" to "${log.new_value || "—"}"`
+                : `${who} ${log.action}`;
+              return (
+                <div key={log.id} style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 5, height: 5, borderRadius: 5, background: T.accent, flexShrink: 0 }} />
+                  <span style={{ flex: 1 }}>{desc}</span>
+                  <span style={{ flexShrink: 0 }}>{new Date(log.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                </div>
+              );
+            })}
             {selectedTask.created_at && (
               <div style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 5, height: 5, borderRadius: 5, background: T.green, flexShrink: 0 }} />
