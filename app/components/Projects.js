@@ -1370,16 +1370,26 @@ export default function ProjectsView() {
               </div>
             </div>
             {/* Cards */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 40 }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+              onDrop={(e) => { e.preventDefault(); handleDrop(null, sec.id); }}>
               {st.map(task => {
                 const dn = task.status === "done";
                 const sel = selectedTask?.id === task.id;
                 const pcfg = PRIORITY[task.priority];
+                const isDragOver = dragOverTarget === task.id;
                 return (
-                  <div key={task.id} onClick={() => setSelectedTask(task)} style={{
-                    background: T.surface2, borderRadius: 10, padding: "12px 14px", cursor: "pointer",
-                    border: `1px solid ${sel ? T.accent : T.border}`,
-                    opacity: dn ? 0.5 : 1, transition: "all 0.15s", position: "relative",
+                  <div key={task.id} onClick={() => setSelectedTask(task)}
+                    draggable
+                    onDragStart={(e) => { setDragTask(task); e.dataTransfer.effectAllowed = "move"; }}
+                    onDragEnd={() => { setDragTask(null); setDragOverTarget(null); }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverTarget(task.id); }}
+                    onDragLeave={() => setDragOverTarget(null)}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleDrop(task.id, sec.id); }}
+                    style={{
+                    background: T.surface2, borderRadius: 10, padding: "12px 14px", cursor: "grab",
+                    border: `1px solid ${sel ? T.accent : isDragOver ? T.accent + "80" : T.border}`,
+                    opacity: dn ? 0.5 : (dragTask?.id === task.id ? 0.4 : 1), transition: "all 0.15s", position: "relative",
                   }}>
                     {pcfg && <div style={{ position: "absolute", left: 0, top: 10, bottom: 10, width: 3, borderRadius: "0 3px 3px 0", background: pcfg.dot }} />}
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
