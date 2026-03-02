@@ -200,6 +200,50 @@ export default function DashboardView({ setActive }) {
         );
       })()}
 
+      {/* Upcoming deadlines (next 7 days, not overdue) */}
+      {(() => {
+        const todayStr = now.toISOString().split("T")[0];
+        const nextWeek = new Date(now); nextWeek.setDate(nextWeek.getDate() + 7);
+        const nextWeekStr = nextWeek.toISOString().split("T")[0];
+        const upcoming = tasks.filter(t => t.due_date && t.due_date >= todayStr && t.due_date <= nextWeekStr && t.status !== "done" && !t.parent_task_id)
+          .sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 6);
+        if (upcoming.length === 0) return null;
+        return (
+          <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 20, marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 14 }}>📅</span>
+              <span style={{ fontSize: 15, fontWeight: 700 }}>Due This Week</span>
+              <span style={{ fontSize: 11, color: T.text3 }}>{upcoming.length} tasks</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 6 }}>
+              {upcoming.map(t => {
+                const proj = projects.find(p => p.id === t.project_id);
+                const isToday = t.due_date === todayStr;
+                const priColors = { urgent: "#ef4444", high: "#f97316", medium: "#eab308", low: "#22c55e" };
+                return (
+                  <div key={t.id} onClick={() => setActive("projects")} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8,
+                    background: T.surface2, border: `1px solid ${T.border}`, cursor: "pointer",
+                    borderLeft: `3px solid ${priColors[t.priority] || T.text3}`,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{proj?.name || "—"}</div>
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, flexShrink: 0,
+                      background: isToday ? `${T.accent}20` : T.surface3,
+                      color: isToday ? T.accent : T.text3,
+                    }}>
+                      {isToday ? "Today" : new Date(t.due_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20, marginBottom: 28 }}>
         <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
