@@ -111,7 +111,7 @@ export default function OKRsView() {
       title: "", description: "", health: "on_track", timeframe: "quarter",
       start_date: c?.start_date || "", end_date: c?.end_date || "",
       owner_id: user?.id || "", team_id: "",
-      keyResults: [{ title: "", target_value: 100, unit: "", owner_id: "" }],
+      keyResults: [{ title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "" }],
     });
   };
 
@@ -130,9 +130,10 @@ export default function OKRsView() {
     // Create key results
     const validKRs = objForm.keyResults.filter(kr => kr.title.trim());
     const krInserts = validKRs.map((kr, i) => ({
-      objective_id: objData.id, title: kr.title.trim(),
+      org_id: profile?.org_id, objective_id: objData.id, title: kr.title.trim(),
       target_value: Number(kr.target_value) || 100, start_value: 0, current_value: 0,
       progress: 0, unit: kr.unit || null, owner_id: kr.owner_id || null, sort_order: i + 1,
+      start_date: kr.start_date || null, end_date: kr.end_date || null,
     }));
     let newKRs = [];
     if (krInserts.length > 0) {
@@ -153,7 +154,7 @@ export default function OKRsView() {
     const target = await showPrompt("Target Value", "Target value", "100");
     const maxSort = keyResults.filter(k => k.objective_id === objId).reduce((m, k) => Math.max(m, k.sort_order || 0), 0);
     const { data, error } = await supabase.from("key_results").insert({
-      objective_id: objId, title: title.trim(), target_value: Number(target) || 100,
+      org_id: profile?.org_id, objective_id: objId, title: title.trim(), target_value: Number(target) || 100,
       start_value: 0, current_value: 0, progress: 0, sort_order: maxSort + 1,
     }).select().single();
     if (error) return;
@@ -644,7 +645,7 @@ function OwnerPicker({ profiles, value, onChange }) {
 function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
   const set = useCallback((k, v) => setObjForm(p => ({ ...p, [k]: v })), [setObjForm]);
   const setKR = useCallback((idx, k, v) => setObjForm(p => ({ ...p, keyResults: p.keyResults.map((kr, i) => i === idx ? { ...kr, [k]: v } : kr) })), [setObjForm]);
-  const addKR = useCallback(() => setObjForm(p => ({ ...p, keyResults: [...p.keyResults, { title: "", target_value: 100, unit: "", owner_id: "" }] })), [setObjForm]);
+  const addKR = useCallback(() => setObjForm(p => ({ ...p, keyResults: [...p.keyResults, { title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "" }] })), [setObjForm]);
   const removeKR = useCallback((idx) => setObjForm(p => ({ ...p, keyResults: p.keyResults.filter((_, i) => i !== idx) })), [setObjForm]);
   const f = objForm;
 
@@ -693,10 +694,14 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
                 <div style={{ marginBottom: 8 }}>
                   <input value={kr.title} onChange={e => setKR(idx, "title", e.target.value)} placeholder="e.g. $10M Net Revenue @ 40% Margin" style={{ ..._inp, fontSize: 12 }} />
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>Target Value</label><input type="number" value={kr.target_value} onChange={e => setKR(idx, "target_value", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>Unit</label><input value={kr.unit} onChange={e => setKR(idx, "unit", e.target.value)} placeholder="e.g. $, %, users" style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>KR Owner</label><OwnerPicker profiles={profiles} value={kr.owner_id} onChange={v => setKR(idx, "owner_id", v)} /></div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div><label style={{ ..._lbl, fontSize: 10 }}>Start Date</label><input type="date" value={kr.start_date || ""} onChange={e => setKR(idx, "start_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
+                  <div><label style={{ ..._lbl, fontSize: 10 }}>End Date</label><input type="date" value={kr.end_date || ""} onChange={e => setKR(idx, "end_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
                 </div>
               </div>
             ))}
