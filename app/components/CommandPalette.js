@@ -53,7 +53,20 @@ export default function CommandPalette({ open, onClose, setActive }) {
       const objResults = (objs || []).map(o => ({
         type: "okr", id: o.id, title: o.title, sub: o.health || "Objective", icon: "🎯",
       }));
-      setResults([...nav, ...projResults, ...taskResults, ...docResults, ...campResults, ...objResults]);
+      // Search messages
+      const { data: msgs } = await supabase.from("messages").select("id, content, channel_id")
+        .is("deleted_at", null).ilike("content", `%${query}%`).limit(3);
+      const msgResults = (msgs || []).map(m => ({
+        type: "message", id: m.id, title: m.content?.slice(0, 60) + (m.content?.length > 60 ? "…" : ""),
+        sub: "Message", icon: "💬",
+      }));
+      // Search PLM products
+      const { data: plm } = await supabase.from("plm_products").select("id, name, stage")
+        .is("deleted_at", null).ilike("name", `%${query}%`).limit(3);
+      const plmResults = (plm || []).map(p => ({
+        type: "plm", id: p.id, title: p.name, sub: p.stage || "Product", icon: "⬢",
+      }));
+      setResults([...nav, ...projResults, ...taskResults, ...docResults, ...campResults, ...objResults, ...msgResults, ...plmResults]);
       setSelected(0);
     }, 150);
     return () => clearTimeout(timer);
@@ -70,6 +83,8 @@ export default function CommandPalette({ open, onClose, setActive }) {
     else if (item.type === "doc") { setActive("docs"); onClose(); }
     else if (item.type === "campaign") { setActive("campaigns"); onClose(); }
     else if (item.type === "okr") { setActive("okrs"); onClose(); }
+    else if (item.type === "message") { setActive("messages"); onClose(); }
+    else if (item.type === "plm") { setActive("plm"); onClose(); }
   };
 
   const handleKey = (e) => {
