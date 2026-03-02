@@ -24,9 +24,13 @@ export default function HelmApp() {
   const [active, setActive] = useState("dashboard");
   const [expanded, setExpanded] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   useEffect(() => {
-    const fn = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen(p => !p); } };
+    const fn = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen(p => !p); }
+      if (e.key === "?" && !e.target.matches("input,textarea,select")) { e.preventDefault(); setShowShortcuts(p => !p); }
+    };
     document.addEventListener("keydown", fn);
     return () => document.removeEventListener("keydown", fn);
   }, []);
@@ -90,6 +94,29 @@ export default function HelmApp() {
         </div>
       </div>
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} setActive={setActive} />
+      {showShortcuts && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowShortcuts(false)}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 420, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 800 }}>Keyboard Shortcuts</h2>
+              <button onClick={() => setShowShortcuts(false)} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>×</button>
+            </div>
+            {[
+              { keys: "⌘ K", desc: "Open command palette" },
+              { keys: "?", desc: "Show keyboard shortcuts" },
+              { keys: "Esc", desc: "Close panel / modal / cancel" },
+              { keys: "Enter", desc: "Save / confirm" },
+              { keys: "↑ ↓", desc: "Navigate search results" },
+            ].map(s => (
+              <div key={s.keys} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+                <span style={{ fontSize: 13, color: T.text2 }}>{s.desc}</span>
+                <kbd style={{ padding: "3px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, fontSize: 11, color: T.text3, fontFamily: "monospace", fontWeight: 600 }}>{s.keys}</kbd>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 }
