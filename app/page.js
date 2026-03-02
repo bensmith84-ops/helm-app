@@ -61,7 +61,9 @@ export default function HelmApp() {
     }
   };
 
-  const viewTitle = NAV_ITEMS.find(n => n.key === active)?.label || "Home";
+  const activeNav = NAV_ITEMS.find(n => n.key === active);
+  const viewTitle = activeNav?.label || "Home";
+  const viewIcon = activeNav?.icon || "⬡";
 
   return (
     <>
@@ -77,7 +79,10 @@ export default function HelmApp() {
         <Sidebar active={active} setActive={setActive} expanded={expanded} setExpanded={setExpanded} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ height: 44, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 20px", gap: 12, flexShrink: 0 }}>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{viewTitle}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 14, color: T.text3 }}>{viewIcon}</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{viewTitle}</span>
+            </div>
             <div style={{ flex: 1 }} />
             <div onClick={() => setCmdOpen(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3, cursor: "pointer" }}>
               ⌘K Search...
