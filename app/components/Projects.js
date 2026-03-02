@@ -175,6 +175,27 @@ export default function ProjectsView() {
     })();
   }, [activeProject]);
 
+  /* ── Realtime subscriptions ── */
+  useEffect(() => {
+    if (!activeProject || activeProject === "__my_tasks__") return;
+    const channel = supabase.channel(`project-${activeProject}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `project_id=eq.${activeProject}` }, (payload) => {
+        if (payload.eventType === "INSERT") setTasks(p => [...p.filter(t => t.id !== payload.new.id), payload.new]);
+        else if (payload.eventType === "UPDATE") {
+          if (payload.new.deleted_at) setTasks(p => p.filter(t => t.id !== payload.new.id));
+          else setTasks(p => p.map(t => t.id === payload.new.id ? payload.new : t));
+        }
+        else if (payload.eventType === "DELETE") setTasks(p => p.filter(t => t.id !== payload.old.id));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "sections", filter: `project_id=eq.${activeProject}` }, (payload) => {
+        if (payload.eventType === "INSERT") setSections(p => [...p.filter(s => s.id !== payload.new.id), payload.new]);
+        else if (payload.eventType === "UPDATE") setSections(p => p.map(s => s.id === payload.new.id ? payload.new : s));
+        else if (payload.eventType === "DELETE") setSections(p => p.filter(s => s.id !== payload.old.id));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeProject]);
+
   /* ── Helpers ── */
   const ini = (uid) => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
