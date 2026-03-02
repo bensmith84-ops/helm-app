@@ -1,23 +1,29 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import { T } from "./tokens";
 import { useAuth } from "./lib/auth";
 import AuthPage from "./components/AuthPage";
 import Sidebar, { NAV_ITEMS } from "./components/Sidebar";
 import DashboardView from "./components/Dashboard";
-import ProjectsView from "./components/Projects";
-import OKRsView from "./components/OKRs";
-import MessagesView from "./components/Messages";
-import DocsView from "./components/Docs";
-import CalendarView from "./components/Calendar";
-import CallsView from "./components/Calls";
-import CampaignsView from "./components/Campaigns";
-import PLMView from "./components/PLM";
-import AutomationView from "./components/Automation";
-import ReportsView from "./components/Reports";
-import SettingsView from "./components/Settings";
 import CommandPalette from "./components/CommandPalette";
 import NotificationBell from "./components/NotificationBell";
+
+// Lazy load all non-dashboard views
+const ProjectsView = lazy(() => import("./components/Projects"));
+const OKRsView = lazy(() => import("./components/OKRs"));
+const MessagesView = lazy(() => import("./components/Messages"));
+const DocsView = lazy(() => import("./components/Docs"));
+const CalendarView = lazy(() => import("./components/Calendar"));
+const CallsView = lazy(() => import("./components/Calls"));
+const CampaignsView = lazy(() => import("./components/Campaigns"));
+const PLMView = lazy(() => import("./components/PLM"));
+const AutomationView = lazy(() => import("./components/Automation"));
+const ReportsView = lazy(() => import("./components/Reports"));
+const SettingsView = lazy(() => import("./components/Settings"));
+
+const LazyFallback = () => (
+  <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading…</div>
+);
 
 export default function HelmApp() {
   const { user, profile, loading: authLoading, signOut } = useAuth();
@@ -94,7 +100,9 @@ export default function HelmApp() {
             </div>
           </div>
           <div style={{ flex: 1, overflow: "auto" }}>
-            {renderView()}
+            <Suspense fallback={<LazyFallback />}>
+              {renderView()}
+            </Suspense>
           </div>
         </div>
       </div>
