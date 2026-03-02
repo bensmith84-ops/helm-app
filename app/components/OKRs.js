@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useResizableColumns } from "../lib/useResizableColumns";
 import { useModal } from "../lib/modal";
 
 const HEALTH = {
@@ -23,6 +24,8 @@ export default function OKRsView() {
   const [profiles, setProfiles] = useState({});
   const [expanded, setExpanded] = useState([]);
   const [selectedKR, setSelectedKR] = useState(null);
+  const { gridTemplate: okrGrid, onResizeStart: okrResize } = useResizableColumns([250, 160, 80, 80, 60]);
+  const ORH = ({ index }) => (<div onMouseDown={(e) => okrResize(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -290,19 +293,19 @@ export default function OKRsView() {
                 {isExp && objKRs.length > 0 && (
                   <div style={{ borderTop: `1px solid ${T.border}` }}>
                     <div style={{
-                      display: "grid", gridTemplateColumns: "1fr 160px 80px 80px 60px",
+                      display: "grid", gridTemplateColumns: okrGrid,
                       gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 28,
                       fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em",
                       borderBottom: `1px solid ${T.border}`, background: T.bg,
                     }}>
-                      <span>Key Result</span><span>Progress</span><span>Value</span><span>Confidence</span><span>Owner</span>
+                      <span style={{ position: "relative" }}>Key Result<ORH index={0} /></span><span style={{ position: "relative" }}>Progress<ORH index={1} /></span><span style={{ position: "relative" }}>Value<ORH index={2} /></span><span style={{ position: "relative" }}>Confidence<ORH index={3} /></span><span>Owner</span>
                     </div>
                     {objKRs.map(kr => {
                       const p = Number(kr.progress || 0);
                       const sel = selectedKR === kr.id;
                       return (
                         <div key={kr.id} onClick={() => setSelectedKR(kr.id)} style={{
-                          display: "grid", gridTemplateColumns: "1fr 160px 80px 80px 60px",
+                          display: "grid", gridTemplateColumns: okrGrid,
                           gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42,
                           cursor: "pointer", borderBottom: `1px solid ${T.border}`,
                           background: sel ? `${T.accent}10` : "transparent",

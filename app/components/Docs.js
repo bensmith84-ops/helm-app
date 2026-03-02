@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useResizableColumns } from "../lib/useResizableColumns";
 import { useModal } from "../lib/modal";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
@@ -30,6 +31,8 @@ export default function DocsView() {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [activeFolder, setActiveFolder] = useState("all");
   const [search, setSearch] = useState("");
+  const { gridTemplate: docsGrid, onResizeStart: docsResize } = useResizableColumns([300, 120, 100, 90]);
+  const DRH = ({ index }) => (<div onMouseDown={(e) => docsResize(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -122,8 +125,8 @@ export default function DocsView() {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search docs…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: 140, fontFamily: "inherit" }} />
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px 90px", padding: "8px 24px", fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` }}>
-          <span>Document</span><span>Author</span><span>Updated</span><span>Status</span>
+        <div style={{ display: "grid", gridTemplateColumns: docsGrid, padding: "8px 24px", fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` }}>
+          <span style={{ position: "relative" }}>Document<DRH index={0} /></span><span style={{ position: "relative" }}>Author<DRH index={1} /></span><span style={{ position: "relative" }}>Updated<DRH index={2} /></span><span>Status</span>
         </div>
         <div style={{ flex: 1, overflow: "auto" }}>
           {filtered.length === 0 && (
@@ -137,7 +140,7 @@ export default function DocsView() {
             const st = STATUS_CFG[doc.status] || STATUS_CFG.draft;
             return (
               <div key={doc.id} onClick={() => setSelectedDoc(doc)} style={{
-                display: "grid", gridTemplateColumns: "1fr 120px 100px 90px", padding: "12px 24px", alignItems: "center", cursor: "pointer",
+                display: "grid", gridTemplateColumns: docsGrid, padding: "12px 24px", alignItems: "center", cursor: "pointer",
                 borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

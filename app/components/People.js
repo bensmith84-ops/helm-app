@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useResizableColumns } from "../lib/useResizableColumns";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
@@ -32,6 +33,8 @@ export default function PeopleView() {
   const [actionMenu, setActionMenu] = useState(null);
 
   const showToast = (msg, type = "error") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+  const { gridTemplate: peopleGrid, onResizeStart: peopleResize } = useResizableColumns([200, 140, 100, 90, 80, 80, 120]);
+  const RH = ({ index }) => (<div onMouseDown={(e) => peopleResize(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
   const ini = (name) => name ? name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?";
 
   useEffect(() => {
@@ -159,14 +162,14 @@ export default function PeopleView() {
 
   const ActionBtn = ({ icon, label, color, onClick }) => (<button onClick={(e) => { e.stopPropagation(); onClick(); }} title={label} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 6, border: `1px solid ${color || T.border}`, background: "transparent", cursor: "pointer", color: color || T.text3, transition: "background 0.1s" }} onMouseEnter={e => e.currentTarget.style.background = (color || T.text3) + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{icon}</button>);
 
-  const MemberList = () => { const colH = { fontSize: 11, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", padding: "8px 12px" }; return (
+  const MemberList = () => { const colH = { fontSize: 11, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", padding: "8px 12px", position: "relative" }; return (
     <div style={{ borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,1fr) 140px 100px 90px 80px 80px 120px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-        <div style={colH}>Name</div><div style={colH}>Email</div><div style={colH}>Role</div><div style={colH}>Tasks</div><div style={colH}>Status</div><div style={colH}>Projects</div><div style={{ ...colH, textAlign: "right" }}>Actions</div>
+      <div style={{ display: "grid", gridTemplateColumns: peopleGrid, background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+        <div style={colH}>Name<RH index={0} /></div><div style={colH}>Email<RH index={1} /></div><div style={colH}>Role<RH index={2} /></div><div style={colH}>Tasks<RH index={3} /></div><div style={colH}>Status<RH index={4} /></div><div style={colH}>Projects<RH index={5} /></div><div style={{ ...colH, textAlign: "right" }}>Actions</div>
       </div>
       {filtered.map(member => { const c = acol(member.id); const stats = getStats(member.id); const om = getMembership(member.id); const isMe = member.id === user?.id; const active = om?.is_active !== false; const isOwner = om?.role === "owner"; const hov = hoveredRow === member.id; const sel = selected?.id === member.id; return (
         <div key={member.id} onClick={() => setSelected(member)} onMouseEnter={() => setHoveredRow(member.id)} onMouseLeave={() => setHoveredRow(null)}
-          style={{ display: "grid", gridTemplateColumns: "minmax(200px,1fr) 140px 100px 90px 80px 80px 120px", alignItems: "center", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: sel ? T.accentDim : hov ? T.surface2 : "transparent", opacity: active ? 1 : 0.5, transition: "background 0.1s" }}>
+          style={{ display: "grid", gridTemplateColumns: peopleGrid, alignItems: "center", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: sel ? T.accentDim : hov ? T.surface2 : "transparent", opacity: active ? 1 : 0.5, transition: "background 0.1s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
             <div style={{ width: 32, height: 32, borderRadius: 16, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: c, flexShrink: 0 }}>{ini(member.display_name)}</div>
             <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 5 }}>

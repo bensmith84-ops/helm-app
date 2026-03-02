@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useModal } from "../lib/modal";
 import { T } from "../tokens";
+import { useResizableColumns } from "../lib/useResizableColumns";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
 const TABS = ["List", "Board", "Timeline", "Calendar"];
@@ -153,12 +154,15 @@ export default function ProjectsView() {
   const createCustomField = async () => { const name = await showPrompt("New custom field", "Field name…"); if (!name) return; const mx = customFields.reduce((m, f) => Math.max(m, f.sort_order || 0), 0); const { data, error } = await supabase.from("custom_fields").insert({ project_id: activeProject, name, field_type: "text", sort_order: mx + 1 }).select().single(); if (!error && data) setCustomFields(p => [...p, data]); };
   const updateCustomFieldValue = async (taskId, fieldId, value) => { setCustomFieldValues(p => ({ ...p, [taskId]: { ...(p[taskId] || {}), [fieldId]: value } })); const ex = await supabase.from("custom_field_values").select("id").eq("task_id", taskId).eq("field_id", fieldId).single(); if (ex.data) { await supabase.from("custom_field_values").update({ value }).eq("id", ex.data.id); } else { await supabase.from("custom_field_values").insert({ task_id: taskId, field_id: fieldId, value }); } };
   const handleBoardDrop = async (taskId, newSec) => { await updateField(taskId, "section_id", newSec); setDragTask(null); setDragOverTarget(null); };
+  const { gridTemplate: projGrid, onResizeStart: projResize } = useResizableColumns([280, 110, 90, 110, 100]);
+  const ResizeHandle = ({ index, onStart }) => (<div onMouseDown={(e) => onStart(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
+
   const S = {
     pill: { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer" },
     iconBtn: { background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, borderRadius: 4, color: T.text3 },
     addRow: { display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 40px", cursor: "pointer", color: T.text3, fontSize: 13, borderRadius: 6 },
     colHdr: { fontSize: 11, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", padding: "6px 8px", cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 4 },
-    row: (hov, sel) => ({ display: "grid", gridTemplateColumns: "minmax(280px,1fr) 110px 90px 110px 100px", alignItems: "center", padding: "0 12px", minHeight: 36, borderBottom: `1px solid ${T.border}`, background: sel ? T.accentDim : hov ? T.surface2 : "transparent", cursor: "pointer", transition: "background 0.12s" }),
+    row: (hov, sel) => ({ display: "grid", gridTemplateColumns: projGrid, alignItems: "center", padding: "0 12px", minHeight: 36, borderBottom: `1px solid ${T.border}`, background: sel ? T.accentDim : hov ? T.surface2 : "transparent", cursor: "pointer", transition: "background 0.12s" }),
   };
   const ProjectSidebar = () => (
     <div style={{ width: showSidebar ? 260 : 0, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflow: "hidden", transition: "width 0.2s", display: "flex", flexDirection: "column" }}>
@@ -225,11 +229,11 @@ export default function ProjectsView() {
 
   const ListView = () => { const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px,1fr) 110px 90px 110px 100px", padding: "0 12px", borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.bg }}>
-        <div style={S.colHdr} onClick={() => toggleSort("title")}>Task name{arrow("title")}</div>
-        <div style={S.colHdr} onClick={() => toggleSort("status")}>Status{arrow("status")}</div>
-        <div style={S.colHdr} onClick={() => toggleSort("priority")}>Priority{arrow("priority")}</div>
-        <div style={S.colHdr}>Assignee</div>
+      <div style={{ display: "grid", gridTemplateColumns: projGrid, padding: "0 12px", borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.bg }}>
+        <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("title")}>Task name{arrow("title")}<ResizeHandle index={0} onStart={projResize} /></div>
+        <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("status")}>Status{arrow("status")}<ResizeHandle index={1} onStart={projResize} /></div>
+        <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("priority")}>Priority{arrow("priority")}<ResizeHandle index={2} onStart={projResize} /></div>
+        <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle index={3} onStart={projResize} /></div>
         <div style={S.colHdr} onClick={() => toggleSort("due_date")}>Due date{arrow("due_date")}</div>
       </div>
       {projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id); const roots = sortedTasks(rootTasks(st)); const isColl = collapsed[sec.id]; const sd = st.filter(t => t.status === "done").length; const color = secColor(si); return (
