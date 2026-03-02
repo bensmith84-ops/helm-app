@@ -53,6 +53,8 @@ export default function ProjectsView() {
   const [fieldForm, setFieldForm] = useState({ name: "", field_type: "text", options: "" });
   const [templates, setTemplates] = useState([]);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importStatus, setImportStatus] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
@@ -570,6 +572,92 @@ export default function ProjectsView() {
     await supabase.from("project_templates").delete().eq("id", tplId);
   };
 
+  /* ── CSV Import ── */
+  const handleCSVImport = async (file) => {
+    if (!file) return;
+    setImportStatus("Reading file…");
+    const text = await file.text();
+    const lines = text.split("\n").map(l => {
+      // Simple CSV parser: split by comma but respect quotes
+      const result = []; let cur = ""; let inQ = false;
+      for (let i = 0; i < l.length; i++) {
+        if (l[i] === '"') { inQ = !inQ; }
+        else if (l[i] === "," && !inQ) { result.push(cur.trim()); cur = ""; }
+        else { cur += l[i]; }
+      }
+      result.push(cur.trim());
+      return result;
+    });
+    if (lines.length < 2) { setImportStatus("No data found"); return; }
+    const headers = lines[0].map(h => h.toLowerCase().replace(/[^a-z_]/g, ""));
+    const nameIdx = headers.findIndex(h => h === "name" || h === "task_name" || h === "title");
+    const secIdx = headers.findIndex(h => h === "section" || h === "section_column" || h === "column");
+    const statusIdx = headers.findIndex(h => h === "status" || h === "completion_status");
+    const priIdx = headers.findIndex(h => h === "priority");
+    const dueIdx = headers.findIndex(h => h === "due_date" || h === "due");
+    const descIdx = headers.findIndex(h => h === "description" || h === "notes");
+    const assignIdx = headers.findIndex(h => h === "assignee" || h === "assigned_to");
+    if (nameIdx < 0) { setImportStatus("Could not find Name/Title column"); return; }
+
+    // Create project
+    setImportStatus("Creating project…");
+    const projName = file.name.replace(/\.csv$/i, "") || "Imported Project";
+    const { data: newProj } = await supabase.from("projects").insert({
+      org_id: profile?.org_id, name: projName, color: SECTION_COLORS[projects.length % SECTION_COLORS.length],
+    }).select().single();
+    if (!newProj) { setImportStatus("Failed to create project"); return; }
+
+    // Group rows by section
+    const rows = lines.slice(1).filter(r => r[nameIdx]?.trim());
+    const sectionMap = {};
+    rows.forEach(r => {
+      const sec = secIdx >= 0 ? (r[secIdx]?.trim() || "Default") : "Default";
+      if (!sectionMap[sec]) sectionMap[sec] = [];
+      sectionMap[sec].push(r);
+    });
+
+    // Create sections
+    setImportStatus(`Importing ${rows.length} tasks…`);
+    const sectionIds = {};
+    let secOrder = 0;
+    for (const secName of Object.keys(sectionMap)) {
+      const { data: sec } = await supabase.from("sections").insert({
+        project_id: newProj.id, name: secName, sort_order: secOrder++,
+      }).select().single();
+      if (sec) sectionIds[secName] = sec.id;
+    }
+
+    // Map status strings
+    const statusMap = { "complete": "done", "completed": "done", "in progress": "in_progress", "in_progress": "in_progress", "to do": "todo", "not started": "todo", "on hold": "in_review" };
+    const priMap = { "high": "high", "medium": "medium", "low": "low", "urgent": "urgent", "critical": "urgent" };
+
+    // Create tasks
+    let imported = 0;
+    for (const [secName, taskRows] of Object.entries(sectionMap)) {
+      for (let i = 0; i < taskRows.length; i++) {
+        const r = taskRows[i];
+        const rawStatus = statusIdx >= 0 ? r[statusIdx]?.trim().toLowerCase() : "";
+        const rawPri = priIdx >= 0 ? r[priIdx]?.trim().toLowerCase() : "";
+        await supabase.from("tasks").insert({
+          project_id: newProj.id,
+          section_id: sectionIds[secName] || null,
+          title: r[nameIdx].trim(),
+          status: statusMap[rawStatus] || "todo",
+          priority: priMap[rawPri] || "none",
+          due_date: dueIdx >= 0 && r[dueIdx]?.trim() ? r[dueIdx].trim() : null,
+          description: descIdx >= 0 ? r[descIdx]?.trim() || null : null,
+          sort_order: i,
+        });
+        imported++;
+      }
+    }
+
+    setImportStatus(`Imported ${imported} tasks into "${projName}"!`);
+    setProjects(p => [...p, newProj]);
+    setActiveProject(newProj.id);
+    setTimeout(() => { setShowImport(false); setImportStatus(""); }, 2000);
+  };
+
   /* ── Drag & Drop reorder ── */
   const handleDrop = async (targetTaskId, targetSectionId) => {
     if (!dragTask) return;
@@ -829,6 +917,7 @@ export default function ProjectsView() {
         <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Projects</span>
         <button onClick={openNewProject} title="New project" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 16, lineHeight: 1, padding: "0 2px" }}>+</button>
         {templates.length > 0 && <button onClick={() => setShowTemplates(true)} title="New from template" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 10, lineHeight: 1, padding: "0 2px", fontWeight: 600 }}>📋</button>}
+        <button onClick={() => setShowImport(true)} title="Import CSV" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 10, lineHeight: 1, padding: "0 2px", fontWeight: 600 }}>📥</button>
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "0 8px 16px" }}>
         {projects.map(p => {
@@ -2235,6 +2324,31 @@ export default function ProjectsView() {
             )}
             <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
               <button onClick={() => setShowTemplates(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* CSV Import modal */}
+      {showImport && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => { setShowImport(false); setImportStatus(""); }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 420, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, zIndex: 101 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Import from CSV</h3>
+            <p style={{ fontSize: 12, color: T.text3, marginBottom: 16, lineHeight: 1.5 }}>
+              Upload a CSV file exported from Asana or any tool. Expected columns: Name (required), Section, Status, Priority, Due Date, Description.
+            </p>
+            <div style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: 30, textAlign: "center", marginBottom: 14, background: T.surface2 }}>
+              <input type="file" accept=".csv" id="csv-import" style={{ display: "none" }}
+                onChange={e => { if (e.target.files[0]) handleCSVImport(e.target.files[0]); }} />
+              <label htmlFor="csv-import" style={{ cursor: "pointer", color: T.accent, fontSize: 14, fontWeight: 600 }}>
+                📥 Choose CSV file
+              </label>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>.csv files only</div>
+            </div>
+            {importStatus && <div style={{ padding: "8px 12px", borderRadius: 6, background: `${T.accent}15`, color: T.accent, fontSize: 12, fontWeight: 500, textAlign: "center" }}>{importStatus}</div>}
+            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => { setShowImport(false); setImportStatus(""); }} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Close</button>
             </div>
           </div>
         </div>
