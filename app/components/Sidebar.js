@@ -3,8 +3,8 @@ import { T } from "../tokens";
 
 export const NAV_ITEMS = [
   { key: "dashboard", icon: "⬡", label: "Home" },
-  { key: "projects", icon: "◫", label: "Projects" },
   { key: "okrs", icon: "◎", label: "OKRs" },
+  { key: "projects", icon: "◫", label: "Projects" },
   { key: "messages", icon: "◬", label: "Messages" },
   { key: "docs", icon: "▤", label: "Docs" },
   { type: "divider" },
