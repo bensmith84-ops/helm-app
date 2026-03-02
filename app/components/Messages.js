@@ -2,11 +2,13 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useAuth } from "../lib/auth";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 
 export default function MessagesView() {
+  const { user } = useAuth();
   const [channels, setChannels] = useState([]);
   const [activeCh, setActiveCh] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -75,7 +77,7 @@ export default function MessagesView() {
     const tempMsg = {
       id: `temp-${Date.now()}`,
       channel_id: activeCh,
-      author_id: "10000000-0000-0000-0000-000000000001",
+      author_id: user?.id,
       content: input.trim(),
       created_at: new Date().toISOString(),
     };
@@ -84,7 +86,7 @@ export default function MessagesView() {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     const { data } = await supabase.from("messages").insert({
       channel_id: activeCh,
-      author_id: "10000000-0000-0000-0000-000000000001",
+      author_id: user?.id,
       content: tempMsg.content,
     }).select().single();
     if (data) setMessages(p => p.map(m => m.id === tempMsg.id ? data : m));

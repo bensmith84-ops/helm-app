@@ -2,11 +2,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useAuth } from "../lib/auth";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length-1)%AVATAR_COLORS.length] : T.text3;
 
 export default function DashboardView({ setActive }) {
+  const { profile } = useAuth();
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [profiles, setProfiles] = useState({});
@@ -83,7 +85,7 @@ export default function DashboardView({ setActive }) {
   return (
     <div style={{ padding: "28px 32px", overflow: "auto", maxWidth: 1200 }}>
       <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, lineHeight: 1.2 }}>{greet}, Ben</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, lineHeight: 1.2 }}>{greet}, {profile?.display_name || "there"}</h1>
         <p style={{ color: T.text3, fontSize: 13 }}>{dateStr} — Here&apos;s your workspace at a glance.</p>
       </div>
 
