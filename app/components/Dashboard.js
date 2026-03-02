@@ -107,6 +107,59 @@ export default function DashboardView({ setActive }) {
         ))}
       </div>
 
+      {/* My Tasks — assigned to current user, not done, sorted by due date */}
+      {(() => {
+        const myTasks = tasks.filter(t => t.assignee_id === profile?.id && t.status !== "done" && !t.parent_task_id)
+          .sort((a, b) => {
+            if (!a.due_date && !b.due_date) return 0;
+            if (!a.due_date) return 1;
+            if (!b.due_date) return -1;
+            return new Date(a.due_date) - new Date(b.due_date);
+          }).slice(0, 6);
+        if (myTasks.length === 0) return null;
+        const today = now.toISOString().split("T")[0];
+        return (
+          <div style={{ background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 20, marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14 }}>👤</span>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>My Tasks</span>
+                <span style={{ fontSize: 11, color: T.text3 }}>{myTasks.length} open</span>
+              </div>
+              <button onClick={() => setActive("projects")} style={{ background: "none", border: "none", color: T.accent, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>View all →</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 8 }}>
+              {myTasks.map(t => {
+                const proj = projects.find(p => p.id === t.project_id);
+                const isOverdue = t.due_date && t.due_date < today;
+                const isToday = t.due_date === today;
+                const priColors = { urgent: "#ef4444", high: "#f97316", medium: "#eab308", low: "#22c55e" };
+                return (
+                  <div key={t.id} onClick={() => setActive("projects")} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8,
+                    background: T.surface2, border: `1px solid ${T.border}`, cursor: "pointer",
+                    borderLeft: `3px solid ${priColors[t.priority] || T.text3}`,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{proj?.name || "—"} · {t.status.replace("_", " ")}</div>
+                    </div>
+                    {t.due_date && (
+                      <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, flexShrink: 0,
+                        background: isOverdue ? "#ef444420" : isToday ? `${T.accent}20` : T.surface3,
+                        color: isOverdue ? "#ef4444" : isToday ? T.accent : T.text3,
+                      }}>
+                        {isToday ? "Today" : isOverdue ? `${Math.ceil((now - new Date(t.due_date)) / 86400000)}d late` : new Date(t.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 28 }}>
         <StatCard label="Active Projects" value={projects.length} sub={`${projStats.filter(p=>p.pct>=50).length} past halfway`} color={T.accent}
           icon={<><rect x="1" y="1" width="6" height="14" rx="1"/><rect x="9" y="5" width="6" height="10" rx="1"/></>} />

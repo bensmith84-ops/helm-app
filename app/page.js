@@ -31,6 +31,7 @@ export default function HelmApp() {
   const [expanded, setExpanded] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [badges, setBadges] = useState({});
 
   useEffect(() => {
     let gPressed = false; let gTimer = null;

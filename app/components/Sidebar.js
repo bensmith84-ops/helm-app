@@ -21,7 +21,7 @@ export const NAV_ITEMS = [
   { key: "settings", icon: "⚙", label: "Settings" },
 ];
 
-export default function Sidebar({ active, setActive, expanded, setExpanded }) {
+export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {} }) {
   const w = expanded ? 200 : 52;
   return (
     <div style={{
@@ -50,9 +50,21 @@ export default function Sidebar({ active, setActive, expanded, setExpanded }) {
             padding: expanded ? "0 10px" : 0,
             justifyContent: expanded ? "flex-start" : "center",
             margin: expanded ? "0 8px" : "0",
+            position: "relative",
           }}>
             <span style={{ fontSize: 16, width: 20, textAlign: "center", flexShrink: 0 }}>{item.icon}</span>
-            {expanded && <span style={{ whiteSpace: "nowrap", fontWeight: active === item.key ? 600 : 400 }}>{item.label}</span>}
+            {expanded && <span style={{ whiteSpace: "nowrap", fontWeight: active === item.key ? 600 : 400, flex: 1 }}>{item.label}</span>}
+            {expanded && badges[item.key] > 0 && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, minWidth: 16, height: 16, borderRadius: 8,
+                background: item.key === "messages" ? T.accent : `${T.text3}30`,
+                color: item.key === "messages" ? "#fff" : T.text3,
+                display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px",
+              }}>{badges[item.key] > 99 ? "99+" : badges[item.key]}</span>
+            )}
+            {!expanded && badges[item.key] > 0 && (
+              <div style={{ position: "absolute", top: 4, right: 2, width: 6, height: 6, borderRadius: 6, background: T.accent }} />
+            )}
           </button>
         )
       )}
