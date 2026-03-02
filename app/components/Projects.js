@@ -1,14 +1,15 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useModal } from "../lib/modal";
 import { T } from "../tokens";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
-/* ═══════════════════════════════════════════════════════
-   MAIN COMPONENT
-   ═══════════════════════════════════════════════════════ */
+const TABS = ["List", "Board", "Timeline", "Calendar"];
+const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
+
 export default function ProjectsView() {
   const { user, profile } = useAuth();
   const { showPrompt, showConfirm } = useModal();
@@ -18,2544 +19,364 @@ export default function ProjectsView() {
   const [profiles, setProfiles] = useState({});
   const [activeProject, setActiveProject] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
+  const [viewMode, setViewMode] = useState("List");
+  const [loading, setLoading] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(true);
   const [addingTo, setAddingTo] = useState(null);
   const [newTitle, setNewTitle] = useState("");
-  const [viewMode, setViewMode] = useState("list");
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState({});
-  const [editingCell, setEditingCell] = useState(null); // { taskId, field }
   const [hoveredRow, setHoveredRow] = useState(null);
   const [editingSectionId, setEditingSectionId] = useState(null);
   const [editingSectionName, setEditingSectionName] = useState("");
   const [addingSection, setAddingSection] = useState(false);
   const [newSectionName, setNewSectionName] = useState("");
-  const [showProjectForm, setShowProjectForm] = useState(false); // "new" | "edit" | false
-  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active" });
-  const [toast, setToast] = useState(null); // { message, type: "error" | "success" }
-  const [expandedTasks, setExpandedTasks] = useState({}); // track which parent tasks show subtasks
-  const [milestones, setMilestones] = useState([]);
-  const [showMilestoneForm, setShowMilestoneForm] = useState(false);
-  const [milestoneForm, setMilestoneForm] = useState({ name: "", target_date: "", description: "" });
-  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
-  const [assigneeSearch, setAssigneeSearch] = useState("");
-  const [comments, setComments] = useState([]);
-  const [activityLog, setActivityLog] = useState([]);
-  const [timeEntries, setTimeEntries] = useState([]);
-  const [timerRunning, setTimerRunning] = useState(false);
-  const [timerStart, setTimerStart] = useState(null);
-  const [timerElapsed, setTimerElapsed] = useState(0);
-  const [newComment, setNewComment] = useState("");
-  const [dependencies, setDependencies] = useState([]); // { id, predecessor_id, successor_id }
-  const [attachments, setAttachments] = useState([]);
-  const [tableSort, setTableSort] = useState({ col: "title", dir: "asc" });
-  const [myTasks, setMyTasks] = useState([]);
-  const [myTasksProjects, setMyTasksProjects] = useState({});
+  const [expandedTasks, setExpandedTasks] = useState({});
+  const [toast, setToast] = useState(null);
   const [dragTask, setDragTask] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
-  const [selectedTaskIds, setSelectedTaskIds] = useState(new Set());
-  const [customFields, setCustomFields] = useState([]);
-  const [customFieldValues, setCustomFieldValues] = useState({}); // { taskId: { fieldId: value } }
-  const [showFieldForm, setShowFieldForm] = useState(false);
-  const [fieldForm, setFieldForm] = useState({ name: "", field_type: "text", options: "" });
-  const [templates, setTemplates] = useState([]);
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [showImport, setShowImport] = useState(false);
-  const [importStatus, setImportStatus] = useState("");
-  const [favorites, setFavorites] = useState([]);
+  const [showProjectForm, setShowProjectForm] = useState(false);
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active" });
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
-  const [isMobile, setIsMobile] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [sortCol, setSortCol] = useState("sort_order");
+  const [sortDir, setSortDir] = useState("asc");
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [dependencies, setDependencies] = useState([]);
+  const [customFields, setCustomFields] = useState([]);
+  const [customFieldValues, setCustomFieldValues] = useState({});
+  const [milestones, setMilestones] = useState([]);
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [showMyTasks, setShowMyTasks] = useState(false);
 
-  useEffect(() => {
-    const check = () => { const m = window.innerWidth < 768; setIsMobile(m); if (m) setShowSidebar(false); };
-    check(); window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-
-  const logActivity = (action, entityType, entityId, entityName) => {
-    supabase.from("activity_log").insert({
-      org_id: profile?.org_id, user_id: user?.id,
-      action, entity_type: entityType, entity_id: entityId, entity_name: entityName,
-    }).then(() => {}).catch(() => {});
-  };
-
-  const showToast = useCallback((message, type = "error") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
-
-  /* ── Load templates ── */
-  useEffect(() => {
-    supabase.from("project_templates").select("*").order("created_at", { ascending: false }).then(({ data }) => setTemplates(data || []));
-    // Load favorites from database
-    if (user?.id) {
-      supabase.from("favorites").select("entity_id").eq("user_id", user.id).eq("entity_type", "project")
-        .then(({ data }) => setFavorites((data || []).map(f => f.entity_id)));
-    }
-  }, []);
-
-  /* ── Keyboard shortcuts ── */
-  useEffect(() => {
-    const fn = (e) => {
-      if (e.key === "Escape") {
-        if (showProjectForm) setShowProjectForm(false);
-        else if (selectedTask) setSelectedTask(null);
-        else if (editingSectionId) setEditingSectionId(null);
-      }
-    };
-    document.addEventListener("keydown", fn);
-    return () => document.removeEventListener("keydown", fn);
-  }, [showProjectForm, selectedTask, editingSectionId]);
-
-  /* ── Load comments + attachments for selected task ── */
-  useEffect(() => {
-    if (!selectedTask) { setComments([]); setNewComment(""); setAttachments([]); return; }
-    (async () => {
-      const [{ data: c }, { data: a }, { data: al }, { data: te }] = await Promise.all([
-        supabase.from("comments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
-        supabase.from("attachments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }),
-        supabase.from("activity_log").select("*").eq("entity_id", selectedTask.id).order("created_at", { ascending: false }).limit(10),
-        supabase.from("time_entries").select("*").eq("task_id", selectedTask.id).order("created_at", { ascending: false }),
-      ]);
-      setComments(c || []); setAttachments(a || []); setActivityLog(al || []); setTimeEntries(te || []);
-    })();
-  }, [selectedTask?.id]);
-
-  /* ── Data loading ── */
-  useEffect(() => {
-    (async () => {
-      const [{ data: p }, { data: prof }] = await Promise.all([
-        supabase.from("projects").select("*").is("deleted_at", null).order("name"),
-        supabase.from("profiles").select("id,display_name,avatar_url"),
-      ]);
-      setProjects(p || []);
-      const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
-      if (p?.length) setActiveProject(p[0].id);
-      setLoading(false);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!activeProject) return;
-    if (activeProject === "__my_tasks__") {
-      (async () => {
-        // Load all non-deleted tasks across all projects, with their project info
-        const { data: allTasks } = await supabase.from("tasks").select("*").is("deleted_at", null).is("parent_task_id", null).order("due_date", { ascending: true, nullsFirst: false });
-        setMyTasks(allTasks || []);
-        // Build project lookup from projects we already have
-        const projMap = {};
-        projects.forEach(p => { projMap[p.id] = p; });
-        setMyTasksProjects(projMap);
-        setSelectedTask(null);
-      })();
-      return;
-    }
-    (async () => {
-      const [{ data: s }, { data: t }, { data: m }] = await Promise.all([
-        supabase.from("sections").select("*").eq("project_id", activeProject).order("sort_order"),
-        supabase.from("tasks").select("*").eq("project_id", activeProject).is("deleted_at", null).order("sort_order"),
-        supabase.from("milestones").select("*").eq("project_id", activeProject).order("sort_order"),
-      ]);
-      setSections(s || []); setTasks(t || []); setMilestones(m || []);
-      // Load dependencies for all project tasks
-      const taskIds = (t || []).map(x => x.id);
-      if (taskIds.length > 0) {
-        const { data: deps } = await supabase.from("task_dependencies").select("*").or(`predecessor_id.in.(${taskIds.join(",")}),successor_id.in.(${taskIds.join(",")})`);
-        setDependencies(deps || []);
-      } else { setDependencies([]); }
-      // Load custom fields
-      const { data: cf } = await supabase.from("custom_fields").select("*").eq("project_id", activeProject).order("sort_order");
-      setCustomFields(cf || []);
-      if (cf?.length > 0 && taskIds.length > 0) {
-        const { data: cfv } = await supabase.from("custom_field_values").select("*").in("task_id", taskIds);
-        const map = {};
-        (cfv || []).forEach(v => { if (!map[v.task_id]) map[v.task_id] = {}; map[v.task_id][v.field_id] = v.value; });
-        setCustomFieldValues(map);
-      } else { setCustomFieldValues({}); }
-      setSelectedTask(null); setCollapsed({}); setEditingCell(null);
-      setAddingTo(null); setAddingSection(false); setEditingSectionId(null); setSearch("");
-      setFilterStatus(""); setFilterPriority(""); setFilterAssignee("");
-    })();
-  }, [activeProject]);
-
-  /* ── Realtime subscriptions ── */
-  useEffect(() => {
-    if (!activeProject || activeProject === "__my_tasks__") return;
-    const channel = supabase.channel(`project-${activeProject}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `project_id=eq.${activeProject}` }, (payload) => {
-        if (payload.eventType === "INSERT") setTasks(p => [...p.filter(t => t.id !== payload.new.id), payload.new]);
-        else if (payload.eventType === "UPDATE") {
-          if (payload.new.deleted_at) setTasks(p => p.filter(t => t.id !== payload.new.id));
-          else setTasks(p => p.map(t => t.id === payload.new.id ? payload.new : t));
-        }
-        else if (payload.eventType === "DELETE") setTasks(p => p.filter(t => t.id !== payload.old.id));
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "sections", filter: `project_id=eq.${activeProject}` }, (payload) => {
-        if (payload.eventType === "INSERT") setSections(p => [...p.filter(s => s.id !== payload.new.id), payload.new]);
-        else if (payload.eventType === "UPDATE") setSections(p => p.map(s => s.id === payload.new.id ? payload.new : s));
-        else if (payload.eventType === "DELETE") setSections(p => p.filter(s => s.id !== payload.old.id));
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [activeProject]);
-
-  /* ── Helpers ── */
+  const showToast = useCallback((msg, type = "error") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const ini = (uid) => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
   const uname = (uid) => profiles[uid]?.display_name || "";
   const secColor = (i) => SECTION_COLORS[i % SECTION_COLORS.length];
+  const timeAgo = (ds) => { const m = Math.floor((Date.now() - new Date(ds).getTime()) / 60000); if (m < 1) return "just now"; if (m < 60) return m + "m ago"; const h = Math.floor(m / 60); if (h < 24) return h + "h ago"; return Math.floor(h / 24) + "d ago"; };
+  const formatFileSize = (b) => { if (!b) return "0 B"; const k = 1024; const s = ["B", "KB", "MB", "GB"]; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(1)) + " " + s[i]; };
+  const getFileUrl = (path) => `https://upbjdmnykheubxkuknuj.supabase.co/storage/v1/object/public/attachments/${path}`;
+  useEffect(() => {
+    if (!profile?.org_id) return;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [pR, sR, tR, prR] = await Promise.all([
+          supabase.from("projects").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
+          supabase.from("sections").select("*").order("sort_order"),
+          supabase.from("tasks").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("sort_order"),
+          supabase.from("profiles").select("*").eq("org_id", profile.org_id),
+        ]);
+        setProjects(pR.data || []); setSections(sR.data || []); setTasks(tR.data || []);
+        const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
+        if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
+      } catch (e) { showToast("Failed to load data"); }
+      setLoading(false);
+    };
+    load();
+  }, [profile?.org_id]);
 
+  useEffect(() => {
+    if (!selectedTask) return;
+    Promise.all([
+      supabase.from("comments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
+      supabase.from("attachments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id),
+    ]).then(([cR, aR]) => { setComments(cR.data || []); setAttachments(aR.data || []); });
+  }, [selectedTask?.id]);
+
+  useEffect(() => {
+    if (!activeProject) return;
+    Promise.all([
+      supabase.from("task_dependencies").select("*"),
+      supabase.from("custom_fields").select("*").eq("project_id", activeProject).order("sort_order"),
+      supabase.from("custom_field_values").select("*"),
+      supabase.from("milestones").select("*").eq("project_id", activeProject).order("sort_order"),
+    ]).then(([dR, cfR, cvR, msR]) => {
+      setDependencies(dR.data || []); setCustomFields(cfR.data || []); setMilestones(msR.data || []);
+      const cfm = {}; (cvR.data || []).forEach(v => { if (!cfm[v.task_id]) cfm[v.task_id] = {}; cfm[v.task_id][v.field_id] = v.value; }); setCustomFieldValues(cfm);
+    });
+  }, [activeProject]);
+
+  useEffect(() => {
+    const fn = (e) => { if (e.key === "Escape") { if (showProjectForm) setShowProjectForm(false); else if (selectedTask) setSelectedTask(null); else if (editingSectionId) setEditingSectionId(null); else if (addingTo) { setAddingTo(null); setNewTitle(""); } } };
+    document.addEventListener("keydown", fn); return () => document.removeEventListener("keydown", fn);
+  }, [showProjectForm, selectedTask, editingSectionId, addingTo]);
   const proj = projects.find(p => p.id === activeProject);
-  const done = tasks.filter(t => t.status === "done").length;
-  const total = tasks.length;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const filt = tasks.filter(t => {
-    if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+  const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
+  const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
+  const filteredTasks = useMemo(() => projTasks.filter(t => {
+    if (search && !t.title?.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterStatus && t.status !== filterStatus) return false;
     if (filterPriority && t.priority !== filterPriority) return false;
-    if (filterAssignee === "__unassigned__" && t.assignee_id) return false;
-    if (filterAssignee && filterAssignee !== "__unassigned__" && t.assignee_id !== filterAssignee) return false;
+    if (filterAssignee && t.assignee_id !== filterAssignee) return false;
     return true;
-  });
-  const getSubtasks = (parentId) => filt.filter(t => t.parent_task_id === parentId);
-  const rootTasks = (sectionTasks) => sectionTasks.filter(t => !t.parent_task_id);
-
-  /* ── Task mutations ── */
-  const toggleDone = async (task, e) => {
-    e?.stopPropagation();
-    const isDone = task.status !== "done";
-    const ns = isDone ? "done" : "todo";
-    const updates = { status: ns, completed_at: isDone ? new Date().toISOString() : null };
-    setTasks(p => p.map(t => t.id === task.id ? { ...t, ...updates } : t));
-    if (selectedTask?.id === task.id) setSelectedTask(p => ({ ...p, ...updates }));
-    const { error } = await supabase.from("tasks").update(updates).eq("id", task.id);
-    if (error) showToast("Failed to update task status");
+  }), [projTasks, search, filterStatus, filterPriority, filterAssignee]);
+  const rootTasks = (secTasks) => secTasks.filter(t => !t.parent_task_id);
+  const getSubtasks = (pid) => filteredTasks.filter(t => t.parent_task_id === pid);
+  const sortedTasks = (list) => { if (sortCol === "sort_order") return list; return [...list].sort((a, b) => { let va = a[sortCol] || "", vb = b[sortCol] || ""; if (sortCol === "due_date") { va = va ? new Date(va).getTime() : 9e15; vb = vb ? new Date(vb).getTime() : 9e15; } const c = va < vb ? -1 : va > vb ? 1 : 0; return sortDir === "asc" ? c : -c; }); };
+  const doneCount = projTasks.filter(t => t.status === "done").length;
+  const progress = projTasks.length ? Math.round((doneCount / projTasks.length) * 100) : 0;
+  const getBlockedBy = (tid) => dependencies.filter(d => d.successor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.predecessor_id) })).filter(d => d.task);
+  const getBlocking = (tid) => dependencies.filter(d => d.predecessor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.successor_id) })).filter(d => d.task);
+  const createTask = async (sid) => { if (!newTitle.trim()) return; const st = tasks.filter(t => t.section_id === sid && !t.parent_task_id); const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: sid, title: newTitle.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create task"); setTasks(p => [...p, data]); setNewTitle(""); showToast("Task created", "success"); };
+  const createSubtask = async (parentTask) => { const title = await showPrompt("New subtask", "Subtask name…"); if (!title) return; const mx = tasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id, title, status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create subtask"); setTasks(p => [...p, data]); setExpandedTasks(p => ({ ...p, [parentTask.id]: true })); };
+  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); } };
+  const toggleDone = async (task, e) => { e?.stopPropagation(); await updateField(task.id, "status", task.status === "done" ? "todo" : "done"); };
+  const deleteTask = async (taskId) => { const ok = await showConfirm("Delete Task", "Are you sure?"); if (!ok) return; await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId); setTasks(p => p.filter(t => t.id !== taskId)); if (selectedTask?.id === taskId) setSelectedTask(null); };
+  const duplicateTask = async (task) => { const mx = tasks.filter(t => t.section_id === task.section_id && !t.parent_task_id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: task.section_id, title: task.title + " (copy)", status: task.status, priority: task.priority, assignee_id: task.assignee_id, due_date: task.due_date, sort_order: mx + 1, created_by: user.id }).select().single(); if (!error && data) setTasks(p => [...p, data]); };
+  const createSection = async () => { if (!newSectionName.trim()) return; const mx = projSections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0); const { data, error } = await supabase.from("sections").insert({ project_id: activeProject, name: newSectionName.trim(), sort_order: mx + 1 }).select().single(); if (!error && data) setSections(p => [...p, data]); setNewSectionName(""); setAddingSection(false); };
+  const renameSection = async (secId) => { if (!editingSectionName.trim()) return; await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId); setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s)); setEditingSectionId(null); };
+  const deleteSection = async (secId) => { const st = tasks.filter(t => t.section_id === secId); const ok = await showConfirm("Delete Section", st.length ? `Delete ${st.length} task(s) too?` : "Delete this section?"); if (!ok) return; if (st.length) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("section_id", secId); await supabase.from("sections").delete().eq("id", secId); setSections(p => p.filter(s => s.id !== secId)); setTasks(p => p.filter(t => t.section_id !== secId)); };
+  const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active" }); setShowProjectForm("new"); };
+  const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active" }); setShowProjectForm("edit"); };
+  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (showProjectForm === "new") { const { data, error } = await supabase.from("projects").insert({ org_id: profile.org_id, name: projectForm.name.trim(), description: projectForm.description, color: projectForm.color, status: projectForm.status, created_by: user.id }).select().single(); if (error) return showToast("Failed to create project"); setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } } else { const { error } = await supabase.from("projects").update({ name: projectForm.name.trim(), description: projectForm.description, color: projectForm.color, status: projectForm.status }).eq("id", activeProject); if (error) return showToast("Failed to update project"); setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...projectForm } : pr)); } setShowProjectForm(false); };
+  const addComment = async () => { if (!newComment.trim() || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: newComment.trim() }).select().single(); if (!error && data) setComments(p => [...p, data]); setNewComment(""); };
+  const uploadAttachment = async (file) => { if (!selectedTask) return; const path = `${profile.org_id}/${selectedTask.id}/${Date.now()}_${file.name}`; const { error: ue } = await supabase.storage.from("attachments").upload(path, file); if (ue) return showToast("Upload failed"); const { data, error } = await supabase.from("attachments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user.id }).select().single(); if (!error && data) setAttachments(p => [...p, data]); };
+  const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
+  const addDependency = async (pre, suc) => { if (pre === suc || dependencies.some(d => d.predecessor_id === pre && d.successor_id === suc)) return; const { data, error } = await supabase.from("task_dependencies").insert({ predecessor_id: pre, successor_id: suc, dependency_type: "finish_to_start" }).select().single(); if (!error && data) setDependencies(p => [...p, data]); };
+  const removeDependency = async (depId) => { await supabase.from("task_dependencies").delete().eq("id", depId); setDependencies(p => p.filter(d => d.id !== depId)); };
+  const createCustomField = async () => { const name = await showPrompt("New custom field", "Field name…"); if (!name) return; const mx = customFields.reduce((m, f) => Math.max(m, f.sort_order || 0), 0); const { data, error } = await supabase.from("custom_fields").insert({ project_id: activeProject, name, field_type: "text", sort_order: mx + 1 }).select().single(); if (!error && data) setCustomFields(p => [...p, data]); };
+  const updateCustomFieldValue = async (taskId, fieldId, value) => { setCustomFieldValues(p => ({ ...p, [taskId]: { ...(p[taskId] || {}), [fieldId]: value } })); const ex = await supabase.from("custom_field_values").select("id").eq("task_id", taskId).eq("field_id", fieldId).single(); if (ex.data) { await supabase.from("custom_field_values").update({ value }).eq("id", ex.data.id); } else { await supabase.from("custom_field_values").insert({ task_id: taskId, field_id: fieldId, value }); } };
+  const handleBoardDrop = async (taskId, newSec) => { await updateField(taskId, "section_id", newSec); setDragTask(null); setDragOverTarget(null); };
+  const S = {
+    pill: { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer" },
+    iconBtn: { background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, borderRadius: 4, color: T.text3 },
+    addRow: { display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 40px", cursor: "pointer", color: T.text3, fontSize: 13, borderRadius: 6 },
+    colHdr: { fontSize: 11, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", padding: "6px 8px", cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 4 },
+    row: (hov, sel) => ({ display: "grid", gridTemplateColumns: "minmax(280px,1fr) 110px 90px 110px 100px", alignItems: "center", padding: "0 12px", minHeight: 36, borderBottom: `1px solid ${T.border}`, background: sel ? T.accentDim : hov ? T.surface2 : "transparent", cursor: "pointer", transition: "background 0.12s" }),
   };
-
-  const updateField = async (taskId, field, value) => {
-    const oldTask = tasks.find(t => t.id === taskId);
-    const oldValue = oldTask ? String(oldTask[field] || "") : "";
-    setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t));
-    if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value }));
-    const { error } = await supabase.from("tasks").update({ [field]: value }).eq("id", taskId);
-    if (error) showToast("Failed to update task");
-    setEditingCell(null);
-    // Log activity
-    if (oldValue !== String(value || "")) {
-      await supabase.from("activity_log").insert({
-        entity_type: "task", entity_id: taskId, action: "updated",
-        field, old_value: oldValue, new_value: String(value || ""), user_id: user?.id,
-      }).catch(() => {});
-    }
-    // Notify on assignment
-    if (field === "assignee_id" && value && value !== user?.id && value !== oldTask?.assignee_id) {
-      await supabase.from("notifications").insert({
-        user_id: value, type: "task_assigned",
-        title: `You were assigned "${oldTask?.title || "a task"}"`,
-        body: `in ${proj?.name || "a project"}`,
-        link: `/projects/${oldTask?.project_id}`,
-      }).catch(() => {});
-    }
-    // Log activity
-    if (field === "status" && value === "done") logActivity("completed", "task", taskId, oldTask?.title);
-    else if (field === "assignee_id") logActivity("assigned", "task", taskId, oldTask?.title);
-  };
-
-  const deleteTask = async (taskId) => {
-    setTasks(p => p.filter(t => t.id !== taskId));
-    if (selectedTask?.id === taskId) setSelectedTask(null);
-    const { error } = await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId);
-    if (error) showToast("Failed to delete task");
-  };
-
-  const duplicateTask = async (task) => {
-    const maxSort = tasks.filter(t => t.section_id === task.section_id && !t.parent_task_id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
-    const { data, error } = await supabase.from("tasks").insert({
-      org_id: proj?.org_id, project_id: activeProject, section_id: task.section_id,
-      title: task.title + " (copy)", description: task.description,
-      status: "todo", priority: task.priority, assignee_id: task.assignee_id,
-      due_date: task.due_date, start_date: task.start_date,
-      milestone_id: task.milestone_id, sort_order: maxSort + 1,
-    }).select().single();
-    if (error) { showToast("Failed to duplicate task"); return; }
-    if (data) { setTasks(p => [...p, data]); showToast("Task duplicated", "success"); setSelectedTask(data); }
-  };
-
-  const createTask = async (sid) => {
-    if (!newTitle.trim()) { setAddingTo(null); return; }
-    const sectionTasks = tasks.filter(t => t.section_id === sid);
-    const maxSort = sectionTasks.reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
-    const { data, error } = await supabase.from("tasks").insert({
-      org_id: proj.org_id, project_id: activeProject, section_id: sid,
-      title: newTitle.trim(), status: "todo", priority: "medium",
-      sort_order: maxSort + 1,
-    }).select().single();
-    if (error) { showToast("Failed to create task"); return; }
-    if (data) { setTasks(p => [...p, data]); showToast("Task created", "success"); logActivity("created", "task", data.id, data.title); }
-    setNewTitle(""); setAddingTo(null);
-  };
-
-  const createSubtask = async (parentTask) => {
-    const title = await showPrompt("New Subtask", "Subtask name");
-    if (!title?.trim()) return;
-    const maxSort = tasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
-    const { data, error } = await supabase.from("tasks").insert({
-      org_id: proj.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id,
-      title: title.trim(), status: "todo", priority: "none", sort_order: maxSort + 1,
-    }).select().single();
-    if (error) { showToast("Failed to create subtask"); return; }
-    if (data) {
-      setTasks(p => [...p, data]);
-      setExpandedTasks(p => ({ ...p, [parentTask.id]: true }));
-      showToast("Subtask created", "success");
-    }
-  };
-
-  /* ── Section mutations ── */
-  const createSection = async () => {
-    if (!newSectionName.trim()) { setAddingSection(false); return; }
-    const maxSort = sections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0);
-    const { data, error } = await supabase.from("sections").insert({
-      project_id: activeProject, name: newSectionName.trim(), sort_order: maxSort + 1,
-    }).select().single();
-    if (error) { showToast("Failed to create section"); return; }
-    if (data) setSections(p => [...p, data]);
-    setNewSectionName(""); setAddingSection(false);
-  };
-
-  const renameSection = async (secId) => {
-    if (!editingSectionName.trim()) { setEditingSectionId(null); return; }
-    setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s));
-    const { error } = await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId);
-    if (error) showToast("Failed to rename section");
-    setEditingSectionId(null);
-  };
-
-  const deleteSection = async (secId) => {
-    const secTasks = tasks.filter(t => t.section_id === secId);
-    if (secTasks.length > 0 && !(await showConfirm("Delete Section", `This section has ${secTasks.length} task(s). Delete section and all its tasks?`))) return;
-    // Soft-delete tasks in section
-    if (secTasks.length > 0) {
-      setTasks(p => p.filter(t => t.section_id !== secId));
-      await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("section_id", secId);
-    }
-    setSections(p => p.filter(s => s.id !== secId));
-    const { error } = await supabase.from("sections").delete().eq("id", secId);
-    if (error) showToast("Failed to delete section");
-  };
-
-  const moveSectionUp = async (secId) => {
-    const idx = sections.findIndex(s => s.id === secId);
-    if (idx <= 0) return;
-    const newSections = [...sections];
-    [newSections[idx - 1], newSections[idx]] = [newSections[idx], newSections[idx - 1]];
-    const updated = newSections.map((s, i) => ({ ...s, sort_order: i + 1 }));
-    setSections(updated);
-    await Promise.all(updated.map(s => supabase.from("sections").update({ sort_order: s.sort_order }).eq("id", s.id)));
-  };
-
-  const moveSectionDown = async (secId) => {
-    const idx = sections.findIndex(s => s.id === secId);
-    if (idx < 0 || idx >= sections.length - 1) return;
-    const newSections = [...sections];
-    [newSections[idx], newSections[idx + 1]] = [newSections[idx + 1], newSections[idx]];
-    const updated = newSections.map((s, i) => ({ ...s, sort_order: i + 1 }));
-    setSections(updated);
-    await Promise.all(updated.map(s => supabase.from("sections").update({ sort_order: s.sort_order }).eq("id", s.id)));
-  };
-
-  /* ── Project mutations ── */
-  const PROJECT_COLORS = ["#3b82f6", "#a855f7", "#22c55e", "#eab308", "#ef4444", "#ec4899", "#f97316", "#06b6d4", "#6366f1", "#14b8a6"];
-
-  const openNewProject = () => {
-    setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active" });
-    setShowProjectForm("new");
-  };
-
-  const openEditProject = () => {
-    if (!proj) return;
-    setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active" });
-    setShowProjectForm("edit");
-  };
-
-  const saveProject = async () => {
-    if (!projectForm.name.trim()) return;
-    if (showProjectForm === "new") {
-      const orgId = profile?.org_id;
-      const { data, error } = await supabase.from("projects").insert({
-        org_id: orgId, name: projectForm.name.trim(), description: projectForm.description.trim() || null,
-        color: projectForm.color, status: projectForm.status, visibility: "public", default_view: "list",
-      }).select().single();
-      if (error) { showToast("Failed to create project"); return; }
-      if (data) {
-        setProjects(p => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
-        setActiveProject(data.id);
-        // Create a default section
-        await supabase.from("sections").insert({ project_id: data.id, name: "To Do", sort_order: 1 });
-        const { data: newSecs } = await supabase.from("sections").select("*").eq("project_id", data.id).order("sort_order");
-        setSections(newSecs || []); setTasks([]);
-        logActivity("created", "project", data.id, data.name);
-      }
-    } else {
-      setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...projectForm } : pr));
-      const { error } = await supabase.from("projects").update({
-        name: projectForm.name.trim(), description: projectForm.description.trim() || null,
-        color: projectForm.color, status: projectForm.status,
-      }).eq("id", activeProject);
-      if (error) showToast("Failed to update project");
-    }
-    setShowProjectForm(false);
-  };
-
-  const archiveProject = async () => {
-    if (!(await showConfirm("Archive Project", "Archive this project? It will be hidden from the list."))) return;
-    setProjects(p => p.filter(pr => pr.id !== activeProject));
-    await supabase.from("projects").update({ status: "archived", deleted_at: new Date().toISOString() }).eq("id", activeProject);
-    setActiveProject(projects.find(p => p.id !== activeProject)?.id || null);
-    setSections([]); setTasks([]); setSelectedTask(null);
-  };
-
-  /* ── Milestone mutations ── */
-  const MILESTONE_STATUS = {
-    upcoming: { label: "Upcoming", color: "#8b93a8", bg: "#1c2030" },
-    in_progress: { label: "In Progress", color: "#3b82f6", bg: "#1d3a6a" },
-    completed: { label: "Completed", color: "#22c55e", bg: "#0d3a20" },
-    missed: { label: "Missed", color: "#ef4444", bg: "#3d1111" },
-  };
-
-  const createMilestone = async () => {
-    if (!milestoneForm.name.trim()) return;
-    const maxSort = milestones.reduce((m, ms) => Math.max(m, ms.sort_order || 0), 0);
-    const { data, error } = await supabase.from("milestones").insert({
-      project_id: activeProject, name: milestoneForm.name.trim(),
-      description: milestoneForm.description.trim() || null,
-      target_date: milestoneForm.target_date || null, status: "upcoming",
-      sort_order: maxSort + 1,
-    }).select().single();
-    if (error) { showToast("Failed to create milestone"); return; }
-    if (data) { setMilestones(p => [...p, data]); showToast("Milestone created", "success"); }
-    setShowMilestoneForm(false); setMilestoneForm({ name: "", target_date: "", description: "" });
-  };
-
-  const deleteMilestone = async (msId) => {
-    if (!(await showConfirm("Delete Milestone", "Are you sure you want to delete this milestone?"))) return;
-    setMilestones(p => p.filter(m => m.id !== msId));
-    // Unlink tasks from milestone
-    await supabase.from("tasks").update({ milestone_id: null }).eq("milestone_id", msId);
-    const { error } = await supabase.from("milestones").delete().eq("id", msId);
-    if (error) showToast("Failed to delete milestone");
-  };
-
-  const updateMilestoneStatus = async (msId, status) => {
-    setMilestones(p => p.map(m => m.id === msId ? { ...m, status } : m));
-    await supabase.from("milestones").update({ status }).eq("id", msId);
-  };
-
-  /* ── Comment mutations ── */
-  const addComment = async () => {
-    if (!newComment.trim() || !selectedTask) return;
-    const { data, error } = await supabase.from("comments").insert({
-      org_id: proj.org_id, entity_type: "task", entity_id: selectedTask.id,
-      content: newComment.trim(),
-    }).select().single();
-    if (error) { showToast("Failed to post comment"); return; }
-    if (data) setComments(p => [...p, data]);
-    setNewComment("");
-    // Notify task assignee about comment
-    if (selectedTask.assignee_id && selectedTask.assignee_id !== user?.id) {
-      await supabase.from("notifications").insert({
-        user_id: selectedTask.assignee_id, type: "comment",
-        title: `New comment on "${selectedTask.title}"`,
-        body: newComment.trim().slice(0, 100),
-        link: `/projects/${selectedTask.project_id}`,
-      }).catch(() => {});
-    }
-  };
-
-  const deleteComment = async (commentId) => {
-    setComments(p => p.filter(c => c.id !== commentId));
-    const { error } = await supabase.from("comments").update({ deleted_at: new Date().toISOString() }).eq("id", commentId);
-    if (error) showToast("Failed to delete comment");
-  };
-
-  /* ── Attachment mutations ── */
-  const uploadAttachment = async (file) => {
-    if (!file || !selectedTask) return;
-    const path = `tasks/${selectedTask.id}/${Date.now()}_${file.name}`;
-    const { error: uploadErr } = await supabase.storage.from("attachments").upload(path, file);
-    if (uploadErr) { showToast("Failed to upload file"); return; }
-    const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
-    const { data, error } = await supabase.from("attachments").insert({
-      org_id: proj.org_id, entity_type: "task", entity_id: selectedTask.id,
-      filename: file.name, file_path: path, file_size: file.size, mime_type: file.type,
-    }).select().single();
-    if (error) { showToast("Failed to save attachment record"); return; }
-    if (data) { setAttachments(p => [data, ...p]); showToast("File attached", "success"); }
-  };
-
-  const deleteAttachment = async (att) => {
-    setAttachments(p => p.filter(a => a.id !== att.id));
-    await supabase.storage.from("attachments").remove([att.file_path]);
-    const { error } = await supabase.from("attachments").delete().eq("id", att.id);
-    if (error) showToast("Failed to delete attachment");
-  };
-
-  const formatFileSize = (bytes) => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  };
-
-  const fileIcon = (mime) => {
-    if (mime?.startsWith("image/")) return "🖼️";
-    if (mime?.includes("pdf")) return "📄";
-    if (mime?.includes("spreadsheet") || mime?.includes("excel")) return "📊";
-    if (mime?.includes("document") || mime?.includes("word")) return "📝";
-    if (mime?.includes("video")) return "🎬";
-    if (mime?.includes("audio")) return "🎵";
-    return "📎";
-  };
-
-  /* ── Dependency mutations ── */
-  const getBlockedBy = (taskId) => dependencies.filter(d => d.successor_id === taskId).map(d => ({ ...d, task: tasks.find(t => t.id === d.predecessor_id) })).filter(d => d.task);
-  const getBlocking = (taskId) => dependencies.filter(d => d.predecessor_id === taskId).map(d => ({ ...d, task: tasks.find(t => t.id === d.successor_id) })).filter(d => d.task);
-
-  const addDependency = async (predecessorId, successorId) => {
-    if (predecessorId === successorId) return;
-    if (dependencies.some(d => d.predecessor_id === predecessorId && d.successor_id === successorId)) return;
-    const { data, error } = await supabase.from("task_dependencies").insert({
-      predecessor_id: predecessorId, successor_id: successorId, dependency_type: "finish_to_start",
-    }).select().single();
-    if (error) { showToast("Failed to add dependency"); return; }
-    if (data) { setDependencies(p => [...p, data]); showToast("Dependency added", "success"); }
-  };
-
-  const removeDependency = async (depId) => {
-    setDependencies(p => p.filter(d => d.id !== depId));
-    const { error } = await supabase.from("task_dependencies").delete().eq("id", depId);
-    if (error) showToast("Failed to remove dependency");
-  };
-
-  const getFileUrl = (path) => `https://upbjdmnykheubxkuknuj.supabase.co/storage/v1/object/public/attachments/${path}`;
-
-  /* ── Custom field mutations ── */
-  const createCustomField = async () => {
-    if (!fieldForm.name.trim()) return;
-    const maxSort = customFields.reduce((m, f) => Math.max(m, f.sort_order || 0), 0);
-    const opts = fieldForm.field_type === "select" && fieldForm.options.trim()
-      ? fieldForm.options.split(",").map(s => s.trim()).filter(Boolean) : null;
-    const { data, error } = await supabase.from("custom_fields").insert({
-      project_id: activeProject, name: fieldForm.name.trim(),
-      field_type: fieldForm.field_type, options: opts, sort_order: maxSort + 1,
-    }).select().single();
-    if (error) { showToast("Failed to create field"); return; }
-    if (data) { setCustomFields(p => [...p, data]); showToast("Custom field added", "success"); }
-    setShowFieldForm(false); setFieldForm({ name: "", field_type: "text", options: "" });
-  };
-
-  const deleteCustomField = async (fieldId) => {
-    if (!(await showConfirm("Delete Custom Field", "This will delete the field and all its values."))) return;
-    setCustomFields(p => p.filter(f => f.id !== fieldId));
-    await supabase.from("custom_field_values").delete().eq("field_id", fieldId);
-    await supabase.from("custom_fields").delete().eq("id", fieldId);
-  };
-
-  const setCustomFieldValue = async (taskId, fieldId, value) => {
-    setCustomFieldValues(p => ({ ...p, [taskId]: { ...(p[taskId] || {}), [fieldId]: value } }));
-    const { error } = await supabase.from("custom_field_values").upsert({
-      task_id: taskId, field_id: fieldId, value: value || null,
-    }, { onConflict: "task_id,field_id" });
-    if (error) showToast("Failed to save field value");
-  };
-
-  /* ── Template mutations ── */
-  const saveAsTemplate = async () => {
-    const name = await showPrompt("Save as Template", "Template name", proj?.name + " Template");
-    if (!name?.trim()) return;
-    const templateData = {
-      sections: sections.map(sec => ({
-        name: sec.name,
-        tasks: tasks.filter(t => t.section_id === sec.id && !t.parent_task_id).map(t => ({
-          title: t.title, priority: t.priority, status: "todo",
-        })),
-      })),
-    };
-    const { data, error } = await supabase.from("project_templates").insert({
-      org_id: proj.org_id, name: name.trim(), template_data: templateData,
-    }).select().single();
-    if (error) { showToast("Failed to save template"); return; }
-    if (data) { setTemplates(p => [data, ...p]); showToast("Template saved", "success"); }
-  };
-
-  const createFromTemplate = async (template) => {
-    const name = await showPrompt("Create from Template", "Project name", "New " + template.name.replace(" Template", ""));
-    if (!name?.trim()) return;
-    const { data: newProj, error: pErr } = await supabase.from("projects").insert({
-      org_id: profile?.org_id,
-      name: name.trim(), color: "#3b82f6", status: "active",
-    }).select().single();
-    if (pErr || !newProj) { showToast("Failed to create project"); return; }
-    // Create sections and tasks from template
-    const td = template.template_data;
-    for (let si = 0; si < (td.sections || []).length; si++) {
-      const secDef = td.sections[si];
-      const { data: newSec } = await supabase.from("sections").insert({
-        project_id: newProj.id, name: secDef.name, sort_order: si + 1,
-      }).select().single();
-      if (newSec) {
-        for (let ti = 0; ti < (secDef.tasks || []).length; ti++) {
-          const taskDef = secDef.tasks[ti];
-          await supabase.from("tasks").insert({
-            org_id: newProj.org_id, project_id: newProj.id, section_id: newSec.id,
-            title: taskDef.title, priority: taskDef.priority || "none", status: taskDef.status || "todo",
-            sort_order: ti + 1,
-          });
-        }
-      }
-    }
-    setProjects(p => [...p, newProj]); setActiveProject(newProj.id);
-    setShowTemplates(false); showToast("Project created from template", "success");
-  };
-
-  const deleteTemplate = async (tplId) => {
-    setTemplates(p => p.filter(t => t.id !== tplId));
-    await supabase.from("project_templates").delete().eq("id", tplId);
-  };
-
-  /* ── Favorites ── */
-  const toggleFavorite = async (projectId) => {
-    const isFav = favorites.includes(projectId);
-    if (isFav) {
-      setFavorites(p => p.filter(f => f !== projectId));
-      await supabase.from("favorites").delete().eq("user_id", user.id).eq("entity_type", "project").eq("entity_id", projectId);
-    } else {
-      setFavorites(p => [...p, projectId]);
-      await supabase.from("favorites").insert({ user_id: user.id, entity_type: "project", entity_id: projectId });
-    }
-  };
-
-  /* ── Time Tracking ── */
-  useEffect(() => {
-    if (!timerRunning) return;
-    const iv = setInterval(() => setTimerElapsed(Math.floor((Date.now() - timerStart) / 1000)), 1000);
-    return () => clearInterval(iv);
-  }, [timerRunning, timerStart]);
-
-  const startTimer = () => { setTimerStart(Date.now()); setTimerRunning(true); setTimerElapsed(0); };
-  const stopTimer = async () => {
-    if (!timerRunning || !selectedTask) return;
-    const dur = Math.floor((Date.now() - timerStart) / 1000);
-    setTimerRunning(false);
-    if (dur < 5) return; // ignore < 5s
-    const { data } = await supabase.from("time_entries").insert({
-      task_id: selectedTask.id, user_id: user?.id,
-      duration_seconds: dur, started_at: new Date(timerStart).toISOString(), ended_at: new Date().toISOString(),
-    }).select().single();
-    if (data) setTimeEntries(p => [data, ...p]);
-    setTimerElapsed(0);
-  };
-  const fmtDur = (s) => { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60; return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : `${sec}s`; };
-
-  /* ── CSV Import ── */
-  const handleCSVImport = async (file) => {
-    if (!file) return;
-    setImportStatus("Reading file…");
-    const text = await file.text();
-    const lines = text.split("\n").map(l => {
-      // Simple CSV parser: split by comma but respect quotes
-      const result = []; let cur = ""; let inQ = false;
-      for (let i = 0; i < l.length; i++) {
-        if (l[i] === '"') { inQ = !inQ; }
-        else if (l[i] === "," && !inQ) { result.push(cur.trim()); cur = ""; }
-        else { cur += l[i]; }
-      }
-      result.push(cur.trim());
-      return result;
-    });
-    if (lines.length < 2) { setImportStatus("No data found"); return; }
-    const headers = lines[0].map(h => h.toLowerCase().replace(/[^a-z_]/g, ""));
-    const nameIdx = headers.findIndex(h => h === "name" || h === "task_name" || h === "title");
-    const secIdx = headers.findIndex(h => h === "section" || h === "section_column" || h === "column");
-    const statusIdx = headers.findIndex(h => h === "status" || h === "completion_status");
-    const priIdx = headers.findIndex(h => h === "priority");
-    const dueIdx = headers.findIndex(h => h === "due_date" || h === "due");
-    const descIdx = headers.findIndex(h => h === "description" || h === "notes");
-    const assignIdx = headers.findIndex(h => h === "assignee" || h === "assigned_to");
-    if (nameIdx < 0) { setImportStatus("Could not find Name/Title column"); return; }
-
-    // Create project
-    setImportStatus("Creating project…");
-    const projName = file.name.replace(/\.csv$/i, "") || "Imported Project";
-    const { data: newProj } = await supabase.from("projects").insert({
-      org_id: profile?.org_id, name: projName, color: SECTION_COLORS[projects.length % SECTION_COLORS.length],
-    }).select().single();
-    if (!newProj) { setImportStatus("Failed to create project"); return; }
-
-    // Group rows by section
-    const rows = lines.slice(1).filter(r => r[nameIdx]?.trim());
-    const sectionMap = {};
-    rows.forEach(r => {
-      const sec = secIdx >= 0 ? (r[secIdx]?.trim() || "Default") : "Default";
-      if (!sectionMap[sec]) sectionMap[sec] = [];
-      sectionMap[sec].push(r);
-    });
-
-    // Create sections
-    setImportStatus(`Importing ${rows.length} tasks…`);
-    const sectionIds = {};
-    let secOrder = 0;
-    for (const secName of Object.keys(sectionMap)) {
-      const { data: sec } = await supabase.from("sections").insert({
-        project_id: newProj.id, name: secName, sort_order: secOrder++,
-      }).select().single();
-      if (sec) sectionIds[secName] = sec.id;
-    }
-
-    // Map status strings
-    const statusMap = { "complete": "done", "completed": "done", "in progress": "in_progress", "in_progress": "in_progress", "to do": "todo", "not started": "todo", "on hold": "in_review" };
-    const priMap = { "high": "high", "medium": "medium", "low": "low", "urgent": "urgent", "critical": "urgent" };
-
-    // Create tasks
-    let imported = 0;
-    for (const [secName, taskRows] of Object.entries(sectionMap)) {
-      for (let i = 0; i < taskRows.length; i++) {
-        const r = taskRows[i];
-        const rawStatus = statusIdx >= 0 ? r[statusIdx]?.trim().toLowerCase() : "";
-        const rawPri = priIdx >= 0 ? r[priIdx]?.trim().toLowerCase() : "";
-        await supabase.from("tasks").insert({
-          project_id: newProj.id,
-          section_id: sectionIds[secName] || null,
-          title: r[nameIdx].trim(),
-          status: statusMap[rawStatus] || "todo",
-          priority: priMap[rawPri] || "none",
-          due_date: dueIdx >= 0 && r[dueIdx]?.trim() ? r[dueIdx].trim() : null,
-          description: descIdx >= 0 ? r[descIdx]?.trim() || null : null,
-          sort_order: i,
-        });
-        imported++;
-      }
-    }
-
-    setImportStatus(`Imported ${imported} tasks into "${projName}"!`);
-    setProjects(p => [...p, newProj]);
-    setActiveProject(newProj.id);
-    setTimeout(() => { setShowImport(false); setImportStatus(""); }, 2000);
-  };
-
-  /* ── Drag & Drop reorder ── */
-  const handleDrop = async (targetTaskId, targetSectionId) => {
-    if (!dragTask) return;
-    const sourceId = dragTask.id;
-    if (sourceId === targetTaskId) { setDragTask(null); setDragOverTarget(null); return; }
-    // Get ordered tasks in target section
-    const secTasks = tasks.filter(t => t.section_id === targetSectionId && !t.parent_task_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-    // Remove source from its current position
-    const without = secTasks.filter(t => t.id !== sourceId);
-    // Find target index
-    const targetIdx = targetTaskId ? without.findIndex(t => t.id === targetTaskId) : without.length;
-    // Insert at target position
-    without.splice(targetIdx >= 0 ? targetIdx : without.length, 0, { ...dragTask, section_id: targetSectionId });
-    // Update sort orders
-    const updates = without.map((t, i) => ({ id: t.id, sort_order: i + 1, section_id: targetSectionId }));
-    setTasks(prev => {
-      let next = prev.map(t => {
-        const upd = updates.find(u => u.id === t.id);
-        return upd ? { ...t, sort_order: upd.sort_order, section_id: upd.section_id } : t;
-      });
-      // Also update the dragged task's section if moved
-      if (dragTask.section_id !== targetSectionId) {
-        next = next.map(t => t.id === sourceId ? { ...t, section_id: targetSectionId } : t);
-      }
-      return next;
-    });
-    // Persist to DB
-    for (const u of updates) {
-      await supabase.from("tasks").update({ sort_order: u.sort_order, section_id: u.section_id }).eq("id", u.id);
-    }
-    setDragTask(null); setDragOverTarget(null);
-  };
-
-  /* ── Bulk actions ── */
-  const toggleSelectTask = (taskId, e) => {
-    e.stopPropagation();
-    setSelectedTaskIds(prev => {
-      const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId); else next.add(taskId);
-      return next;
-    });
-  };
-  const selectAllInSection = (sectionId) => {
-    const ids = tasks.filter(t => t.section_id === sectionId && !t.parent_task_id).map(t => t.id);
-    setSelectedTaskIds(new Set(ids));
-  };
-  const clearSelection = () => setSelectedTaskIds(new Set());
-  const bulkUpdateStatus = async (status) => {
-    const ids = [...selectedTaskIds];
-    setTasks(p => p.map(t => ids.includes(t.id) ? { ...t, status } : t));
-    for (const id of ids) await supabase.from("tasks").update({ status }).eq("id", id);
-    showToast(`${ids.length} tasks updated`, "success"); clearSelection();
-  };
-  const bulkUpdateAssignee = async (assigneeId) => {
-    const ids = [...selectedTaskIds];
-    setTasks(p => p.map(t => ids.includes(t.id) ? { ...t, assignee_id: assigneeId } : t));
-    for (const id of ids) await supabase.from("tasks").update({ assignee_id: assigneeId }).eq("id", id);
-    showToast(`${ids.length} tasks assigned`, "success"); clearSelection();
-  };
-  const bulkDelete = async () => {
-    if (!(await showConfirm("Delete Tasks", `Delete ${selectedTaskIds.size} tasks? This cannot be undone.`))) return;
-    const ids = [...selectedTaskIds];
-    setTasks(p => p.filter(t => !ids.includes(t.id)));
-    for (const id of ids) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", id);
-    showToast(`${ids.length} tasks deleted`, "success"); clearSelection();
-    if (selectedTask && ids.includes(selectedTask.id)) setSelectedTask(null);
-  };
-
-  if (loading) return (
-    <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
-      <div style={{ width: 24, height: 24, border: `3px solid ${T.surface3}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-      <span style={{ color: T.text3, fontSize: 13 }}>Loading projects…</span>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
-    </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     REUSABLE COMPONENTS
-     ═══════════════════════════════════════════════════════ */
-
-  /* ── Checkbox (Asana-style circle) ── */
-  const Check = ({ on, fn, sz = 18 }) => (
-    <div onClick={fn} style={{
-      width: sz, height: sz, borderRadius: "50%", flexShrink: 0, cursor: "pointer",
-      border: `2px solid ${on ? "#22c55e" : "#3f4760"}`,
-      background: on ? "#22c55e" : "transparent",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      transition: "all 0.2s ease",
-    }}>
-      {on && <svg width={sz * 0.55} height={sz * 0.55} viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-    </div>
-  );
-
-  /* ── Avatar ── */
-  const Ava = ({ uid, sz = 24 }) => {
-    if (!uid) return <div style={{ width: sz, height: sz }} />;
-    const c = acol(uid);
-    return (
-      <div title={uname(uid)} style={{
-        width: sz, height: sz, borderRadius: "50%",
-        background: `${c}18`, border: `1.5px solid ${c}50`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: Math.max(sz * 0.38, 9), fontWeight: 700, color: c, flexShrink: 0,
-        letterSpacing: "-0.02em",
-      }}>{ini(uid)}</div>
-    );
-  };
-
-  /* ── Inline-editable Status Pill (Monday style) ── */
-  const StatusCell = ({ task }) => {
-    const editing = editingCell?.taskId === task.id && editingCell?.field === "status";
-    const cfg = STATUS[task.status] || STATUS.todo;
-    return (
-      <div style={{ position: "relative" }}>
-        <div onClick={(e) => { e.stopPropagation(); setEditingCell(editing ? null : { taskId: task.id, field: "status" }); }}
-          style={{
-            display: "inline-flex", alignItems: "center", padding: "3px 10px", borderRadius: 4,
-            fontSize: 11, fontWeight: 600, cursor: "pointer", userSelect: "none",
-            background: cfg.bg, color: cfg.color, transition: "all 0.15s",
-            border: editing ? `1px solid ${cfg.color}` : "1px solid transparent",
-          }}>{cfg.label}</div>
-        {editing && (
-          <Dropdown onClose={() => setEditingCell(null)}>
-            {Object.entries(STATUS).map(([k, v]) => (
-              <DropdownItem key={k} onClick={() => updateField(task.id, "status", k)}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: v.color, flexShrink: 0 }} />
-                <span style={{ color: v.color }}>{v.label}</span>
-              </DropdownItem>
-            ))}
-          </Dropdown>
-        )}
+  const ProjectSidebar = () => (
+    <div style={{ width: showSidebar ? 260 : 0, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflow: "hidden", transition: "width 0.2s", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Projects</span>
+        <button onClick={openNewProject} style={{ ...S.iconBtn, background: T.accent, color: "#fff", borderRadius: 6, width: 24, height: 24, fontSize: 16 }}>+</button>
       </div>
-    );
-  };
-
-  /* ── Inline-editable Priority Pill ── */
-  const PriorityCell = ({ task }) => {
-    const editing = editingCell?.taskId === task.id && editingCell?.field === "priority";
-    const cfg = PRIORITY[task.priority];
-    return (
-      <div style={{ position: "relative" }}>
-        <div onClick={(e) => { e.stopPropagation(); setEditingCell(editing ? null : { taskId: task.id, field: "priority" }); }}
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 4,
-            fontSize: 11, fontWeight: 600, cursor: "pointer", userSelect: "none",
-            background: cfg?.bg || T.surface3, color: cfg?.color || T.text3,
-            border: editing ? `1px solid ${cfg?.color || T.text3}` : "1px solid transparent",
-            transition: "all 0.15s",
-          }}>
-          {cfg && <span style={{ width: 6, height: 6, borderRadius: 6, background: cfg.dot }} />}
-          {cfg?.label || "—"}
-        </div>
-        {editing && (
-          <Dropdown onClose={() => setEditingCell(null)}>
-            {Object.entries(PRIORITY).map(([k, v]) => (
-              <DropdownItem key={k} onClick={() => updateField(task.id, "priority", k)}>
-                <span style={{ width: 6, height: 6, borderRadius: 6, background: v.dot }} />
-                <span style={{ color: v.color }}>{v.label}</span>
-              </DropdownItem>
-            ))}
-          </Dropdown>
-        )}
+      <div onClick={() => { setShowMyTasks(true); setActiveProject(null); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", margin: "0 8px", borderRadius: 6, cursor: "pointer", background: showMyTasks ? T.accentDim : "transparent", color: showMyTasks ? T.accent : T.text2, fontSize: 13, fontWeight: 500 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        My Tasks
       </div>
-    );
-  };
-
-  /* ── Inline Assignee Picker ── */
-  const AssigneeCell = ({ task }) => {
-    const editing = editingCell?.taskId === task.id && editingCell?.field === "assignee";
-    const filteredProfiles = Object.values(profiles)
-      .filter(p => !assigneeSearch || (p.display_name || "").toLowerCase().includes(assigneeSearch.toLowerCase()))
-      .sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
-    return (
-      <div style={{ position: "relative" }}>
-        <div onClick={(e) => { e.stopPropagation(); setEditingCell(editing ? null : { taskId: task.id, field: "assignee" }); setAssigneeSearch(""); }}
-          style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "2px 4px", borderRadius: 4, border: editing ? `1px solid ${T.accent}` : "1px solid transparent" }}>
-          <Ava uid={task.assignee_id} sz={22} />
-          <span style={{ fontSize: 12, color: task.assignee_id ? T.text2 : T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {task.assignee_id ? uname(task.assignee_id) : "—"}
-          </span>
-        </div>
-        {editing && (
-          <Dropdown onClose={() => { setEditingCell(null); setAssigneeSearch(""); }} wide>
-            <div style={{ padding: "4px 8px", borderBottom: `1px solid ${T.border}` }}>
-              <input autoFocus value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)}
-                onClick={e => e.stopPropagation()} placeholder="Search people…"
-                style={{ width: "100%", fontSize: 12, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "5px 8px", outline: "none", fontFamily: "inherit" }} />
+      <div style={{ flex: 1, overflow: "auto", padding: "4px 8px" }}>
+        {projects.map(p => { const pt = tasks.filter(t => t.project_id === p.id); const pd = pt.filter(t => t.status === "done").length; const pp = pt.length ? Math.round((pd / pt.length) * 100) : 0; const act = activeProject === p.id && !showMyTasks; return (
+          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{pt.length} tasks · {pp}%</div>
             </div>
-            <DropdownItem onClick={() => updateField(task.id, "assignee_id", null)}>
-              <span style={{ color: T.text3 }}>Unassigned</span>
-            </DropdownItem>
-            {filteredProfiles.map(p => (
-              <DropdownItem key={p.id} onClick={() => updateField(task.id, "assignee_id", p.id)}>
-                <Ava uid={p.id} sz={18} />
-                <span>{p.display_name}</span>
-              </DropdownItem>
-            ))}
-            {filteredProfiles.length === 0 && <div style={{ padding: "8px 12px", fontSize: 12, color: T.text3, fontStyle: "italic" }}>No matches</div>}
-          </Dropdown>
-        )}
-      </div>
-    );
-  };
-
-  /* ── Inline Date Picker ── */
-  const DateCell = ({ task }) => {
-    const overdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== "done";
-    return (
-      <div style={{ position: "relative" }}>
-        <input type="date" value={task.due_date || ""}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => updateField(task.id, "due_date", e.target.value || null)}
-          style={{
-            fontSize: 12, color: overdue ? "#ef4444" : T.text3, background: "transparent",
-            border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit",
-            colorScheme: "dark", padding: "2px 0", width: 90,
-          }}
-        />
-      </div>
-    );
-  };
-
-  /* ── Add task row ── */
-  const AddRow = ({ sid }) => addingTo === sid ? (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px 8px 44px", borderBottom: `1px solid ${T.border}` }}>
-      <input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)}
-        onKeyDown={e => { if (e.key === "Enter") createTask(sid); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }}
-        placeholder="Task name…" style={{ flex: 1, fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit" }} />
-      <button onClick={() => createTask(sid)} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add</button>
-      <button onClick={() => { setAddingTo(null); setNewTitle(""); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
-    </div>
-  ) : (
-    <div onClick={() => { setAddingTo(sid); setNewTitle(""); }} style={{ padding: "6px 12px 6px 44px", cursor: "pointer", color: T.text3, fontSize: 13, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6, transition: "color 0.15s" }}>
-      <span style={{ fontSize: 15, fontWeight: 300, lineHeight: 1 }}>+</span> Add task…
-    </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     SIDEBAR
-     ═══════════════════════════════════════════════════════ */
-  const sidebar = (
-    <div style={{ width: 248, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.bg, flexShrink: 0 }}>
-      {/* My Tasks nav */}
-      <div style={{ padding: "16px 8px 4px" }}>
-        <button onClick={() => { setActiveProject("__my_tasks__"); }}
-          style={{
-            width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8, border: "none",
-            cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13,
-            background: activeProject === "__my_tasks__" ? `${T.accent}15` : "transparent",
-            color: activeProject === "__my_tasks__" ? T.text : T.text2,
-          }}>
-          <div style={{ width: 26, height: 26, borderRadius: 6, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>✓</div>
-          <span style={{ fontWeight: activeProject === "__my_tasks__" ? 600 : 400 }}>My Tasks</span>
-        </button>
-      </div>
-      <div style={{ padding: "12px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: "0.1em", textTransform: "uppercase" }}>Projects</span>
-        <button onClick={openNewProject} title="New project" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 16, lineHeight: 1, padding: "0 2px" }}>+</button>
-        {templates.length > 0 && <button onClick={() => setShowTemplates(true)} title="New from template" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 10, lineHeight: 1, padding: "0 2px", fontWeight: 600 }}>📋</button>}
-        <button onClick={() => setShowImport(true)} title="Import CSV" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 10, lineHeight: 1, padding: "0 2px", fontWeight: 600 }}>📥</button>
-      </div>
-      <div style={{ flex: 1, overflow: "auto", padding: "0 8px 16px" }}>
-        {[...projects].sort((a, b) => {
-          const aFav = favorites.includes(a.id) ? 0 : 1;
-          const bFav = favorites.includes(b.id) ? 0 : 1;
-          return aFav - bFav;
-        }).map(p => {
-          const on = activeProject === p.id;
-          const isFav = favorites.includes(p.id);
-          return (
-            <button key={p.id} onClick={() => { setActiveProject(p.id); if (isMobile) setShowSidebar(false); }} style={{
-              width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8, border: "none",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, marginBottom: 1,
-              background: on ? `${T.accent}15` : "transparent",
-              color: on ? T.text : T.text2, transition: "all 0.12s",
-            }}>
-              <div style={{
-                width: 26, height: 26, borderRadius: 6, flexShrink: 0,
-                background: p.color || T.accent,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 11, fontWeight: 800, color: "#fff",
-              }}>{p.name.charAt(0).toUpperCase()}</div>
-              <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: on ? 600 : 400 }}>{p.name}</div>
-              <span onClick={e => { e.stopPropagation(); toggleFavorite(p.id); }}
-                style={{ fontSize: 12, opacity: isFav ? 1 : 0.2, transition: "opacity 0.15s", cursor: "pointer", flexShrink: 0 }}
-                title={isFav ? "Unfavorite" : "Favorite"}>
-                {isFav ? "★" : "☆"}
-              </span>
-            </button>
-          );
-        })}
+            <div style={{ width: 32, height: 3, borderRadius: 2, background: T.surface3, flexShrink: 0 }}><div style={{ width: `${pp}%`, height: "100%", borderRadius: 2, background: p.color || T.accent, transition: "width 0.4s" }} /></div>
+          </div>); })}
       </div>
     </div>
   );
+  const ProjectHeader = () => { if (!proj) return null; return (
+    <div style={{ borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 20px 8px" }}>
+        {!showSidebar && <button onClick={() => setShowSidebar(true)} style={S.iconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>}
+        <div style={{ width: 12, height: 12, borderRadius: 6, background: proj.color || T.accent }} />
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, flex: 1 }}>{proj.name}</h2>
+        <span style={{ ...S.pill, background: proj.status === "active" ? T.greenDim : T.surface3, color: proj.status === "active" ? T.green : T.text3 }}>{proj.status || "active"}</span>
+        <span style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>{progress}%</span>
+        <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3 }}><div style={{ width: `${progress}%`, height: "100%", borderRadius: 2, background: proj.color || T.accent, transition: "width 0.5s" }} /></div>
+        <button onClick={openEditProject} style={S.iconBtn} title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18.4 2.6a2.17 2.17 0 013 3L12 15l-4 1 1-4 9.4-9.4z"/></svg></button>
+        {showSidebar && <button onClick={() => setShowSidebar(false)} style={S.iconBtn} title="Collapse"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M11 19l-7-7 7-7"/><path d="M4 12h16"/></svg></button>}
+      </div>
+      <div style={{ display: "flex", gap: 0, padding: "0 20px", overflow: "auto" }}>
+        {TABS.map(tab => (<button key={tab} onClick={() => setViewMode(tab)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: viewMode === tab ? 600 : 400, color: viewMode === tab ? T.accent : T.text3, background: "none", border: "none", borderBottom: viewMode === tab ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", transition: "all 0.15s" }}>{tab}</button>))}
+      </div>
+    </div>); };
+  const FilterBar = () => { const assignees = [...new Set(projTasks.map(t => t.assignee_id).filter(Boolean))]; const hasF = filterStatus || filterPriority || filterAssignee; return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 20px", flexWrap: "wrap" }}>
+      <div style={{ position: "relative", flex: "0 0 220px" }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2" style={{ position: "absolute", left: 8, top: 7 }}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks…" style={{ width: "100%", padding: "5px 8px 5px 28px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
+      </div>
+      <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterStatus ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">Status</option>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+      <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterPriority ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">Priority</option>{Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+      <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterAssignee ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">Assignee</option>{assignees.map(uid => <option key={uid} value={uid}>{uname(uid) || uid.slice(0, 8)}</option>)}</select>
+      {hasF && <button onClick={() => { setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }} style={{ ...S.iconBtn, fontSize: 11, color: T.red }}>✕ Clear</button>}
+      <span style={{ marginLeft: "auto", fontSize: 11, color: T.text3 }}>{filteredTasks.filter(t => !t.parent_task_id).length} tasks</span>
+    </div>); };
+  const Checkbox = ({ task, size = 16 }) => { const dn = task.status === "done"; const st = STATUS[task.status] || STATUS.todo; return (<div onClick={(e) => toggleDone(task, e)} style={{ width: size, height: size, borderRadius: size / 2, border: `2px solid ${dn ? T.green : st.color}`, background: dn ? T.green : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>{dn && <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}</div>); };
 
-  /* ═══════════════════════════════════════════════════════
-     HEADER
-     ═══════════════════════════════════════════════════════ */
-  const header = proj && (
-    <div style={{ padding: "20px 28px 0", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-      {/* Title row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: proj.color || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: "#fff" }}>{proj.name.charAt(0)}</div>
-        <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>{proj.name}</h2>
-          {proj.owner_id && profiles[proj.owner_id] && <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Owned by {uname(proj.owner_id)}</div>}
-          {proj.description && <div style={{ fontSize: 12, color: T.text3, marginTop: 2, maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proj.description}</div>}
-        </div>
-        {/* Project actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: 4, marginRight: 16 }}>
-          <button onClick={openEditProject} title="Edit project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Edit</button>
-          <button onClick={() => setShowFieldForm(true)} title="Manage custom fields" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Fields</button>
-          <button onClick={saveAsTemplate} title="Save project as template" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Save Template</button>
-          <button onClick={archiveProject} title="Archive project" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: "#ef4444", fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Archive</button>
-        </div>
-        {/* Progress */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: T.green, lineHeight: 1 }}>{pct}%</div>
-            <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{done} of {total} done</div>
-          </div>
-          <div style={{ width: 36, height: 36, position: "relative" }}>
-            <svg width={36} height={36} style={{ transform: "rotate(-90deg)" }}>
-              <circle cx={18} cy={18} r={15} fill="none" stroke={T.surface3} strokeWidth={3} />
-              <circle cx={18} cy={18} r={15} fill="none" stroke={T.green} strokeWidth={3}
-                strokeDasharray={`${pct * 0.94} 100`} strokeLinecap="round"
-                style={{ transition: "stroke-dasharray 0.5s ease" }} />
-            </svg>
-          </div>
-        </div>
+  const StatusPill = ({ task }) => { const st = STATUS[task.status] || STATUS.todo; const [open, setOpen] = useState(false); return (<div style={{ position: "relative" }}><span onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ ...S.pill, background: st.bg, color: st.color }}>{st.label}</span>{open && (<Dropdown onClose={() => setOpen(false)}>{Object.entries(STATUS).map(([k, v]) => (<DropdownItem key={k} onClick={() => { updateField(task.id, "status", k); setOpen(false); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: v.color, display: "inline-block", marginRight: 6 }} />{v.label}</DropdownItem>))}</Dropdown>)}</div>); };
+
+  const PriorityPill = ({ task }) => { const pr = PRIORITY[task.priority] || PRIORITY.none; const [open, setOpen] = useState(false); return (<div style={{ position: "relative" }}><span onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ ...S.pill, background: pr.bg, color: pr.color }}>{pr.label}</span>{open && (<Dropdown onClose={() => setOpen(false)}>{Object.entries(PRIORITY).map(([k, v]) => (<DropdownItem key={k} onClick={() => { updateField(task.id, "priority", k); setOpen(false); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: v.dot, display: "inline-block", marginRight: 6 }} />{v.label}</DropdownItem>))}</Dropdown>)}</div>); };
+
+  const AssigneeCell = ({ task }) => { const [open, setOpen] = useState(false); const pl = Object.values(profiles); return (<div style={{ position: "relative" }}><div onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", padding: "2px 4px", borderRadius: 4 }}>{task.assignee_id ? (<><div style={{ width: 20, height: 20, borderRadius: 10, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div><span style={{ fontSize: 12, color: T.text2, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{uname(task.assignee_id).split(" ")[0]}</span></>) : (<div style={{ width: 20, height: 20, borderRadius: 10, border: `1.5px dashed ${T.text3}` }} />)}</div>{open && (<Dropdown onClose={() => setOpen(false)} wide><DropdownItem onClick={() => { updateField(task.id, "assignee_id", null); setOpen(false); }}><span style={{ color: T.text3 }}>Unassigned</span></DropdownItem>{pl.map(u => (<DropdownItem key={u.id} onClick={() => { updateField(task.id, "assignee_id", u.id); setOpen(false); }}><div style={{ width: 18, height: 18, borderRadius: 9, background: acol(u.id) + "30", color: acol(u.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>{ini(u.id)}</div>{u.display_name || u.email}</DropdownItem>))}</Dropdown>)}</div>); };
+
+  const DateCell = ({ task }) => { const od = isOverdue(task.due_date) && task.status !== "done"; return (<input type="date" value={task.due_date || ""} onChange={(e) => updateField(task.id, "due_date", e.target.value || null)} onClick={(e) => e.stopPropagation()} style={{ background: "none", border: "none", color: od ? T.red : task.due_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit" }} />); };
+  const TaskRow = ({ task, depth = 0 }) => { const subs = getSubtasks(task.id); const hasSubs = subs.length > 0; const exp = expandedTasks[task.id]; const hov = hoveredRow === task.id; const sel = selectedTask?.id === task.id; return (<>{/* row */}<div style={{ ...S.row(hov, sel), paddingLeft: 12 + depth * 24 }} onClick={() => setSelectedTask(task)} onMouseEnter={() => setHoveredRow(task.id)} onMouseLeave={() => setHoveredRow(null)}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} /><span style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{task.title}</span>{hasSubs && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}{hov && <div style={{ display: "flex", gap: 2 }}><button onClick={(e) => { e.stopPropagation(); createSubtask(task); }} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div>}</div><StatusPill task={task} /><PriorityPill task={task} /><AssigneeCell task={task} /><DateCell task={task} /></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}</>); };
+
+  const ListView = () => { const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
+    <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px,1fr) 110px 90px 110px 100px", padding: "0 12px", borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.bg }}>
+        <div style={S.colHdr} onClick={() => toggleSort("title")}>Task name{arrow("title")}</div>
+        <div style={S.colHdr} onClick={() => toggleSort("status")}>Status{arrow("status")}</div>
+        <div style={S.colHdr} onClick={() => toggleSort("priority")}>Priority{arrow("priority")}</div>
+        <div style={S.colHdr}>Assignee</div>
+        <div style={S.colHdr} onClick={() => toggleSort("due_date")}>Due date{arrow("due_date")}</div>
       </div>
-      {/* Milestones bar */}
-      {milestones.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 28px 4px", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em" }}>Milestones</span>
-          {milestones.map(ms => {
-            const cfg = MILESTONE_STATUS[ms.status] || MILESTONE_STATUS.upcoming;
-            const linked = tasks.filter(t => t.milestone_id === ms.id);
-            const done = linked.filter(t => t.status === "done").length;
-            return (
-              <div key={ms.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 6, background: cfg.bg, border: `1px solid ${cfg.color}30`, fontSize: 11 }}>
-                <span style={{ color: cfg.color, fontWeight: 600 }}>🏁 {ms.name}</span>
-                {ms.target_date && <span style={{ color: T.text3, fontSize: 10 }}>{new Date(ms.target_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
-                {linked.length > 0 && <span style={{ color: T.text3, fontSize: 10 }}>{done}/{linked.length}</span>}
-                <select value={ms.status} onChange={e => updateMilestoneStatus(ms.id, e.target.value)} onClick={e => e.stopPropagation()}
-                  style={{ fontSize: 9, color: cfg.color, background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", outline: "none" }}>
-                  {Object.entries(MILESTONE_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                </select>
-                <button onClick={() => deleteMilestone(ms.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
-              </div>
-            );
-          })}
-          <button onClick={() => setShowMilestoneForm(true)} style={{ padding: "3px 8px", borderRadius: 4, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer", fontSize: 10, fontWeight: 600 }}>+ Add</button>
-        </div>
-      )}
-      {milestones.length === 0 && (
-        <div style={{ padding: "6px 28px 2px" }}>
-          <button onClick={() => setShowMilestoneForm(true)} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ fontSize: 13 }}>🏁</span> Add milestone…
-          </button>
-        </div>
-      )}
-      {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
-        {[
-          { k: "list",  l: "List",  icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="12" width="14" height="2" rx="1"/></svg> },
-          { k: "board", l: "Board", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="14" rx="1"/><rect x="6" y="1" width="4" height="10" rx="1"/><rect x="11" y="1" width="4" height="7" rx="1"/></svg> },
-          { k: "timeline", l: "Timeline", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="8" height="2" rx="1"/><rect x="4" y="7" width="10" height="2" rx="1"/><rect x="2" y="12" width="6" height="2" rx="1"/></svg> },
-          { k: "calendar", l: "Calendar", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="3" width="14" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="7" x2="15" y2="7" stroke="currentColor" strokeWidth="1.5"/><line x1="5" y1="1" x2="5" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="11" y1="1" x2="11" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
-          { k: "table", l: "Table", icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="14" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="5.5" x2="15" y2="5.5" stroke="currentColor" strokeWidth="1"/><line x1="1" y1="10" x2="15" y2="10" stroke="currentColor" strokeWidth="1"/><line x1="6" y1="1" x2="6" y2="15" stroke="currentColor" strokeWidth="1"/></svg> },
-        ].map(v => (
-          <button key={v.k} onClick={() => setViewMode(v.k)} style={{
-            padding: "9px 16px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500,
-            background: "transparent", color: viewMode === v.k ? T.text : T.text3,
-            borderBottom: `2px solid ${viewMode === v.k ? T.accent : "transparent"}`,
-            display: "flex", alignItems: "center", gap: 7, transition: "all 0.15s",
-          }}>{v.icon}{v.l}</button>
-        ))}
-        <div style={{ flex: 1 }} />
-        {/* Search */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", marginBottom: 6,
-          background: T.surface2, borderRadius: 6, border: `1px solid ${search ? T.accent : T.border}`,
-          width: search ? 220 : 160, transition: "all 0.2s",
-        }}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill={T.text3}><circle cx="7" cy="7" r="5.5" fill="none" stroke={T.text3} strokeWidth="2"/><line x1="11" y1="11" x2="15" y2="15" stroke={T.text3} strokeWidth="2" strokeLinecap="round"/></svg>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks…"
-            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, fontFamily: "inherit" }} />
-          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>}
-        </div>
-        {/* Filters */}
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          style={{ fontSize: 11, color: filterStatus ? T.text : T.text3, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 8px", outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
-          <option value="">All statuses</option>
-          {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)}
-          style={{ fontSize: 11, color: filterPriority ? T.text : T.text3, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 8px", outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
-          <option value="">All priorities</option>
-          {Object.entries(PRIORITY).filter(([k]) => k !== "none").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}
-          style={{ fontSize: 11, color: filterAssignee ? T.text : T.text3, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 8px", outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
-          <option value="">All assignees</option>
-          <option value="__unassigned__">Unassigned</option>
-          {Object.values(profiles).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-        </select>
-        {(filterStatus || filterPriority || filterAssignee) && (
-          <button onClick={() => { setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }}
-            style={{ fontSize: 10, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>Clear filters</button>
-        )}
-      </div>
+      {projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id); const roots = sortedTasks(rootTasks(st)); const isColl = collapsed[sec.id]; const sd = st.filter(t => t.status === "done").length; const color = secColor(si); return (
+        <div key={sec.id}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer", userSelect: "none" }}>
+            <svg onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !isColl }))} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: isColl ? "rotate(-90deg)" : "rotate(0)", transition: "transform 0.15s" }}><path d="M3 4.5l3 3 3-3" stroke={color} strokeWidth="1.5" strokeLinecap="round" /></svg>
+            {editingSectionId === sec.id ? <input autoFocus value={editingSectionName} onChange={e => setEditingSectionName(e.target.value)} onBlur={() => renameSection(sec.id)} onKeyDown={e => e.key === "Enter" && renameSection(sec.id)} style={{ fontSize: 13, fontWeight: 700, color, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 6px", outline: "none" }} /> : <span onDoubleClick={() => { setEditingSectionId(sec.id); setEditingSectionName(sec.name); }} style={{ fontSize: 13, fontWeight: 700, color, flex: 1 }}>{sec.name}</span>}
+            <span style={{ fontSize: 11, color: T.text3, fontWeight: 500 }}>{sd}/{st.length}</span>
+            <button onClick={() => deleteSection(sec.id)} style={{ ...S.iconBtn, opacity: 0.4 }} title="Delete section"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+          </div>
+          {!isColl && <>{roots.map(task => <TaskRow key={task.id} task={task} depth={0} />)}{addingTo === sec.id ? <div style={{ ...S.row(false, false), background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 20 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createTask(sec.id); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }} onBlur={() => { if (newTitle.trim()) createTask(sec.id); else { setAddingTo(null); setNewTitle(""); } }} placeholder="Task name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 13, outline: "none" }} /></div><div /><div /><div /><div /></div> : <div onClick={() => { setAddingTo(sec.id); setNewTitle(""); }} style={{ ...S.addRow, opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add task…</div>}</>}
+        </div>); })}
+      {addingSection ? <div style={{ padding: "8px 12px", display: "flex", gap: 8 }}><input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") setAddingSection(false); }} placeholder="Section name…" style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none" }} /><button onClick={createSection} style={{ padding: "4px 12px", borderRadius: 4, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer" }}>Add</button></div> : <div onClick={() => setAddingSection(true)} style={{ ...S.addRow, opacity: 0.5, paddingLeft: 12 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add section…</div>}
+    </div>); };
+  const BoardView = () => (<div style={{ flex: 1, display: "flex", gap: 16, padding: "16px 20px", overflow: "auto" }}>{projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id && !t.parent_task_id); const color = secColor(si); const isOver = dragOverTarget === sec.id; return (<div key={sec.id} onDragOver={(e) => { e.preventDefault(); setDragOverTarget(sec.id); }} onDragLeave={() => setDragOverTarget(null)} onDrop={() => { if (dragTask) handleBoardDrop(dragTask, sec.id); }} style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", borderRadius: 8, background: isOver ? T.accentDim : T.surface, border: `1px solid ${isOver ? T.accent : T.border}`, transition: "border 0.15s" }}>
+    <div style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center", gap: 8, borderBottom: `2px solid ${color}` }}><span style={{ fontSize: 13, fontWeight: 700, color, flex: 1 }}>{sec.name}</span><span style={{ fontSize: 11, color: T.text3, background: T.surface3, padding: "1px 6px", borderRadius: 8, fontWeight: 600 }}>{st.length}</span></div>
+    <div style={{ flex: 1, padding: 8, display: "flex", flexDirection: "column", gap: 6, overflow: "auto" }}>
+      {st.map(task => { const subs = getSubtasks(task.id); const pr = PRIORITY[task.priority] || PRIORITY.none; return (
+        <div key={task.id} draggable onDragStart={() => setDragTask(task.id)} onDragEnd={() => { setDragTask(null); setDragOverTarget(null); }} onClick={() => setSelectedTask(task)} style={{ padding: "10px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, cursor: "pointer", opacity: dragTask === task.id ? 0.5 : 1 }} onMouseEnter={e => e.currentTarget.style.boxShadow = `0 2px 8px ${T.bg}`} onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
+          {task.priority && task.priority !== "none" && <div style={{ width: "100%", height: 2, borderRadius: 1, background: pr.dot, marginBottom: 6 }} />}
+          <div style={{ fontSize: 13, fontWeight: 500, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", marginBottom: 8, lineHeight: 1.4 }}>{task.title}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {task.due_date && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: isOverdue(task.due_date) && task.status !== "done" ? T.redDim : T.surface3, color: isOverdue(task.due_date) && task.status !== "done" ? T.red : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
+            {subs.length > 0 && <span style={{ fontSize: 10, color: T.text3 }}>✓ {subs.filter(s => s.status === "done").length}/{subs.length}</span>}
+            <div style={{ flex: 1 }} />
+            {task.assignee_id && <div style={{ width: 22, height: 22, borderRadius: 11, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div>}
+          </div>
+        </div>); })}
+      {addingTo === sec.id ? <div style={{ padding: 8 }}><input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createTask(sec.id); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }} onBlur={() => { if (newTitle.trim()) createTask(sec.id); else { setAddingTo(null); setNewTitle(""); } }} placeholder="Task name…" style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} /></div> : <div onClick={() => { setAddingTo(sec.id); setNewTitle(""); }} style={{ padding: "6px 8px", color: T.text3, fontSize: 12, cursor: "pointer", borderRadius: 6, display: "flex", alignItems: "center", gap: 4, opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add task</div>}
     </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     LIST VIEW (Asana-style)
-     ═══════════════════════════════════════════════════════ */
-  const listView = (
-    <div style={{ flex: 1, overflow: "auto" }} onClick={() => setEditingCell(null)}>
-      {sections.length === 0 && (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 20px", gap: 10 }}>
-          <div style={{ fontSize: 13, color: T.text3 }}>This project has no sections yet</div>
-          <button onClick={() => { setAddingSection(true); setNewSectionName(""); }}
-            style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add a section</button>
-        </div>
-      )}
-      {sections.map((sec, si) => {
-        const st = filt.filter(t => t.section_id === sec.id);
-        const sd = st.filter(t => t.status === "done").length;
-        const cl = collapsed[sec.id];
-        const sc = secColor(si);
-        return (
-          <div key={sec.id}>
-            {/* Section header */}
-            <div
-              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
-              onDrop={(e) => { e.preventDefault(); handleDrop(null, sec.id); }}
-              style={{
-              display: "flex", alignItems: "center", gap: 0,
-              padding: "10px 28px", cursor: "pointer", userSelect: "none",
-              background: T.surface, borderBottom: `1px solid ${T.border}`,
-              position: "sticky", top: 0, zIndex: 2,
-            }}>
-              {/* Color bar */}
-              <div style={{ width: 4, height: 20, borderRadius: 2, background: sc, marginRight: 12, flexShrink: 0 }} />
-              <svg onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))} width="10" height="10" viewBox="0 0 10 10" fill={T.text3} style={{ transition: "transform 0.2s", transform: cl ? "rotate(-90deg)" : "rotate(0)", marginRight: 10, flexShrink: 0, cursor: "pointer" }}>
-                <path d="M2 3l3 3.5L8 3" fill="none" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              {editingSectionId === sec.id ? (
-                <input autoFocus value={editingSectionName}
-                  onChange={e => setEditingSectionName(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") renameSection(sec.id); if (e.key === "Escape") setEditingSectionId(null); }}
-                  onBlur={() => renameSection(sec.id)}
-                  onClick={e => e.stopPropagation()}
-                  style={{ fontSize: 14, fontWeight: 700, color: T.text, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, outline: "none", padding: "2px 8px", fontFamily: "inherit" }} />
-              ) : (
-                <span onDoubleClick={(e) => { e.stopPropagation(); setEditingSectionId(sec.id); setEditingSectionName(sec.name); }}
-                  onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))}
-                  style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{sec.name}</span>
-              )}
-              <span style={{ fontSize: 11, color: T.text3, marginLeft: 8 }} onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !p[sec.id] }))}>{sd}/{st.length}</span>
-              {st.length > 0 && (
-                <div style={{ width: 48, height: 3, borderRadius: 3, background: T.surface3, overflow: "hidden", marginLeft: 10 }}>
-                  <div style={{ width: `${st.length > 0 ? (sd / st.length) * 100 : 0}%`, height: "100%", borderRadius: 3, background: sc, transition: "width 0.3s" }} />
-                </div>
-              )}
-              <div style={{ flex: 1 }} />
-              {/* Section actions */}
-              <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={e => e.stopPropagation()}>
-                {si > 0 && <button onClick={() => moveSectionUp(sec.id)} title="Move up" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: "2px 4px", lineHeight: 1 }}>↑</button>}
-                {si < sections.length - 1 && <button onClick={() => moveSectionDown(sec.id)} title="Move down" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: "2px 4px", lineHeight: 1 }}>↓</button>}
-                <button onClick={() => { setEditingSectionId(sec.id); setEditingSectionName(sec.name); }} title="Rename" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: "2px 4px", lineHeight: 1 }}>✏️</button>
-                <button onClick={() => deleteSection(sec.id)} title="Delete section" style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: "2px 4px", lineHeight: 1 }}>🗑</button>
-              </div>
-            </div>
-            {/* Column headers */}
-            {!cl && st.length > 0 && (
-              <div style={{
-                display: "grid", gridTemplateColumns: "40px 1fr 90px 90px 150px 100px",
-                gap: 0, padding: "0 28px", alignItems: "center", height: 28,
-                fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em",
-                borderBottom: `1px solid ${T.border}`, background: T.bg,
-              }}>
-                <span /><span style={{ paddingLeft: 4 }}>Task name</span><span>Status</span><span>Priority</span><span>Assignee</span><span>Due date</span>
-              </div>
-            )}
-            {/* Task rows */}
-            {!cl && rootTasks(st).map(task => {
-              const sel = selectedTask?.id === task.id;
-              const dn = task.status === "done";
-              const hov = hoveredRow === task.id;
-              const subs = getSubtasks(task.id);
-              const expanded = expandedTasks[task.id];
-              return (
-                <div key={task.id}>
-                  <div
-                    draggable
-                    onDragStart={(e) => { setDragTask(task); e.dataTransfer.effectAllowed = "move"; }}
-                    onDragEnd={() => { setDragTask(null); setDragOverTarget(null); }}
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverTarget(task.id); }}
-                    onDragLeave={() => setDragOverTarget(null)}
-                    onDrop={(e) => { e.preventDefault(); handleDrop(task.id, sec.id); }}
-                    onMouseEnter={() => setHoveredRow(task.id)}
-                    onMouseLeave={() => setHoveredRow(null)}
-                    onClick={(e) => { if (e.ctrlKey || e.metaKey) { toggleSelectTask(task.id, e); } else { clearSelection(); setSelectedTask(task); } }}
-                    style={{
-                      display: "grid", gridTemplateColumns: "40px 1fr 90px 90px 150px 100px",
-                      gap: 0, padding: "0 28px", alignItems: "center", height: 38,
-                      cursor: dragTask ? "grabbing" : "pointer", borderBottom: `1px solid ${T.border}`,
-                      background: selectedTaskIds.has(task.id) ? `${T.accent}18` : dragOverTarget === task.id && dragTask ? `${T.accent}20` : sel ? `${T.accent}10` : hov ? `${T.text}06` : "transparent",
-                      borderLeft: selectedTaskIds.has(task.id) ? `3px solid ${T.accent}` : sel ? `3px solid ${T.accent}` : "3px solid transparent",
-                      borderTop: dragOverTarget === task.id && dragTask ? `2px solid ${T.accent}` : "2px solid transparent",
-                      transition: "background 0.1s",
-                      opacity: dragTask?.id === task.id ? 0.4 : 1,
-                    }}>
-                    {/* Checkbox */}
-                    <div style={{ display: "flex", justifyContent: "center" }}>
-                      <Check on={dn} fn={e => toggleDone(task, e)} sz={17} />
-                    </div>
-                    {/* Title */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", paddingLeft: 4, paddingRight: 8 }}>
-                      {subs.length > 0 && (
-                        <svg onClick={e => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !p[task.id] })); }}
-                          width="10" height="10" viewBox="0 0 10 10" style={{ flexShrink: 0, cursor: "pointer", transition: "transform 0.15s", transform: expanded ? "rotate(0)" : "rotate(-90deg)" }}>
-                          <path d="M2 3l3 3.5L8 3" fill="none" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
-                      <span style={{
-                        fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        textDecoration: dn ? "line-through" : "none",
-                        color: dn ? T.text3 : T.text, fontWeight: sel ? 600 : 400,
-                      }}>{task.title}</span>
-                      {subs.length > 0 && (
-                        <span style={{ fontSize: 10, color: T.text3, background: T.surface3, borderRadius: 8, padding: "1px 6px", flexShrink: 0 }}>
-                          {subs.filter(s => s.status === "done").length}/{subs.length}
-                        </span>
-                      )}
-                      {hov && (
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, opacity: 0.4 }}>
-                          <path d="M6 3l5 5-5 5" stroke={T.text2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
-                    </div>
-                    <StatusCell task={task} />
-                    <PriorityCell task={task} />
-                    <AssigneeCell task={task} />
-                    <DateCell task={task} />
-                  </div>
-                  {/* Subtasks */}
-                  {expanded && subs.map(sub => {
-                    const subSel = selectedTask?.id === sub.id;
-                    const subDn = sub.status === "done";
-                    const subHov = hoveredRow === sub.id;
-                    return (
-                      <div key={sub.id}
-                        onMouseEnter={() => setHoveredRow(sub.id)}
-                        onMouseLeave={() => setHoveredRow(null)}
-                        onClick={() => setSelectedTask(sub)}
-                        style={{
-                          display: "grid", gridTemplateColumns: "40px 1fr 90px 90px 150px 100px",
-                          gap: 0, padding: "0 28px", alignItems: "center", height: 34,
-                          cursor: "pointer", borderBottom: `1px solid ${T.border}`,
-                          background: subSel ? `${T.accent}10` : subHov ? `${T.text}06` : `${T.surface}80`,
-                          borderLeft: subSel ? `3px solid ${T.accent}` : "3px solid transparent",
-                        }}>
-                        <div style={{ display: "flex", justifyContent: "center" }}>
-                          <Check on={subDn} fn={e => toggleDone(sub, e)} sz={15} />
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", paddingLeft: 28, paddingRight: 8 }}>
-                          <span style={{ fontSize: 12, color: subDn ? T.text3 : T.text2, textDecoration: subDn ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
-                        </div>
-                        <StatusCell task={sub} />
-                        <PriorityCell task={sub} />
-                        <AssigneeCell task={sub} />
-                        <DateCell task={sub} />
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-            {/* Add task */}
-            {/* Empty section message */}
-            {!cl && st.length === 0 && (
-              <div style={{ padding: "16px 28px 8px 52px", color: T.text3, fontSize: 12, fontStyle: "italic" }}>No tasks in this section</div>
-            )}
-            {!cl && <AddRow sid={sec.id} />}
-          </div>
-        );
-      })}
-      {/* Add section */}
-      {addingSection ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 28px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-          <input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") { setAddingSection(false); setNewSectionName(""); } }}
-            placeholder="Section name…" style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit" }} />
-          <button onClick={createSection} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add</button>
-          <button onClick={() => { setAddingSection(false); setNewSectionName(""); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
-        </div>
-      ) : (
-        <div onClick={() => { setAddingSection(true); setNewSectionName(""); }} style={{ padding: "10px 28px", cursor: "pointer", color: T.text3, fontSize: 13, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6, transition: "color 0.15s" }}>
-          <span style={{ fontSize: 15, fontWeight: 300, lineHeight: 1 }}>+</span> Add section…
-        </div>
-      )}
-    </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     BOARD VIEW
-     ═══════════════════════════════════════════════════════ */
-  const boardView = (
-    <div style={{ flex: 1, overflow: "auto", padding: "20px 28px 28px", display: "flex", gap: 16 }}>
-      {sections.map((sec, si) => {
-        const st = filt.filter(t => t.section_id === sec.id);
-        const sc = secColor(si);
-        return (
-          <div key={sec.id} style={{ minWidth: 290, width: 290, flexShrink: 0 }}>
-            {/* Column header with color bar */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ height: 3, borderRadius: 3, background: sc, marginBottom: 10 }} />
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{sec.name}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: T.text3, background: T.surface3, borderRadius: 10, padding: "1px 8px" }}>{st.length}</span>
-              </div>
-            </div>
-            {/* Cards */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 40 }}
-              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
-              onDrop={(e) => { e.preventDefault(); handleDrop(null, sec.id); }}>
-              {st.map(task => {
-                const dn = task.status === "done";
-                const sel = selectedTask?.id === task.id;
-                const pcfg = PRIORITY[task.priority];
-                const isDragOver = dragOverTarget === task.id;
-                return (
-                  <div key={task.id} onClick={() => setSelectedTask(task)}
-                    draggable
-                    onDragStart={(e) => { setDragTask(task); e.dataTransfer.effectAllowed = "move"; }}
-                    onDragEnd={() => { setDragTask(null); setDragOverTarget(null); }}
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverTarget(task.id); }}
-                    onDragLeave={() => setDragOverTarget(null)}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleDrop(task.id, sec.id); }}
-                    style={{
-                    background: T.surface2, borderRadius: 10, padding: "12px 14px", cursor: "grab",
-                    border: `1px solid ${sel ? T.accent : isDragOver ? T.accent + "80" : T.border}`,
-                    opacity: dn ? 0.5 : (dragTask?.id === task.id ? 0.4 : 1), transition: "all 0.15s", position: "relative",
-                  }}>
-                    {pcfg && <div style={{ position: "absolute", left: 0, top: 10, bottom: 10, width: 3, borderRadius: "0 3px 3px 0", background: pcfg.dot }} />}
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                      <Check on={dn} fn={e => toggleDone(task, e)} sz={17} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{
-                          fontSize: 13, fontWeight: 500, lineHeight: 1.4, marginBottom: 10,
-                          textDecoration: dn ? "line-through" : "none", color: dn ? T.text3 : T.text,
-                        }}>{task.title}</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          {task.status && task.status !== "todo" && (
-                            <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: STATUS[task.status]?.bg, color: STATUS[task.status]?.color }}>{STATUS[task.status]?.label}</span>
-                          )}
-                          {pcfg && (
-                            <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: pcfg.bg, color: pcfg.color, display: "flex", alignItems: "center", gap: 3 }}>
-                              <span style={{ width: 5, height: 5, borderRadius: 5, background: pcfg.dot }} />{pcfg.label}
-                            </span>
-                          )}
-                          {task.due_date && (
-                            <span style={{ fontSize: 10, color: new Date(task.due_date) < new Date() && !dn ? "#ef4444" : T.text3, fontWeight: 500 }}>
-                              {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                            </span>
-                          )}
-                          <div style={{ flex: 1 }} />
-                          <Ava uid={task.assignee_id} sz={22} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {/* Add task */}
-            {addingTo === sec.id ? (
-              <div style={{ padding: "8px 0" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.accent}` }}>
-                  <input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") createTask(sec.id); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }}
-                    placeholder="Task name…" style={{ flex: 1, fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit" }} />
-                  <button onClick={() => createTask(sec.id)} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add</button>
-                  <button onClick={() => { setAddingTo(null); setNewTitle(""); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>×</button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => { setAddingTo(sec.id); setNewTitle(""); }} style={{
-                width: "100%", padding: "8px 12px", borderRadius: 8, border: "none", marginTop: 8,
-                background: "transparent", color: T.text3, cursor: "pointer", fontSize: 12,
-                display: "flex", alignItems: "center", gap: 6,
-              }}>
-                <span style={{ fontSize: 16, fontWeight: 300, lineHeight: 1 }}>+</span> Add task
-              </button>
-            )}
-          </div>
-        );
-      })}
-      {/* Add section column */}
-      <div style={{ minWidth: 290, width: 290, flexShrink: 0 }}>
-        {addingSection ? (
-          <div style={{ background: T.surface2, borderRadius: 10, padding: 12 }}>
-            <input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") { setAddingSection(false); setNewSectionName(""); } }}
-              placeholder="Section name…" style={{ width: "100%", fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={createSection} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Add</button>
-              <button onClick={() => { setAddingSection(false); setNewSectionName(""); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>×</button>
-            </div>
-          </div>
-        ) : (
-          <button onClick={() => { setAddingSection(true); setNewSectionName(""); }} style={{
-            width: "100%", padding: "12px", borderRadius: 10, border: `1px dashed ${T.border2}`,
-            background: "transparent", color: T.text3, cursor: "pointer", fontSize: 13, fontWeight: 600,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-          }}>
-            <span style={{ fontSize: 16, fontWeight: 300, lineHeight: 1 }}>+</span> Add section
-          </button>
-        )}
+  </div>); })}</div>);
+  const TimelineView = () => { const tw = filteredTasks.filter(t => t.due_date && !t.parent_task_id); if (!tw.length) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}><div style={{ fontSize: 14 }}>No tasks with due dates</div><div style={{ fontSize: 12, marginTop: 4 }}>Add due dates to see the timeline</div></div>; const dw = 28; const dates = tw.map(t => new Date(t.due_date)); const starts = tw.map(t => t.start_date ? new Date(t.start_date) : new Date(new Date(t.due_date).getTime() - 3 * 86400000)); const minD = new Date(Math.min(...starts, ...dates) - 7 * 86400000); const maxD = new Date(Math.max(...dates) + 14 * 86400000); const totalD = Math.ceil((maxD - minD) / 86400000); const getX = (d) => Math.round(((new Date(d) - minD) / 86400000) * dw); const todayX = getX(new Date()); const markers = []; for (let i = 0; i < totalD; i++) { const d = new Date(minD.getTime() + i * 86400000); if (d.getDate() === 1 || i === 0) markers.push({ x: i * dw, label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }), isM: d.getDate() === 1 }); } return (
+    <div style={{ flex: 1, overflow: "auto", padding: "8px 0" }}><div style={{ position: "relative", minWidth: totalD * dw + 200, minHeight: tw.length * 36 + 60 }}>
+      <div style={{ height: 28, position: "sticky", top: 0, zIndex: 3, background: T.bg, borderBottom: `1px solid ${T.border}` }}>{markers.map((m, i) => <span key={i} style={{ position: "absolute", left: m.x + 180, fontSize: 10, color: T.text3, fontWeight: m.isM ? 700 : 400, top: 8 }}>{m.label}</span>)}</div>
+      <div style={{ position: "absolute", left: todayX + 180, top: 28, bottom: 0, width: 2, background: T.red + "60", zIndex: 2 }}><div style={{ position: "absolute", top: -2, left: -3, width: 8, height: 8, borderRadius: 4, background: T.red }} /></div>
+      {tw.map((task, i) => { const st = STATUS[task.status] || STATUS.todo; const sx = getX(task.start_date || new Date(new Date(task.due_date).getTime() - 3 * 86400000)); const ex = getX(task.due_date); const bw = Math.max(ex - sx, 20); return (
+        <div key={task.id} style={{ position: "absolute", top: 32 + i * 36, left: 0, right: 0, height: 32, display: "flex", alignItems: "center" }}>
+          <div style={{ width: 176, paddingLeft: 12, fontSize: 12, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>{task.title}</div>
+          <div onClick={() => setSelectedTask(task)} style={{ position: "absolute", left: sx + 180, width: bw, height: 22, borderRadius: 4, background: st.bg, border: `1px solid ${st.color}40`, cursor: "pointer", display: "flex", alignItems: "center", paddingLeft: 6 }}><span style={{ fontSize: 10, color: st.color, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.label}</span></div>
+        </div>); })}
+    </div></div>); };
+  const CalendarView = () => { const yr = calMonth.getFullYear(); const mo = calMonth.getMonth(); const fd = new Date(yr, mo, 1).getDay(); const dim = new Date(yr, mo + 1, 0).getDate(); const today = new Date(); const cells = []; for (let i = 0; i < fd; i++) cells.push(null); for (let d = 1; d <= dim; d++) cells.push(d); const gtd = (day) => { const ds = `${yr}-${String(mo + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; return filteredTasks.filter(t => t.due_date === ds); }; return (
+    <div style={{ flex: 1, overflow: "auto", padding: "12px 20px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <button onClick={() => setCalMonth(new Date(yr, mo - 1, 1))} style={S.iconBtn}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{calMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
+        <button onClick={() => setCalMonth(new Date(yr, mo + 1, 1))} style={S.iconBtn}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
-    </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     TIMELINE VIEW (Gantt-style)
-     ═══════════════════════════════════════════════════════ */
-  const timelineView = (() => {
-    const tasksWithDates = filt.filter(t => t.due_date && !t.parent_task_id);
-    if (tasksWithDates.length === 0) return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 10, color: T.text3, fontSize: 13 }}>
-        <span>No tasks with due dates to display</span>
-        <span style={{ fontSize: 11 }}>Add due dates to your tasks to see them on the timeline</span>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1 }}>
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => <div key={d} style={{ padding: 6, fontSize: 11, fontWeight: 600, color: T.text3, textAlign: "center" }}>{d}</div>)}
+        {cells.map((day, i) => { if (!day) return <div key={`e${i}`} />; const dt = gtd(day); const isT = day === today.getDate() && mo === today.getMonth() && yr === today.getFullYear(); return (
+          <div key={i} style={{ minHeight: 80, padding: 4, border: `1px solid ${T.border}`, borderRadius: 4, background: isT ? T.accentDim : T.surface }}>
+            <div style={{ fontSize: 11, fontWeight: isT ? 700 : 400, color: isT ? T.accent : T.text2, marginBottom: 4, textAlign: "right", padding: "0 2px" }}>{day}</div>
+            {dt.slice(0, 3).map(task => <div key={task.id} onClick={() => setSelectedTask(task)} style={{ fontSize: 10, padding: "1px 4px", borderRadius: 3, background: (STATUS[task.status] || STATUS.todo).bg, color: (STATUS[task.status] || STATUS.todo).color, marginBottom: 2, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div>)}
+            {dt.length > 3 && <div style={{ fontSize: 9, color: T.text3, textAlign: "center" }}>+{dt.length - 3}</div>}
+          </div>); })}
       </div>
-    );
-    // Compute date range
-    const dates = tasksWithDates.map(t => new Date(t.due_date));
-    const starts = tasksWithDates.map(t => t.start_date ? new Date(t.start_date) : new Date(t.due_date));
-    const allDates = [...dates, ...starts];
-    let minDate = new Date(Math.min(...allDates)); let maxDate = new Date(Math.max(...allDates));
-    minDate.setDate(minDate.getDate() - 3); maxDate.setDate(maxDate.getDate() + 7);
-    const totalDays = Math.max(Math.ceil((maxDate - minDate) / 86400000), 14);
-    const dayWidth = 36;
-    const getX = (d) => Math.round(((new Date(d) - minDate) / 86400000) * dayWidth);
-    // Build day columns
-    const dayCols = [];
-    for (let i = 0; i <= totalDays; i++) {
-      const d = new Date(minDate); d.setDate(d.getDate() + i);
-      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-      const isToday = d.toDateString() === new Date().toDateString();
-      dayCols.push({ date: d, isWeekend, isToday, label: d.getDate() === 1 || i === 0 ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : d.getDate().toString() });
-    }
-    // Group by section
-    const secGroups = sections.map(sec => ({
-      sec, tasks: tasksWithDates.filter(t => t.section_id === sec.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
-    })).filter(g => g.tasks.length > 0);
-    return (
-      <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
-        {/* Day header */}
-        <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 5, background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-          <div style={{ width: 200, flexShrink: 0, padding: "8px 12px", fontSize: 11, fontWeight: 600, color: T.text3, borderRight: `1px solid ${T.border}` }}>Task</div>
-          <div style={{ display: "flex" }}>
-            {dayCols.map((d, i) => (
-              <div key={i} style={{
-                width: dayWidth, textAlign: "center", fontSize: 9, padding: "6px 0", color: d.isToday ? T.accent : d.isWeekend ? T.text3 + "60" : T.text3,
-                fontWeight: d.isToday ? 700 : 400, background: d.isToday ? `${T.accent}10` : d.isWeekend ? `${T.text}04` : "transparent",
-                borderRight: `1px solid ${T.border}30`,
-              }}>{d.label}</div>
-            ))}
-          </div>
+    </div>); };
+  const MyTasksView = () => { const mt = tasks.filter(t => t.assignee_id === user?.id && t.status !== "done").sort((a, b) => { if (a.due_date && !b.due_date) return -1; if (!a.due_date && b.due_date) return 1; if (a.due_date && b.due_date) return new Date(a.due_date) - new Date(b.due_date); return 0; }); return (
+    <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>My Tasks</h2>
+      {!mt.length ? <div style={{ textAlign: "center", padding: 40, color: T.text3 }}><div style={{ fontSize: 14 }}>No tasks assigned to you</div></div> : mt.map(task => { const p = projects.find(pr => pr.id === task.project_id); return (
+        <div key={task.id} onClick={() => { setActiveProject(task.project_id); setShowMyTasks(false); setTimeout(() => setSelectedTask(task), 100); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 6, border: `1px solid ${T.border}`, marginBottom: 6, cursor: "pointer", background: T.surface }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+          <Checkbox task={task} />
+          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, color: T.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div><div style={{ fontSize: 11, color: T.text3 }}>{p?.name || ""}</div></div>
+          {task.due_date && <span style={{ fontSize: 11, color: isOverdue(task.due_date) ? T.red : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
+          <PriorityPill task={task} />
+        </div>); })}
+    </div>); };
+  const DetailPane = () => { if (!selectedTask) return null; const task = selectedTask; const subs = getSubtasks(task.id); const bb = getBlockedBy(task.id); const bl = getBlocking(task.id); const tcf = customFieldValues[task.id] || {}; const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : null; return (
+    <div style={{ width: 400, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideIn 0.2s ease" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${T.border}` }}>
+        <Checkbox task={task} size={18} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {parent && <div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Subtask of: {parent.title}</div>}
+          <input value={task.title} onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, title: v })); setTasks(p => p.map(t => t.id === task.id ? { ...t, title: v } : t)); }} onBlur={() => updateField(task.id, "title", task.title)} style={{ fontSize: 16, fontWeight: 700, color: T.text, background: "none", border: "none", outline: "none", width: "100%", padding: 0 }} />
         </div>
-        {/* Rows */}
-        {secGroups.map(({ sec, tasks: secTasks }, si) => (
-          <div key={sec.id}>
-            <div style={{ display: "flex", background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
-              <div style={{ width: 200, flexShrink: 0, padding: "6px 12px", fontSize: 12, fontWeight: 700, color: T.text }}>{sec.name}</div>
-            </div>
-            {secTasks.map(task => {
-              const start = task.start_date || task.due_date;
-              const end = task.due_date;
-              const left = getX(start);
-              const width = Math.max(getX(end) - left, dayWidth);
-              const pcfg = PRIORITY[task.priority];
-              const dn = task.status === "done";
-              return (
-                <div key={task.id} style={{ display: "flex", borderBottom: `1px solid ${T.border}30`, height: 36, alignItems: "center" }}>
-                  <div onClick={() => setSelectedTask(task)} style={{
-                    width: 200, flexShrink: 0, padding: "0 12px", fontSize: 12, color: dn ? T.text3 : T.text,
-                    textDecoration: dn ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis",
-                    whiteSpace: "nowrap", cursor: "pointer",
-                  }}>{task.title}</div>
-                  <div style={{ position: "relative", flex: 1, height: "100%" }}>
-                    {/* Today line */}
-                    {dayCols.some(d => d.isToday) && (
-                      <div style={{ position: "absolute", left: getX(new Date().toISOString().split("T")[0]), top: 0, bottom: 0, width: 2, background: T.accent, opacity: 0.3, zIndex: 1 }} />
-                    )}
-                    <div onClick={() => setSelectedTask(task)} style={{
-                      position: "absolute", left, top: 6, height: 24, width,
-                      background: dn ? T.surface3 : pcfg?.bg || `${T.accent}30`,
-                      border: `1px solid ${dn ? T.border : pcfg?.color || T.accent}40`,
-                      borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", paddingLeft: 8,
-                      fontSize: 10, color: dn ? T.text3 : pcfg?.color || T.accent, fontWeight: 600, overflow: "hidden",
-                    }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
+        <button onClick={() => setSelectedTask(null)} style={S.iconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
       </div>
-    );
-  })();
-
-  /* ═══════════════════════════════════════════════════════
-     CALENDAR VIEW
-     ═══════════════════════════════════════════════════════ */
-  const calendarView = (() => {
-    const year = calMonth.getFullYear(), month = calMonth.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const today = new Date().toISOString().split("T")[0];
-    const cells = [];
-    for (let i = 0; i < firstDay; i++) cells.push(null);
-    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-    const getTasksForDay = (day) => {
-      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      return filt.filter(t => t.due_date === dateStr && !t.parent_task_id);
-    };
-    return (
-      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
-        {/* Month nav */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-          <button onClick={() => setCalMonth(new Date(year, month - 1, 1))} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, padding: "4px 10px", fontSize: 14 }}>←</button>
-          <span style={{ fontSize: 16, fontWeight: 700, color: T.text, minWidth: 160, textAlign: "center" }}>
-            {calMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-          </span>
-          <button onClick={() => setCalMonth(new Date(year, month + 1, 1))} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, padding: "4px 10px", fontSize: 14 }}>→</button>
-          <button onClick={() => setCalMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, padding: "4px 10px", fontSize: 11, fontWeight: 600 }}>Today</button>
+      <div style={{ flex: 1, overflow: "auto", padding: "12px 16px" }}>
+        {/* Fields grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: "8px 12px", alignItems: "center", marginBottom: 16 }}>
+          <span style={{ fontSize: 12, color: T.text3 }}>Status</span><StatusPill task={task} />
+          <span style={{ fontSize: 12, color: T.text3 }}>Priority</span><PriorityPill task={task} />
+          <span style={{ fontSize: 12, color: T.text3 }}>Assignee</span><AssigneeCell task={task} />
+          <span style={{ fontSize: 12, color: T.text3 }}>Due date</span><DateCell task={task} />
+          <span style={{ fontSize: 12, color: T.text3 }}>Section</span>
+          <select value={task.section_id || ""} onChange={e => updateField(task.id, "section_id", e.target.value)} style={{ padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }}>{projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
         </div>
-        {/* Day names */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1 }}>
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
-            <div key={d} style={{ padding: "6px 8px", fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", textAlign: "center" }}>{d}</div>
-          ))}
-        </div>
-        {/* Cells */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1 }}>
-          {cells.map((day, i) => {
-            if (!day) return <div key={i} style={{ background: T.surface2 + "40", minHeight: 90 }} />;
-            const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-            const isToday = dateStr === today;
-            const dayTasks = getTasksForDay(day);
-            return (
-              <div key={i} style={{
-                minHeight: 90, padding: 6, background: T.surface, border: `1px solid ${T.border}30`,
-                borderColor: isToday ? T.accent + "60" : T.border + "30",
-              }}>
-                <div style={{
-                  fontSize: 11, fontWeight: isToday ? 700 : 400, marginBottom: 4, textAlign: "right",
-                  color: isToday ? T.accent : T.text3,
-                }}>{day}</div>
-                {dayTasks.slice(0, 3).map(task => (
-                  <div key={task.id} onClick={() => setSelectedTask(task)} style={{
-                    fontSize: 10, padding: "2px 5px", borderRadius: 3, marginBottom: 2, cursor: "pointer",
-                    background: PRIORITY[task.priority]?.bg || T.surface2, color: PRIORITY[task.priority]?.color || T.text2,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500,
-                  }}>{task.title}</div>
-                ))}
-                {dayTasks.length > 3 && <div style={{ fontSize: 9, color: T.text3, textAlign: "center" }}>+{dayTasks.length - 3} more</div>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  })();
-
-  /* ═══════════════════════════════════════════════════════
-     MY TASKS VIEW (Cross-project personal task list)
-     ═══════════════════════════════════════════════════════ */
-  const myTasksView = (() => {
-    const grouped = {};
-    const MY_GROUPS = ["overdue", "today", "upcoming", "later", "no_date", "done"];
-    const GROUP_LABELS = { overdue: "Overdue", today: "Today", upcoming: "Next 7 Days", later: "Later", no_date: "No Due Date", done: "Completed" };
-    const todayStr = new Date().toISOString().split("T")[0];
-    const weekStr = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
-    MY_GROUPS.forEach(g => { grouped[g] = []; });
-    myTasks.forEach(t => {
-      if (t.status === "done") { grouped.done.push(t); return; }
-      if (!t.due_date) { grouped.no_date.push(t); return; }
-      if (t.due_date < todayStr) grouped.overdue.push(t);
-      else if (t.due_date === todayStr) grouped.today.push(t);
-      else if (t.due_date <= weekStr) grouped.upcoming.push(t);
-      else grouped.later.push(t);
-    });
-    const groupColors = { overdue: "#ef4444", today: T.accent, upcoming: T.green, later: T.text3, no_date: T.text3, done: T.green };
-    return (
-      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: "#fff" }}>✓</div>
-          <div>
-            <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>My Tasks</h2>
-            <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{myTasks.filter(t => t.status !== "done").length} tasks remaining</div>
-          </div>
-        </div>
-        {MY_GROUPS.filter(g => grouped[g].length > 0).map(g => (
-          <div key={g} style={{ marginBottom: 20 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: groupColors[g] }}>{GROUP_LABELS[g]}</span>
-              <span style={{ fontSize: 10, color: T.text3 }}>({grouped[g].length})</span>
-            </div>
-            {grouped[g].map(task => {
-              const proj = myTasksProjects[task.project_id];
-              const pcfg = PRIORITY[task.priority];
-              const dn = task.status === "done";
-              return (
-                <div key={task.id} onClick={() => { setActiveProject(task.project_id); setTimeout(() => setSelectedTask(task), 100); }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 2,
-                    borderRadius: 6, cursor: "pointer", border: `1px solid ${T.border}30`, background: T.surface,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = T.surface}>
-                  <Check on={dn} fn={e => { e.stopPropagation(); toggleDone(task, e); }} sz={17} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: dn ? T.text3 : T.text, textDecoration: dn ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div>
-                    <div style={{ fontSize: 10, color: T.text3, display: "flex", gap: 8, marginTop: 2 }}>
-                      {proj && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 6, height: 6, borderRadius: 2, background: proj.color || T.accent }} />{proj.name}</span>}
-                      {task.due_date && <span>{new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
-                    </div>
-                  </div>
-                  {pcfg && <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: pcfg.bg, color: pcfg.color }}>{pcfg.label}</span>}
-                  <Ava uid={task.assignee_id} sz={20} />
-                </div>
-              );
-            })}
-          </div>
-        ))}
-        {myTasks.length === 0 && <div style={{ textAlign: "center", color: T.text3, fontSize: 13, padding: 40 }}>No tasks found</div>}
-      </div>
-    );
-  })();
-
-  /* ═══════════════════════════════════════════════════════
-     TABLE VIEW (Spreadsheet-style sortable)
-     ═══════════════════════════════════════════════════════ */
-  const tableView = (() => {
-    const rootFiltered = filt.filter(t => !t.parent_task_id);
-    const COLS = [
-      { key: "title", label: "Task", flex: 3 },
-      { key: "status", label: "Status", flex: 1 },
-      { key: "priority", label: "Priority", flex: 1 },
-      { key: "assignee_id", label: "Assignee", flex: 1.5 },
-      { key: "section_id", label: "Section", flex: 1 },
-      { key: "due_date", label: "Due Date", flex: 1 },
-      { key: "created_at", label: "Created", flex: 1 },
-    ];
-    const toggleSort = (col) => setTableSort(p => ({ col, dir: p.col === col && p.dir === "asc" ? "desc" : "asc" }));
-    const sorted = [...rootFiltered].sort((a, b) => {
-      const { col, dir } = tableSort;
-      let av = a[col], bv = b[col];
-      if (col === "assignee_id") { av = uname(av) || "zzz"; bv = uname(bv) || "zzz"; }
-      if (col === "section_id") { av = sections.find(s => s.id === av)?.name || ""; bv = sections.find(s => s.id === bv)?.name || ""; }
-      if (av == null) av = ""; if (bv == null) bv = "";
-      const cmp = typeof av === "string" ? av.localeCompare(bv) : av > bv ? 1 : av < bv ? -1 : 0;
-      return dir === "asc" ? cmp : -cmp;
-    });
-    const arrow = (col) => tableSort.col === col ? (tableSort.dir === "asc" ? " ↑" : " ↓") : "";
-    const hStyle = { padding: "8px 10px", fontSize: 11, fontWeight: 700, color: T.text3, cursor: "pointer", userSelect: "none", borderBottom: `2px solid ${T.border}`, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: "0.04em" };
-    const cStyle = { padding: "7px 10px", fontSize: 12, color: T.text2, borderBottom: `1px solid ${T.border}30`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
-    return (
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-          <thead style={{ position: "sticky", top: 0, background: T.surface, zIndex: 5 }}>
-            <tr>
-              {COLS.map(c => (
-                <th key={c.key} onClick={() => toggleSort(c.key)} style={{ ...hStyle, width: c.flex === 3 ? "auto" : undefined, textAlign: "left" }}>
-                  {c.label}{arrow(c.key)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map(task => {
-              const dn = task.status === "done";
-              const secName = sections.find(s => s.id === task.section_id)?.name || "—";
-              const pcfg = PRIORITY[task.priority];
-              const scfg = STATUS[task.status];
-              return (
-                <tr key={task.id} onClick={() => setSelectedTask(task)} style={{ cursor: "pointer", background: "transparent" }}
-                  onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <td style={{ ...cStyle, fontWeight: 500, color: dn ? T.text3 : T.text, textDecoration: dn ? "line-through" : "none" }}>{task.title}</td>
-                  <td style={cStyle}>
-                    <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: scfg?.bg || T.surface2, color: scfg?.color || T.text3, border: `1px solid ${scfg?.color || T.border}30` }}>
-                      {scfg?.label || task.status}
-                    </span>
-                  </td>
-                  <td style={cStyle}>
-                    {pcfg ? (
-                      <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: pcfg.bg, color: pcfg.color, border: `1px solid ${pcfg.color}30` }}>
-                        {pcfg.label}
-                      </span>
-                    ) : <span style={{ color: T.text3 }}>—</span>}
-                  </td>
-                  <td style={cStyle}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Ava uid={task.assignee_id} sz={20} />
-                      <span style={{ color: task.assignee_id ? T.text2 : T.text3 }}>{task.assignee_id ? uname(task.assignee_id) : "—"}</span>
-                    </div>
-                  </td>
-                  <td style={{ ...cStyle, color: T.text3 }}>{secName}</td>
-                  <td style={{ ...cStyle, color: task.due_date ? T.text2 : T.text3 }}>
-                    {task.due_date ? new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
-                  </td>
-                  <td style={{ ...cStyle, color: T.text3, fontSize: 11 }}>
-                    {task.created_at ? new Date(task.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {sorted.length === 0 && (
-          <div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>No tasks to display</div>
-        )}
-      </div>
-    );
-  })();
-
-  /* ═══════════════════════════════════════════════════════
-     DETAIL PANEL (Asana-style slide-over)
-     ═══════════════════════════════════════════════════════ */
-  const detail = selectedTask && (
-    <div style={{
-      width: 400, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column",
-      background: T.surface, flexShrink: 0, overflow: "hidden",
-    }}>
-      {/* Panel header */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "10px 20px", borderBottom: `1px solid ${T.border}`, flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Check on={selectedTask.status === "done"} fn={e => toggleDone(selectedTask, e)} sz={20} />
-          <span style={{ fontSize: 12, color: selectedTask.status === "done" ? T.green : T.text3, fontWeight: 500 }}>
-            {selectedTask.status === "done" ? "Completed" : "Mark complete"}
-          </span>
-        </div>
-        <button onClick={() => setSelectedTask(null)} style={{
-          background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer",
-          width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
-        </button>
-      </div>
-      <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
-        {/* Title */}
-        {selectedTask.parent_task_id && (() => {
-          const parent = tasks.find(t => t.id === selectedTask.parent_task_id);
-          return parent ? (
-            <div onClick={() => setSelectedTask(parent)} style={{ fontSize: 11, color: T.accent, cursor: "pointer", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M6 2L3 5l3 3" fill="none" stroke={T.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              {parent.title}
-            </div>
-          ) : null;
-        })()}
-        <input value={selectedTask.title}
-          onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, title: v })); setTasks(p => p.map(t => t.id === selectedTask.id ? { ...t, title: v } : t)); }}
-          onBlur={() => supabase.from("tasks").update({ title: selectedTask.title }).eq("id", selectedTask.id)}
-          onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
-          style={{ fontSize: 20, fontWeight: 700, color: T.text, lineHeight: 1.3, background: "transparent", border: "none", outline: "none", padding: 0, width: "100%", marginBottom: 24 }} />
-        {/* Fields */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <PanelField icon="👤" label="Assignee">
-            <div style={{ position: "relative" }}>
-              <div onClick={() => setEditingCell(editingCell?.field === "panelAssignee" ? null : { taskId: selectedTask.id, field: "panelAssignee" })}
-                style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 4px", borderRadius: 4 }}>
-                <Ava uid={selectedTask.assignee_id} sz={24} />
-                <span style={{ fontSize: 13, color: selectedTask.assignee_id ? T.text : T.text3 }}>
-                  {selectedTask.assignee_id ? uname(selectedTask.assignee_id) : "Unassigned"}
-                </span>
-              </div>
-              {editingCell?.field === "panelAssignee" && (
-                <Dropdown onClose={() => { setEditingCell(null); setAssigneeSearch(""); }} wide>
-                  <div style={{ padding: "4px 8px", borderBottom: `1px solid ${T.border}` }}>
-                    <input autoFocus value={assigneeSearch} onChange={e => setAssigneeSearch(e.target.value)}
-                      onClick={e => e.stopPropagation()} placeholder="Search people…"
-                      style={{ width: "100%", fontSize: 12, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "5px 8px", outline: "none", fontFamily: "inherit" }} />
-                  </div>
-                  <DropdownItem onClick={() => updateField(selectedTask.id, "assignee_id", null)}>
-                    <span style={{ color: T.text3 }}>Unassigned</span>
-                  </DropdownItem>
-                  {Object.values(profiles).filter(p => !assigneeSearch || (p.display_name || "").toLowerCase().includes(assigneeSearch.toLowerCase()))
-                    .sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => (
-                    <DropdownItem key={p.id} onClick={() => updateField(selectedTask.id, "assignee_id", p.id)}>
-                      <Ava uid={p.id} sz={18} /><span>{p.display_name}</span>
-                    </DropdownItem>
-                  ))}
-                </Dropdown>
-              )}
-            </div>
-          </PanelField>
-          <PanelField icon="🗓" label="Start date">
-            <input type="date" value={selectedTask.start_date || ""} onChange={e => updateField(selectedTask.id, "start_date", e.target.value || null)}
-              style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", colorScheme: "dark", fontFamily: "inherit" }} />
-          </PanelField>
-          <PanelField icon="📅" label="Start date">
-            <input type="date" value={selectedTask.start_date || ""} onChange={e => updateField(selectedTask.id, "start_date", e.target.value || null)}
-              style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", colorScheme: "dark", fontFamily: "inherit" }} />
-          </PanelField>
-          <PanelField icon="📅" label="Due date">
-            <input type="date" value={selectedTask.due_date || ""} onChange={e => updateField(selectedTask.id, "due_date", e.target.value || null)}
-              style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", colorScheme: "dark", fontFamily: "inherit" }} />
-          </PanelField>
-          <PanelField icon="🎯" label="Priority">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {PRIORITY[selectedTask.priority] && <span style={{ width: 8, height: 8, borderRadius: 8, background: PRIORITY[selectedTask.priority].dot }} />}
-              <select value={selectedTask.priority || ""} onChange={e => updateField(selectedTask.id, "priority", e.target.value || null)}
-                style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                <option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
-              </select>
-            </div>
-          </PanelField>
-          <PanelField icon="📋" label="Status">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: STATUS[selectedTask.status]?.color || T.text3 }} />
-              <select value={selectedTask.status || "todo"} onChange={e => updateField(selectedTask.id, "status", e.target.value)}
-                style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                <option value="backlog">Backlog</option><option value="todo">To Do</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option><option value="done">Done</option><option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-          </PanelField>
-          <PanelField icon="📂" label="Section">
-            <select value={selectedTask.section_id || ""} onChange={e => updateField(selectedTask.id, "section_id", e.target.value)}
-              style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-              {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </PanelField>
-          {milestones.length > 0 && (
-            <PanelField icon="🏁" label="Milestone">
-              <select value={selectedTask.milestone_id || ""} onChange={e => updateField(selectedTask.id, "milestone_id", e.target.value || null)}
-                style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                <option value="">None</option>
-                {milestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </PanelField>
-          )}
-        </div>
-        {/* Custom Fields */}
-        {customFields.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            {customFields.map(cf => {
-              const val = customFieldValues[selectedTask.id]?.[cf.id] || "";
-              return (
-                <PanelField key={cf.id} icon="🏷️" label={cf.name}>
-                  {cf.field_type === "text" && (
-                    <input value={val} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.value)}
-                      placeholder="—" style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", width: "100%" }} />
-                  )}
-                  {cf.field_type === "number" && (
-                    <input type="number" value={val} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.value)}
-                      placeholder="—" style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", width: 80 }} />
-                  )}
-                  {cf.field_type === "date" && (
-                    <input type="date" value={val} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.value)}
-                      style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: "inherit", colorScheme: "dark" }} />
-                  )}
-                  {cf.field_type === "checkbox" && (
-                    <input type="checkbox" checked={val === "true"} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.checked ? "true" : "false")}
-                      style={{ cursor: "pointer" }} />
-                  )}
-                  {cf.field_type === "select" && (
-                    <select value={val} onChange={e => setCustomFieldValue(selectedTask.id, cf.id, e.target.value)}
-                      style={{ fontSize: 13, color: T.text, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                      <option value="">—</option>
-                      {(cf.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  )}
-                </PanelField>
-              );
-            })}
-          </div>
-        )}
+        {/* Custom fields */}
+        {customFields.length > 0 && <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 6 }}>Custom Fields</div>{customFields.map(cf => <div key={cf.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}><span style={{ fontSize: 12, color: T.text3, width: 100 }}>{cf.name}</span><input value={tcf[cf.id] || ""} onChange={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} style={{ flex: 1, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} /></div>)}</div>}
+        <button onClick={createCustomField} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: "2px 0", marginBottom: 12 }}>+ Add custom field</button>
         {/* Description */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 10 }}>Description</div>
-          <textarea value={selectedTask.description || ""}
-            onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, description: v })); setTasks(p => p.map(t => t.id === selectedTask.id ? { ...t, description: v } : t)); }}
-            onBlur={() => supabase.from("tasks").update({ description: selectedTask.description || null }).eq("id", selectedTask.id)}
-            placeholder="Add a description…"
-            style={{
-              width: "100%", minHeight: 100, fontSize: 13, color: T.text2, lineHeight: 1.6,
-              padding: 14, background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`,
-              resize: "vertical", outline: "none", fontFamily: "inherit",
-            }} />
+        <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 6 }}>Description</div><textarea value={task.description || ""} rows={3} placeholder="Add a description…" onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, description: v })); setTasks(p => p.map(t => t.id === task.id ? { ...t, description: v } : t)); }} onBlur={() => updateField(task.id, "description", task.description || "")} style={{ width: "100%", padding: 8, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} /></div>
+        {/* Subtasks */}
+        <div style={{ marginBottom: 16 }}><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, fontWeight: 600, color: T.text2 }}>Subtasks</span><button onClick={() => createSubtask(task)} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer" }}>+ Add</button></div>
+          {subs.length > 0 && <div><div style={{ height: 3, borderRadius: 2, background: T.surface3, marginBottom: 6 }}><div style={{ width: `${(subs.filter(s => s.status === "done").length / subs.length) * 100}%`, height: "100%", borderRadius: 2, background: T.green, transition: "width 0.4s" }} /></div>{subs.map(sub => <div key={sub.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", cursor: "pointer" }} onClick={() => setSelectedTask(sub)}><Checkbox task={sub} size={14} /><span style={{ fontSize: 12, color: sub.status === "done" ? T.text3 : T.text, textDecoration: sub.status === "done" ? "line-through" : "none", flex: 1 }}>{sub.title}</span>{sub.assignee_id && <div style={{ width: 16, height: 16, borderRadius: 8, background: acol(sub.assignee_id) + "30", color: acol(sub.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700 }}>{ini(sub.assignee_id)}</div>}</div>)}</div>}
         </div>
         {/* Dependencies */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 10 }}>Dependencies</div>
-          {/* Blocked by */}
-          {getBlockedBy(selectedTask.id).length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Blocked by</div>
-              {getBlockedBy(selectedTask.id).map(dep => (
-                <div key={dep.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", borderRadius: 4, background: "#ef444410", border: "1px solid #ef444420", marginBottom: 3 }}>
-                  <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 500 }}>🚫</span>
-                  <span onClick={() => setSelectedTask(dep.task)} style={{ fontSize: 12, color: T.text2, cursor: "pointer", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dep.task.title}</span>
-                  <button onClick={() => removeDependency(dep.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
-                </div>
-              ))}
-            </div>
-          )}
-          {/* Blocking */}
-          {getBlocking(selectedTask.id).length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Blocking</div>
-              {getBlocking(selectedTask.id).map(dep => (
-                <div key={dep.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", borderRadius: 4, background: `${T.accent}10`, border: `1px solid ${T.accent}20`, marginBottom: 3 }}>
-                  <span style={{ fontSize: 12, color: T.accent, fontWeight: 500 }}>⏳</span>
-                  <span onClick={() => setSelectedTask(dep.task)} style={{ fontSize: 12, color: T.text2, cursor: "pointer", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dep.task.title}</span>
-                  <button onClick={() => removeDependency(dep.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
-                </div>
-              ))}
-            </div>
-          )}
-          {/* Add dependency */}
-          <div style={{ display: "flex", gap: 4 }}>
-            <select id="depTarget" defaultValue="" style={{ flex: 1, fontSize: 11, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 6px", outline: "none", fontFamily: "inherit" }}>
-              <option value="" disabled>Select task…</option>
-              {tasks.filter(t => t.id !== selectedTask.id && !t.parent_task_id).map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-            </select>
-            <button onClick={() => { const sel = document.getElementById("depTarget"); if (sel.value) { addDependency(sel.value, selectedTask.id); sel.value = ""; } }}
-              style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", whiteSpace: "nowrap" }}>+ Blocked by</button>
-            <button onClick={() => { const sel = document.getElementById("depTarget"); if (sel.value) { addDependency(selectedTask.id, sel.value); sel.value = ""; } }}
-              style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", whiteSpace: "nowrap" }}>+ Blocking</button>
-          </div>
-          {getBlockedBy(selectedTask.id).length === 0 && getBlocking(selectedTask.id).length === 0 && (
-            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic", marginTop: 6 }}>No dependencies</div>
-          )}
-        </div>
+        {(bb.length > 0 || bl.length > 0) && <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 6 }}>Dependencies</div>{bb.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12 }}><span style={{ color: T.red, fontSize: 10 }}>blocked by</span><span style={{ color: T.text }}>{d.task.title}</span><button onClick={() => removeDependency(d.id)} style={{ ...S.iconBtn, marginLeft: "auto" }}>✕</button></div>)}{bl.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12 }}><span style={{ color: T.orange, fontSize: 10 }}>blocking</span><span style={{ color: T.text }}>{d.task.title}</span><button onClick={() => removeDependency(d.id)} style={{ ...S.iconBtn, marginLeft: "auto" }}>✕</button></div>)}</div>}
         {/* Attachments */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>Attachments</div>
-            <label style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>
-              + Upload
-              <input type="file" hidden onChange={e => { if (e.target.files[0]) uploadAttachment(e.target.files[0]); e.target.value = ""; }} />
-            </label>
-          </div>
-          {attachments.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {attachments.map(att => {
-                const isImage = att.mime_type?.startsWith("image/");
-                return (
-                  <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}` }}>
-                    {isImage ? (
-                      <img src={getFileUrl(att.file_path)} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
-                    ) : (
-                      <span style={{ fontSize: 18, flexShrink: 0 }}>{fileIcon(att.mime_type)}</span>
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <a href={getFileUrl(att.file_path)} target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: 12, color: T.accent, textDecoration: "none", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {att.filename}
-                      </a>
-                      <span style={{ fontSize: 10, color: T.text3 }}>{formatSize(att.file_size)}</span>
-                    </div>
-                    <button onClick={() => deleteAttachment(att)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No attachments</div>
-          )}
-        </div>
-        {/* Subtasks */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>Subtasks</div>
-            <button onClick={() => createSubtask(selectedTask)} style={{
-              padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4,
-              border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer",
-            }}>+ Add</button>
-          </div>
-          {getSubtasks(selectedTask.id).length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {getSubtasks(selectedTask.id).map(sub => (
-                <div key={sub.id} onClick={() => setSelectedTask(sub)} style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 6,
-                  cursor: "pointer", background: T.surface2, border: `1px solid ${T.border}`,
-                }}>
-                  <Check on={sub.status === "done"} fn={e => { e.stopPropagation(); toggleDone(sub, e); }} sz={15} />
-                  <span style={{
-                    flex: 1, fontSize: 12, color: sub.status === "done" ? T.text3 : T.text,
-                    textDecoration: sub.status === "done" ? "line-through" : "none",
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>{sub.title}</span>
-                  {sub.assignee_id && <Ava uid={sub.assignee_id} sz={18} />}
-                </div>
-              ))}
-              {/* Subtask progress bar */}
-              {(() => {
-                const subs = getSubtasks(selectedTask.id);
-                const doneCount = subs.filter(s => s.status === "done").length;
-                const pctDone = Math.round((doneCount / subs.length) * 100);
-                return (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                    <div style={{ flex: 1, height: 3, background: T.surface3, borderRadius: 3 }}>
-                      <div style={{ height: 3, borderRadius: 3, background: T.green, width: `${pctDone}%`, transition: "width 0.3s" }} />
-                    </div>
-                    <span style={{ fontSize: 10, color: T.text3 }}>{doneCount}/{subs.length}</span>
-                  </div>
-                );
-              })()}
-            </div>
-          ) : (
-            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No subtasks yet</div>
-          )}
-        </div>
-        {/* Attachments */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>Attachments</div>
-            <label style={{
-              padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4,
-              border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer",
-            }}>
-              + Upload
-              <input type="file" hidden onChange={e => { if (e.target.files[0]) uploadAttachment(e.target.files[0]); e.target.value = ""; }} />
-            </label>
-          </div>
-          {attachments.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {attachments.map(att => {
-                const url = supabase.storage.from("attachments").getPublicUrl(att.file_path).data.publicUrl;
-                const isImage = att.mime_type?.startsWith("image/");
-                return (
-                  <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}` }}>
-                    {isImage ? (
-                      <img src={url} alt={att.filename} style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
-                    ) : (
-                      <span style={{ fontSize: 18, flexShrink: 0 }}>{fileIcon(att.mime_type)}</span>
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: T.accent, textDecoration: "none", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</a>
-                      <span style={{ fontSize: 10, color: T.text3 }}>{formatFileSize(att.file_size)}</span>
-                    </div>
-                    <button onClick={() => deleteAttachment(att)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No attachments</div>
-          )}
-        </div>
-        {/* Time Tracking */}
-        <div style={{ padding: "16px 24px", borderBottom: `1px solid ${T.border}20` }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 10 }}>Time Tracking</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            {timerRunning ? (
-              <>
-                <div style={{ fontSize: 20, fontWeight: 700, color: T.accent, fontVariantNumeric: "tabular-nums" }}>{fmtDur(timerElapsed)}</div>
-                <div style={{ width: 8, height: 8, borderRadius: 8, background: "#ef4444", animation: "pulse 1s infinite" }} />
-                <button onClick={stopTimer} style={{ marginLeft: "auto", padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none", background: "#ef4444", color: "#fff", cursor: "pointer" }}>Stop</button>
-              </>
-            ) : (
-              <button onClick={startTimer} style={{ padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.accent, cursor: "pointer" }}>▶ Start Timer</button>
-            )}
-          </div>
-          {timeEntries.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>
-                Total: {fmtDur(timeEntries.reduce((s, e) => s + (e.duration_seconds || 0), 0))}
-              </div>
-              {timeEntries.slice(0, 5).map(e => (
-                <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: T.text3 }}>
-                  <span>{fmtDur(e.duration_seconds)}</span>
-                  <span>{e.started_at ? new Date(e.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        {/* Comments & Activity */}
-        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 12 }}>Comments & Activity</div>
-          {/* Comment input */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 14, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>You</div>
-            <div style={{ flex: 1 }}>
-              <textarea value={newComment} onChange={e => setNewComment(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addComment(); } }}
-                placeholder="Write a comment… (Enter to send)"
-                style={{
-                  width: "100%", minHeight: 60, fontSize: 13, color: T.text, lineHeight: 1.5,
-                  padding: "8px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}`,
-                  resize: "vertical", outline: "none", fontFamily: "inherit",
-                }} />
-              {newComment.trim() && (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-                  <button onClick={addComment} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Comment</button>
-                </div>
-              )}
-            </div>
-          </div>
-          {/* Comments list */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {comments.map(c => {
-              const author = profiles[c.author_id];
-              const timeAgo = (() => {
-                const diff = Date.now() - new Date(c.created_at).getTime();
-                const mins = Math.floor(diff / 60000);
-                if (mins < 1) return "just now";
-                if (mins < 60) return `${mins}m ago`;
-                const hrs = Math.floor(mins / 60);
-                if (hrs < 24) return `${hrs}h ago`;
-                const days = Math.floor(hrs / 24);
-                if (days < 30) return `${days}d ago`;
-                return new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-              })();
-              return (
-                <div key={c.id} style={{ display: "flex", gap: 8 }}>
-                  <Ava uid={c.author_id} sz={28} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{author?.display_name || "Anonymous"}</span>
-                      <span style={{ fontSize: 10, color: T.text3 }}>{timeAgo}</span>
-                      <div style={{ flex: 1 }} />
-                      <button onClick={() => deleteComment(c.id)} title="Delete comment"
-                        style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12, padding: "0 2px", opacity: 0.5, lineHeight: 1 }}>×</button>
-                    </div>
-                    <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{c.content}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {/* Activity log */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: comments.length > 0 ? 16 : 0, paddingTop: comments.length > 0 ? 12 : 0, borderTop: comments.length > 0 ? `1px solid ${T.border}30` : "none" }}>
-            {activityLog.map(log => {
-              const who = log.user_id ? (profiles[log.user_id]?.display_name || "Someone") : "System";
-              const fieldLabel = log.field?.replace("_", " ") || "";
-              const desc = log.action === "updated" && log.field
-                ? `${who} changed ${fieldLabel} from "${log.old_value || "—"}" to "${log.new_value || "—"}"`
-                : `${who} ${log.action}`;
-              return (
-                <div key={log.id} style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ width: 5, height: 5, borderRadius: 5, background: T.accent, flexShrink: 0 }} />
-                  <span style={{ flex: 1 }}>{desc}</span>
-                  <span style={{ flexShrink: 0 }}>{new Date(log.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                </div>
-              );
-            })}
-            {selectedTask.created_at && (
-              <div style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 5, height: 5, borderRadius: 5, background: T.green, flexShrink: 0 }} />
-                Task created · {new Date(selectedTask.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-              </div>
-            )}
-            {selectedTask.completed_at && (
-              <div style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 5, height: 5, borderRadius: 5, background: T.green, flexShrink: 0 }} />
-                Completed · {new Date(selectedTask.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-              </div>
-            )}
-          </div>
-        </div>
-        {/* Actions */}
-        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${T.border}`, display: "flex", gap: 8 }}>
-          <button onClick={() => duplicateTask(selectedTask)}
-            style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-            Duplicate
-          </button>
-          <button onClick={async () => { if (await showConfirm("Delete Task", "Are you sure you want to delete this task?")) deleteTask(selectedTask.id); }}
-            style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-            Delete
-          </button>
+        <div style={{ marginBottom: 16 }}><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, fontWeight: 600, color: T.text2 }}>Attachments</span><label style={{ fontSize: 11, color: T.accent, cursor: "pointer" }}>+ Upload<input type="file" hidden onChange={e => e.target.files?.[0] && uploadAttachment(e.target.files[0])} /></label></div>{attachments.map(att => <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", fontSize: 12 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><a href={getFileUrl(att.file_path)} target="_blank" rel="noopener" style={{ color: T.accent, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</a><span style={{ color: T.text3, fontSize: 10 }}>{formatFileSize(att.file_size)}</span><button onClick={() => deleteAttachment(att)} style={S.iconBtn}>✕</button></div>)}</div>
+        {/* Comments */}
+        <div><div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 8 }}>Comments</div>{comments.map(c => <div key={c.id} style={{ marginBottom: 10, display: "flex", gap: 8 }}><div style={{ width: 24, height: 24, borderRadius: 12, background: acol(c.author_id) + "30", color: acol(c.author_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>{ini(c.author_id)}</div><div style={{ flex: 1 }}><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}><span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{uname(c.author_id)}</span><span style={{ fontSize: 10, color: T.text3 }}>{timeAgo(c.created_at)}</span></div><div style={{ fontSize: 13, color: T.text2, lineHeight: 1.4 }}>{c.content}</div></div></div>)}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}><input value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => e.key === "Enter" && addComment()} placeholder="Write a comment…" style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} /><button onClick={addComment} disabled={!newComment.trim()} style={{ padding: "6px 12px", borderRadius: 6, background: newComment.trim() ? T.accent : T.surface3, color: newComment.trim() ? "#fff" : T.text3, border: "none", fontSize: 12, cursor: "pointer" }}>Send</button></div>
         </div>
       </div>
-    </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     PROJECT FORM MODAL
-     ═══════════════════════════════════════════════════════ */
-  const projectModal = showProjectForm && (
-    <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={() => setShowProjectForm(false)}>
-      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-      <div onClick={e => e.stopPropagation()} style={{
-        position: "relative", width: 420, background: T.surface, borderRadius: 12,
-        border: `1px solid ${T.border}`, padding: 28, zIndex: 101,
-      }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
-          {showProjectForm === "new" ? "New Project" : "Edit Project"}
-        </h3>
-        {/* Name */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Name</label>
-          <input autoFocus value={projectForm.name} onChange={e => setProjectForm(p => ({ ...p, name: e.target.value }))}
-            onKeyDown={e => { if (e.key === "Enter") saveProject(); }}
-            placeholder="Project name…" style={{ width: "100%", padding: "8px 12px", fontSize: 14, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
-        </div>
-        {/* Description */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Description</label>
-          <textarea value={projectForm.description} onChange={e => setProjectForm(p => ({ ...p, description: e.target.value }))}
-            placeholder="What's this project about?" rows={3}
-            style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", resize: "vertical" }} />
-        </div>
-        {/* Color */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Color</label>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {PROJECT_COLORS.map(c => (
-              <div key={c} onClick={() => setProjectForm(p => ({ ...p, color: c }))} style={{
-                width: 28, height: 28, borderRadius: 6, background: c, cursor: "pointer",
-                border: projectForm.color === c ? "2px solid #fff" : "2px solid transparent",
-                transition: "border 0.15s",
-              }} />
-            ))}
-          </div>
-        </div>
-        {/* Status (only for edit) */}
-        {showProjectForm === "edit" && (
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6, display: "block" }}>Status</label>
-            <select value={projectForm.status} onChange={e => setProjectForm(p => ({ ...p, status: e.target.value }))}
-              style={{ padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
-              <option value="planning">Planning</option><option value="active">Active</option><option value="paused">Paused</option>
-              <option value="completed">Completed</option><option value="cancelled">Cancelled</option>
-            </select>
-          </div>
-        )}
-        {/* Actions */}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={() => setShowProjectForm(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
-          <button onClick={saveProject} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: projectForm.name.trim() ? 1 : 0.5 }}>
-            {showProjectForm === "new" ? "Create" : "Save"}
-          </button>
-        </div>
+    </div>); };
+  const ProjectFormModal = () => { if (!showProjectForm) return null; const isNew = showProjectForm === "new"; const colors = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"]; return (
+    <div onClick={() => setShowProjectForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 420, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>{isNew ? "New Project" : "Edit Project"}</h3>
+        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Name</label><input value={projectForm.name} onChange={e => setProjectForm(p => ({ ...p, name: e.target.value }))} autoFocus style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Description</label><textarea value={projectForm.description} onChange={e => setProjectForm(p => ({ ...p, description: e.target.value }))} rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} /></div>
+        <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 6 }}>Color</label><div style={{ display: "flex", gap: 6 }}>{colors.map(c => <div key={c} onClick={() => setProjectForm(p => ({ ...p, color: c }))} style={{ width: 24, height: 24, borderRadius: 12, background: c, cursor: "pointer", border: projectForm.color === c ? "2px solid #fff" : "2px solid transparent" }} />)}</div></div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button onClick={() => setShowProjectForm(false)} style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button><button onClick={saveProject} style={{ padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>{isNew ? "Create" : "Save"}</button></div>
       </div>
-    </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     LAYOUT
-     ═══════════════════════════════════════════════════════ */
+    </div>); };
+  // MAIN RENDER
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden", position: "relative" }}>
-      {/* Mobile sidebar toggle */}
-      {isMobile && !showSidebar && (
-        <button onClick={() => setShowSidebar(true)} style={{
-          position: "absolute", top: 8, left: 8, zIndex: 20, width: 32, height: 32, borderRadius: 6,
-          background: T.surface2, border: `1px solid ${T.border}`, cursor: "pointer", color: T.text3,
-          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
-        }}>☰</button>
-      )}
-      {/* Sidebar - overlay on mobile */}
-      {showSidebar && (
-        <>
-          {isMobile && <div onClick={() => setShowSidebar(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 30 }} />}
-          <div style={{
-            ...(isMobile ? { position: "absolute", left: 0, top: 0, bottom: 0, zIndex: 31 } : {}),
-          }}>{sidebar}</div>
-        </>
-      )}
+    <div style={{ display: "flex", height: "100%", background: T.bg, overflow: "hidden" }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+      {toast && <div style={{ position: "fixed", top: 16, right: 16, zIndex: 200, padding: "10px 16px", borderRadius: 8, background: toast.type === "success" ? T.greenDim : T.redDim, color: toast.type === "success" ? T.green : T.red, fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", animation: "slideIn 0.2s ease" }}>{toast.msg}</div>}
+      <ProjectSidebar />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {activeProject === "__my_tasks__" ? myTasksView : (
-          <>
-            {header}
-            {/* Bulk actions toolbar */}
-            {selectedTaskIds.size > 0 && (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "8px 28px",
-                background: `${T.accent}15`, borderBottom: `1px solid ${T.accent}30`,
-              }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{selectedTaskIds.size} selected</span>
-                <div style={{ display: "flex", gap: 4 }}>
-                  <select onChange={e => { if (e.target.value) bulkUpdateStatus(e.target.value); e.target.value = ""; }}
-                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer", fontFamily: "inherit" }}>
-                    <option value="">Set status…</option>
-                    <option value="backlog">Backlog</option><option value="todo">To Do</option><option value="in_progress">In Progress</option>
-                    <option value="in_review">In Review</option><option value="done">Done</option><option value="cancelled">Cancelled</option>
-                  </select>
-                  <select onChange={e => { if (e.target.value !== "") bulkUpdateAssignee(e.target.value || null); e.target.value = ""; }}
-                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer", fontFamily: "inherit" }}>
-                    <option value="">Assign to…</option><option value="">Unassigned</option>
-                    {Object.values(profiles).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || "")).map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-                  </select>
-                  <button onClick={bulkDelete} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 4, border: "1px solid #ef444440", background: "#ef444410", color: "#ef4444", cursor: "pointer", fontWeight: 600 }}>Delete</button>
-                </div>
-                <div style={{ flex: 1 }} />
-                <button onClick={clearSelection} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
-              </div>
-            )}
-            {proj && (viewMode === "list" ? listView : viewMode === "board" ? boardView : viewMode === "timeline" ? timelineView : viewMode === "calendar" ? calendarView : tableView)}
-            {!proj && !loading && (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: 14, color: T.text3 }}>No projects yet</div>
-                <button onClick={openNewProject} style={{ padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Create your first project</button>
-              </div>
-            )}
-          </>
+        {showMyTasks ? <MyTasksView /> : proj ? (<>
+          <ProjectHeader />
+          <FilterBar />
+          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              {viewMode === "List" && <ListView />}
+              {viewMode === "Board" && <BoardView />}
+              {viewMode === "Timeline" && <TimelineView />}
+              {viewMode === "Calendar" && <CalendarView />}
+            </div>
+            <DetailPane />
+          </div>
+        </>) : (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.text3 }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 14, marginBottom: 4 }}>No project selected</div>
+              <div style={{ fontSize: 12 }}>Select a project or create a new one</div>
+              <button onClick={openNewProject} style={{ marginTop: 12, padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer" }}>+ New Project</button>
+            </div>
+          </div>
         )}
       </div>
-      {/* Detail panel - overlay on mobile */}
-      {selectedTask && isMobile ? (
-        <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, zIndex: 20, width: "100%", maxWidth: 400 }}>{detail}</div>
-      ) : detail}
-      {projectModal}
-      {/* Milestone form modal */}
-      {showMilestoneForm && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => setShowMilestoneForm(false)}>
-          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 380, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, zIndex: 101 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>New Milestone</h3>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Name</label>
-              <input autoFocus value={milestoneForm.name} onChange={e => setMilestoneForm(p => ({ ...p, name: e.target.value }))}
-                onKeyDown={e => { if (e.key === "Enter") createMilestone(); }}
-                placeholder="Milestone name…" style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Target Date</label>
-              <input type="date" value={milestoneForm.target_date} onChange={e => setMilestoneForm(p => ({ ...p, target_date: e.target.value }))}
-                style={{ padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", colorScheme: "dark" }} />
-            </div>
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Description</label>
-              <input value={milestoneForm.description} onChange={e => setMilestoneForm(p => ({ ...p, description: e.target.value }))}
-                placeholder="Optional description…" style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
-            </div>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setShowMilestoneForm(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
-              <button onClick={createMilestone} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: milestoneForm.name.trim() ? 1 : 0.5 }}>Create</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Toast notification */}
-      {/* Custom field form modal */}
-      {showFieldForm && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => setShowFieldForm(false)}>
-          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 380, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, zIndex: 101 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>New Custom Field</h3>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Name</label>
-              <input autoFocus value={fieldForm.name} onChange={e => setFieldForm(p => ({ ...p, name: e.target.value }))}
-                onKeyDown={e => { if (e.key === "Enter") createCustomField(); }}
-                placeholder="Field name…" style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Type</label>
-              <select value={fieldForm.field_type} onChange={e => setFieldForm(p => ({ ...p, field_type: e.target.value }))}
-                style={{ padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }}>
-                <option value="text">Text</option><option value="number">Number</option><option value="date">Date</option>
-                <option value="checkbox">Checkbox</option><option value="select">Dropdown</option>
-              </select>
-            </div>
-            {fieldForm.field_type === "select" && (
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Options (comma separated)</label>
-                <input value={fieldForm.options} onChange={e => setFieldForm(p => ({ ...p, options: e.target.value }))}
-                  placeholder="Option A, Option B, Option C" style={{ width: "100%", padding: "8px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit" }} />
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setShowFieldForm(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
-              <button onClick={createCustomField} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: fieldForm.name.trim() ? 1 : 0.5 }}>Create</button>
-            </div>
-            {/* Existing fields list */}
-            {customFields.length > 0 && (
-              <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 6 }}>EXISTING FIELDS</div>
-                {customFields.map(cf => (
-                  <div key={cf.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: T.text2 }}>
-                    <span>🏷️ {cf.name} <span style={{ color: T.text3, fontSize: 10 }}>({cf.field_type})</span></span>
-                    <button onClick={() => deleteCustomField(cf.id)} style={{ background: "none", border: "none", color: "#ef4444", fontSize: 11, cursor: "pointer" }}>Delete</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      {/* Template picker modal */}
-      {showTemplates && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => setShowTemplates(false)}>
-          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 420, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, zIndex: 101, maxHeight: "70vh", overflow: "auto" }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Create from Template</h3>
-            {templates.length === 0 ? (
-              <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: 20 }}>No templates saved yet. Open a project and click "Save Template" to create one.</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {templates.map(tpl => {
-                  const td = tpl.template_data;
-                  const secCount = td.sections?.length || 0;
-                  const taskCount = td.sections?.reduce((sum, s) => sum + (s.tasks?.length || 0), 0) || 0;
-                  return (
-                    <div key={tpl.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, cursor: "pointer" }}
-                      onClick={() => createFromTemplate(tpl)}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tpl.name}</div>
-                        <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{secCount} sections · {taskCount} tasks</div>
-                      </div>
-                      <button onClick={e => { e.stopPropagation(); deleteTemplate(tpl.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 14, padding: "0 4px" }}>×</button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={() => setShowTemplates(false)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* CSV Import modal */}
-      {showImport && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => { setShowImport(false); setImportStatus(""); }}>
-          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 420, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, zIndex: 101 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Import from CSV</h3>
-            <p style={{ fontSize: 12, color: T.text3, marginBottom: 16, lineHeight: 1.5 }}>
-              Upload a CSV file exported from Asana or any tool. Expected columns: Name (required), Section, Status, Priority, Due Date, Description.
-            </p>
-            <div style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: 30, textAlign: "center", marginBottom: 14, background: T.surface2 }}>
-              <input type="file" accept=".csv" id="csv-import" style={{ display: "none" }}
-                onChange={e => { if (e.target.files[0]) handleCSVImport(e.target.files[0]); }} />
-              <label htmlFor="csv-import" style={{ cursor: "pointer", color: T.accent, fontSize: 14, fontWeight: 600 }}>
-                📥 Choose CSV file
-              </label>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>.csv files only</div>
-            </div>
-            {importStatus && <div style={{ padding: "8px 12px", borderRadius: 6, background: `${T.accent}15`, color: T.accent, fontSize: 12, fontWeight: 500, textAlign: "center" }}>{importStatus}</div>}
-            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={() => { setShowImport(false); setImportStatus(""); }} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {toast && (
-        <div style={{
-          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 200,
-          padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600,
-          background: toast.type === "error" ? "#ef4444" : "#22c55e", color: "#fff",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.3)", animation: "fadeIn 0.2s ease",
-        }}>{toast.message}</div>
-      )}
+      <ProjectFormModal />
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════
-   HELPER COMPONENTS
-   ═══════════════════════════════════════════════════════ */
 function Dropdown({ children, onClose, wide }) {
   const ref = useRef(null);
-  useEffect(() => {
-    const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
-  }, [onClose]);
-  return (
-    <div ref={ref} onClick={e => e.stopPropagation()} style={{
-      position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 100,
-      background: "#1a1f2e", border: `1px solid ${T.border2}`, borderRadius: 8,
-      padding: 4, minWidth: wide ? 200 : 120, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-      maxHeight: 240, overflow: "auto",
-    }}>{children}</div>
-  );
+  useEffect(() => { const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); }; document.addEventListener("mousedown", fn); return () => document.removeEventListener("mousedown", fn); }, [onClose]);
+  return (<div ref={ref} style={{ position: "absolute", top: "100%", left: 0, zIndex: 50, marginTop: 4, minWidth: wide ? 180 : 130, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", padding: 4, animation: "slideIn 0.15s ease" }}>{children}</div>);
 }
 
 function DropdownItem({ children, onClick }) {
-  return (
-    <div onClick={onClick} style={{
-      display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
-      borderRadius: 4, cursor: "pointer", fontSize: 12, color: T.text2,
-      transition: "background 0.1s",
-    }}
-    onMouseEnter={e => e.currentTarget.style.background = T.surface3}
-    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-    >{children}</div>
-  );
-}
-
-function PanelField({ icon, label, children }) {
-  return (
-    <div style={{
-      display: "grid", gridTemplateColumns: "120px 1fr",
-      padding: "10px 0", borderBottom: `1px solid ${T.border}`, alignItems: "center",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text3 }}>
-        <span style={{ fontSize: 14 }}>{icon}</span><span>{label}</span>
-      </div>
-      <div>{children}</div>
-    </div>
-  );
+  return (<div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 4, fontSize: 12, color: T.text, cursor: "pointer", transition: "background 0.1s" }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{children}</div>);
 }
