@@ -18,6 +18,7 @@ export const NAV_ITEMS = [
   { key: "reports", icon: "▥", label: "Reports" },
   { type: "divider" },
   { key: "people", icon: "👥", label: "Team" },
+  { key: "activity", icon: "◔", label: "Activity" },
   { key: "settings", icon: "⚙", label: "Settings" },
 ];
 

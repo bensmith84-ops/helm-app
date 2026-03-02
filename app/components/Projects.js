@@ -74,6 +74,13 @@ export default function ProjectsView() {
   }, []);
 
   const showToast = useCallback((message, type = "error") => {
+
+  const logActivity = (action, entityType, entityId, entityName) => {
+    supabase.from("activity_log").insert({
+      org_id: profile?.org_id, user_id: user?.id,
+      action, entity_type: entityType, entity_id: entityId, entity_name: entityName,
+    }).catch(() => {});
+  };
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
@@ -250,6 +257,9 @@ export default function ProjectsView() {
         link: `/projects/${oldTask?.project_id}`,
       }).catch(() => {});
     }
+    // Log activity
+    if (field === "status" && value === "done") logActivity("completed", "task", taskId, oldTask?.title);
+    else if (field === "assignee_id") logActivity("assigned", "task", taskId, oldTask?.title);
   };
 
   const deleteTask = async (taskId) => {
@@ -282,7 +292,7 @@ export default function ProjectsView() {
       sort_order: maxSort + 1,
     }).select().single();
     if (error) { showToast("Failed to create task"); return; }
-    if (data) { setTasks(p => [...p, data]); showToast("Task created", "success"); }
+    if (data) { setTasks(p => [...p, data]); showToast("Task created", "success"); logActivity("created", "task", data.id, data.title); }
     setNewTitle(""); setAddingTo(null);
   };
 
@@ -385,6 +395,7 @@ export default function ProjectsView() {
         await supabase.from("sections").insert({ project_id: data.id, name: "To Do", sort_order: 1 });
         const { data: newSecs } = await supabase.from("sections").select("*").eq("project_id", data.id).order("sort_order");
         setSections(newSecs || []); setTasks([]);
+        logActivity("created", "project", data.id, data.name);
       }
     } else {
       setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...projectForm } : pr));
