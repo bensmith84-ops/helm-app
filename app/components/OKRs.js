@@ -222,25 +222,50 @@ export default function OKRsView() {
       await supabase.from("objectives").update(updates).eq("id", id);
     } else if (type === "kr") {
       const { id, ...rest } = data;
-      const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0 };
-      updates.progress = updates.target_value > 0 ? Math.min(100, Math.round((updates.current_value / updates.target_value) * 100)) : 0;
+      const mode = rest.progress_mode || "manual";
+      const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0, progress_mode: mode };
+      if (mode === "manual") {
+        updates.progress = updates.target_value > 0 ? Math.min(100, Math.round((updates.current_value / updates.target_value) * 100)) : 0;
+      } else {
+        // milestones mode — calc from linked milestones
+        const linked = milestones.filter(m => m.key_result_id === id);
+        updates.progress = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
+        updates.current_value = Math.round((updates.progress / 100) * updates.target_value);
+      }
       setKeyResults(p => p.map(k => k.id === id ? { ...k, ...updates } : k));
       await supabase.from("key_results").update(updates).eq("id", id);
-      // Recalc objective progress
-      const kr = keyResults.find(k => k.id === id);
-      if (kr) {
-        const objKRs = keyResults.map(k => k.id === id ? { ...k, ...updates } : k).filter(k => k.objective_id === kr.objective_id);
-        const avg = objKRs.length > 0 ? Math.round(objKRs.reduce((s, k) => s + Number(k.progress || 0), 0) / objKRs.length) : 0;
-        setObjectives(p => p.map(o => o.id === kr.objective_id ? { ...o, progress: avg } : o));
-        await supabase.from("objectives").update({ progress: avg }).eq("id", kr.objective_id);
-      }
+      recalcObjectiveProgress(keyResults.find(k => k.id === id)?.objective_id, keyResults.map(k => k.id === id ? { ...k, ...updates } : k));
     } else if (type === "milestone") {
       const { id, ...rest } = data;
-      const updates = { title: rest.title, start_date: rest.start_date, end_date: rest.end_date, color: rest.color };
+      const updates = { title: rest.title, start_date: rest.start_date, end_date: rest.end_date, color: rest.color, progress: Number(rest.progress) || 0, status: rest.status || "not_started", key_result_id: rest.key_result_id || null };
       setMilestones(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
       await supabase.from("okr_milestones").update(updates).eq("id", id);
+      // If linked to a KR in milestones mode, recalc that KR
+      if (updates.key_result_id) {
+        const newMilestones = milestones.map(m => m.id === id ? { ...m, ...updates } : m);
+        await recalcKRFromMilestones(updates.key_result_id, newMilestones);
+      }
     }
     setEditItem(null);
+  };
+
+  const recalcKRFromMilestones = async (krId, msArr) => {
+    const kr = keyResults.find(k => k.id === krId);
+    if (!kr || kr.progress_mode !== "milestones") return;
+    const linked = (msArr || milestones).filter(m => m.key_result_id === krId);
+    const prog = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
+    const cv = Math.round((prog / 100) * (kr.target_value || 100));
+    setKeyResults(p => p.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
+    await supabase.from("key_results").update({ progress: prog, current_value: cv }).eq("id", krId);
+    recalcObjectiveProgress(kr.objective_id, keyResults.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
+  };
+
+  const recalcObjectiveProgress = async (objId, krArr) => {
+    if (!objId) return;
+    const objKRs = (krArr || keyResults).filter(k => k.objective_id === objId);
+    const avg = objKRs.length > 0 ? Math.round(objKRs.reduce((s, k) => s + Number(k.progress || 0), 0) / objKRs.length) : 0;
+    setObjectives(p => p.map(o => o.id === objId ? { ...o, progress: avg } : o));
+    await supabase.from("objectives").update({ progress: avg }).eq("id", objId);
   };
 
   const editSet = (k, v) => setEditItem(p => ({ ...p, data: { ...p.data, [k]: v } }));
@@ -358,12 +383,18 @@ export default function OKRsView() {
                   </div>
                   {/* Key Results cell */}
                   <div style={{ width: krColW, padding: "6px 12px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2 }}>
-                    {objKRs.map(kr => (
-                      <div key={kr.id} style={{ fontSize: 11, color: T.text2, lineHeight: 1.4, padding: "4px 0", display: "flex", alignItems: "center", gap: 6, minHeight: 30 }}>
+                    {objKRs.map(kr => {
+                      const kp = Number(kr.progress || 0);
+                      return (
+                      <div key={kr.id} onClick={() => editKR(kr)} style={{ fontSize: 11, color: T.text2, lineHeight: 1.4, padding: "4px 0", display: "flex", alignItems: "center", gap: 6, minHeight: 30, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <span style={{ color: T.text3, fontSize: 10 }}>•</span>
                         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.title}</span>
-                      </div>
-                    ))}
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                          <div style={{ width: 32, height: 4, borderRadius: 4, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${kp}%`, height: "100%", borderRadius: 4, background: kp >= 70 ? T.green : kp >= 40 ? T.yellow : T.accent }} /></div>
+                          <span style={{ fontSize: 9, fontWeight: 600, color: kp >= 70 ? T.green : kp >= 40 ? T.yellow : T.text3, minWidth: 20 }}>{kp}%</span>
+                        </div>
+                      </div>);
+                    })}
                     {objKRs.length === 0 && <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>No key results</div>}
                   </div>
                 </div>
@@ -400,11 +431,14 @@ export default function OKRsView() {
                     const bar = posBar(ms.start_date, ms.end_date);
                     return (
                       <div key={ms.id} style={{ position: "relative", height: 24, marginBottom: 2, zIndex: 1 }}>
-                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\nClick to edit`}
+                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\nProgress: ${Math.round(Number(ms.progress) || 0)}%\nClick to edit`}
                           onClick={() => editMilestone(ms)}
-                          style={{ position: "absolute", ...bar, height: 22, borderRadius: 4, background: ms.color || "#6366f1", display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer" }}>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ms.title}</span>
-                          <button onClick={() => deleteMilestone(ms.id)} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.5 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>×</button>
+                          style={{ position: "absolute", ...bar, height: 22, borderRadius: 4, background: `${ms.color || "#6366f1"}40`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
+                          {/* Progress fill */}
+                          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Number(ms.progress) || 0}%`, background: ms.color || "#6366f1", borderRadius: 4, transition: "width 0.3s" }} />
+                          <span style={{ fontSize: 10, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
+                          {Number(ms.progress) > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", marginLeft: "auto", paddingLeft: 4, position: "relative", zIndex: 1, opacity: 0.9 }}>{Math.round(ms.progress)}%</span>}
+                          <button onClick={e => { e.stopPropagation(); deleteMilestone(ms.id); }} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.5, zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>×</button>
                         </div>
                       </div>
                     );
@@ -485,7 +519,7 @@ export default function OKRsView() {
                   const p = Number(kr.progress || 0); const sel = selectedKR === kr.id;
                   return (
                     <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent", transition: "background 0.1s" }}>
-                      <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>{kr.title}</span>
+                      <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>{kr.title}{kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${p}%`, height: "100%", borderRadius: 5, background: p >= 70 ? T.green : p >= 40 ? T.yellow : T.accent, transition: "width 0.3s" }} /></div>
                         <span style={{ fontSize: 11, fontWeight: 600, color: p >= 70 ? T.green : p >= 40 ? T.yellow : T.text2, minWidth: 28 }}>{Math.round(p)}%</span>
@@ -548,10 +582,28 @@ export default function OKRsView() {
               </div>
             </>}
             {/* KEY RESULT EDIT */}
-            {type === "kr" && <>
+            {type === "kr" && (() => {
+              const mode = d.progress_mode || "manual";
+              const linkedMS = milestones.filter(m => m.key_result_id === d.id);
+              const autoProgress = linkedMS.length > 0 ? Math.round(linkedMS.reduce((s, m) => s + Number(m.progress || 0), 0) / linkedMS.length) : 0;
+              const displayPct = mode === "milestones" ? autoProgress : (d.target_value > 0 ? Math.min(100, Math.round(((d.current_value || 0) / d.target_value) * 100)) : 0);
+              return <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
+              {/* Progress mode toggle */}
+              <div style={{ marginBottom: 12, padding: "10px 14px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
+                <label style={{ ..._elbl, marginBottom: 8 }}>Progress Mode</label>
+                <div style={{ display: "flex", gap: 0, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.border}` }}>
+                  {[{ k: "manual", l: "Manual" }, { k: "milestones", l: "From Milestones" }].map(o => (
+                    <button key={o.k} onClick={() => editSet("progress_mode", o.k)}
+                      style={{ flex: 1, padding: "7px 0", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: mode === o.k ? T.accent : T.surface3, color: mode === o.k ? "#fff" : T.text3 }}>{o.l}</button>
+                  ))}
+                </div>
+                {mode === "milestones" && <div style={{ marginTop: 8, fontSize: 11, color: T.text3 }}>
+                  {linkedMS.length > 0 ? `${linkedMS.length} linked milestone${linkedMS.length > 1 ? "s" : ""} → ${autoProgress}% avg` : "No milestones linked yet — edit milestones and link them to this KR"}
+                </div>}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} style={_einp} /></div>
+                <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} disabled={mode === "milestones"} style={{ ..._einp, opacity: mode === "milestones" ? 0.5 : 1 }} /></div>
                 <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => editSet("target_value", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, %" style={_einp} /></div>
               </div>
@@ -561,9 +613,9 @@ export default function OKRsView() {
                   <label style={_elbl}>Progress</label>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                     <div style={{ flex: 1, height: 8, borderRadius: 8, background: T.surface3, overflow: "hidden" }}>
-                      <div style={{ width: `${d.target_value > 0 ? Math.min(100, Math.round(((d.current_value || 0) / d.target_value) * 100)) : 0}%`, height: "100%", borderRadius: 8, background: T.accent, transition: "width 0.3s" }} />
+                      <div style={{ width: `${displayPct}%`, height: "100%", borderRadius: 8, background: T.accent, transition: "width 0.3s" }} />
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>{d.target_value > 0 ? Math.min(100, Math.round(((d.current_value || 0) / d.target_value) * 100)) : 0}%</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>{displayPct}%</span>
                   </div>
                 </div>
               </div>
@@ -571,10 +623,44 @@ export default function OKRsView() {
                 <div><label style={_elbl}>Start Date</label><input type="date" value={d.start_date || ""} onChange={e => editSet("start_date", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>End Date</label><input type="date" value={d.end_date || ""} onChange={e => editSet("end_date", e.target.value)} style={_einp} /></div>
               </div>
-            </>}
+            </>;})()}
             {/* MILESTONE EDIT */}
-            {type === "milestone" && <>
+            {type === "milestone" && (() => {
+              const objForMS = objectives.find(o => o.id === d.objective_id);
+              const objKRs = keyResults.filter(k => k.objective_id === d.objective_id);
+              const MS_STATUSES = [{ k: "not_started", l: "Not Started", c: T.text3 }, { k: "in_progress", l: "In Progress", c: T.accent }, { k: "complete", l: "Complete", c: T.green }, { k: "blocked", l: "Blocked", c: T.red }];
+              return <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
+              {/* Progress + Status */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={_elbl}>Progress ({Math.round(Number(d.progress) || 0)}%)</label>
+                  <input type="range" min="0" max="100" value={d.progress || 0} onChange={e => {
+                    const v = Number(e.target.value);
+                    editSet("progress", v);
+                    if (v === 100) editSet("status", "complete");
+                    else if (v > 0) editSet("status", "in_progress");
+                  }} style={{ width: "100%", accentColor: T.accent }} />
+                </div>
+                <div><label style={_elbl}>Status</label>
+                  <select value={d.status || "not_started"} onChange={e => {
+                    const s = e.target.value;
+                    editSet("status", s);
+                    if (s === "complete") editSet("progress", 100);
+                    else if (s === "not_started") editSet("progress", 0);
+                  }} style={{ ..._einp, cursor: "pointer" }}>
+                    {MS_STATUSES.map(s => <option key={s.k} value={s.k}>{s.l}</option>)}
+                  </select>
+                </div>
+              </div>
+              {/* Linked KR */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={_elbl}>Linked Key Result <span style={{ fontWeight: 400, color: T.text3 }}>(optional — rolls progress into KR)</span></label>
+                <select value={d.key_result_id || ""} onChange={e => editSet("key_result_id", e.target.value || null)} style={{ ..._einp, cursor: "pointer" }}>
+                  <option value="">None</option>
+                  {objKRs.map(kr => <option key={kr.id} value={kr.id}>{kr.title}</option>)}
+                </select>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Start Date</label><input type="date" value={d.start_date || ""} onChange={e => editSet("start_date", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>End Date</label><input type="date" value={d.end_date || ""} onChange={e => editSet("end_date", e.target.value)} style={_einp} /></div>
@@ -584,7 +670,7 @@ export default function OKRsView() {
                   {MS_COLORS.map(c => <div key={c} onClick={() => editSet("color", c)} style={{ width: 24, height: 24, borderRadius: 6, background: c, cursor: "pointer", border: d.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: d.color === c ? `0 0 0 2px ${c}` : "none" }} />)}
                 </div>
               </div>
-            </>}
+            </>;})()}
           </div>
           <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button onClick={() => setEditItem(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
@@ -752,7 +838,7 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
     return { ...p, keyResults: kr };
   }), [setObjForm]);
   const setMS = useCallback((idx, k, v) => setObjForm(p => ({ ...p, milestones: p.milestones.map((m, i) => i === idx ? { ...m, [k]: v } : m) })), [setObjForm]);
-  const addMS = useCallback(() => setObjForm(p => ({ ...p, milestones: [...(p.milestones || []), { title: "", start_date: "", end_date: "", color: MS_COLORS[(p.milestones || []).length % MS_COLORS.length] }] })), [setObjForm]);
+  const addMS = useCallback(() => setObjForm(p => ({ ...p, milestones: [...(p.milestones || []), { title: "", start_date: "", end_date: "", color: MS_COLORS[(p.milestones || []).length % MS_COLORS.length], progress: 0, status: "not_started" }] })), [setObjForm]);
   const removeMS = useCallback((idx) => setObjForm(p => ({ ...p, milestones: p.milestones.filter((_, i) => i !== idx) })), [setObjForm]);
   const cloneMS = useCallback((idx) => setObjForm(p => {
     const src = p.milestones[idx];
