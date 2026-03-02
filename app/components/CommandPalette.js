@@ -35,7 +35,25 @@ export default function CommandPalette({ open, onClose, setActive }) {
         type: "project", id: p.id, title: p.name, sub: "Project", icon: "◼",
         color: p.color,
       }));
-      setResults([...nav, ...projResults, ...taskResults]);
+      // Search docs
+      const { data: docs } = await supabase.from("docs").select("id, title, status")
+        .is("deleted_at", null).ilike("title", `%${query}%`).limit(4);
+      const docResults = (docs || []).map(d => ({
+        type: "doc", id: d.id, title: d.title, sub: d.status || "Doc", icon: "📄",
+      }));
+      // Search campaigns
+      const { data: camps } = await supabase.from("campaigns").select("id, name, status")
+        .is("deleted_at", null).ilike("name", `%${query}%`).limit(3);
+      const campResults = (camps || []).map(c => ({
+        type: "campaign", id: c.id, title: c.name, sub: c.status || "Campaign", icon: "📢",
+      }));
+      // Search objectives
+      const { data: objs } = await supabase.from("objectives").select("id, title, health")
+        .is("deleted_at", null).ilike("title", `%${query}%`).limit(3);
+      const objResults = (objs || []).map(o => ({
+        type: "okr", id: o.id, title: o.title, sub: o.health || "Objective", icon: "🎯",
+      }));
+      setResults([...nav, ...projResults, ...taskResults, ...docResults, ...campResults, ...objResults]);
       setSelected(0);
     }, 150);
     return () => clearTimeout(timer);
@@ -49,6 +67,9 @@ export default function CommandPalette({ open, onClose, setActive }) {
     if (item.type === "nav") { setActive(item.id); onClose(); }
     else if (item.type === "project") { setActive("projects"); onClose(); }
     else if (item.type === "task") { setActive("projects"); onClose(); }
+    else if (item.type === "doc") { setActive("docs"); onClose(); }
+    else if (item.type === "campaign") { setActive("campaigns"); onClose(); }
+    else if (item.type === "okr") { setActive("okrs"); onClose(); }
   };
 
   const handleKey = (e) => {
