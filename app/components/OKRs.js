@@ -318,8 +318,10 @@ export default function OKRsView() {
     const kr = keyResults.find(k => k.id === krId);
     if (!kr || kr.progress_mode !== "milestones") return;
     const linked = (msArr || milestones).filter(m => m.key_result_id === krId);
-    const prog = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
-    const cv = Math.round((prog / 100) * (kr.target_value || 100));
+    // Sum actual current_values from all linked milestones
+    const cv = linked.reduce((s, m) => s + Number(m.current_value || 0), 0);
+    const tv = Number(kr.target_value) || 100;
+    const prog = tv > 0 ? Math.min(100, Math.round((cv / tv) * 100)) : 0;
     setKeyResults(p => p.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
     await supabase.from("key_results").update({ progress: prog, current_value: cv }).eq("id", krId);
     recalcObjectiveProgress(kr.objective_id, keyResults.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
