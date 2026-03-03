@@ -30,6 +30,7 @@ export default function OKRsView() {
   const [objectives, setObjectives] = useState([]);
   const [keyResults, setKeyResults] = useState([]);
   const [milestones, setMilestones] = useState([]);
+  const [msUpdates, setMsUpdates] = useState([]);
   const [profiles, setProfiles] = useState({});
   const [expanded, setExpanded] = useState([]);
   const [selectedKR, setSelectedKR] = useState(null);
@@ -74,6 +75,12 @@ export default function OKRsView() {
       setKeyResults(filteredKR);
       const filteredMS = (ms || []).filter(m => (obj || []).some(o => o.id === m.objective_id));
       setMilestones(filteredMS);
+      // Fetch milestone updates
+      if (filteredMS.length > 0) {
+        const msIds = filteredMS.map(m => m.id);
+        const { data: upd } = await supabase.from("milestone_updates").select("*").in("milestone_id", msIds).order("period_start");
+        setMsUpdates(upd || []);
+      }
       setExpanded((obj || []).map(o => o.id));
       setSelectedKR(null);
     })();
@@ -256,11 +263,11 @@ export default function OKRsView() {
       await supabase.from("key_results").update(updates).eq("id", id);
       recalcObjectiveProgress(keyResults.find(k => k.id === id)?.objective_id, keyResults.map(k => k.id === id ? { ...k, ...updates } : k));
     } else if (type === "milestone") {
-      const { id, ...rest } = data;
+      const { id, _newUpdate, ...rest } = data;
       const cv = Number(rest.current_value) || 0;
       const tv = Number(rest.target_value) || 100;
       const autoProg = tv > 0 ? Math.min(100, Math.round((cv / tv) * 100)) : 0;
-      const updates = { title: rest.title, start_date: rest.start_date, end_date: rest.end_date, color: rest.color, current_value: cv, target_value: tv, unit: rest.unit || null, progress: autoProg, status: rest.status || "not_started", key_result_id: rest.key_result_id || null };
+      const updates = { title: rest.title, start_date: rest.start_date, end_date: rest.end_date, color: rest.color, current_value: cv, target_value: tv, unit: rest.unit || null, progress: autoProg, status: rest.status || "not_started", key_result_id: rest.key_result_id || null, health: rest.health || "on_track" };
       setMilestones(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
       await supabase.from("okr_milestones").update(updates).eq("id", id);
       if (updates.key_result_id) {
@@ -491,19 +498,23 @@ export default function OKRsView() {
                       <div key={`w${i}`} style={{ position: "absolute", left: `${p}%`, top: 0, bottom: 0, width: 1, background: `${T.text3}15`, zIndex: 0 }} />
                     ));
                   })()}
-                  {/* Milestone bars */}
+                  {/* Milestone status bars */}
                   {objMS.map((ms, mi) => {
                     const bar = posBar(ms.start_date, ms.end_date);
+                    const h = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
+                    const pct = Number(ms.progress) || 0;
                     return (
-                      <div key={ms.id} style={{ position: "relative", height: 24, marginBottom: 2, zIndex: 1 }}>
-                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${Math.round(Number(ms.progress) || 0)}%)\nClick to edit`}
+                      <div key={ms.id} style={{ position: "relative", height: 28, marginBottom: 2, zIndex: 1 }}>
+                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${h.label}\nClick to edit`}
                           onClick={() => editMilestone(ms)}
-                          style={{ position: "absolute", ...bar, height: 22, borderRadius: 4, background: `${ms.color || "#6366f1"}40`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
+                          style={{ position: "absolute", ...bar, height: 26, borderRadius: 5, background: `${h.color}18`, border: `1.5px solid ${h.color}50`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
                           {/* Progress fill */}
-                          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Number(ms.progress) || 0}%`, background: ms.color || "#6366f1", borderRadius: 4, transition: "width 0.3s" }} />
-                          <span style={{ fontSize: 10, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
-                          {Number(ms.progress) > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", marginLeft: "auto", paddingLeft: 4, position: "relative", zIndex: 1, opacity: 0.9 }}>{Math.round(ms.progress)}%</span>}
-                          <button onClick={e => { e.stopPropagation(); deleteMilestone(ms.id); }} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.5, zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>×</button>
+                          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${h.color}35`, borderRadius: 4, transition: "width 0.3s" }} />
+                          {/* Health dot */}
+                          <div style={{ width: 7, height: 7, borderRadius: 7, background: h.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 6 }} />
+                          <span style={{ fontSize: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: h.color, marginLeft: "auto", paddingLeft: 6, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct}%</span>
+                          <button onClick={e => { e.stopPropagation(); deleteMilestone(ms.id); }} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.2)", color: T.text3, fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0}>×</button>
                         </div>
                       </div>
                     );
@@ -618,7 +629,7 @@ export default function OKRsView() {
     const typeLabel = type === "objective" ? "Objective" : type === "kr" ? "Key Result" : "Milestone";
     return (
       <div onClick={() => setEditItem(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div onClick={e => e.stopPropagation()} style={{ width: type === "milestone" ? 420 : 500, maxHeight: "80vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: type === "milestone" ? 520 : 500, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "16px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Edit {typeLabel}</h3>
             <button onClick={() => setEditItem(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>×</button>
@@ -692,53 +703,120 @@ export default function OKRsView() {
             {/* MILESTONE EDIT */}
             {type === "milestone" && (() => {
               const objKRs = keyResults.filter(k => k.objective_id === d.objective_id);
-              const MS_STATUSES = [{ k: "not_started", l: "Not Started" }, { k: "in_progress", l: "In Progress" }, { k: "complete", l: "Complete" }, { k: "blocked", l: "Blocked" }];
+              const updates = msUpdates.filter(u => u.milestone_id === d.id).sort((a, b) => a.period_start.localeCompare(b.period_start));
+              const cumulative = updates.reduce((s, u) => s + Number(u.value || 0), 0);
               const cv = Number(d.current_value) || 0;
               const tv = Number(d.target_value) || 100;
               const autoPct = tv > 0 ? Math.min(100, Math.round((cv / tv) * 100)) : 0;
+              const h = HEALTH[d.health || "on_track"] || HEALTH.on_track;
               return <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
-              {/* Value-based progress */}
+
+              {/* Health status selector */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={_elbl}>Health Status</label>
+                <div style={{ display: "flex", gap: 0, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.border}` }}>
+                  {Object.entries(HEALTH).map(([k, v]) => (
+                    <button key={k} onClick={() => editSet("health", k)}
+                      style={{ flex: 1, padding: "8px 0", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: (d.health || "on_track") === k ? v.color : T.surface3, color: (d.health || "on_track") === k ? "#fff" : T.text3 }}>{v.label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Target + Unit */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => {
-                  const v = Number(e.target.value) || 0;
-                  editSet("current_value", v);
-                  const p = tv > 0 ? Math.min(100, Math.round((v / tv) * 100)) : 0;
-                  editSet("progress", p);
-                  if (p >= 100) editSet("status", "complete");
-                  else if (p > 0) editSet("status", "in_progress");
-                  else editSet("status", "not_started");
-                }} style={_einp} /></div>
+                <div><label style={_elbl}>Current Total</label><input type="number" value={d.current_value ?? 0} disabled style={{ ..._einp, opacity: 0.6 }} /></div>
                 <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => {
                   const t = Number(e.target.value) || 100;
                   editSet("target_value", t);
-                  const p = t > 0 ? Math.min(100, Math.round((cv / t) * 100)) : 0;
-                  editSet("progress", p);
+                  editSet("progress", t > 0 ? Math.min(100, Math.round((cv / t) * 100)) : 0);
                 }} style={_einp} /></div>
-                <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, %, users" style={_einp} /></div>
+                <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, users" style={_einp} /></div>
               </div>
-              {/* Progress bar + status */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label style={_elbl}>Progress</label>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                    <div style={{ flex: 1, height: 8, borderRadius: 8, background: T.surface3, overflow: "hidden" }}>
-                      <div style={{ width: `${autoPct}%`, height: "100%", borderRadius: 8, background: autoPct >= 100 ? T.green : T.accent, transition: "width 0.3s" }} />
+
+              {/* Progress bar */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: T.text3 }}>Progress</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: h.color }}>{autoPct}%</span>
+                </div>
+                <div style={{ height: 10, borderRadius: 10, background: T.surface3, overflow: "hidden" }}>
+                  <div style={{ width: `${autoPct}%`, height: "100%", borderRadius: 10, background: h.color, transition: "width 0.3s" }} />
+                </div>
+              </div>
+
+              {/* Progress Updates section */}
+              <div style={{ padding: "14px 16px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>Progress Updates</span>
+                  <button onClick={() => {
+                    const today = new Date().toISOString().split("T")[0];
+                    const lastMonday = (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return d.toISOString().split("T")[0]; })();
+                    editSet("_newUpdate", { period_start: lastMonday, period_end: today, value: "", note: "" });
+                  }} style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: `${T.accent}10`, color: T.accent, cursor: "pointer" }}>+ Add Update</button>
+                </div>
+
+                {/* New update form */}
+                {d._newUpdate && (
+                  <div style={{ padding: 12, background: T.bg, borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 10 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px", gap: 8, marginBottom: 8 }}>
+                      <div><label style={{ ..._elbl, fontSize: 10 }}>Period Start</label><input type="date" value={d._newUpdate.period_start} onChange={e => editSet("_newUpdate", { ...d._newUpdate, period_start: e.target.value })} style={{ ..._einp, fontSize: 12 }} /></div>
+                      <div><label style={{ ..._elbl, fontSize: 10 }}>Period End</label><input type="date" value={d._newUpdate.period_end} onChange={e => editSet("_newUpdate", { ...d._newUpdate, period_end: e.target.value })} style={{ ..._einp, fontSize: 12 }} /></div>
+                      <div><label style={{ ..._elbl, fontSize: 10 }}>Value</label><input type="number" value={d._newUpdate.value} onChange={e => editSet("_newUpdate", { ...d._newUpdate, value: e.target.value })} placeholder="0" style={{ ..._einp, fontSize: 12 }} autoFocus /></div>
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: autoPct >= 100 ? T.green : T.accent }}>{autoPct}%</span>
+                    <input value={d._newUpdate.note || ""} onChange={e => editSet("_newUpdate", { ...d._newUpdate, note: e.target.value })} placeholder="Note (optional)" style={{ ..._einp, fontSize: 12, marginBottom: 8 }} />
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => editSet("_newUpdate", null)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 5, border: "none", background: T.surface3, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                      <button onClick={async () => {
+                        const u = d._newUpdate;
+                        if (!u.value || !u.period_start || !u.period_end) return;
+                        const payload = { milestone_id: d.id, period_start: u.period_start, period_end: u.period_end, value: Number(u.value), note: u.note || null, entered_by: user?.id };
+                        const { data: saved } = await supabase.from("milestone_updates").insert(payload).select().single();
+                        if (saved) {
+                          setMsUpdates(p => [...p, saved]);
+                          const newCum = cumulative + Number(u.value);
+                          const newProg = tv > 0 ? Math.min(100, Math.round((newCum / tv) * 100)) : 0;
+                          editSet("current_value", newCum);
+                          editSet("progress", newProg);
+                          editSet("_newUpdate", null);
+                          if (newProg >= 100) editSet("status", "complete");
+                          else if (newProg > 0) editSet("status", "in_progress");
+                          // Save immediately
+                          await supabase.from("okr_milestones").update({ current_value: newCum, progress: newProg }).eq("id", d.id);
+                          setMilestones(p => p.map(m => m.id === d.id ? { ...m, current_value: newCum, progress: newProg } : m));
+                        }
+                      }} style={{ fontSize: 11, padding: "4px 12px", borderRadius: 5, border: "none", background: T.accent, color: "#fff", cursor: "pointer", fontWeight: 600 }}>Save Update</button>
+                    </div>
                   </div>
-                </div>
-                <div><label style={_elbl}>Status</label>
-                  <select value={d.status || "not_started"} onChange={e => {
-                    const s = e.target.value;
-                    editSet("status", s);
-                    if (s === "complete") { editSet("current_value", tv); editSet("progress", 100); }
-                    else if (s === "not_started") { editSet("current_value", 0); editSet("progress", 0); }
-                  }} style={{ ..._einp, cursor: "pointer" }}>
-                    {MS_STATUSES.map(s => <option key={s.k} value={s.k}>{s.l}</option>)}
-                  </select>
-                </div>
+                )}
+
+                {/* Update history */}
+                {updates.length > 0 ? (
+                  <div style={{ maxHeight: 150, overflow: "auto" }}>
+                    {updates.map((u, i) => (
+                      <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: i < updates.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                        <span style={{ fontSize: 10, color: T.text3, minWidth: 90 }}>{u.period_start} →<br />{u.period_end}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text, minWidth: 50 }}>+{u.value}</span>
+                        {u.note && <span style={{ fontSize: 11, color: T.text3, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.note}</span>}
+                        <button onClick={async () => {
+                          await supabase.from("milestone_updates").delete().eq("id", u.id);
+                          setMsUpdates(p => p.filter(x => x.id !== u.id));
+                          const newCum = cumulative - Number(u.value);
+                          const newProg = tv > 0 ? Math.min(100, Math.round((Math.max(0, newCum) / tv) * 100)) : 0;
+                          editSet("current_value", Math.max(0, newCum));
+                          editSet("progress", newProg);
+                          await supabase.from("okr_milestones").update({ current_value: Math.max(0, newCum), progress: newProg }).eq("id", d.id);
+                          setMilestones(p => p.map(m => m.id === d.id ? { ...m, current_value: Math.max(0, newCum), progress: newProg } : m));
+                        }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, opacity: 0.4, padding: 0 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button>
+                      </div>
+                    ))}
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, paddingTop: 6, borderTop: `1px solid ${T.border}`, marginTop: 4 }}>Cumulative: {cumulative} {d.unit || ""}</div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>No updates yet — add your first progress update above</div>
+                )}
               </div>
+
               {/* Linked KR */}
               <div style={{ marginBottom: 12 }}>
                 <label style={_elbl}>Linked Key Result <span style={{ fontWeight: 400, color: T.text3 }}>(optional — rolls progress into KR)</span></label>
@@ -750,11 +828,6 @@ export default function OKRsView() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Start Date</label><input type="date" value={d.start_date || ""} onChange={e => editSet("start_date", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>End Date</label><input type="date" value={d.end_date || ""} onChange={e => editSet("end_date", e.target.value)} style={_einp} /></div>
-              </div>
-              <div><label style={_elbl}>Color</label>
-                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                  {MS_COLORS.map(c => <div key={c} onClick={() => editSet("color", c)} style={{ width: 24, height: 24, borderRadius: 6, background: c, cursor: "pointer", border: d.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: d.color === c ? `0 0 0 2px ${c}` : "none" }} />)}
-                </div>
               </div>
             </>;})()}
           </div>
