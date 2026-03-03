@@ -58,8 +58,13 @@ export default function ProjectsView() {
   const [milestones, setMilestones] = useState([]);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [showMyTasks, setShowMyTasks] = useState(false);
+  const [ctxProject, setCtxProject] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const showToast = useCallback((msg, type = "error") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
+  const archiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "archived" }).eq("id", id); if (error) return showToast("Failed to archive"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "archived" } : pr)); if (activeProject === id) setActiveProject(null); showToast("Project archived", "success"); };
+  const unarchiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "active" }).eq("id", id); if (error) return showToast("Failed to restore"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "active" } : pr)); showToast("Project restored", "success"); };
+  const deleteProject = async (id) => { const name = projects.find(p => p.id === id)?.name || "this project"; if (!window.confirm(`Delete "${name}"? This will permanently remove the project and all its tasks. This cannot be undone.`)) return; await supabase.from("tasks").delete().eq("project_id", id); await supabase.from("sections").delete().eq("project_id", id); await supabase.from("project_members").delete().eq("project_id", id); const { error } = await supabase.from("projects").delete().eq("id", id); if (error) return showToast("Failed to delete: " + error.message); setProjects(p => p.filter(pr => pr.id !== id)); setTasks(p => p.filter(t => t.project_id !== id)); setSections(p => p.filter(s => s.project_id !== id)); if (activeProject === id) { setActiveProject(null); setSelectedTask(null); } showToast("Project deleted", "success"); };
   const ini = (uid) => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const iniName = (name) => name ? name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?";
   const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
@@ -113,7 +118,7 @@ export default function ProjectsView() {
   }, [activeProject]);
 
   useEffect(() => {
-    const fn = (e) => { if (e.key === "Escape") { if (showProjectForm) setShowProjectForm(false); else if (selectedTask) setSelectedTask(null); else if (editingSectionId) setEditingSectionId(null); else if (addingTo) { setAddingTo(null); setNewTitle(""); } } };
+    const fn = (e) => { if (e.key === "Escape") { if (ctxProject) setCtxProject(null); else if (showProjectForm) setShowProjectForm(false); else if (selectedTask) setSelectedTask(null); else if (editingSectionId) setEditingSectionId(null); else if (addingTo) { setAddingTo(null); setNewTitle(""); } } };
     document.addEventListener("keydown", fn); return () => document.removeEventListener("keydown", fn);
   }, [showProjectForm, selectedTask, editingSectionId, addingTo]);
   const proj = projects.find(p => p.id === activeProject);
@@ -175,16 +180,40 @@ export default function ProjectsView() {
         My Tasks
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "4px 8px" }}>
-        {projects.map(p => { const pt = tasks.filter(t => t.project_id === p.id); const pd = pt.filter(t => t.status === "done").length; const pp = pt.length ? Math.round((pd / pt.length) * 100) : 0; const act = activeProject === p.id && !showMyTasks; return (
+        {projects.filter(p => p.status !== "archived").map(p => { const pt = tasks.filter(t => t.project_id === p.id); const pd = pt.filter(t => t.status === "done").length; const pp = pt.length ? Math.round((pd / pt.length) * 100) : 0; const act = activeProject === p.id && !showMyTasks; return (
           <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2 }}>
+            onContextMenu={e => { e.preventDefault(); setCtxProject(ctxProject === p.id ? null : p.id); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
             <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
               <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{pt.length} tasks · {pp}%</div>
             </div>
             <div style={{ width: 32, height: 3, borderRadius: 2, background: T.surface3, flexShrink: 0 }}><div style={{ width: `${pp}%`, height: "100%", borderRadius: 2, background: p.color || T.accent, transition: "width 0.4s" }} /></div>
+            {ctxProject === p.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 4, top: "100%", zIndex: 50, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 4, minWidth: 140, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
+              <div onClick={() => { archiveProject(p.id); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>Archive
+              </div>
+              <div onClick={() => { deleteProject(p.id); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.red, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>Delete
+              </div>
+            </div>}
           </div>); })}
+        {projects.some(p => p.status === "archived") && <>
+          <div onClick={() => setShowArchived(!showArchived)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", marginTop: 8, fontSize: 11, color: T.text3, cursor: "pointer", fontWeight: 600 }}>
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" style={{ transform: showArchived ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s" }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg>
+            Archived ({projects.filter(p => p.status === "archived").length})
+          </div>
+          {showArchived && projects.filter(p => p.status === "archived").map(p => (
+            <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 6, cursor: "pointer", background: activeProject === p.id ? T.accentDim : "transparent", marginBottom: 2, opacity: 0.6 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.text3, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+              </div>
+              <button onClick={e => { e.stopPropagation(); unarchiveProject(p.id); }} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "none", background: T.surface3, color: T.text3, cursor: "pointer" }}>Restore</button>
+            </div>
+          ))}
+        </>}
       </div>
     </div>
   );
@@ -198,6 +227,8 @@ export default function ProjectsView() {
         <span style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>{progress}%</span>
         <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3 }}><div style={{ width: `${progress}%`, height: "100%", borderRadius: 2, background: proj.color || T.accent, transition: "width 0.5s" }} /></div>
         <button onClick={openEditProject} style={S.iconBtn} title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18.4 2.6a2.17 2.17 0 013 3L12 15l-4 1 1-4 9.4-9.4z"/></svg></button>
+        <button onClick={() => archiveProject(proj.id)} style={S.iconBtn} title="Archive"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg></button>
+        <button onClick={() => deleteProject(proj.id)} style={{ ...S.iconBtn, color: T.red }} title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
         {showSidebar && <button onClick={() => setShowSidebar(false)} style={S.iconBtn} title="Collapse"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M11 19l-7-7 7-7"/><path d="M4 12h16"/></svg></button>}
       </div>
       <div style={{ display: "flex", gap: 0, padding: "0 20px", overflow: "auto" }}>
@@ -436,7 +467,7 @@ export default function ProjectsView() {
     </div>); })();
   // MAIN RENDER
   return (
-    <div style={{ display: "flex", height: "100%", background: T.bg, overflow: "hidden" }}>
+    <div onClick={() => ctxProject && setCtxProject(null)} style={{ display: "flex", height: "100%", background: T.bg, overflow: "hidden" }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
       {toast && <div style={{ position: "fixed", top: 16, right: 16, zIndex: 200, padding: "10px 16px", borderRadius: 8, background: toast.type === "success" ? T.greenDim : T.redDim, color: toast.type === "success" ? T.green : T.red, fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", animation: "slideIn 0.2s ease" }}>{toast.msg}</div>}
       <ProjectSidebar />
