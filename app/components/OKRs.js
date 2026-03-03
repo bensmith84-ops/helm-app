@@ -348,8 +348,29 @@ export default function OKRsView() {
     const todayPct = ((now - startDate) / (endDate - startDate)) * 100;
     const showToday = todayPct >= 0 && todayPct <= 100;
 
-    const leftColW = 140;
-    const krColW = 260;
+    const [rmObjW, setRmObjW] = useState(() => { try { return Number(localStorage.getItem("rm_obj_w")) || 160; } catch { return 160; } });
+    const [rmKrW, setRmKrW] = useState(() => { try { return Number(localStorage.getItem("rm_kr_w")) || 260; } catch { return 260; } });
+    const leftColW = rmObjW;
+    const krColW = rmKrW;
+
+    const startResize = (col, e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = col === "obj" ? rmObjW : rmKrW;
+      const onMove = (ev) => {
+        const delta = ev.clientX - startX;
+        const newW = Math.max(100, startW + delta);
+        if (col === "obj") { setRmObjW(newW); try { localStorage.setItem("rm_obj_w", newW); } catch {} }
+        else { setRmKrW(newW); try { localStorage.setItem("rm_kr_w", newW); } catch {} }
+      };
+      const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
+
+    const ResizeHandle = ({ col }) => (
+      <div onMouseDown={e => startResize(col, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 5, cursor: "col-resize", zIndex: 4 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
+    );
 
     return (
       <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
@@ -360,9 +381,11 @@ export default function OKRsView() {
             <div style={{ height: 24, borderBottom: `1px solid ${T.border}`, background: T.surface }} />
             {/* Month header row */}
             <div style={{ display: "flex", height: 32, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-              <div style={{ width: leftColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 16 }}>Objectives</div>
-              <div style={{ width: krColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 12, borderLeft: `1px solid ${T.border}` }}>Key Results</div>
+              <div style={{ width: leftColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 16, position: "relative" }}>Objectives<ResizeHandle col="obj" /></div>
+              <div style={{ width: krColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 12, borderLeft: `1px solid ${T.border}`, position: "relative" }}>Key Results<ResizeHandle col="kr" /></div>
             </div>
+            {/* Week sub-header spacer (matches timeline) */}
+            <div style={{ height: 18, borderBottom: `1px solid ${T.border}`, background: T.bg }} />
             {/* Objective rows */}
             {objectives.map((obj, oi) => {
               const objKRs = keyResults.filter(k => k.objective_id === obj.id);

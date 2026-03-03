@@ -47,16 +47,26 @@ export default function ScorecardView() {
   }
   const thisWeek = fmt(currentMonday);
 
+  const [okrObjectives, setOkrObjectives] = useState([]);
+  const [okrKRs, setOkrKRs] = useState([]);
+  const [okrMilestones, setOkrMilestones] = useState([]);
+
   useEffect(() => {
     (async () => {
-      const [{ data: m }, { data: p }] = await Promise.all([
+      const [{ data: m }, { data: p }, { data: obj }, { data: kr }, { data: ms }] = await Promise.all([
         supabase.from("l10_metrics").select("*").eq("org_id", profile?.org_id).order("sort_order"),
         supabase.from("profiles").select("id,display_name,avatar_url"),
+        supabase.from("objectives").select("id,title").is("deleted_at", null),
+        supabase.from("key_results").select("id,title,objective_id,current_value,target_value,unit").is("deleted_at", null),
+        supabase.from("okr_milestones").select("id,title,objective_id,current_value,target_value,unit"),
       ]);
       setMetrics(m || []);
       const pm = {};
       (p || []).forEach(u => { pm[u.id] = u; });
       setProfiles(pm);
+      setOkrObjectives(obj || []);
+      setOkrKRs(kr || []);
+      setOkrMilestones(ms || []);
 
       if (m && m.length > 0) {
         const ids = m.map(x => x.id);
@@ -89,20 +99,18 @@ export default function ScorecardView() {
 
   // CRUD
   const addMetric = () => {
-    setEditMetric({ title: "", owner_id: user?.id || "", unit: "", target_value: 0, goal_direction: "above" });
+    setEditMetric({ title: "", owner_id: user?.id || "", unit: "", target_value: 0, goal_direction: "above", linked_kr_id: null, linked_milestone_id: null });
   };
 
   const saveMetric = async () => {
     if (!editMetric || !editMetric.title.trim()) return;
     if (editMetric.id) {
-      // Update
       const { id, ...rest } = editMetric;
-      const updates = { title: rest.title, owner_id: rest.owner_id || null, unit: rest.unit, target_value: Number(rest.target_value), goal_direction: rest.goal_direction };
+      const updates = { title: rest.title, owner_id: rest.owner_id || null, unit: rest.unit, target_value: Number(rest.target_value), goal_direction: rest.goal_direction, linked_kr_id: rest.linked_kr_id || null, linked_milestone_id: rest.linked_milestone_id || null };
       setMetrics(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
       await supabase.from("l10_metrics").update(updates).eq("id", id);
     } else {
-      // Insert
-      const ins = { org_id: profile?.org_id, title: editMetric.title.trim(), owner_id: editMetric.owner_id || null, unit: editMetric.unit, target_value: Number(editMetric.target_value), goal_direction: editMetric.goal_direction, sort_order: metrics.length };
+      const ins = { org_id: profile?.org_id, title: editMetric.title.trim(), owner_id: editMetric.owner_id || null, unit: editMetric.unit, target_value: Number(editMetric.target_value), goal_direction: editMetric.goal_direction, sort_order: metrics.length, linked_kr_id: editMetric.linked_kr_id || null, linked_milestone_id: editMetric.linked_milestone_id || null };
       const { data } = await supabase.from("l10_metrics").insert(ins).select().single();
       if (data) setMetrics(p => [...p, data]);
     }
@@ -146,12 +154,38 @@ export default function ScorecardView() {
       entered_by: user?.id,
     };
 
+    let newEntries;
     if (editEntry.id) {
-      setEntries(p => p.map(e => e.id === editEntry.id ? { ...e, ...payload } : e));
+      newEntries = entries.map(e => e.id === editEntry.id ? { ...e, ...payload } : e);
+      setEntries(newEntries);
       await supabase.from("l10_entries").update(payload).eq("id", editEntry.id);
     } else {
       const { data } = await supabase.from("l10_entries").insert(payload).select().single();
-      if (data) setEntries(p => [...p, data]);
+      if (data) {
+        newEntries = [...entries, data];
+        setEntries(newEntries);
+      } else {
+        newEntries = entries;
+      }
+    }
+
+    // Sync cumulative weekly values to linked milestone or KR
+    if (metric && (metric.linked_milestone_id || metric.linked_kr_id)) {
+      const metricEntries = (newEntries || entries).filter(e => e.metric_id === metric.id && e.actual_value != null);
+      const cumulative = metricEntries.reduce((sum, e) => sum + Number(e.actual_value || 0), 0);
+
+      if (metric.linked_milestone_id) {
+        const prog = metric.target_value > 0 ? Math.min(100, Math.round((cumulative / metric.target_value) * 100)) : 0;
+        await supabase.from("okr_milestones").update({ current_value: cumulative, progress: prog, status: prog >= 100 ? "complete" : prog > 0 ? "in_progress" : "not_started" }).eq("id", metric.linked_milestone_id);
+      }
+      if (metric.linked_kr_id) {
+        const kr = okrKRs.find(k => k.id === metric.linked_kr_id);
+        if (kr) {
+          const tv = Number(kr.target_value) || 100;
+          const prog = tv > 0 ? Math.min(100, Math.round((cumulative / tv) * 100)) : 0;
+          await supabase.from("key_results").update({ current_value: cumulative, progress: prog }).eq("id", metric.linked_kr_id);
+        }
+      }
     }
     setEditEntry(null);
   };
@@ -232,6 +266,7 @@ export default function ScorecardView() {
                       <button onClick={() => deleteMetric(metric.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11, opacity: 0.3, padding: 0 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.3}>×</button>
                     </div>
                     {metric.unit && <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{metric.unit}</div>}
+                    {(metric.linked_kr_id || metric.linked_milestone_id) && <div style={{ fontSize: 8, color: T.accent, marginTop: 2, fontWeight: 600 }}>⟂ Linked to OKR</div>}
                   </td>
                   {/* Owner */}
                   <td style={{ position: "sticky", left: 200, background: T.bg, zIndex: 1, textAlign: "center", borderRight: `1px solid ${T.border}` }}>
@@ -318,6 +353,35 @@ export default function ScorecardView() {
                   </select>
                 </div>
               </div>
+              {/* OKR Linkage */}
+              <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 12 }}>
+                <label style={{ ..._lbl, fontWeight: 600, fontSize: 12, marginBottom: 8 }}>Link to OKR <span style={{ fontWeight: 400, color: T.text3 }}>(optional — weekly totals push to OKR progress)</span></label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ ..._lbl, fontSize: 10 }}>Key Result</label>
+                    <select value={editMetric.linked_kr_id || ""} onChange={e => setEditMetric(p => ({ ...p, linked_kr_id: e.target.value || null }))} style={{ ..._inp, fontSize: 12, cursor: "pointer" }}>
+                      <option value="">None</option>
+                      {okrKRs.map(kr => {
+                        const obj = okrObjectives.find(o => o.id === kr.objective_id);
+                        return <option key={kr.id} value={kr.id}>{obj ? obj.title + " → " : ""}{kr.title}</option>;
+                      })}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ ..._lbl, fontSize: 10 }}>Milestone</label>
+                    <select value={editMetric.linked_milestone_id || ""} onChange={e => setEditMetric(p => ({ ...p, linked_milestone_id: e.target.value || null }))} style={{ ..._inp, fontSize: 12, cursor: "pointer" }}>
+                      <option value="">None</option>
+                      {okrMilestones.map(ms => {
+                        const obj = okrObjectives.find(o => o.id === ms.objective_id);
+                        return <option key={ms.id} value={ms.id}>{obj ? obj.title + " → " : ""}{ms.title}</option>;
+                      })}
+                    </select>
+                  </div>
+                </div>
+                {(editMetric.linked_kr_id || editMetric.linked_milestone_id) && (
+                  <div style={{ fontSize: 10, color: T.accent, marginTop: 6 }}>Sum of all weekly entries will auto-update the linked OKR's current value</div>
+                )}
+              </div>
             </div>
             <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setEditMetric(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
@@ -363,6 +427,21 @@ export default function ScorecardView() {
                       style={{ ..._inp, resize: "vertical", background: T.surface, marginTop: 4 }} />
                   </div>
                 )}
+
+                {/* OKR sync info */}
+                {metric && (metric.linked_kr_id || metric.linked_milestone_id) && (() => {
+                  const otherEntries = entries.filter(e => e.metric_id === metric.id && e.actual_value != null && e.week_start !== editEntry.week_start);
+                  const otherSum = otherEntries.reduce((s, e) => s + Number(e.actual_value || 0), 0);
+                  const projectedTotal = otherSum + (Number(editEntry.actual_value) || 0);
+                  const linkedName = metric.linked_kr_id ? okrKRs.find(k => k.id === metric.linked_kr_id)?.title : okrMilestones.find(m => m.id === metric.linked_milestone_id)?.title;
+                  return (
+                    <div style={{ marginBottom: 16, padding: 12, background: `${T.accent}08`, border: `1px solid ${T.accent}25`, borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginBottom: 4 }}>⟂ Linked: {linkedName}</div>
+                      <div style={{ fontSize: 12, color: T.text2 }}>Cumulative total across all weeks: <strong>{projectedTotal}</strong> {metric.unit}</div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>This total will sync to the linked OKR on save</div>
+                    </div>
+                  );
+                })()}
 
                 {/* Comment */}
                 <div>
