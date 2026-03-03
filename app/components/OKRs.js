@@ -916,24 +916,59 @@ export default function OKRsView() {
 
                 {/* Update history */}
                 {updates.length > 0 ? (
-                  <div style={{ maxHeight: 150, overflow: "auto" }}>
-                    {updates.map((u, i) => (
-                      <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: i < updates.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                        <span style={{ fontSize: 10, color: T.text3, minWidth: 90 }}>{u.period_start} →<br />{u.period_end}</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text, minWidth: 50 }}>+{u.value}</span>
-                        {u.note && <span style={{ fontSize: 11, color: T.text3, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.note}</span>}
-                        <button onClick={async () => {
-                          await supabase.from("milestone_updates").delete().eq("id", u.id);
-                          setMsUpdates(p => p.filter(x => x.id !== u.id));
-                          const newCum = cumulative - Number(u.value);
-                          const newProg = tv > 0 ? Math.min(100, Math.round((Math.max(0, newCum) / tv) * 100)) : 0;
-                          editSet("current_value", Math.max(0, newCum));
-                          editSet("progress", newProg);
-                          await supabase.from("okr_milestones").update({ current_value: Math.max(0, newCum), progress: newProg }).eq("id", d.id);
-                          setMilestones(p => p.map(m => m.id === d.id ? { ...m, current_value: Math.max(0, newCum), progress: newProg } : m));
-                        }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, opacity: 0.4, padding: 0 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button>
+                  <div style={{ maxHeight: 200, overflow: "auto" }}>
+                    {updates.map((u, i) => {
+                      const isEditing = d._editingUpdate === u.id;
+                      return (
+                      <div key={u.id} style={{ padding: "6px 0", borderBottom: i < updates.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                        {isEditing ? (
+                          <div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 6, marginBottom: 6 }}>
+                              <div><label style={{ fontSize: 9, color: T.text3 }}>From</label><input type="date" value={d._editUpdateData?.period_start || u.period_start} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), period_start: e.target.value })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
+                              <div><label style={{ fontSize: 9, color: T.text3 }}>To</label><input type="date" value={d._editUpdateData?.period_end || u.period_end} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), period_end: e.target.value })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
+                              <div><label style={{ fontSize: 9, color: T.text3 }}>Value</label><input type="number" value={d._editUpdateData?.value ?? u.value} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), value: e.target.value })} autoFocus style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
+                            </div>
+                            <input value={d._editUpdateData?.note ?? (u.note || "")} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), note: e.target.value })} placeholder="Note" style={{ ..._einp, fontSize: 11, padding: "4px 6px", marginBottom: 6 }} />
+                            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                              <button onClick={() => { editSet("_editingUpdate", null); editSet("_editUpdateData", null); }} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, border: "none", background: T.surface3, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                              <button onClick={async () => {
+                                const ed = d._editUpdateData || u;
+                                const newVal = Number(ed.value) || 0;
+                                const oldVal = Number(u.value) || 0;
+                                await supabase.from("milestone_updates").update({ period_start: ed.period_start, period_end: ed.period_end, value: newVal, note: ed.note || null }).eq("id", u.id);
+                                setMsUpdates(p => p.map(x => x.id === u.id ? { ...x, period_start: ed.period_start, period_end: ed.period_end, value: newVal, note: ed.note || null } : x));
+                                const newCum = cumulative - oldVal + newVal;
+                                const newProg = tv > 0 ? Math.min(100, Math.round((Math.max(0, newCum) / tv) * 100)) : 0;
+                                editSet("current_value", Math.max(0, newCum));
+                                editSet("progress", newProg);
+                                editSet("_editingUpdate", null);
+                                editSet("_editUpdateData", null);
+                                await supabase.from("okr_milestones").update({ current_value: Math.max(0, newCum), progress: newProg }).eq("id", d.id);
+                                setMilestones(p => p.map(m => m.id === d.id ? { ...m, current_value: Math.max(0, newCum), progress: newProg } : m));
+                              }} style={{ fontSize: 10, padding: "3px 10px", borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer", fontWeight: 600 }}>Save</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ fontSize: 10, color: T.text3, minWidth: 90 }}>{u.period_start} →<br />{u.period_end}</span>
+                            <span onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ fontSize: 13, fontWeight: 700, color: T.accent, minWidth: 50, cursor: "pointer", borderBottom: `1px dashed ${T.accent}40` }}>+{u.value}</span>
+                            <span onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ fontSize: 11, color: T.text3, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{u.note || "—"}</span>
+                            <button onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 9, opacity: 0.4, padding: "2px 4px" }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>✎</button>
+                            <button onClick={async () => {
+                              await supabase.from("milestone_updates").delete().eq("id", u.id);
+                              setMsUpdates(p => p.filter(x => x.id !== u.id));
+                              const newCum = cumulative - Number(u.value);
+                              const newProg = tv > 0 ? Math.min(100, Math.round((Math.max(0, newCum) / tv) * 100)) : 0;
+                              editSet("current_value", Math.max(0, newCum));
+                              editSet("progress", newProg);
+                              await supabase.from("okr_milestones").update({ current_value: Math.max(0, newCum), progress: newProg }).eq("id", d.id);
+                              setMilestones(p => p.map(m => m.id === d.id ? { ...m, current_value: Math.max(0, newCum), progress: newProg } : m));
+                            }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, opacity: 0.4, padding: 0 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    );
+                    })}
                     <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, paddingTop: 6, borderTop: `1px solid ${T.border}`, marginTop: 4 }}>Cumulative: {cumulative} {d.unit || ""}</div>
                   </div>
                 ) : (
