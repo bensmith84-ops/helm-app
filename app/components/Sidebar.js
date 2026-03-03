@@ -4,6 +4,7 @@ import { T } from "../tokens";
 export const NAV_ITEMS = [
   { key: "dashboard", icon: "⬡", label: "Home" },
   { key: "okrs", icon: "◎", label: "OKRs" },
+  { key: "scorecard", icon: "▣", label: "Scorecard" },
   { key: "projects", icon: "◫", label: "Projects" },
   { key: "messages", icon: "◬", label: "Messages" },
   { key: "docs", icon: "▤", label: "Docs" },

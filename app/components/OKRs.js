@@ -418,6 +418,30 @@ export default function OKRsView() {
                 <div key={i} style={{ width: `${m.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 500, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.label}</div>
               ))}
             </div>
+            {/* Week sub-header */}
+            {(() => {
+              const weeks = [];
+              const ws = new Date(startDate);
+              ws.setDate(ws.getDate() - ws.getDay() + 1); // Start on Monday
+              if (ws < startDate) ws.setDate(ws.getDate() + 7);
+              while (ws <= endDate) {
+                const pct = ((ws - startDate) / (endDate - startDate)) * 100;
+                const we = new Date(ws); we.setDate(we.getDate() + 6);
+                const wLabel = `W${Math.ceil(ws.getDate() / 7)}`;
+                weeks.push({ pct, label: wLabel, date: new Date(ws) });
+                ws.setDate(ws.getDate() + 7);
+              }
+              return (
+                <div style={{ position: "relative", height: 18, borderBottom: `1px solid ${T.border}`, background: T.bg }}>
+                  {weeks.map((w, i) => (
+                    <div key={i} style={{ position: "absolute", left: `${w.pct}%`, top: 0, bottom: 0, display: "flex", alignItems: "center" }}>
+                      <div style={{ width: 1, height: "100%", background: `${T.text3}30` }} />
+                      <span style={{ fontSize: 8, color: T.text3, marginLeft: 3, whiteSpace: "nowrap" }}>{w.label}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             {/* Data rows — one per objective */}
             {objectives.map((obj, oi) => {
               const objKRs = keyResults.filter(k => k.objective_id === obj.id);
@@ -429,6 +453,21 @@ export default function OKRsView() {
                   {months.map((m, i) => (
                     <div key={i} style={{ position: "absolute", left: `${m.startPct + m.widthPct}%`, top: 0, bottom: 0, width: 1, background: T.border, zIndex: 0 }} />
                   ))}
+                  {/* Weekly grid lines */}
+                  {(() => {
+                    const wlines = [];
+                    const wk = new Date(startDate);
+                    wk.setDate(wk.getDate() - wk.getDay() + 1);
+                    if (wk < startDate) wk.setDate(wk.getDate() + 7);
+                    while (wk <= endDate) {
+                      const pct = ((wk - startDate) / (endDate - startDate)) * 100;
+                      wlines.push(pct);
+                      wk.setDate(wk.getDate() + 7);
+                    }
+                    return wlines.map((p, i) => (
+                      <div key={`w${i}`} style={{ position: "absolute", left: `${p}%`, top: 0, bottom: 0, width: 1, background: `${T.text3}15`, zIndex: 0 }} />
+                    ));
+                  })()}
                   {/* Milestone bars */}
                   {objMS.map((ms, mi) => {
                     const bar = posBar(ms.start_date, ms.end_date);

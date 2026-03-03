@@ -13,6 +13,7 @@ import NotificationBell from "./components/NotificationBell";
 // Lazy load all non-dashboard views
 const ProjectsView = lazy(() => import("./components/Projects"));
 const OKRsView = lazy(() => import("./components/OKRs"));
+const ScorecardView = lazy(() => import("./components/Scorecard"));
 const MessagesView = lazy(() => import("./components/Messages"));
 const DocsView = lazy(() => import("./components/Docs"));
 const CalendarView = lazy(() => import("./components/Calendar"));
@@ -112,6 +113,7 @@ export default function HelmApp() {
       case "dashboard": return <DashboardView setActive={setActive} />;
       case "projects": return <ProjectsView />;
       case "okrs": return <OKRsView />;
+      case "scorecard": return <ScorecardView />;
       case "messages": return <MessagesView />;
       case "docs": return <DocsView />;
       case "calendar": return <CalendarView />;
