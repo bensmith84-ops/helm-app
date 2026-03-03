@@ -38,30 +38,29 @@ export default function AuthPage() {
         </div>
 
         {/* Form */}
+        <form onSubmit={e => { e.preventDefault(); handleSubmit(); }} autoComplete="on">
         {mode === "signup" && (
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name"
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" autoComplete="name"
               style={{ width: "100%", padding: "10px 14px", fontSize: 14, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, outline: "none", fontFamily: "inherit" }} />
           </div>
         )}
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Email</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com"
-            onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email"
             style={{ width: "100%", padding: "10px 14px", fontSize: 14, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, outline: "none", fontFamily: "inherit" }} />
         </div>
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Password</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
-            onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete={mode === "signin" ? "current-password" : "new-password"}
             style={{ width: "100%", padding: "10px 14px", fontSize: 14, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, outline: "none", fontFamily: "inherit" }} />
         </div>
 
         {error && <div style={{ padding: "8px 12px", borderRadius: 6, background: "#ef444415", color: "#ef4444", fontSize: 12, marginBottom: 14 }}>{error}</div>}
         {success && <div style={{ padding: "8px 12px", borderRadius: 6, background: "#22c55e15", color: "#22c55e", fontSize: 12, marginBottom: 14 }}>{success}</div>}
 
-        <button onClick={handleSubmit} disabled={loading || !email || !password}
+        <button type="submit" disabled={loading || !email || !password}
           style={{
             width: "100%", padding: "12px 20px", fontSize: 14, fontWeight: 700, borderRadius: 8,
             border: "none", background: T.accent, color: "#fff", cursor: loading ? "wait" : "pointer",
@@ -69,6 +68,7 @@ export default function AuthPage() {
           }}>
           {loading ? "..." : mode === "signin" ? "Sign In" : "Create Account"}
         </button>
+        </form>
 
         <div style={{ textAlign: "center", fontSize: 13, color: T.text3 }}>
           {mode === "signin" ? "Don't have an account? " : "Already have an account? "}
