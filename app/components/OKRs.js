@@ -134,7 +134,7 @@ export default function OKRsView() {
   const updateKRValue = async (krId, value) => {
     const kr = keyResults.find(k => k.id === krId);
     if (!kr) return;
-    const newProgress = kr.target_value > 0 ? Math.min(100, Math.round((value / kr.target_value) * 100)) : 0;
+    const newProgress = kr.target_value > 0 ? Math.round((value / kr.target_value) * 100) : 0;
     setKeyResults(p => p.map(k => k.id === krId ? { ...k, current_value: value, progress: newProgress } : k));
     await supabase.from("key_results").update({ current_value: value, progress: newProgress }).eq("id", krId);
     const objId = kr.objective_id;
@@ -321,7 +321,7 @@ export default function OKRsView() {
     // Sum actual current_values from all linked milestones
     const cv = linked.reduce((s, m) => s + Number(m.current_value || 0), 0);
     const tv = Number(kr.target_value) || 100;
-    const prog = tv > 0 ? Math.min(100, Math.round((cv / tv) * 100)) : 0;
+    const prog = tv > 0 ? Math.round((cv / tv) * 100) : 0;
     setKeyResults(p => p.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
     await supabase.from("key_results").update({ progress: prog, current_value: cv }).eq("id", krId);
     recalcObjectiveProgress(kr.objective_id, keyResults.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
@@ -340,7 +340,7 @@ export default function OKRsView() {
       const mode = rest.progress_mode || "manual";
       const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0, progress_mode: mode };
       if (mode === "manual") {
-        updates.progress = updates.target_value > 0 ? Math.min(100, Math.round((updates.current_value / updates.target_value) * 100)) : 0;
+        updates.progress = updates.target_value > 0 ? Math.round((updates.current_value / updates.target_value) * 100) : 0;
       } else {
         const linked = milestones.filter(m => m.key_result_id === id);
         updates.progress = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
@@ -353,7 +353,7 @@ export default function OKRsView() {
       const { id, _newUpdate, ...rest } = data;
       const cv = Number(rest.current_value) || 0;
       const tv = Number(rest.target_value) || 100;
-      const autoProg = tv > 0 ? Math.min(100, Math.round((cv / tv) * 100)) : 0;
+      const autoProg = tv > 0 ? Math.round((cv / tv) * 100) : 0;
       const updates = { title: rest.title, start_date: rest.start_date, end_date: rest.end_date, color: rest.color, current_value: cv, target_value: tv, unit: rest.unit || null, progress: autoProg, status: rest.status || "not_started", key_result_id: rest.key_result_id || null, health: rest.health || "on_track" };
       setMilestones(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
       await supabase.from("okr_milestones").update(updates).eq("id", id);
@@ -788,7 +788,7 @@ export default function OKRsView() {
               const mode = d.progress_mode || "manual";
               const linkedMS = milestones.filter(m => m.key_result_id === d.id);
               const autoProgress = linkedMS.length > 0 ? Math.round(linkedMS.reduce((s, m) => s + Number(m.progress || 0), 0) / linkedMS.length) : 0;
-              const displayPct = mode === "milestones" ? autoProgress : (d.target_value > 0 ? Math.min(100, Math.round(((d.current_value || 0) / d.target_value) * 100)) : 0);
+              const displayPct = mode === "milestones" ? autoProgress : (d.target_value > 0 ? Math.round(((d.current_value || 0) / d.target_value) * 100) : 0);
               return <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
               {/* Progress mode toggle */}
@@ -833,7 +833,7 @@ export default function OKRsView() {
               const cumulative = updates.reduce((s, u) => s + Number(u.value || 0), 0);
               const cv = Number(d.current_value) || 0;
               const tv = Number(d.target_value) || 100;
-              const autoPct = tv > 0 ? Math.min(100, Math.round((cv / tv) * 100)) : 0;
+              const autoPct = tv > 0 ? Math.round((cv / tv) * 100) : 0;
               const h = HEALTH[d.health || "on_track"] || HEALTH.on_track;
               return <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
@@ -855,7 +855,7 @@ export default function OKRsView() {
                 <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => {
                   const t = Number(e.target.value) || 100;
                   editSet("target_value", t);
-                  editSet("progress", t > 0 ? Math.min(100, Math.round((cv / t) * 100)) : 0);
+                  editSet("progress", t > 0 ? Math.round((cv / t) * 100) : 0);
                 }} style={_einp} /></div>
                 <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, users" style={_einp} /></div>
               </div>
@@ -901,7 +901,7 @@ export default function OKRsView() {
                         if (saved) {
                           setMsUpdates(p => [...p, saved]);
                           const newCum = cumulative + Number(u.value);
-                          const newProg = tv > 0 ? Math.min(100, Math.round((newCum / tv) * 100)) : 0;
+                          const newProg = tv > 0 ? Math.round((newCum / tv) * 100) : 0;
                           editSet("current_value", newCum);
                           editSet("progress", newProg);
                           editSet("_newUpdate", null);
@@ -940,7 +940,7 @@ export default function OKRsView() {
                                 await supabase.from("milestone_updates").update({ period_start: ed.period_start, period_end: ed.period_end, value: newVal, note: ed.note || null }).eq("id", u.id);
                                 setMsUpdates(p => p.map(x => x.id === u.id ? { ...x, period_start: ed.period_start, period_end: ed.period_end, value: newVal, note: ed.note || null } : x));
                                 const newCum = cumulative - oldVal + newVal;
-                                const newProg = tv > 0 ? Math.min(100, Math.round((Math.max(0, newCum) / tv) * 100)) : 0;
+                                const newProg = tv > 0 ? Math.round((Math.max(0, newCum) / tv) * 100) : 0;
                                 editSet("current_value", Math.max(0, newCum));
                                 editSet("progress", newProg);
                                 editSet("_editingUpdate", null);
@@ -960,7 +960,7 @@ export default function OKRsView() {
                               await supabase.from("milestone_updates").delete().eq("id", u.id);
                               setMsUpdates(p => p.filter(x => x.id !== u.id));
                               const newCum = cumulative - Number(u.value);
-                              const newProg = tv > 0 ? Math.min(100, Math.round((Math.max(0, newCum) / tv) * 100)) : 0;
+                              const newProg = tv > 0 ? Math.round((Math.max(0, newCum) / tv) * 100) : 0;
                               editSet("current_value", Math.max(0, newCum));
                               editSet("progress", newProg);
                               await supabase.from("okr_milestones").update({ current_value: Math.max(0, newCum), progress: newProg }).eq("id", d.id);
