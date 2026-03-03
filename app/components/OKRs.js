@@ -212,6 +212,25 @@ export default function OKRsView() {
   const editKR = (kr) => { setSelectedKR(null); setEditItem({ type: "kr", data: { ...kr } }); };
   const editMilestone = (ms) => setEditItem({ type: "milestone", data: { ...ms } });
 
+  const recalcObjectiveProgress = async (objId, krArr) => {
+    if (!objId) return;
+    const objKRs = (krArr || keyResults).filter(k => k.objective_id === objId);
+    const avg = objKRs.length > 0 ? Math.round(objKRs.reduce((s, k) => s + Number(k.progress || 0), 0) / objKRs.length) : 0;
+    setObjectives(p => p.map(o => o.id === objId ? { ...o, progress: avg } : o));
+    await supabase.from("objectives").update({ progress: avg }).eq("id", objId);
+  };
+
+  const recalcKRFromMilestones = async (krId, msArr) => {
+    const kr = keyResults.find(k => k.id === krId);
+    if (!kr || kr.progress_mode !== "milestones") return;
+    const linked = (msArr || milestones).filter(m => m.key_result_id === krId);
+    const prog = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
+    const cv = Math.round((prog / 100) * (kr.target_value || 100));
+    setKeyResults(p => p.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
+    await supabase.from("key_results").update({ progress: prog, current_value: cv }).eq("id", krId);
+    recalcObjectiveProgress(kr.objective_id, keyResults.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
+  };
+
   const saveEdit = async () => {
     if (!editItem) return;
     const { type, data } = editItem;
@@ -227,7 +246,6 @@ export default function OKRsView() {
       if (mode === "manual") {
         updates.progress = updates.target_value > 0 ? Math.min(100, Math.round((updates.current_value / updates.target_value) * 100)) : 0;
       } else {
-        // milestones mode — calc from linked milestones
         const linked = milestones.filter(m => m.key_result_id === id);
         updates.progress = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
         updates.current_value = Math.round((updates.progress / 100) * updates.target_value);
@@ -240,32 +258,12 @@ export default function OKRsView() {
       const updates = { title: rest.title, start_date: rest.start_date, end_date: rest.end_date, color: rest.color, progress: Number(rest.progress) || 0, status: rest.status || "not_started", key_result_id: rest.key_result_id || null };
       setMilestones(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
       await supabase.from("okr_milestones").update(updates).eq("id", id);
-      // If linked to a KR in milestones mode, recalc that KR
       if (updates.key_result_id) {
         const newMilestones = milestones.map(m => m.id === id ? { ...m, ...updates } : m);
         await recalcKRFromMilestones(updates.key_result_id, newMilestones);
       }
     }
     setEditItem(null);
-  };
-
-  const recalcKRFromMilestones = async (krId, msArr) => {
-    const kr = keyResults.find(k => k.id === krId);
-    if (!kr || kr.progress_mode !== "milestones") return;
-    const linked = (msArr || milestones).filter(m => m.key_result_id === krId);
-    const prog = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
-    const cv = Math.round((prog / 100) * (kr.target_value || 100));
-    setKeyResults(p => p.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
-    await supabase.from("key_results").update({ progress: prog, current_value: cv }).eq("id", krId);
-    recalcObjectiveProgress(kr.objective_id, keyResults.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
-  };
-
-  const recalcObjectiveProgress = async (objId, krArr) => {
-    if (!objId) return;
-    const objKRs = (krArr || keyResults).filter(k => k.objective_id === objId);
-    const avg = objKRs.length > 0 ? Math.round(objKRs.reduce((s, k) => s + Number(k.progress || 0), 0) / objKRs.length) : 0;
-    setObjectives(p => p.map(o => o.id === objId ? { ...o, progress: avg } : o));
-    await supabase.from("objectives").update({ progress: avg }).eq("id", objId);
   };
 
   const editSet = (k, v) => setEditItem(p => ({ ...p, data: { ...p.data, [k]: v } }));
