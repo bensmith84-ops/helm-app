@@ -381,26 +381,62 @@ export default function OKRsView() {
 
     return (
       <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
-        <div style={{ display: "flex", minWidth: leftColW + krColW + 900 }}>
-          {/* Fixed left columns: Objectives + Key Results */}
-          <div style={{ width: leftColW + krColW, flexShrink: 0, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 3, background: T.bg }}>
-            {/* Quarter header spacer */}
-            <div style={{ height: 24, borderBottom: `1px solid ${T.border}`, background: T.surface }} />
-            {/* Month header row */}
-            <div style={{ display: "flex", height: 32, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+        <div style={{ minWidth: leftColW + krColW + 900 }}>
+          {/* ===== HEADER ROW: Quarter ===== */}
+          <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 5, background: T.surface }}>
+            <div style={{ width: leftColW + krColW, flexShrink: 0, height: 24, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.surface }} />
+            <div style={{ flex: 1, display: "flex", height: 24, borderBottom: `1px solid ${T.border}` }}>
+              {quarters.map((q, i) => (
+                <div key={i} style={{ width: `${q.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.text2, display: "flex", alignItems: "center", justifyContent: "center" }}>{q.label}</div>
+              ))}
+            </div>
+          </div>
+          {/* ===== HEADER ROW: Month ===== */}
+          <div style={{ display: "flex", position: "sticky", top: 24, zIndex: 5, background: T.surface }}>
+            <div style={{ width: leftColW + krColW, flexShrink: 0, display: "flex", height: 32, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.surface }}>
               <div style={{ width: leftColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 16, position: "relative" }}>Objectives<ResizeHandle col="obj" /></div>
               <div style={{ width: krColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 12, borderLeft: `1px solid ${T.border}`, position: "relative" }}>Key Results<ResizeHandle col="kr" /></div>
             </div>
-            {/* Week sub-header spacer (matches timeline) */}
-            <div style={{ height: 18, borderBottom: `1px solid ${T.border}`, background: T.bg }} />
-            {/* Objective rows */}
-            {objectives.map((obj, oi) => {
-              const objKRs = keyResults.filter(k => k.objective_id === obj.id);
-              const objMS = milestones.filter(m => m.objective_id === obj.id);
-              const rowH = Math.max(1, objKRs.length) * 34 + objMS.length * 28 + 8;
-              const h = HEALTH[obj.health] || HEALTH.on_track;
-              return (
-                <div key={obj.id} style={{ display: "flex", borderBottom: `1px solid ${T.border}`, minHeight: rowH }}>
+            <div style={{ flex: 1, display: "flex", height: 32, borderBottom: `1px solid ${T.border}` }}>
+              {months.map((m, i) => (
+                <div key={i} style={{ width: `${m.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 500, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.label}</div>
+              ))}
+            </div>
+          </div>
+          {/* ===== HEADER ROW: Weeks ===== */}
+          {(() => {
+            const weeks = [];
+            const ws = new Date(startDate);
+            ws.setDate(ws.getDate() - ws.getDay() + 1);
+            if (ws < startDate) ws.setDate(ws.getDate() + 7);
+            while (ws <= endDate) {
+              const pct = ((ws - startDate) / (endDate - startDate)) * 100;
+              weeks.push({ pct, label: `W${Math.ceil(ws.getDate() / 7)}` });
+              ws.setDate(ws.getDate() + 7);
+            }
+            return (
+              <div style={{ display: "flex", position: "sticky", top: 56, zIndex: 5, background: T.bg }}>
+                <div style={{ width: leftColW + krColW, flexShrink: 0, height: 18, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.bg }} />
+                <div style={{ flex: 1, position: "relative", height: 18, borderBottom: `1px solid ${T.border}` }}>
+                  {weeks.map((w, i) => (
+                    <div key={i} style={{ position: "absolute", left: `${w.pct}%`, top: 0, bottom: 0, display: "flex", alignItems: "center" }}>
+                      <div style={{ width: 1, height: "100%", background: `${T.text3}30` }} />
+                      <span style={{ fontSize: 8, color: T.text3, marginLeft: 3, whiteSpace: "nowrap" }}>{w.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+          {/* ===== DATA ROWS ===== */}
+          {objectives.map((obj) => {
+            const objKRs = keyResults.filter(k => k.objective_id === obj.id);
+            const objMS = milestones.filter(m => m.objective_id === obj.id);
+            const h = HEALTH[obj.health] || HEALTH.on_track;
+            return (
+              <div key={obj.id} style={{ display: "flex", borderBottom: `1px solid ${T.border}` }}>
+                {/* Sticky left: Obj + KR cells */}
+                <div style={{ width: leftColW + krColW, flexShrink: 0, display: "flex", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 3, background: T.bg }}>
                   {/* Objective cell */}
                   <div style={{ width: leftColW, padding: "10px 12px 10px 16px", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                     <div onClick={() => editObjective(obj)} style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3, marginBottom: 4, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{obj.title}</div>
@@ -408,7 +444,6 @@ export default function OKRsView() {
                       <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: h.bg, color: h.color }}>{h.label}</span>
                       <span style={{ fontSize: 10, color: T.text3 }}>{Math.round(obj.progress || 0)}%</span>
                     </div>
-                    {/* Timeframe selector */}
                     <select value={obj.timeframe || "quarter"} onChange={e => updateObjectiveTimeframe(obj.id, "timeframe", e.target.value)}
                       style={{ marginTop: 4, fontSize: 9, padding: "1px 3px", borderRadius: 3, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", outline: "none", width: "fit-content" }}>
                       {TIMEFRAME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -419,7 +454,7 @@ export default function OKRsView() {
                     {objKRs.map(kr => {
                       const kp = Number(kr.progress || 0);
                       return (
-                      <div key={kr.id} onClick={() => editKR(kr)} style={{ fontSize: 11, color: T.text2, lineHeight: 1.4, padding: "4px 0", display: "flex", alignItems: "center", gap: 6, minHeight: 30, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div key={kr.id} onClick={() => editKR(kr)} style={{ fontSize: 11, color: T.text2, lineHeight: 1.4, padding: "4px 0", display: "flex", alignItems: "center", gap: 6, minHeight: 30, cursor: "pointer", borderRadius: 4 }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <span style={{ color: T.text3, fontSize: 10 }}>•</span>
                         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.title}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
@@ -431,55 +466,9 @@ export default function OKRsView() {
                     {objKRs.length === 0 && <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>No key results</div>}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-          {/* Timeline columns */}
-          <div style={{ flex: 1, position: "relative", minWidth: 600 }}>
-            {/* Quarter header */}
-            <div style={{ display: "flex", height: 24, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-              {quarters.map((q, i) => (
-                <div key={i} style={{ width: `${q.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.text2, display: "flex", alignItems: "center", justifyContent: "center" }}>{q.label}</div>
-              ))}
-            </div>
-            {/* Month header */}
-            <div style={{ display: "flex", height: 32, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-              {months.map((m, i) => (
-                <div key={i} style={{ width: `${m.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 500, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.label}</div>
-              ))}
-            </div>
-            {/* Week sub-header */}
-            {(() => {
-              const weeks = [];
-              const ws = new Date(startDate);
-              ws.setDate(ws.getDate() - ws.getDay() + 1); // Start on Monday
-              if (ws < startDate) ws.setDate(ws.getDate() + 7);
-              while (ws <= endDate) {
-                const pct = ((ws - startDate) / (endDate - startDate)) * 100;
-                const we = new Date(ws); we.setDate(we.getDate() + 6);
-                const wLabel = `W${Math.ceil(ws.getDate() / 7)}`;
-                weeks.push({ pct, label: wLabel, date: new Date(ws) });
-                ws.setDate(ws.getDate() + 7);
-              }
-              return (
-                <div style={{ position: "relative", height: 18, borderBottom: `1px solid ${T.border}`, background: T.bg }}>
-                  {weeks.map((w, i) => (
-                    <div key={i} style={{ position: "absolute", left: `${w.pct}%`, top: 0, bottom: 0, display: "flex", alignItems: "center" }}>
-                      <div style={{ width: 1, height: "100%", background: `${T.text3}30` }} />
-                      <span style={{ fontSize: 8, color: T.text3, marginLeft: 3, whiteSpace: "nowrap" }}>{w.label}</span>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-            {/* Data rows — one per objective */}
-            {objectives.map((obj, oi) => {
-              const objKRs = keyResults.filter(k => k.objective_id === obj.id);
-              const objMS = milestones.filter(m => m.objective_id === obj.id);
-              const rowH = Math.max(1, objKRs.length) * 34 + objMS.length * 28 + 8;
-              return (
-                <div key={obj.id} style={{ position: "relative", minHeight: rowH, borderBottom: `1px solid ${T.border}`, display: "flex", flexDirection: "column", justifyContent: "center", padding: "4px 0" }}>
-                  {/* Vertical month grid lines */}
+                {/* Timeline cell */}
+                <div style={{ flex: 1, position: "relative", minHeight: Math.max(1, objKRs.length) * 34 + objMS.length * 30 + 30, display: "flex", flexDirection: "column", justifyContent: "center", padding: "4px 0" }}>
+                  {/* Month grid lines */}
                   {months.map((m, i) => (
                     <div key={i} style={{ position: "absolute", left: `${m.startPct + m.widthPct}%`, top: 0, bottom: 0, width: 1, background: T.border, zIndex: 0 }} />
                   ))}
@@ -489,39 +478,31 @@ export default function OKRsView() {
                     const wk = new Date(startDate);
                     wk.setDate(wk.getDate() - wk.getDay() + 1);
                     if (wk < startDate) wk.setDate(wk.getDate() + 7);
-                    while (wk <= endDate) {
-                      const pct = ((wk - startDate) / (endDate - startDate)) * 100;
-                      wlines.push(pct);
-                      wk.setDate(wk.getDate() + 7);
-                    }
-                    return wlines.map((p, i) => (
-                      <div key={`w${i}`} style={{ position: "absolute", left: `${p}%`, top: 0, bottom: 0, width: 1, background: `${T.text3}15`, zIndex: 0 }} />
-                    ));
+                    while (wk <= endDate) { wlines.push(((wk - startDate) / (endDate - startDate)) * 100); wk.setDate(wk.getDate() + 7); }
+                    return wlines.map((p, i) => <div key={`w${i}`} style={{ position: "absolute", left: `${p}%`, top: 0, bottom: 0, width: 1, background: `${T.text3}15`, zIndex: 0 }} />);
                   })()}
                   {/* Milestone status bars */}
-                  {objMS.map((ms, mi) => {
+                  {objMS.map((ms) => {
                     const bar = posBar(ms.start_date, ms.end_date);
-                    const h = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
+                    const mh = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
                     const pct = Number(ms.progress) || 0;
                     return (
                       <div key={ms.id} style={{ position: "relative", height: 28, marginBottom: 2, zIndex: 1 }}>
-                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${h.label}\nClick to edit`}
+                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${mh.label}\nClick to edit`}
                           onClick={() => editMilestone(ms)}
-                          style={{ position: "absolute", ...bar, height: 26, borderRadius: 5, background: `${h.color}18`, border: `1.5px solid ${h.color}50`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
-                          {/* Progress fill */}
-                          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${h.color}35`, borderRadius: 4, transition: "width 0.3s" }} />
-                          {/* Health dot */}
-                          <div style={{ width: 7, height: 7, borderRadius: 7, background: h.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 6 }} />
+                          style={{ position: "absolute", ...bar, height: 26, borderRadius: 5, background: `${mh.color}18`, border: `1.5px solid ${mh.color}50`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
+                          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${mh.color}35`, borderRadius: 4, transition: "width 0.3s" }} />
+                          <div style={{ width: 7, height: 7, borderRadius: 7, background: mh.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 6 }} />
                           <span style={{ fontSize: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: h.color, marginLeft: "auto", paddingLeft: 6, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct}%</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: mh.color, marginLeft: "auto", paddingLeft: 6, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct}%</span>
                           <button onClick={e => { e.stopPropagation(); deleteMilestone(ms.id); }} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.2)", color: T.text3, fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0}>×</button>
                         </div>
                       </div>
                     );
                   })}
-                  {/* Add milestone button row */}
+                  {/* Add milestone */}
                   <div style={{ height: 20, position: "relative", zIndex: 1, paddingLeft: 8 }}>
-                    <button onClick={() => setMsForm({ objectiveId: obj.id, title: "", start_date: "", end_date: "", color: MS_COLORS[milestones.filter(m => m.objective_id === obj.id).length % MS_COLORS.length] })}
+                    <button onClick={() => setMsForm({ objectiveId: obj.id, title: "", start_date: "", end_date: "", color: MS_COLORS[objMS.length % MS_COLORS.length] })}
                       style={{ fontSize: 9, color: T.text3, background: "none", border: "none", cursor: "pointer", padding: "2px 6px", borderRadius: 3, opacity: 0.5 }}
                       onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.background = T.surface2; }}
                       onMouseLeave={e => { e.currentTarget.style.opacity = 0.5; e.currentTarget.style.background = "none"; }}>
@@ -531,9 +512,9 @@ export default function OKRsView() {
                   {/* Today line */}
                   {showToday && <div style={{ position: "absolute", left: `${todayPct}%`, top: 0, bottom: 0, width: 2, background: T.red, zIndex: 2, opacity: 0.6 }}><div style={{ position: "absolute", top: -2, left: -4, width: 10, height: 10, borderRadius: 10, background: T.red }} /></div>}
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
