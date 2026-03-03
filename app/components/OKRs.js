@@ -22,6 +22,47 @@ const TIMEFRAME_OPTIONS = [
 ];
 const MS_COLORS = ["#6366f1","#3b82f6","#22c55e","#a855f7","#f97316","#ec4899","#06b6d4","#eab308"];
 
+// Generate milestone periods from date range + frequency
+function generatePeriods(startStr, endStr, freq) {
+  const periods = [];
+  const s = new Date(startStr + "T00:00:00");
+  const end = new Date(endStr + "T00:00:00");
+  const fmt = d => d.toISOString().split("T")[0];
+  const mLabel = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  if (freq === "daily") {
+    const cur = new Date(s);
+    while (cur <= end) {
+      periods.push({ start: fmt(cur), end: fmt(cur), label: mLabel(cur) });
+      cur.setDate(cur.getDate() + 1);
+    }
+  } else if (freq === "weekly") {
+    const cur = new Date(s);
+    // Align to Monday
+    const day = cur.getDay();
+    if (day !== 1) cur.setDate(cur.getDate() + ((8 - day) % 7 || 7));
+    if (cur > end) cur.setTime(s.getTime()); // fallback if range < 1 week
+    let wk = 1;
+    while (cur <= end) {
+      const wEnd = new Date(cur);
+      wEnd.setDate(wEnd.getDate() + 6);
+      if (wEnd > end) wEnd.setTime(end.getTime());
+      periods.push({ start: fmt(cur), end: fmt(wEnd), label: `Week ${wk}` });
+      cur.setDate(cur.getDate() + 7);
+      wk++;
+    }
+  } else if (freq === "monthly") {
+    const cur = new Date(s);
+    while (cur <= end) {
+      const mEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+      const periodEnd = mEnd > end ? end : mEnd;
+      periods.push({ start: fmt(cur), end: fmt(periodEnd), label: cur.toLocaleDateString("en-US", { month: "short", year: "2-digit" }) });
+      cur.setFullYear(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+  }
+  return periods;
+}
+
 export default function OKRsView() {
   const { user, profile } = useAuth();
   const { showPrompt, showConfirm } = useModal();
@@ -119,8 +160,9 @@ export default function OKRsView() {
       title: "", description: "", health: "on_track", timeframe: "quarter",
       start_date: c?.start_date || "", end_date: c?.end_date || "",
       owner_id: user?.id || "", team_id: "",
-      keyResults: [{ title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "" }],
+      keyResults: [{ title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "", has_milestones: false, milestone_frequency: "weekly" }],
       milestones: [],
+      auto_l10: false,
     });
   };
 
@@ -136,6 +178,7 @@ export default function OKRsView() {
       owner_id: objForm.owner_id || null, team_id: objForm.team_id || null,
     }).select().single();
     if (objErr || !objData) return;
+
     // Create key results
     const validKRs = objForm.keyResults.filter(kr => kr.title.trim());
     const krInserts = validKRs.map((kr, i) => ({
@@ -143,26 +186,68 @@ export default function OKRsView() {
       target_value: Number(kr.target_value) || 100, start_value: 0, current_value: 0,
       progress: 0, unit: kr.unit || null, owner_id: kr.owner_id || null, sort_order: i + 1,
       start_date: kr.start_date || null, end_date: kr.end_date || null,
+      has_milestones: kr.has_milestones || false,
+      milestone_frequency: kr.milestone_frequency || "weekly",
+      progress_mode: kr.has_milestones ? "milestones" : "manual",
     }));
     let newKRs = [];
     if (krInserts.length > 0) {
       const { data: krData } = await supabase.from("key_results").insert(krInserts).select();
       newKRs = krData || [];
     }
-    // Create milestones
+
+    // Auto-generate milestones for KRs with has_milestones=true
+    const allMSInserts = [];
+    for (const kr of newKRs) {
+      if (!kr.has_milestones || !kr.start_date || !kr.end_date) continue;
+      const formKR = validKRs.find(v => v.title.trim() === kr.title);
+      const freq = formKR?.milestone_frequency || kr.milestone_frequency || "weekly";
+      const periods = generatePeriods(kr.start_date, kr.end_date, freq);
+      const totalPeriods = periods.length;
+      const perPeriodTarget = totalPeriods > 0 ? Math.round((Number(kr.target_value) || 100) / totalPeriods) : 0;
+
+      periods.forEach((p, i) => {
+        allMSInserts.push({
+          objective_id: objData.id, key_result_id: kr.id,
+          title: p.label, start_date: p.start, end_date: p.end,
+          target_value: perPeriodTarget, unit: kr.unit || null,
+          current_value: 0, progress: 0, sort_order: i,
+          color: MS_COLORS[i % MS_COLORS.length], health: "on_track",
+        });
+      });
+    }
+
+    // Also add any manually-defined milestones
     const validMS = (objForm.milestones || []).filter(m => m.title.trim() && m.start_date && m.end_date);
-    let newMS = [];
-    if (validMS.length > 0) {
-      const msInserts = validMS.map((m, i) => ({
+    validMS.forEach((m, i) => {
+      allMSInserts.push({
         objective_id: objData.id, title: m.title.trim(),
         start_date: m.start_date, end_date: m.end_date,
-        color: m.color || MS_COLORS[i % MS_COLORS.length], sort_order: i,
+        color: m.color || MS_COLORS[i % MS_COLORS.length], sort_order: allMSInserts.length + i,
         target_value: Number(m.target_value) || 100, unit: m.unit || null,
         current_value: 0, progress: 0,
-      }));
-      const { data: msData } = await supabase.from("okr_milestones").insert(msInserts).select();
+      });
+    });
+
+    let newMS = [];
+    if (allMSInserts.length > 0) {
+      const { data: msData } = await supabase.from("okr_milestones").insert(allMSInserts).select();
       newMS = msData || [];
     }
+
+    // Auto-create L10 metrics for KRs with milestones if auto_l10 is on
+    if (objForm.auto_l10) {
+      for (const kr of newKRs.filter(k => k.has_milestones)) {
+        await supabase.from("l10_metrics").insert({
+          org_id: profile?.org_id, title: kr.title,
+          owner_id: kr.owner_id || null, unit: kr.unit || "",
+          target_value: Number(kr.target_value) || 100,
+          goal_direction: "above", linked_kr_id: kr.id,
+          sort_order: 0,
+        });
+      }
+    }
+
     setObjectives(p => [...p, objData]);
     setKeyResults(p => [...p, ...newKRs]);
     setMilestones(p => [...p, ...newMS]);
@@ -481,25 +566,74 @@ export default function OKRsView() {
                     while (wk <= endDate) { wlines.push(((wk - startDate) / (endDate - startDate)) * 100); wk.setDate(wk.getDate() + 7); }
                     return wlines.map((p, i) => <div key={`w${i}`} style={{ position: "absolute", left: `${p}%`, top: 0, bottom: 0, width: 1, background: `${T.text3}15`, zIndex: 0 }} />);
                   })()}
-                  {/* Milestone status bars */}
-                  {objMS.map((ms) => {
-                    const bar = posBar(ms.start_date, ms.end_date);
-                    const mh = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
-                    const pct = Number(ms.progress) || 0;
-                    return (
-                      <div key={ms.id} style={{ position: "relative", height: 28, marginBottom: 2, zIndex: 1 }}>
-                        <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${mh.label}\nClick to edit`}
-                          onClick={() => editMilestone(ms)}
-                          style={{ position: "absolute", ...bar, height: 26, borderRadius: 5, background: `${mh.color}18`, border: `1.5px solid ${mh.color}50`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
-                          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${mh.color}35`, borderRadius: 4, transition: "width 0.3s" }} />
-                          <div style={{ width: 7, height: 7, borderRadius: 7, background: mh.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 6 }} />
-                          <span style={{ fontSize: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: mh.color, marginLeft: "auto", paddingLeft: 6, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct}%</span>
-                          <button onClick={e => { e.stopPropagation(); deleteMilestone(ms.id); }} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.2)", color: T.text3, fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0}>×</button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {/* Milestone status bars — grouped by KR */}
+                  {(() => {
+                    // KR-linked milestones grouped under their KR
+                    const krLinked = {};
+                    const unlinked = [];
+                    objMS.forEach(ms => {
+                      if (ms.key_result_id) {
+                        if (!krLinked[ms.key_result_id]) krLinked[ms.key_result_id] = [];
+                        krLinked[ms.key_result_id].push(ms);
+                      } else {
+                        unlinked.push(ms);
+                      }
+                    });
+                    return <>
+                      {objKRs.map(kr => {
+                        const krMs = (krLinked[kr.id] || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+                        if (krMs.length === 0) return null;
+                        // KR parent bar (thin)
+                        const krBar = kr.start_date && kr.end_date ? posBar(kr.start_date, kr.end_date) : null;
+                        return (
+                          <div key={kr.id} style={{ marginBottom: 4 }}>
+                            {krBar && <div style={{ position: "relative", height: 14, zIndex: 1, marginBottom: 1 }}>
+                              <div style={{ position: "absolute", ...krBar, height: 12, borderRadius: 3, background: `${T.accent}12`, border: `1px solid ${T.accent}30`, display: "flex", alignItems: "center", paddingLeft: 6 }}>
+                                <span style={{ fontSize: 8, fontWeight: 600, color: T.accent, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.title}</span>
+                              </div>
+                            </div>}
+                            {/* Milestone segments */}
+                            {krMs.map(ms => {
+                              const bar = posBar(ms.start_date, ms.end_date);
+                              const mh = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
+                              const pct = Number(ms.progress) || 0;
+                              return (
+                                <div key={ms.id} style={{ position: "relative", height: 24, marginBottom: 1, zIndex: 1 }}>
+                                  <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${mh.label}\nClick to update`}
+                                    onClick={() => editMilestone(ms)}
+                                    style={{ position: "absolute", ...bar, height: 22, borderRadius: 4, background: `${mh.color}15`, border: `1px solid ${mh.color}40`, display: "flex", alignItems: "center", paddingLeft: 6, paddingRight: 6, cursor: "pointer", overflow: "hidden" }}>
+                                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${mh.color}30`, borderRadius: 3, transition: "width 0.3s" }} />
+                                    <div style={{ width: 5, height: 5, borderRadius: 5, background: mh.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 4 }} />
+                                    <span style={{ fontSize: 9, fontWeight: 500, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
+                                    <span style={{ fontSize: 8, fontWeight: 700, color: mh.color, marginLeft: "auto", paddingLeft: 4, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct}%</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                      {/* Unlinked milestones */}
+                      {unlinked.map(ms => {
+                        const bar = posBar(ms.start_date, ms.end_date);
+                        const mh = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
+                        const pct = Number(ms.progress) || 0;
+                        return (
+                          <div key={ms.id} style={{ position: "relative", height: 26, marginBottom: 2, zIndex: 1 }}>
+                            <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nClick to edit`}
+                              onClick={() => editMilestone(ms)}
+                              style={{ position: "absolute", ...bar, height: 24, borderRadius: 4, background: `${mh.color}18`, border: `1.5px solid ${mh.color}50`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
+                              <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${mh.color}35`, borderRadius: 4, transition: "width 0.3s" }} />
+                              <div style={{ width: 7, height: 7, borderRadius: 7, background: mh.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 6 }} />
+                              <span style={{ fontSize: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: mh.color, marginLeft: "auto", paddingLeft: 6, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct}%</span>
+                              <button onClick={e => { e.stopPropagation(); deleteMilestone(ms.id); }} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.2)", color: T.text3, fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0}>×</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>;
+                  })()}
                   {/* Add milestone */}
                   <div style={{ height: 20, position: "relative", zIndex: 1, paddingLeft: 8 }}>
                     <button onClick={() => setMsForm({ objectiveId: obj.id, title: "", start_date: "", end_date: "", color: MS_COLORS[objMS.length % MS_COLORS.length] })}
@@ -968,7 +1102,7 @@ function OwnerPicker({ profiles, value, onChange }) {
 function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
   const set = useCallback((k, v) => setObjForm(p => ({ ...p, [k]: v })), [setObjForm]);
   const setKR = useCallback((idx, k, v) => setObjForm(p => ({ ...p, keyResults: p.keyResults.map((kr, i) => i === idx ? { ...kr, [k]: v } : kr) })), [setObjForm]);
-  const addKR = useCallback(() => setObjForm(p => ({ ...p, keyResults: [...p.keyResults, { title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "" }] })), [setObjForm]);
+  const addKR = useCallback(() => setObjForm(p => ({ ...p, keyResults: [...p.keyResults, { title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "", has_milestones: false, milestone_frequency: "weekly" }] })), [setObjForm]);
   const removeKR = useCallback((idx) => setObjForm(p => ({ ...p, keyResults: p.keyResults.filter((_, i) => i !== idx) })), [setObjForm]);
   const cloneKR = useCallback((idx) => setObjForm(p => {
     const src = p.keyResults[idx];
@@ -1046,49 +1180,56 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
                   <div><label style={{ ..._lbl, fontSize: 10 }}>Start Date</label><input type="date" value={kr.start_date || ""} onChange={e => setKR(idx, "start_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>End Date</label><input type="date" value={kr.end_date || ""} onChange={e => setKR(idx, "end_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
                 </div>
+                {/* Milestone tracking toggle */}
+                <div style={{ marginTop: 10, padding: "10px 12px", background: T.bg, borderRadius: 8, border: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div onClick={() => setKR(idx, "has_milestones", !kr.has_milestones)} style={{ width: 36, height: 20, borderRadius: 10, background: kr.has_milestones ? T.accent : T.surface3, cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
+                        <div style={{ width: 16, height: 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: kr.has_milestones ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>Track with milestones</span>
+                    </div>
+                    {kr.has_milestones && (
+                      <select value={kr.milestone_frequency || "weekly"} onChange={e => setKR(idx, "milestone_frequency", e.target.value)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer", outline: "none" }}>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    )}
+                  </div>
+                  {kr.has_milestones && kr.start_date && kr.end_date && (() => {
+                    const periods = generatePeriods(kr.start_date, kr.end_date, kr.milestone_frequency || "weekly");
+                    const perPeriod = periods.length > 0 ? Math.round((Number(kr.target_value) || 100) / periods.length) : 0;
+                    return (
+                      <div style={{ marginTop: 8, fontSize: 10, color: T.text3 }}>
+                        Will create <strong style={{ color: T.accent }}>{periods.length}</strong> milestones ({kr.milestone_frequency}) • ~{perPeriod} {kr.unit || "units"} per period
+                        <div style={{ display: "flex", gap: 3, marginTop: 6, flexWrap: "wrap" }}>
+                          {periods.slice(0, 12).map((p, i) => (
+                            <span key={i} style={{ fontSize: 8, padding: "2px 5px", borderRadius: 3, background: `${T.accent}15`, color: T.accent, fontWeight: 500 }}>{p.label}</span>
+                          ))}
+                          {periods.length > 12 && <span style={{ fontSize: 8, color: T.text3 }}>+{periods.length - 12} more</span>}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {kr.has_milestones && (!kr.start_date || !kr.end_date) && (
+                    <div style={{ marginTop: 6, fontSize: 10, color: T.yellow }}>Set start and end dates above to preview milestones</div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
-          {/* Milestones section */}
+          {/* L10 Scorecard auto-link */}
           <div style={{ borderTop: `1px solid ${T.border}`, margin: "18px 0", paddingTop: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 700 }}>Milestones</span>
-                <span style={{ fontSize: 10, color: T.text3 }}>Timeline bars on roadmap</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+              <div onClick={() => set("auto_l10", !f.auto_l10)} style={{ width: 36, height: 20, borderRadius: 10, background: f.auto_l10 ? T.accent : T.surface3, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                <div style={{ width: 16, height: 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: f.auto_l10 ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
               </div>
-              <button onClick={addMS} style={{ padding: "4px 12px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: `${T.accent}10`, color: T.accent, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>+ Add Milestone</button>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600 }}>Add to L10 Scorecard</div>
+                <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>Auto-create scorecard metrics for each KR with milestones. Weekly entries will sync back to KR progress.</div>
+              </div>
             </div>
-            {(f.milestones || []).map((ms, idx) => (
-              <div key={idx} style={{ padding: "10px 14px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 14, height: 14, borderRadius: 3, background: ms.color || MS_COLORS[0], flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Milestone {idx + 1}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => cloneMS(idx)} title="Clone Milestone" style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: 600 }} onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = T.text3; }}>⧉ Clone</button>
-                    <button onClick={() => removeMS(idx)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 0 }}>×</button>
-                  </div>
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <input value={ms.title} onChange={e => setMS(idx, "title", e.target.value)} placeholder="e.g. Launch Australia & UK GWP" style={{ ..._inp, fontSize: 12 }} />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <div><label style={{ ..._lbl, fontSize: 10 }}>Target Value</label><input type="number" value={ms.target_value ?? 100} onChange={e => setMS(idx, "target_value", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
-                  <div><label style={{ ..._lbl, fontSize: 10 }}>Unit</label><input value={ms.unit || ""} onChange={e => setMS(idx, "unit", e.target.value)} placeholder="e.g. $, %, users" style={{ ..._inp, fontSize: 12 }} /></div>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 8 }}>
-                  <div><label style={{ ..._lbl, fontSize: 10 }}>Start Date</label><input type="date" value={ms.start_date || ""} onChange={e => setMS(idx, "start_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
-                  <div><label style={{ ..._lbl, fontSize: 10 }}>End Date</label><input type="date" value={ms.end_date || ""} onChange={e => setMS(idx, "end_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
-                  <div><label style={{ ..._lbl, fontSize: 10 }}>Color</label>
-                    <div style={{ display: "flex", gap: 3, flexWrap: "wrap", paddingTop: 2 }}>
-                      {MS_COLORS.map(c => <div key={c} onClick={() => setMS(idx, "color", c)} style={{ width: 16, height: 16, borderRadius: 4, background: c, cursor: "pointer", border: ms.color === c ? "2px solid #fff" : "2px solid transparent", boxShadow: ms.color === c ? `0 0 0 1px ${c}` : "none" }} />)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {(f.milestones || []).length === 0 && <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: "4px 0" }}>No milestones — add some to see them on the roadmap timeline</div>}
           </div>
         </div>
         <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
