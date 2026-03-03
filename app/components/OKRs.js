@@ -583,33 +583,43 @@ export default function OKRsView() {
                       {objKRs.map(kr => {
                         const krMs = (krLinked[kr.id] || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
                         if (krMs.length === 0) return null;
-                        // KR parent bar (thin)
                         const krBar = kr.start_date && kr.end_date ? posBar(kr.start_date, kr.end_date) : null;
+                        // KR-level health from aggregate of child milestones
+                        const krPct = Number(kr.progress) || 0;
+                        const offCount = krMs.filter(m => m.health === "off_track").length;
+                        const atRiskCount = krMs.filter(m => m.health === "at_risk").length;
+                        const krHealth = offCount > 0 ? "off_track" : atRiskCount > 0 ? "at_risk" : "on_track";
+                        const krH = HEALTH[krHealth];
                         return (
-                          <div key={kr.id} style={{ marginBottom: 4 }}>
-                            {krBar && <div style={{ position: "relative", height: 14, zIndex: 1, marginBottom: 1 }}>
-                              <div style={{ position: "absolute", ...krBar, height: 12, borderRadius: 3, background: `${T.accent}12`, border: `1px solid ${T.accent}30`, display: "flex", alignItems: "center", paddingLeft: 6 }}>
-                                <span style={{ fontSize: 8, fontWeight: 600, color: T.accent, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.title}</span>
+                          <div key={kr.id} style={{ marginBottom: 6 }}>
+                            {/* KR parent bar with health + progress */}
+                            {krBar && <div style={{ position: "relative", height: 22, zIndex: 1, marginBottom: 2 }}>
+                              <div onClick={() => editKR(kr)} title={`${kr.title}\n${kr.current_value || 0}/${kr.target_value || 100}${kr.unit ? " " + kr.unit : ""} (${krPct}%)\nHealth: ${krH.label}\nClick to edit KR`}
+                                style={{ position: "absolute", ...krBar, height: 20, borderRadius: 4, background: `${krH.color}15`, border: `1.5px solid ${krH.color}40`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
+                                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${krPct}%`, background: `${krH.color}25`, borderRadius: 3, transition: "width 0.3s" }} />
+                                <div style={{ width: 6, height: 6, borderRadius: 6, background: krH.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 5 }} />
+                                <span style={{ fontSize: 9, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{kr.title}</span>
+                                <span style={{ fontSize: 8, fontWeight: 700, color: krH.color, marginLeft: "auto", paddingLeft: 6, position: "relative", zIndex: 1, flexShrink: 0 }}>{krPct}%</span>
                               </div>
                             </div>}
-                            {/* Milestone segments */}
-                            {krMs.map(ms => {
-                              const bar = posBar(ms.start_date, ms.end_date);
-                              const mh = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
-                              const pct = Number(ms.progress) || 0;
-                              return (
-                                <div key={ms.id} style={{ position: "relative", height: 24, marginBottom: 1, zIndex: 1 }}>
-                                  <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${mh.label}\nClick to update`}
+                            {/* Milestone segments — single row since they're sequential */}
+                            <div style={{ position: "relative", height: 20, zIndex: 1 }}>
+                              {krMs.map(ms => {
+                                const bar = posBar(ms.start_date, ms.end_date);
+                                const mh = HEALTH[ms.health || "on_track"] || HEALTH.on_track;
+                                const pct = Number(ms.progress) || 0;
+                                return (
+                                  <div key={ms.id} title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nStatus: ${mh.label}\nClick to update`}
                                     onClick={() => editMilestone(ms)}
-                                    style={{ position: "absolute", ...bar, height: 22, borderRadius: 4, background: `${mh.color}15`, border: `1px solid ${mh.color}40`, display: "flex", alignItems: "center", paddingLeft: 6, paddingRight: 6, cursor: "pointer", overflow: "hidden" }}>
-                                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${mh.color}30`, borderRadius: 3, transition: "width 0.3s" }} />
-                                    <div style={{ width: 5, height: 5, borderRadius: 5, background: mh.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 4 }} />
-                                    <span style={{ fontSize: 9, fontWeight: 500, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
-                                    <span style={{ fontSize: 8, fontWeight: 700, color: mh.color, marginLeft: "auto", paddingLeft: 4, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct}%</span>
+                                    style={{ position: "absolute", ...bar, height: 18, borderRadius: 3, background: `${mh.color}12`, border: `1px solid ${mh.color}35`, display: "flex", alignItems: "center", paddingLeft: 4, paddingRight: 4, cursor: "pointer", overflow: "hidden" }}>
+                                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${mh.color}30`, borderRadius: 2, transition: "width 0.3s" }} />
+                                    <div style={{ width: 4, height: 4, borderRadius: 4, background: mh.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 3 }} />
+                                    <span style={{ fontSize: 8, fontWeight: 500, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
+                                    <span style={{ fontSize: 7, fontWeight: 700, color: mh.color, marginLeft: "auto", paddingLeft: 3, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct > 0 ? `${pct}%` : ""}</span>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              })}
+                            </div>
                           </div>
                         );
                       })}
@@ -620,14 +630,13 @@ export default function OKRsView() {
                         const pct = Number(ms.progress) || 0;
                         return (
                           <div key={ms.id} style={{ position: "relative", height: 26, marginBottom: 2, zIndex: 1 }}>
-                            <div title={`${ms.title}\n${ms.start_date} → ${ms.end_date}\n${ms.current_value || 0}/${ms.target_value || 100}${ms.unit ? " " + ms.unit : ""} (${pct}%)\nClick to edit`}
+                            <div title={`${ms.title}\n${pct}% • ${mh.label}\nClick to edit`}
                               onClick={() => editMilestone(ms)}
                               style={{ position: "absolute", ...bar, height: 24, borderRadius: 4, background: `${mh.color}18`, border: `1.5px solid ${mh.color}50`, display: "flex", alignItems: "center", paddingLeft: 8, paddingRight: 8, cursor: "pointer", overflow: "hidden" }}>
                               <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: `${mh.color}35`, borderRadius: 4, transition: "width 0.3s" }} />
                               <div style={{ width: 7, height: 7, borderRadius: 7, background: mh.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 6 }} />
                               <span style={{ fontSize: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{ms.title}</span>
                               <span style={{ fontSize: 9, fontWeight: 700, color: mh.color, marginLeft: "auto", paddingLeft: 6, position: "relative", zIndex: 1, flexShrink: 0 }}>{pct}%</span>
-                              <button onClick={e => { e.stopPropagation(); deleteMilestone(ms.id); }} style={{ position: "absolute", right: 2, top: 2, width: 14, height: 14, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.2)", color: T.text3, fontSize: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0}>×</button>
                             </div>
                           </div>
                         );
