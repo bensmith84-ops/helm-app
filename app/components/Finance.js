@@ -826,6 +826,8 @@ export default function FinanceView() {
             const expMap = {}; expenses.forEach(e => expMap[e.report_number?.toLowerCase()] = e.id);
             const invMap = {}; invoices.forEach(i => invMap[i.invoice_number?.toLowerCase()] = i.id);
 
+            // Build all records first
+            const records = [];
             for (const row of csvData.rows) {
               const obj = { org_id: orgId };
               let skip = false;
@@ -833,21 +835,18 @@ export default function FinanceView() {
                 const ci = colMap[f.key];
                 if (ci !== undefined && ci !== "" && ci !== -1) {
                   let val = row[ci] || "";
-                  if (f.numeric) val = parseFloat(val.replace(/[^0-9.\-]/g, "")) || 0;
+                  if (f.numeric) val = parseFloat(String(val).replace(/[^0-9.\-]/g, "")) || 0;
                   if (f.required && !val && val !== 0) skip = true;
-                  // Handle vendor lookup
                   if (f.key === "vendor_name" && f.lookup === "vendor") {
                     const vid = vendorMap[String(val).toLowerCase()];
                     if (vid) obj.vendor_id = vid;
-                    return; // don't set vendor_name on PO/invoice
+                    return;
                   }
-                  // Handle expense report lookup
                   if (f.key === "report_number" && f.lookup === "expense") {
                     const eid = expMap[String(val).toLowerCase()];
                     if (eid) obj.report_id = eid;
                     return;
                   }
-                  // Handle invoice lookup
                   if (f.key === "invoice_number" && f.lookup === "invoice") {
                     const iid = invMap[String(val).toLowerCase()];
                     if (iid) obj.invoice_id = iid;
@@ -857,20 +856,34 @@ export default function FinanceView() {
                 }
               });
               if (skip) { errors++; continue; }
-              // Set defaults
               if (cfg.table === "fin_purchase_orders" && !obj.status) obj.status = "draft";
               if (cfg.table === "fin_expense_reports" && !obj.status) obj.status = "draft";
               if (cfg.table === "fin_invoices" && !obj.status) obj.status = "received";
               if (cfg.table === "fin_accounts" && !obj.type) obj.type = "expense";
               if (cfg.table === "fin_expense_items" && !obj.category) obj.category = "other";
               if (cfg.table === "fin_payments" && !obj.status) obj.status = "completed";
-              // Remove org_id for child tables
               if (["fin_expense_items"].includes(cfg.table)) delete obj.org_id;
-
-              const { error } = await supabase.from(cfg.table).insert(obj);
-              if (error) { console.error("Import row error:", error, obj); errors++; }
-              else imported++;
+              records.push(obj);
             }
+
+            // Batch insert in chunks of 500
+            const BATCH = 500;
+            for (let i = 0; i < records.length; i += BATCH) {
+              const chunk = records.slice(i, i + BATCH);
+              const { data, error } = await supabase.from(cfg.table).insert(chunk).select("id");
+              if (error) {
+                console.error("Batch insert error at offset", i, error);
+                // Fallback: try inserting one by one for this chunk
+                for (const obj of chunk) {
+                  const { error: e2 } = await supabase.from(cfg.table).insert(obj);
+                  if (e2) errors++;
+                  else imported++;
+                }
+              } else {
+                imported += (data || chunk).length;
+              }
+            }
+
             // Refresh data
             if (cfg.table === "fin_vendors") { const { data } = await supabase.from("fin_vendors").select("*").eq("org_id", orgId); setVendors(data || []); }
             if (cfg.table === "fin_accounts") { const { data } = await supabase.from("fin_accounts").select("*").eq("org_id", orgId); setAccounts(data || []); }
