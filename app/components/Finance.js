@@ -691,16 +691,16 @@ export default function FinanceView() {
 
           const cfg = IMPORT_TYPES[importType];
 
-          const parseCSV = (text) => {
+          const parseCSV = (text, delim = ",") => {
             const lines = text.split(/\r?\n/).filter(l => l.trim());
             if (lines.length < 2) return null;
-            // Handle quoted fields
             const parseLine = (line) => {
+              if (delim === "\t") return line.split("\t").map(c => c.trim().replace(/^"|"$/g, ""));
               const result = []; let current = ""; let inQuotes = false;
               for (let i = 0; i < line.length; i++) {
                 const c = line[i];
                 if (c === '"') { inQuotes = !inQuotes; }
-                else if (c === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
+                else if (c === delim && !inQuotes) { result.push(current.trim()); current = ""; }
                 else { current += c; }
               }
               result.push(current.trim());
@@ -714,26 +714,60 @@ export default function FinanceView() {
           const handleFile = (e) => {
             const file = e.target.files?.[0];
             if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-              const parsed = parseCSV(ev.target.result);
-              if (!parsed || parsed.rows.length === 0) return showToast("Could not parse CSV — check the file format", "error");
-              setCsvData(parsed);
-              // Auto-map columns by fuzzy matching headers to field labels/keys
-              const autoMap = {};
-              cfg.fields.forEach(f => {
-                const match = parsed.headers.findIndex(h => {
-                  const hl = h.toLowerCase().replace(/[^a-z0-9]/g, "");
-                  const fl = f.label.toLowerCase().replace(/[^a-z0-9]/g, "");
-                  const fk = f.key.toLowerCase().replace(/[^a-z0-9]/g, "");
-                  return hl === fk || hl === fl || hl.includes(fk) || fk.includes(hl) || hl.includes(fl.split(" ")[0]);
-                });
-                if (match >= 0) autoMap[f.key] = match;
-              });
-              setColMap(autoMap);
-              setImportPreview(null);
+            const ext = file.name.split(".").pop().toLowerCase();
+
+            if (ext === "xlsx" || ext === "xls") {
+              showToast("Excel files detected — please save as CSV in Excel first (File → Save As → CSV UTF-8), then upload the .csv file", "error");
+              return;
+            }
+
+            // CSV/TSV — try multiple encodings
+            const tryRead = (encoding) => {
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                let text = ev.target.result;
+                // Strip BOM
+                if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+                // Check for garbled characters (replacement char or lots of nulls)
+                const garbled = (text.match(/\uFFFD/g) || []).length > 5 || (text.match(/\x00/g) || []).length > 5;
+                if (garbled && encoding === "UTF-8") {
+                  // Retry with UTF-16LE (common QBO encoding)
+                  tryRead("UTF-16LE");
+                  return;
+                }
+                if (garbled && encoding === "UTF-16LE") {
+                  tryRead("windows-1252");
+                  return;
+                }
+                processCSVText(text);
+              };
+              reader.readAsText(file, encoding);
             };
-            reader.readAsText(file);
+            tryRead("UTF-8");
+          };
+
+          const processCSVText = (text) => {
+            // Detect delimiter (tab vs comma)
+            const firstLine = text.split(/\r?\n/)[0] || "";
+            const tabCount = (firstLine.match(/\t/g) || []).length;
+            const commaCount = (firstLine.match(/,/g) || []).length;
+            const delimiter = tabCount > commaCount ? "\t" : ",";
+
+            const parsed = parseCSV(text, delimiter);
+            if (!parsed || parsed.rows.length === 0) return showToast("Could not parse file — check the format", "error");
+            setCsvData(parsed);
+            const autoMap = {};
+            cfg.fields.forEach(f => {
+              const match = parsed.headers.findIndex(h => {
+                const hl = h.toLowerCase().replace(/[^a-z0-9]/g, "");
+                const fl = f.label.toLowerCase().replace(/[^a-z0-9]/g, "");
+                const fk = f.key.toLowerCase().replace(/[^a-z0-9]/g, "");
+                return hl === fk || hl === fl || hl.includes(fk) || fk.includes(hl) || hl.includes(fl.split(" ")[0]);
+              });
+              if (match >= 0) autoMap[f.key] = match;
+            });
+            setColMap(autoMap);
+            setImportPreview(null);
           };
 
           const buildPreview = () => {
