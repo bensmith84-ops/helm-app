@@ -635,8 +635,8 @@ export default function FinanceView() {
               { key: "notes", label: "Notes" },
             ]},
             accounts: { table: "fin_accounts", label: "Chart of Accounts", fields: [
-              { key: "code", label: "Account Code", required: true },
               { key: "name", label: "Account Name", required: true },
+              { key: "code", label: "Account Code / Number" },
               { key: "type", label: "Type (expense/revenue/asset/liability)" },
               { key: "description", label: "Description" },
             ]},
@@ -860,9 +860,18 @@ export default function FinanceView() {
               if (cfg.table === "fin_expense_reports" && !obj.status) obj.status = "draft";
               if (cfg.table === "fin_invoices" && !obj.status) obj.status = "received";
               if (cfg.table === "fin_accounts" && !obj.type) obj.type = "expense";
+              if (cfg.table === "fin_accounts" && !obj.code) obj.code = String(imported + errors + 1).padStart(4, "0");
+              if (cfg.table === "fin_accounts" && obj.name) {
+                // Skip QBO report sub-headers
+                const skip_names = ["full name", "name", "account", "type", "detail type", "description", "balance", ""];
+                if (skip_names.includes(obj.name.toLowerCase().trim())) { errors++; continue; }
+              }
               if (cfg.table === "fin_expense_items" && !obj.category) obj.category = "other";
               if (cfg.table === "fin_payments" && !obj.status) obj.status = "completed";
               if (["fin_expense_items"].includes(cfg.table)) delete obj.org_id;
+              // Skip rows where all values are empty (blank separator rows in reports)
+              const vals = Object.entries(obj).filter(([k]) => k !== "org_id" && k !== "status" && k !== "type" && k !== "category" && k !== "code");
+              if (vals.length === 0 || vals.every(([_, v]) => !v && v !== 0)) { errors++; continue; }
               records.push(obj);
             }
 
@@ -916,7 +925,7 @@ export default function FinanceView() {
               <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>QuickBooks Online Export Tips for {cfg.label}</div>
               <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.6 }}>
                 {importType === "vendors" && "In QBO: Go to Expenses → Vendors → Export to Excel. The CSV will include vendor name, email, phone, and terms."}
-                {importType === "accounts" && "In QBO: Go to Settings (⚙) → Chart of Accounts → Run Report → Export to Excel. You'll get account number, name, type, and balance."}
+                {importType === "accounts" && "In QBO: Go to Settings (⚙) → Chart of Accounts → Export to Excel (icon next to Print). If the export has a single 'Account List' column, map it to Account Name — codes will be auto-generated. For separate columns, try Reports → Account List → Export."}
                 {importType === "purchase_orders" && "In QBO: Go to Reports → Transaction List → filter by Transaction Type = 'Purchase Order' → Export to Excel."}
                 {importType === "expenses" && "In QBO: Go to Reports → Expenses by Vendor Summary/Detail → Export to Excel. Or use Transaction List filtered to Expense type."}
                 {importType === "expense_items" && "In QBO: Go to Reports → Transaction Detail → filter to Expenses → Export to Excel. Each row will be one expense line."}
