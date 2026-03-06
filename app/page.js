@@ -20,6 +20,7 @@ const CalendarView = lazy(() => import("./components/Calendar"));
 const CallsView = lazy(() => import("./components/Calls"));
 const CampaignsView = lazy(() => import("./components/Campaigns"));
 const PLMView = lazy(() => import("./components/PLM"));
+const FinanceView = lazy(() => import("./components/Finance"));
 const AutomationView = lazy(() => import("./components/Automation"));
 const ReportsView = lazy(() => import("./components/Reports"));
 const SettingsView = lazy(() => import("./components/Settings"));
@@ -120,6 +121,7 @@ export default function HelmApp() {
       case "calls": return <CallsView />;
       case "campaigns": return <CampaignsView />;
       case "plm": return <PLMView />;
+      case "finance": return <FinanceView />;
       case "automation": return <AutomationView />;
       case "reports": return <ReportsView />;
       case "people": return <PeopleView />;

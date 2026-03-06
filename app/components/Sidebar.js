@@ -14,6 +14,7 @@ export const NAV_ITEMS = [
   { key: "campaigns", icon: "◈", label: "Campaigns" },
   { type: "divider" },
   { key: "plm", icon: "⬢", label: "PLM" },
+  { key: "finance", icon: "◆", label: "Finance" },
   { type: "divider" },
   { key: "automation", icon: "⚡", label: "Automation" },
   { key: "reports", icon: "▥", label: "Reports" },
