@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 
-const TABS = ["Dashboard", "Budgets", "Purchase Orders", "Expenses", "Invoices", "Vendors"];
+const TABS = ["Dashboard", "Budgets", "Purchase Orders", "Expenses", "Invoices", "Vendors", "Import"];
 const CURR = "$";
 const fmt = (n) => n != null ? CURR + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "$0.00";
 const fmtK = (n) => { const v = Number(n) || 0; return v >= 1000000 ? CURR + (v/1000000).toFixed(1) + "M" : v >= 1000 ? CURR + (v/1000).toFixed(1) + "K" : fmt(v); };
@@ -63,6 +63,11 @@ export default function FinanceView() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // {type, mode, data}
   const [toast, setToast] = useState(null);
+  const [importType, setImportType] = useState("vendors");
+  const [csvData, setCsvData] = useState(null); // {headers, rows}
+  const [colMap, setColMap] = useState({});
+  const [importPreview, setImportPreview] = useState(null);
+  const [importing, setImporting] = useState(false);
 
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const orgId = profile?.org_id;
@@ -615,6 +620,287 @@ export default function FinanceView() {
             { label: "", align: "right", render: r => <button onClick={e => { e.stopPropagation(); deleteRecord("fin_vendors", r.id, vendors, setVendors); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, opacity: 0.4 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button> }
           ]} data={vendors} onRowClick={r => setModal({ type: "vendor", mode: "edit", data: r })} emptyMsg="No vendors yet — add your first vendor" />
         </>}
+
+        {tab === "Import" && (() => {
+          const IMPORT_TYPES = {
+            vendors: { table: "fin_vendors", label: "Vendors", fields: [
+              { key: "name", label: "Vendor Name", required: true },
+              { key: "code", label: "Vendor Code" },
+              { key: "contact_name", label: "Contact Name" },
+              { key: "contact_email", label: "Contact Email" },
+              { key: "contact_phone", label: "Phone" },
+              { key: "payment_terms", label: "Payment Terms" },
+              { key: "category", label: "Category" },
+              { key: "tax_id", label: "Tax ID / EIN" },
+              { key: "notes", label: "Notes" },
+            ]},
+            accounts: { table: "fin_accounts", label: "Chart of Accounts", fields: [
+              { key: "code", label: "Account Code", required: true },
+              { key: "name", label: "Account Name", required: true },
+              { key: "type", label: "Type (expense/revenue/asset/liability)" },
+              { key: "description", label: "Description" },
+            ]},
+            purchase_orders: { table: "fin_purchase_orders", label: "Purchase Orders", fields: [
+              { key: "po_number", label: "PO Number", required: true },
+              { key: "title", label: "Title / Memo", required: true },
+              { key: "vendor_name", label: "Vendor Name (will match existing)", lookup: "vendor" },
+              { key: "total_amount", label: "Total Amount", numeric: true },
+              { key: "subtotal", label: "Subtotal", numeric: true },
+              { key: "tax_amount", label: "Tax Amount", numeric: true },
+              { key: "status", label: "Status" },
+              { key: "order_date", label: "Order Date" },
+              { key: "required_by", label: "Required By Date" },
+              { key: "notes", label: "Notes / Memo" },
+            ]},
+            expenses: { table: "fin_expense_reports", label: "Expense Reports", fields: [
+              { key: "report_number", label: "Report Number", required: true },
+              { key: "title", label: "Title", required: true },
+              { key: "total_amount", label: "Total Amount", numeric: true },
+              { key: "status", label: "Status" },
+              { key: "description", label: "Description" },
+              { key: "notes", label: "Notes" },
+            ]},
+            expense_items: { table: "fin_expense_items", label: "Expense Line Items", fields: [
+              { key: "report_number", label: "Report Number (to match parent)", lookup: "expense" },
+              { key: "date", label: "Date" },
+              { key: "category", label: "Category" },
+              { key: "description", label: "Description", required: true },
+              { key: "amount", label: "Amount", required: true, numeric: true },
+              { key: "vendor_name", label: "Vendor / Payee" },
+            ]},
+            invoices: { table: "fin_invoices", label: "Invoices (Bills)", fields: [
+              { key: "invoice_number", label: "Invoice / Bill Number", required: true },
+              { key: "title", label: "Title / Memo" },
+              { key: "vendor_name", label: "Vendor Name (will match existing)", lookup: "vendor" },
+              { key: "total_amount", label: "Total Amount", required: true, numeric: true },
+              { key: "tax_amount", label: "Tax", numeric: true },
+              { key: "invoice_date", label: "Invoice Date" },
+              { key: "due_date", label: "Due Date" },
+              { key: "status", label: "Status" },
+              { key: "notes", label: "Notes / Memo" },
+            ]},
+            payments: { table: "fin_payments", label: "Payments", fields: [
+              { key: "invoice_number", label: "Invoice # (to match)", lookup: "invoice" },
+              { key: "amount", label: "Amount", required: true, numeric: true },
+              { key: "payment_date", label: "Payment Date" },
+              { key: "payment_method", label: "Method (ach/wire/check/credit_card)" },
+              { key: "reference_number", label: "Reference / Check #" },
+              { key: "notes", label: "Notes" },
+            ]},
+          };
+
+          const cfg = IMPORT_TYPES[importType];
+
+          const parseCSV = (text) => {
+            const lines = text.split(/\r?\n/).filter(l => l.trim());
+            if (lines.length < 2) return null;
+            // Handle quoted fields
+            const parseLine = (line) => {
+              const result = []; let current = ""; let inQuotes = false;
+              for (let i = 0; i < line.length; i++) {
+                const c = line[i];
+                if (c === '"') { inQuotes = !inQuotes; }
+                else if (c === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
+                else { current += c; }
+              }
+              result.push(current.trim());
+              return result;
+            };
+            const headers = parseLine(lines[0]);
+            const rows = lines.slice(1).map(parseLine).filter(r => r.some(c => c));
+            return { headers, rows };
+          };
+
+          const handleFile = (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const parsed = parseCSV(ev.target.result);
+              if (!parsed || parsed.rows.length === 0) return showToast("Could not parse CSV — check the file format", "error");
+              setCsvData(parsed);
+              // Auto-map columns by fuzzy matching headers to field labels/keys
+              const autoMap = {};
+              cfg.fields.forEach(f => {
+                const match = parsed.headers.findIndex(h => {
+                  const hl = h.toLowerCase().replace(/[^a-z0-9]/g, "");
+                  const fl = f.label.toLowerCase().replace(/[^a-z0-9]/g, "");
+                  const fk = f.key.toLowerCase().replace(/[^a-z0-9]/g, "");
+                  return hl === fk || hl === fl || hl.includes(fk) || fk.includes(hl) || hl.includes(fl.split(" ")[0]);
+                });
+                if (match >= 0) autoMap[f.key] = match;
+              });
+              setColMap(autoMap);
+              setImportPreview(null);
+            };
+            reader.readAsText(file);
+          };
+
+          const buildPreview = () => {
+            if (!csvData) return;
+            const rows = csvData.rows.slice(0, 5).map(row => {
+              const obj = {};
+              cfg.fields.forEach(f => {
+                const ci = colMap[f.key];
+                if (ci !== undefined && ci !== "" && ci !== -1) {
+                  let val = row[ci] || "";
+                  if (f.numeric) val = parseFloat(val.replace(/[^0-9.\-]/g, "")) || 0;
+                  obj[f.key] = val;
+                }
+              });
+              return obj;
+            });
+            setImportPreview(rows);
+          };
+
+          const runImport = async () => {
+            if (!csvData || importing) return;
+            setImporting(true);
+            let imported = 0; let errors = 0;
+            const vendorMap = {}; vendors.forEach(v => vendorMap[v.name.toLowerCase()] = v.id);
+            const expMap = {}; expenses.forEach(e => expMap[e.report_number?.toLowerCase()] = e.id);
+            const invMap = {}; invoices.forEach(i => invMap[i.invoice_number?.toLowerCase()] = i.id);
+
+            for (const row of csvData.rows) {
+              const obj = { org_id: orgId };
+              let skip = false;
+              cfg.fields.forEach(f => {
+                const ci = colMap[f.key];
+                if (ci !== undefined && ci !== "" && ci !== -1) {
+                  let val = row[ci] || "";
+                  if (f.numeric) val = parseFloat(val.replace(/[^0-9.\-]/g, "")) || 0;
+                  if (f.required && !val && val !== 0) skip = true;
+                  // Handle vendor lookup
+                  if (f.key === "vendor_name" && f.lookup === "vendor") {
+                    const vid = vendorMap[String(val).toLowerCase()];
+                    if (vid) obj.vendor_id = vid;
+                    return; // don't set vendor_name on PO/invoice
+                  }
+                  // Handle expense report lookup
+                  if (f.key === "report_number" && f.lookup === "expense") {
+                    const eid = expMap[String(val).toLowerCase()];
+                    if (eid) obj.report_id = eid;
+                    return;
+                  }
+                  // Handle invoice lookup
+                  if (f.key === "invoice_number" && f.lookup === "invoice") {
+                    const iid = invMap[String(val).toLowerCase()];
+                    if (iid) obj.invoice_id = iid;
+                    return;
+                  }
+                  obj[f.key] = val;
+                }
+              });
+              if (skip) { errors++; continue; }
+              // Set defaults
+              if (cfg.table === "fin_purchase_orders" && !obj.status) obj.status = "draft";
+              if (cfg.table === "fin_expense_reports" && !obj.status) obj.status = "draft";
+              if (cfg.table === "fin_invoices" && !obj.status) obj.status = "received";
+              if (cfg.table === "fin_accounts" && !obj.type) obj.type = "expense";
+              if (cfg.table === "fin_expense_items" && !obj.category) obj.category = "other";
+              if (cfg.table === "fin_payments" && !obj.status) obj.status = "completed";
+              // Remove org_id for child tables
+              if (["fin_expense_items"].includes(cfg.table)) delete obj.org_id;
+
+              const { error } = await supabase.from(cfg.table).insert(obj);
+              if (error) { console.error("Import row error:", error, obj); errors++; }
+              else imported++;
+            }
+            // Refresh data
+            if (cfg.table === "fin_vendors") { const { data } = await supabase.from("fin_vendors").select("*").eq("org_id", orgId); setVendors(data || []); }
+            if (cfg.table === "fin_accounts") { const { data } = await supabase.from("fin_accounts").select("*").eq("org_id", orgId); setAccounts(data || []); }
+            if (cfg.table === "fin_purchase_orders") { const { data } = await supabase.from("fin_purchase_orders").select("*").eq("org_id", orgId); setPOs(data || []); }
+            if (cfg.table === "fin_expense_reports") { const { data } = await supabase.from("fin_expense_reports").select("*").eq("org_id", orgId); setExpenses(data || []); }
+            if (cfg.table === "fin_invoices") { const { data } = await supabase.from("fin_invoices").select("*").eq("org_id", orgId); setInvoices(data || []); }
+            if (cfg.table === "fin_payments") { const { data } = await supabase.from("fin_payments").select("*").eq("org_id", orgId); setPayments(data || []); }
+
+            setImporting(false);
+            setCsvData(null); setColMap({}); setImportPreview(null);
+            showToast(`Imported ${imported} records${errors > 0 ? ` (${errors} skipped/errors)` : ""}`);
+          };
+
+          return <>
+            <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 700, color: T.text }}>Import from CSV</h3>
+            <p style={{ fontSize: 13, color: T.text3, marginBottom: 16, marginTop: 0 }}>
+              Export your data from QuickBooks Online as CSV/Excel, then upload it here. Map columns to Helm fields and import.
+            </p>
+
+            {/* Step 1: Choose type */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+              {Object.entries(IMPORT_TYPES).map(([k, v]) => (
+                <button key={k} onClick={() => { setImportType(k); setCsvData(null); setColMap({}); setImportPreview(null); }}
+                  style={{ ..._btn, padding: "8px 14px", fontSize: 12, background: importType === k ? T.accent : T.surface2, color: importType === k ? "#fff" : T.text2, border: importType === k ? "none" : `1px solid ${T.border}` }}>{v.label}</button>
+              ))}
+            </div>
+
+            {/* QBO export tips */}
+            <div style={{ background: T.surface2, borderRadius: 8, padding: 16, marginBottom: 16, border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>QuickBooks Online Export Tips for {cfg.label}</div>
+              <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.6 }}>
+                {importType === "vendors" && "In QBO: Go to Expenses → Vendors → Export to Excel. The CSV will include vendor name, email, phone, and terms."}
+                {importType === "accounts" && "In QBO: Go to Settings (⚙) → Chart of Accounts → Run Report → Export to Excel. You'll get account number, name, type, and balance."}
+                {importType === "purchase_orders" && "In QBO: Go to Reports → Transaction List → filter by Transaction Type = 'Purchase Order' → Export to Excel."}
+                {importType === "expenses" && "In QBO: Go to Reports → Expenses by Vendor Summary/Detail → Export to Excel. Or use Transaction List filtered to Expense type."}
+                {importType === "expense_items" && "In QBO: Go to Reports → Transaction Detail → filter to Expenses → Export to Excel. Each row will be one expense line."}
+                {importType === "invoices" && "In QBO: Go to Reports → Transaction List → filter by Transaction Type = 'Bill' → Export to Excel. Bills in QBO = vendor invoices."}
+                {importType === "payments" && "In QBO: Go to Reports → Transaction List → filter by Transaction Type = 'Bill Payment' → Export to Excel."}
+              </div>
+            </div>
+
+            {/* Step 2: Upload */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ ..._btn, background: T.accent, color: "#fff", display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+                Upload CSV
+                <input type="file" accept=".csv,.tsv,.txt,.xls,.xlsx" onChange={handleFile} style={{ display: "none" }} />
+              </label>
+              {csvData && <span style={{ marginLeft: 12, fontSize: 13, color: T.green || "#22c55e", fontWeight: 600 }}>✓ {csvData.rows.length} rows loaded ({csvData.headers.length} columns)</span>}
+            </div>
+
+            {/* Step 3: Map columns */}
+            {csvData && <>
+              <div style={{ background: T.surface, borderRadius: 8, padding: 16, border: `1px solid ${T.border}`, marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Map Columns</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Match your CSV columns to Helm fields. Required fields are marked with *</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {cfg.fields.map(f => (
+                    <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 12, color: T.text2, minWidth: 160, fontWeight: f.required ? 600 : 400 }}>{f.label}{f.required ? " *" : ""}</span>
+                      <select value={colMap[f.key] ?? ""} onChange={e => setColMap(p => ({ ...p, [f.key]: e.target.value === "" ? "" : Number(e.target.value) }))}
+                        style={{ ..._sel, flex: 1, fontSize: 12, padding: "5px 8px" }}>
+                        <option value="">— skip —</option>
+                        {csvData.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <button onClick={buildPreview} style={{ ..._btn, background: T.surface3, color: T.text2, fontSize: 12 }}>Preview</button>
+                  <button onClick={runImport} disabled={importing} style={{ ..._btn, background: T.accent, color: "#fff", fontSize: 12, opacity: importing ? 0.5 : 1 }}>
+                    {importing ? "Importing…" : `Import ${csvData.rows.length} Records`}
+                  </button>
+                </div>
+              </div>
+
+              {/* Preview table */}
+              {importPreview && <div style={{ overflow: "auto", borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text3, padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}` }}>Preview (first 5 rows)</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead><tr>{cfg.fields.filter(f => colMap[f.key] !== undefined && colMap[f.key] !== "").map(f => <th key={f.key} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, color: T.text2, borderBottom: `1px solid ${T.border}`, fontSize: 11, background: T.surface2 }}>{f.label}</th>)}</tr></thead>
+                  <tbody>{importPreview.map((row, i) => <tr key={i}>{cfg.fields.filter(f => colMap[f.key] !== undefined && colMap[f.key] !== "").map(f => <td key={f.key} style={{ padding: "6px 10px", borderBottom: `1px solid ${T.border}`, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(row[f.key] ?? "")}</td>)}</tr>)}</tbody>
+                </table>
+              </div>}
+
+              {/* Raw data peek */}
+              <div style={{ background: T.surface2, borderRadius: 8, padding: 12, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 8 }}>Raw CSV Headers</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {csvData.headers.map((h, i) => <span key={i} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, background: T.surface3, color: T.text2 }}>{i}: {h}</span>)}
+                </div>
+              </div>
+            </>}
+          </>;
+        })()}
       </div>
       <ModalForm />
     </div>
