@@ -746,12 +746,81 @@ export default function FinanceView() {
             tryRead("UTF-8");
           };
 
+          const handlePivotImport = async (text, delimiter) => {
+            setImporting(true);
+            showToast("Detected QBO Expenses by Vendor Summary — unpivoting and importing...");
+            try {
+              const lines = text.split(/\r?\n/).filter(l => l.trim());
+              const parseLine = (line) => {
+                const result = []; let current = ""; let inQ = false;
+                for (let i = 0; i < line.length; i++) {
+                  const c = line[i];
+                  if (c === '"') inQ = !inQ;
+                  else if (c === ',' && !inQ) { result.push(current.trim()); current = ""; }
+                  else current += c;
+                }
+                result.push(current.trim());
+                return result;
+              };
+              // Find header row (the one starting with "Vendor" and having dates)
+              let headerIdx = -1;
+              for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].startsWith("Vendor,")) { headerIdx = i; break; }
+              }
+              if (headerIdx < 0) { showToast("Could not find Vendor header row", "error"); setImporting(false); return; }
+              const headers = parseLine(lines[headerIdx]);
+              const dates = headers.slice(1, -1); // skip Vendor and Total
+              // Parse data rows
+              const expenses = [];
+              for (let i = headerIdx + 1; i < lines.length; i++) {
+                const cells = parseLine(lines[i]);
+                const vendor = cells[0];
+                if (!vendor || vendor === "TOTAL" || vendor.startsWith("Accrual")) continue;
+                for (let d = 0; d < dates.length; d++) {
+                  const raw = (cells[d + 1] || "").replace(/[\$,]/g, "").trim();
+                  const amount = parseFloat(raw);
+                  if (!raw || isNaN(amount) || amount === 0) continue;
+                  const parts = dates[d].split("/");
+                  const isoDate = parts.length === 3 ? `${parts[2]}-${parts[0].padStart(2,"0")}-${parts[1].padStart(2,"0")}` : dates[d];
+                  expenses.push({ vendor_name: vendor, date: isoDate, amount });
+                }
+              }
+              showToast(`Parsed ${expenses.length} expense items from ${new Set(expenses.map(e => e.vendor_name)).size} vendors — sending to server...`);
+              // Call edge function
+              const { data: { session } } = await supabase.auth.getSession();
+              const resp = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/import-expenses`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` },
+                body: JSON.stringify({ expenses })
+              });
+              const result = await resp.json();
+              if (result.error) { showToast("Import error: " + result.error, "error"); }
+              else {
+                showToast(`Imported ${result.reports} expense reports with ${result.items} line items!`);
+                // Refresh
+                const { data: er } = await supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("created_at", { ascending: false });
+                setExpenses(er || []);
+              }
+            } catch (err) {
+              console.error("Pivot import error:", err);
+              showToast("Import failed: " + err.message, "error");
+            }
+            setImporting(false);
+          };
+
           const processCSVText = (text) => {
             // Detect delimiter (tab vs comma)
             const firstLine = text.split(/\r?\n/)[0] || "";
             const tabCount = (firstLine.match(/\t/g) || []).length;
             const commaCount = (firstLine.match(/,/g) || []).length;
             const delimiter = tabCount > commaCount ? "\t" : ",";
+
+            // Detect QBO pivot table format (Expenses by Vendor Summary)
+            const lines = text.split(/\r?\n/).filter(l => l.trim());
+            if (lines[0]?.includes("Expenses by Vendor") || (lines.length > 4 && lines[4]?.match(/^Vendor,\d{2}\/\d{2}\/\d{4}/))) {
+              handlePivotImport(text, delimiter);
+              return;
+            }
 
             const parsed = parseCSV(text, delimiter);
             if (!parsed || parsed.rows.length === 0) return showToast("Could not parse file — check the format", "error");
