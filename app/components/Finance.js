@@ -757,17 +757,48 @@ export default function FinanceView() {
             if (!parsed || parsed.rows.length === 0) return showToast("Could not parse file — check the format", "error");
             setCsvData(parsed);
             const autoMap = {};
+            const usedCols = new Set();
             cfg.fields.forEach(f => {
-              const match = parsed.headers.findIndex(h => {
-                const hl = h.toLowerCase().replace(/[^a-z0-9]/g, "");
-                const fl = f.label.toLowerCase().replace(/[^a-z0-9]/g, "");
-                const fk = f.key.toLowerCase().replace(/[^a-z0-9]/g, "");
-                return hl === fk || hl === fl || hl.includes(fk) || fk.includes(hl) || hl.includes(fl.split(" ")[0]);
+              const fk = f.key.toLowerCase().replace(/_/g, "");
+              const fl = f.label.toLowerCase();
+              let bestMatch = -1; let bestScore = 0;
+              parsed.headers.forEach((h, i) => {
+                if (usedCols.has(i)) return;
+                const hl = h.toLowerCase().trim();
+                const hc = hl.replace(/[^a-z0-9]/g, "");
+                let score = 0;
+                if (hc === fk) score = 100;                           // exact: "vendor" == "vendor"
+                else if (hl === fl) score = 95;                        // exact label match
+                else if (hc === fk.replace(/name$/, "")) score = 80;   // "vendor" matches "vendorname"
+                else if (hl.replace(/[^a-z0-9 ]/g, "") === fl.replace(/[^a-z0-9 ]/g, "")) score = 75;
+                else if (hc === "name" && fk === "name") score = 90;
+                else if (hc === "email" && fk.includes("email")) score = 85;
+                else if (hc === "phone" && fk.includes("phone")) score = 85;
+                else if (hc === "vendor" && fk === "name") score = 70;  // QBO "Vendor" column = vendor name
+                else if (hc === "companyname" && fk === "contactname") score = 60;
+                else if (hl.includes("company") && fk === "contactname") score = 55;
+                if (score > bestScore) { bestScore = score; bestMatch = i; }
               });
-              if (match >= 0) autoMap[f.key] = match;
+              if (bestMatch >= 0 && bestScore >= 55) {
+                autoMap[f.key] = bestMatch;
+                usedCols.add(bestMatch);
+              }
             });
             setColMap(autoMap);
-            setImportPreview(null);
+            // Auto-generate preview
+            const previewRows = parsed.rows.slice(0, 5).map(row => {
+              const obj = {};
+              cfg.fields.forEach(fld => {
+                const ci = autoMap[fld.key];
+                if (ci !== undefined && ci !== "" && ci !== -1) {
+                  let val = row[ci] || "";
+                  if (fld.numeric) val = parseFloat(String(val).replace(/[^0-9.\-]/g, "")) || 0;
+                  obj[fld.key] = val;
+                }
+              });
+              return obj;
+            });
+            setImportPreview(previewRows);
           };
 
           const buildPreview = () => {
