@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 
-const TABS = ["Dashboard", "Chart of Accounts", "Expenses", "Budgets", "Purchase Orders", "Invoices", "Vendors", "Import"];
+const TABS = ["Dashboard", "Forecast", "Chart of Accounts", "Expenses", "Budgets", "Purchase Orders", "Invoices", "Vendors", "Import"];
 const CURR = "$";
 const fmt = (n) => n != null ? CURR + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "$0.00";
 const fmtK = (n) => { const v = Number(n) || 0; return v >= 1000000 ? CURR + (v/1000000).toFixed(1) + "M" : v >= 1000 ? CURR + (v/1000).toFixed(1) + "K" : fmt(v); };
@@ -78,6 +78,13 @@ export default function FinanceView() {
   const [aiAnalysis, setAiAnalysis] = useState(null); // AI insights
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReclassifying, setAiReclassifying] = useState({});
+  const [fcDrivers, setFcDrivers] = useState({
+    dtcAdSpend: 2300000, dtcCAC: 65, dtcAOV1st: 44.52, dtcAOV2nd: 49.15,
+    amznAdSpend: 400000, amznCAC: 12.4, amznAOV: 19.3,
+    walmartDoors: 4000, walmartVel: 1.2, targetDoors: 1800, targetVel: 0.9, krogerDoors: 1785, krogerVel: 0.95,
+    discountRate: -0.0924, chargebackRate: -0.0192, ccRate: 0.04,
+    inflator27: 0.02, inflator28: 0.02, decayCurve: 2,
+  });
 
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), type === "error" ? 8000 : 3000); }, []);
   const orgId = profile?.org_id;
@@ -727,6 +734,159 @@ export default function FinanceView() {
               <StatCard label="Transactions" value={txnTotal.toLocaleString()} sub="Expense items" onClick={() => setTab("Expenses")} />
               <StatCard label="Vendors" value={vendors.length.toLocaleString()} sub="Active vendors" onClick={() => setTab("Vendors")} />
               <StatCard label="Purchase Orders" value={pos.length} sub={`${pos.filter(p => p.status === "pending_approval").length} pending`} onClick={() => setTab("Purchase Orders")} />
+            </div>
+          </>;
+        })()}
+
+        {tab === "Forecast" && (() => {
+          const d = fcDrivers;
+          const setD = (k, v) => setFcDrivers(p => ({ ...p, [k]: Number(v) }));
+          const CURVES = { 1: [1,.68,.25,.23,.21,.19,.17,.15,.13,.11,.09,.07], 2: [1,.79,.33,.15,.10,.08,.08,.05,.05,.05,.05,.05], 3: [1,.68,.25,.10,.08,.06,.04,.02,.02,.02,.02,.02] };
+          const curve = CURVES[d.decayCurve] || CURVES[2];
+          const BASE = { grossDTC: 86556924, grossAMZN: 22490523, grossRetail: 11786801, grossIntl: 1021663, productCost: 16913242, gwpCOGS: 2030379, donatedProduct: 930826, processingFees: 7124462, amazonFBA: 4317034, warehouseStorage: 867607, otherCOGS: 2305598, personnel: 8311906, freightOut: 13759334, warehouseFulfill: 733812, otherMarketing: 1920191, travelMeals: 269742, gaOH: 1710298, proFees: 578541, otherFixed: 283779, ofsTNT: 1229123, depreciation: 498889, interestExpense: 402411, otherExpense: 1618757, otherIncome: 301873 };
+          const fc = {};
+          for (const yr of [2026, 2027, 2028]) {
+            const inf = yr === 2026 ? 1 : yr === 2027 ? (1 + d.inflator27) : (1 + d.inflator27) * (1 + d.inflator28);
+            const dtcNew = (d.dtcAdSpend * 12) / d.dtcCAC;
+            let ltv = d.dtcAOV1st; for (let m = 1; m < 12; m++) ltv += (curve[m] || 0.02) * d.dtcAOV2nd;
+            const dtcGross = yr === 2026 ? BASE.grossDTC : dtcNew * ltv * inf;
+            const amznGross = yr === 2026 ? BASE.grossAMZN : ((d.amznAdSpend * 12) / d.amznCAC) * d.amznAOV * 12 * 0.055 * inf * (yr === 2027 ? 0.815 : 0.707);
+            const retailGross = yr === 2026 ? BASE.grossRetail : (d.walmartDoors * d.walmartVel * 52 * 8.6 + d.targetDoors * d.targetVel * 52 * 8.4 + d.krogerDoors * d.krogerVel * 52 * 8.6) * inf;
+            const intlGross = yr === 2026 ? BASE.grossIntl : BASE.grossIntl * inf * (yr === 2027 ? 0.88 : 0.76);
+            const totalGross = dtcGross + amznGross + retailGross + intlGross;
+            const disc = totalGross * d.discountRate;
+            const cb = totalGross * d.chargebackRate;
+            const netSales = totalGross + disc + cb;
+            const rr = totalGross / (BASE.grossDTC + BASE.grossAMZN + BASE.grossRetail + BASE.grossIntl);
+            const productCost = BASE.productCost * rr * (yr === 2026 ? 1 : inf * 0.95);
+            const totalCOGS = productCost + BASE.gwpCOGS * rr * inf + BASE.donatedProduct * inf + netSales * d.ccRate * 1.6 + amznGross * 0.192 + BASE.warehouseStorage * rr * inf + BASE.otherCOGS * rr * inf;
+            const grossProfit = netSales - totalCOGS;
+            const adSpend = (d.dtcAdSpend + d.amznAdSpend) * 12 + d.dtcAdSpend * 0.004; // + intl
+            const totalGA = BASE.personnel * inf + adSpend + BASE.freightOut * rr * inf + (yr === 2026 ? BASE.warehouseFulfill : BASE.warehouseFulfill * rr * inf) + (yr === 2026 ? BASE.otherMarketing : BASE.otherMarketing * 0.05 * inf) + BASE.travelMeals * inf + (yr === 2026 ? BASE.gaOH : BASE.gaOH * 0.4 * inf) + (yr === 2026 ? BASE.proFees : 278100 * inf) + BASE.otherFixed * inf + BASE.ofsTNT * inf;
+            const ebitda = grossProfit - totalGA;
+            const netIncome = ebitda - BASE.depreciation * inf - BASE.interestExpense * inf - BASE.otherExpense * inf + BASE.otherIncome * inf;
+            fc[yr] = { dtcGross, amznGross, retailGross, intlGross, totalGross, disc, cb, netSales, productCost, totalCOGS, grossProfit, adSpend, totalGA, ebitda, netIncome, grossMargin: grossProfit / netSales, ebitdaMargin: ebitda / netSales, netMargin: netIncome / netSales };
+          }
+          const FcInput = ({ label, dk, prefix = "$", step = 1 }) => (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              <span style={{ fontSize: 11, color: T.text3, width: 120, flexShrink: 0 }}>{label}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>{prefix && <span style={{ fontSize: 10, color: T.text3 }}>{prefix}</span>}<input type="number" step={step} value={d[dk]} onChange={e => setD(dk, e.target.value)} style={{ ..._inp, width: 100, padding: "4px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }} /></div>
+            </div>
+          );
+          const FcRow = ({ label, vals, bold, neg, indent }) => (
+            <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr", padding: `${bold ? 5 : 2}px 0`, borderTop: bold ? `1px solid ${T.border}` : "none" }}>
+              <div style={{ fontSize: 12, fontWeight: bold ? 700 : 400, color: bold ? T.text : T.text2, paddingLeft: indent ? 12 : 0 }}>{label}</div>
+              {[2026, 2027, 2028].map(y => <div key={y} style={{ fontSize: 12, fontWeight: bold ? 700 : 400, textAlign: "right", fontFamily: "monospace", color: neg ? (T.red || "#ef4444") : bold ? (T.accent || "#3b82f6") : T.text, paddingRight: 8 }}>{fmtK(vals[y])}</div>)}
+            </div>
+          );
+          const FcPctRow = ({ label, vals }) => (
+            <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr", padding: "2px 0" }}>
+              <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>{label}</div>
+              {[2026, 2027, 2028].map(y => <div key={y} style={{ fontSize: 11, textAlign: "right", fontFamily: "monospace", color: vals[y] >= 0 ? (T.green || "#22c55e") : (T.red || "#ef4444"), paddingRight: 8 }}>{(vals[y] * 100).toFixed(1)}%</div>)}
+            </div>
+          );
+          return <>
+            <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
+              {/* Driver Panel */}
+              <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, padding: 14, overflow: "auto", maxHeight: "calc(100vh - 180px)" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginBottom: 10 }}>Forecast Drivers</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.text2, marginBottom: 6 }}>DTC / GWP</div>
+                <FcInput label="Monthly Ad Spend" dk="dtcAdSpend" step={50000} />
+                <FcInput label="CAC" dk="dtcCAC" />
+                <FcInput label="1st Order AOV" dk="dtcAOV1st" step={0.5} />
+                <FcInput label="Rebill AOV" dk="dtcAOV2nd" step={0.5} />
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, color: T.text3, width: 120 }}>Decay Curve</span>
+                  <select value={d.decayCurve} onChange={e => setD("decayCurve", e.target.value)} style={{ ..._sel, width: 100, padding: "4px 6px", fontSize: 11 }}>
+                    <option value={1}>Optimistic</option><option value={2}>Base</option><option value={3}>Conservative</option>
+                  </select>
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.text2, marginBottom: 6, marginTop: 10 }}>Amazon</div>
+                <FcInput label="Monthly Ad Spend" dk="amznAdSpend" step={25000} />
+                <FcInput label="CAC" dk="amznCAC" step={0.5} />
+                <FcInput label="AOV" dk="amznAOV" step={0.5} />
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.text2, marginBottom: 6, marginTop: 10 }}>Retail</div>
+                <FcInput label="Walmart Doors" dk="walmartDoors" prefix="" step={100} />
+                <FcInput label="Walmart Vel/wk" dk="walmartVel" prefix="" step={0.1} />
+                <FcInput label="Target Doors" dk="targetDoors" prefix="" step={100} />
+                <FcInput label="Target Vel/wk" dk="targetVel" prefix="" step={0.1} />
+                <FcInput label="Kroger Doors" dk="krogerDoors" prefix="" step={100} />
+                <FcInput label="Kroger Vel/wk" dk="krogerVel" prefix="" step={0.1} />
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.text2, marginBottom: 6, marginTop: 10 }}>Economics</div>
+                <FcInput label="Discount Rate" dk="discountRate" prefix="" step={0.005} />
+                <FcInput label="Chargeback Rate" dk="chargebackRate" prefix="" step={0.001} />
+                <FcInput label="CC Processing %" dk="ccRate" prefix="" step={0.005} />
+                <FcInput label="2027 Inflator" dk="inflator27" prefix="" step={0.005} />
+                <FcInput label="2028 Inflator" dk="inflator28" prefix="" step={0.005} />
+                <button onClick={() => setFcDrivers({ dtcAdSpend: 2300000, dtcCAC: 65, dtcAOV1st: 44.52, dtcAOV2nd: 49.15, amznAdSpend: 400000, amznCAC: 12.4, amznAOV: 19.3, walmartDoors: 4000, walmartVel: 1.2, targetDoors: 1800, targetVel: 0.9, krogerDoors: 1785, krogerVel: 0.95, discountRate: -0.0924, chargebackRate: -0.0192, ccRate: 0.04, inflator27: 0.02, inflator28: 0.02, decayCurve: 2 })} style={{ ..._btn, width: "100%", background: T.surface3, color: T.text3, fontSize: 11, marginTop: 8 }}>Reset to Base</button>
+              </div>
+              {/* P&L Output */}
+              <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, padding: 16, overflow: "auto", maxHeight: "calc(100vh - 180px)" }}>
+                {/* KPIs */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+                  {[
+                    { label: "2026 Net Sales", val: fmtK(fc[2026]?.netSales), color: T.accent },
+                    { label: "Gross Margin", val: (fc[2026]?.grossMargin * 100).toFixed(1) + "%", color: (fc[2026]?.grossMargin || 0) > 0.65 ? (T.green || "#22c55e") : "#f97316" },
+                    { label: "EBITDA", val: fmtK(fc[2026]?.ebitda), color: (fc[2026]?.ebitda || 0) > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444") },
+                    { label: "Net Income", val: fmtK(fc[2026]?.netIncome), color: (fc[2026]?.netIncome || 0) > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444") },
+                  ].map(kpi => (
+                    <div key={kpi.label} style={{ padding: 12, borderRadius: 8, background: T.surface2 || T.bg, border: `1px solid ${T.border}` }}>
+                      <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>{kpi.label}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: kpi.color, fontFamily: "monospace" }}>{kpi.val}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* P&L Table */}
+                <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr", padding: "6px 0", borderBottom: `1px solid ${T.border}`, marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: T.accent }}>P&L Forecast</div>
+                  {[2026, 2027, 2028].map(y => <div key={y} style={{ fontSize: 13, fontWeight: 700, textAlign: "right", color: T.text, paddingRight: 8 }}>{y}</div>)}
+                </div>
+                <FcRow label="DTC Gross Sales" vals={{ 2026: fc[2026]?.dtcGross, 2027: fc[2027]?.dtcGross, 2028: fc[2028]?.dtcGross }} indent />
+                <FcRow label="Amazon Gross Sales" vals={{ 2026: fc[2026]?.amznGross, 2027: fc[2027]?.amznGross, 2028: fc[2028]?.amznGross }} indent />
+                <FcRow label="Retail Gross Sales" vals={{ 2026: fc[2026]?.retailGross, 2027: fc[2027]?.retailGross, 2028: fc[2028]?.retailGross }} indent />
+                <FcRow label="Int'l Gross Sales" vals={{ 2026: fc[2026]?.intlGross, 2027: fc[2027]?.intlGross, 2028: fc[2028]?.intlGross }} indent />
+                <FcRow label="Total Gross Sales" vals={{ 2026: fc[2026]?.totalGross, 2027: fc[2027]?.totalGross, 2028: fc[2028]?.totalGross }} bold />
+                <FcRow label="Discounts" vals={{ 2026: fc[2026]?.disc, 2027: fc[2027]?.disc, 2028: fc[2028]?.disc }} indent neg />
+                <FcRow label="Chargebacks" vals={{ 2026: fc[2026]?.cb, 2027: fc[2027]?.cb, 2028: fc[2028]?.cb }} indent neg />
+                <FcRow label="Net Sales" vals={{ 2026: fc[2026]?.netSales, 2027: fc[2027]?.netSales, 2028: fc[2028]?.netSales }} bold />
+                <FcRow label="Total COGS" vals={{ 2026: fc[2026]?.totalCOGS, 2027: fc[2027]?.totalCOGS, 2028: fc[2028]?.totalCOGS }} bold />
+                <FcRow label="Gross Profit" vals={{ 2026: fc[2026]?.grossProfit, 2027: fc[2027]?.grossProfit, 2028: fc[2028]?.grossProfit }} bold />
+                <FcPctRow label="  Gross Margin" vals={{ 2026: fc[2026]?.grossMargin, 2027: fc[2027]?.grossMargin, 2028: fc[2028]?.grossMargin }} />
+                <FcRow label="Ad Spend" vals={{ 2026: fc[2026]?.adSpend, 2027: fc[2027]?.adSpend, 2028: fc[2028]?.adSpend }} indent />
+                <FcRow label="Total G&A" vals={{ 2026: fc[2026]?.totalGA, 2027: fc[2027]?.totalGA, 2028: fc[2028]?.totalGA }} bold />
+                <FcRow label="EBITDA" vals={{ 2026: fc[2026]?.ebitda, 2027: fc[2027]?.ebitda, 2028: fc[2028]?.ebitda }} bold />
+                <FcPctRow label="  EBITDA Margin" vals={{ 2026: fc[2026]?.ebitdaMargin, 2027: fc[2027]?.ebitdaMargin, 2028: fc[2028]?.ebitdaMargin }} />
+                <FcRow label="Net Income" vals={{ 2026: fc[2026]?.netIncome, 2027: fc[2027]?.netIncome, 2028: fc[2028]?.netIncome }} bold />
+                <FcPctRow label="  Net Margin" vals={{ 2026: fc[2026]?.netMargin, 2027: fc[2027]?.netMargin, 2028: fc[2028]?.netMargin }} />
+                {/* Revenue Mix Bars */}
+                <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Revenue Mix — 2026</div>
+                  {[
+                    { label: "DTC", val: fc[2026]?.dtcGross, color: T.accent || "#3b82f6" },
+                    { label: "Amazon", val: fc[2026]?.amznGross, color: "#f59e0b" },
+                    { label: "Retail", val: fc[2026]?.retailGross, color: "#f97316" },
+                    { label: "Int'l", val: fc[2026]?.intlGross, color: "#a855f7" },
+                  ].map(ch => { const p = ch.val / (fc[2026]?.totalGross || 1); return (
+                    <div key={ch.label} style={{ marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                        <span style={{ fontSize: 11, color: T.text2 }}>{ch.label}</span>
+                        <span style={{ fontSize: 11, fontFamily: "monospace", color: ch.color }}>{fmtK(ch.val)} ({(p * 100).toFixed(1)}%)</span>
+                      </div>
+                      <div style={{ height: 5, borderRadius: 3, background: T.surface3 || T.border }}>
+                        <div style={{ width: `${p * 100}%`, height: "100%", borderRadius: 3, background: ch.color, transition: "width 0.3s" }} />
+                      </div>
+                    </div>
+                  ); })}
+                </div>
+                {/* Retention Curve */}
+                <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>GWP Retention Curve</div>
+                  <div style={{ display: "flex", gap: 3, alignItems: "end", height: 50 }}>
+                    {curve.map((v, i) => <div key={i} style={{ flex: 1, background: T.accent || "#3b82f6", opacity: i === 0 ? 1 : 0.5 + v * 0.5, height: `${v * 100}%`, borderRadius: 2, minHeight: 2 }} title={`M${i}: ${(v*100).toFixed(0)}%`} />)}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}><span style={{ fontSize: 9, color: T.text3 }}>M0</span><span style={{ fontSize: 9, color: T.text3 }}>M11</span></div>
+                </div>
+              </div>
             </div>
           </>;
         })()}
