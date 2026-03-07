@@ -74,6 +74,10 @@ export default function FinanceView() {
   const [selectedReport, setSelectedReport] = useState(null);
   const [selectedItems, setSelectedItems] = useState([]);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [drillCategory, setDrillCategory] = useState(null); // which P&L category is expanded
+  const [aiAnalysis, setAiAnalysis] = useState(null); // AI insights
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiReclassifying, setAiReclassifying] = useState({});
 
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const orgId = profile?.org_id;
@@ -123,6 +127,39 @@ export default function FinanceView() {
     setSelectedReport(reportId);
     const { data } = await supabase.from("fin_expense_items").select("*").eq("report_id", reportId).order("date", { ascending: false }).limit(500);
     setSelectedItems(data || []);
+  };
+
+  const runAiAnalysis = async () => {
+    setAiLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/fin-analyze`, {
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` },
+        body: JSON.stringify({ action: "analyze" })
+      });
+      const result = await resp.json();
+      if (result.error) showToast("AI error: " + result.error, "error");
+      else setAiAnalysis(result);
+    } catch (err) { showToast("AI analysis failed: " + err.message, "error"); }
+    setAiLoading(false);
+  };
+
+  const approveReclassify = async (misclass, idx) => {
+    setAiReclassifying(p => ({ ...p, [idx]: "loading" }));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/fin-analyze`, {
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` },
+        body: JSON.stringify({ action: "reclassify", data: { vendor: misclass.vendor, from_account: misclass.current_account, to_account: misclass.suggested_account } })
+      });
+      const result = await resp.json();
+      if (result.error) { showToast("Reclassify error: " + result.error, "error"); setAiReclassifying(p => ({ ...p, [idx]: "error" })); }
+      else { showToast(`Moved ${result.moved} transactions ($${result.amount?.toLocaleString()}) to ${misclass.suggested_account}`); setAiReclassifying(p => ({ ...p, [idx]: "done" })); 
+        // Refresh reports
+        const { data: er } = await supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("total_amount", { ascending: false });
+        setExpenses(er || []);
+      }
+    } catch (err) { showToast("Failed: " + err.message, "error"); setAiReclassifying(p => ({ ...p, [idx]: "error" })); }
   };
 
   // ──── CRUD helpers ────
@@ -470,8 +507,8 @@ export default function FinanceView() {
   const pendingApprovals = approvals.filter(a => a.status === "in_progress" || a.status === "pending");
   const overdueInvoices = invoices.filter(i => i.due_date && new Date(i.due_date) < new Date() && !["paid", "void"].includes(i.status));
 
-  const StatCard = ({ label, value, sub, color }) => (
-    <div style={{ background: T.surface, borderRadius: 10, padding: 20, border: `1px solid ${T.border}`, flex: 1 }}>
+  const StatCard = ({ label, value, sub, color, onClick }) => (
+    <div onClick={onClick} style={{ background: T.surface, borderRadius: 10, padding: 20, border: `1px solid ${T.border}`, flex: 1, cursor: onClick ? "pointer" : "default", transition: "all 0.15s" }} onMouseEnter={e => onClick && (e.currentTarget.style.borderColor = T.accent)} onMouseLeave={e => onClick && (e.currentTarget.style.borderColor = T.border)}>
       <div style={{ fontSize: 12, color: T.text3, fontWeight: 500, marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 24, fontWeight: 700, color: color || T.text }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>{sub}</div>}
@@ -506,9 +543,10 @@ export default function FinanceView() {
             const prefix = code.substring(0, 1);
             const typeMap = { "1": "Assets", "2": "Liabilities", "3": "Equity", "4": "Revenue", "5": "COGS", "6": "Operating Expenses" };
             const type = typeMap[prefix] || "Other";
-            if (!expByType[type]) expByType[type] = { total: 0, count: 0 };
+            if (!expByType[type]) expByType[type] = { total: 0, count: 0, reports: [] };
             expByType[type].total += Number(e.total_amount || 0);
             expByType[type].count++;
+            expByType[type].reports.push(e);
           });
           const topSpend = expenses.filter(e => Number(e.total_amount || 0) > 0).sort((a, b) => Number(b.total_amount) - Number(a.total_amount)).slice(0, 10);
           const totalRevenue = expByType["Revenue"]?.total || 0;
@@ -517,27 +555,64 @@ export default function FinanceView() {
           const grossProfit = totalRevenue - totalCOGS;
           const netIncome = grossProfit - totalOpex;
           const txnTotal = expenses.reduce((s, e) => { const m = e.description?.match(/(\d+) txns/); return s + (m ? parseInt(m[1]) : 0); }, 0);
+          const drillToCategory = (cat) => { setDrillCategory(drillCategory === cat ? null : cat); };
+          const sevColor = (s) => s === "critical" ? (T.red || "#ef4444") : s === "warning" ? "#f97316" : T.accent;
+          const prioColor = (p) => p === "high" ? (T.red || "#ef4444") : p === "medium" ? "#f97316" : (T.green || "#22c55e");
           
           return <>
+            {/* P&L Summary Cards - clickable */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
-              <StatCard label="Revenue" value={fmtK(totalRevenue)} sub={`${expByType["Revenue"]?.count || 0} accounts`} color={T.green || "#22c55e"} />
-              <StatCard label="COGS" value={fmtK(totalCOGS)} sub={`${expByType["COGS"]?.count || 0} accounts`} color="#f97316" />
+              <StatCard label="Revenue" value={fmtK(totalRevenue)} sub={`${expByType["Revenue"]?.count || 0} accounts`} color={T.green || "#22c55e"} onClick={() => drillToCategory("Revenue")} />
+              <StatCard label="COGS" value={fmtK(totalCOGS)} sub={`${expByType["COGS"]?.count || 0} accounts`} color="#f97316" onClick={() => drillToCategory("COGS")} />
               <StatCard label="Gross Profit" value={fmtK(grossProfit)} sub={totalRevenue > 0 ? `${Math.round(grossProfit/totalRevenue*100)}% margin` : ""} color={grossProfit > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444")} />
-              <StatCard label="OpEx" value={fmtK(totalOpex)} sub={`${expByType["Operating Expenses"]?.count || 0} accounts`} color={T.accent} />
+              <StatCard label="OpEx" value={fmtK(totalOpex)} sub={`${expByType["Operating Expenses"]?.count || 0} accounts`} color={T.accent} onClick={() => drillToCategory("Operating Expenses")} />
               <StatCard label="Net Income" value={fmtK(netIncome)} sub={totalRevenue > 0 ? `${Math.round(netIncome/totalRevenue*100)}% margin` : ""} color={netIncome > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444")} />
             </div>
+
+            {/* Drill-down panel when a card is clicked */}
+            {drillCategory && expByType[drillCategory] && (
+              <div style={{ marginBottom: 24, borderRadius: 8, border: `1px solid ${T.accent}`, overflow: "hidden" }}>
+                <div style={{ padding: "10px 14px", background: T.accentDim || "#dbeafe", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.accent }}>{drillCategory} — {expByType[drillCategory].reports.length} accounts, {fmtK(expByType[drillCategory].total)} total</span>
+                  <button onClick={() => setDrillCategory(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 16, fontWeight: 700 }}>×</button>
+                </div>
+                <div style={{ maxHeight: 300, overflow: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead><tr style={{ background: T.surface2 }}>
+                      <th style={{ padding: "6px 12px", textAlign: "left", fontWeight: 600, color: T.text2, fontSize: 11 }}>Account</th>
+                      <th style={{ padding: "6px 12px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 11 }}>Transactions</th>
+                      <th style={{ padding: "6px 12px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 11 }}>Amount</th>
+                    </tr></thead>
+                    <tbody>{expByType[drillCategory].reports.sort((a, b) => Math.abs(Number(b.total_amount)) - Math.abs(Number(a.total_amount))).map(r => (
+                      <tr key={r.id} onClick={() => { setTab("Expenses"); loadReportItems(r.id); }} style={{ cursor: "pointer", borderBottom: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <td style={{ padding: "6px 12px", color: T.text }}>{r.title}</td>
+                        <td style={{ padding: "6px 12px", textAlign: "right", color: T.text3, fontSize: 12 }}>{r.description?.match(/(\d+) txns/)?.[1] || "—"}</td>
+                        <td style={{ padding: "6px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: Number(r.total_amount) < 0 ? (T.red || "#ef4444") : T.text }}>{fmt(r.total_amount)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+              {/* P&L by Category - clickable rows */}
               <div>
                 <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>P&L by Category</h3>
                 <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                   {Object.entries(expByType).sort((a, b) => { const o = { Revenue: 0, COGS: 1, "Operating Expenses": 2, Assets: 3, Liabilities: 4, Equity: 5 }; return (o[a[0]] ?? 9) - (o[b[0]] ?? 9); }).map(([type, data]) => (
-                    <div key={type} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+                    <div key={type} onClick={() => drillToCategory(type)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: drillCategory === type ? (T.accentDim || "#dbeafe") : T.surface, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = drillCategory === type ? (T.accentDim || "#dbeafe") : T.surface2} onMouseLeave={e => e.currentTarget.style.background = drillCategory === type ? (T.accentDim || "#dbeafe") : T.surface}>
                       <div><div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{type}</div><div style={{ fontSize: 11, color: T.text3 }}>{data.count} accounts</div></div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: data.total >= 0 ? (T.green || "#22c55e") : (T.red || "#ef4444"), fontVariantNumeric: "tabular-nums" }}>{fmtK(data.total)}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: data.total >= 0 ? (T.green || "#22c55e") : (T.red || "#ef4444"), fontVariantNumeric: "tabular-nums" }}>{fmtK(data.total)}</div>
+                        <span style={{ fontSize: 10, color: T.text3 }}>▶</span>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Top Accounts */}
               <div>
                 <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top Accounts by Amount</h3>
                 <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
@@ -550,11 +625,108 @@ export default function FinanceView() {
                 </div>
               </div>
             </div>
+
+            {/* AI Insights */}
+            <div style={{ marginTop: 24 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, margin: 0 }}>AI Insights</h3>
+                <button onClick={runAiAnalysis} disabled={aiLoading} style={{ ..._btn, background: aiLoading ? T.surface3 : "linear-gradient(135deg, #8b5cf6, #6366f1)", color: aiLoading ? T.text3 : "#fff", padding: "6px 16px", fontSize: 12, opacity: aiLoading ? 0.7 : 1 }}>
+                  {aiLoading ? "Analyzing..." : aiAnalysis ? "Re-analyze" : "✦ Analyze Finances"}
+                </button>
+              </div>
+
+              {!aiAnalysis && !aiLoading && (
+                <div style={{ padding: 32, textAlign: "center", borderRadius: 8, border: `1px dashed ${T.border}`, color: T.text3, fontSize: 13 }}>
+                  Click "Analyze Finances" to get AI-powered trend analysis, misclassification detection, and recommendations
+                </div>
+              )}
+
+              {aiLoading && (
+                <div style={{ padding: 32, textAlign: "center", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
+                  <div style={{ fontSize: 14, color: T.accent, fontWeight: 600, marginBottom: 8 }}>Analyzing {txnTotal.toLocaleString()} transactions across {accounts.length} GL accounts...</div>
+                  <div style={{ fontSize: 12, color: T.text3 }}>AI is reviewing trends, checking classifications, and generating recommendations</div>
+                </div>
+              )}
+
+              {aiAnalysis && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {/* Summary */}
+                  <div style={{ padding: 16, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
+                    <div style={{ fontSize: 13, color: T.text, lineHeight: 1.6 }}>{aiAnalysis.summary}</div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                    {/* Trends */}
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Trends & Observations</div>
+                      {(aiAnalysis.trends || []).map((t, i) => (
+                        <div key={i} style={{ padding: "10px 12px", marginBottom: 6, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, borderLeft: `3px solid ${sevColor(t.severity)}` }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 2 }}>{t.title}</div>
+                          <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.5 }}>{t.description}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Recommendations */}
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Recommendations</div>
+                      {(aiAnalysis.recommendations || []).map((r, i) => (
+                        <div key={i} style={{ padding: "10px 12px", marginBottom: 6, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, borderLeft: `3px solid ${prioColor(r.priority)}` }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{r.title}</span>
+                            <span style={{ ..._pill(prioColor(r.priority) + "22", prioColor(r.priority)), fontSize: 10 }}>{r.priority}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.5, marginTop: 2 }}>{r.description}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Misclassifications - actionable */}
+                  {(aiAnalysis.misclassifications || []).length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Potential Misclassifications</div>
+                      <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                        {aiAnalysis.misclassifications.map((m, i) => (
+                          <div key={i} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{m.vendor}</div>
+                                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                                  Currently in: <span style={{ color: T.red || "#ef4444" }}>{m.current_account}</span> → Suggested: <span style={{ color: T.green || "#22c55e" }}>{m.suggested_account}</span>
+                                </div>
+                                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{m.reason}{m.impact ? ` • ${m.impact}` : ""}</div>
+                              </div>
+                              <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 12 }}>
+                                {aiReclassifying[i] === "done" ? (
+                                  <span style={{ ..._pill(T.greenDim || "#dcfce7", T.green || "#22c55e"), fontSize: 11 }}>✓ Moved</span>
+                                ) : aiReclassifying[i] === "loading" ? (
+                                  <span style={{ ..._pill(T.surface3, T.text3), fontSize: 11 }}>Moving...</span>
+                                ) : aiReclassifying[i] === "error" ? (
+                                  <span style={{ ..._pill(T.redDim || "#fecaca", T.red || "#ef4444"), fontSize: 11 }}>Failed</span>
+                                ) : (
+                                  <>
+                                    <button onClick={() => approveReclassify(m, i)} style={{ ..._btn, background: T.green || "#22c55e", color: "#fff", padding: "4px 10px", fontSize: 11 }}>Approve</button>
+                                    <button onClick={() => setAiReclassifying(p => ({ ...p, [i]: "done" }))} style={{ ..._btn, background: T.surface3, color: T.text3, padding: "4px 10px", fontSize: 11 }}>Dismiss</button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Data Snapshot */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginTop: 24 }}>
-              <StatCard label="GL Accounts" value={accounts.length} sub="Chart of Accounts" />
-              <StatCard label="Transactions" value={txnTotal.toLocaleString()} sub="Expense items" />
-              <StatCard label="Vendors" value={vendors.length.toLocaleString()} sub="Active vendors" />
-              <StatCard label="Purchase Orders" value={pos.length} sub={`${pos.filter(p => p.status === "pending_approval").length} pending`} />
+              <StatCard label="GL Accounts" value={accounts.length} sub="Chart of Accounts" onClick={() => setTab("Chart of Accounts")} />
+              <StatCard label="Transactions" value={txnTotal.toLocaleString()} sub="Expense items" onClick={() => setTab("Expenses")} />
+              <StatCard label="Vendors" value={vendors.length.toLocaleString()} sub="Active vendors" onClick={() => setTab("Vendors")} />
+              <StatCard label="Purchase Orders" value={pos.length} sub={`${pos.filter(p => p.status === "pending_approval").length} pending`} onClick={() => setTab("Purchase Orders")} />
             </div>
           </>;
         })()}
