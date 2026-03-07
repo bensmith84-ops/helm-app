@@ -827,27 +827,36 @@ export default function FinanceView() {
                 }
               }
               
-              showToast(`Parsed ${accounts.length} GL accounts, ${transactions.length} transactions — importing...`);
+              showToast(`Parsed ${accounts.length} GL accounts, ${transactions.length} transactions — importing in batches...`);
               
               const { data: { session } } = await supabase.auth.getSession();
-              const resp = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/import-expenses`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` },
-                body: JSON.stringify({ import_type: "txn_detail", accounts, transactions })
-              });
-              const result = await resp.json();
-              if (result.error) {
-                showToast("Import error: " + result.error, "error");
-              } else {
-                showToast(`Imported ${result.accounts} GL accounts, ${result.reports} reports, ${result.items} transactions!`);
-                // Refresh data
-                const [er, ea] = await Promise.all([
-                  supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
-                  supabase.from("fin_accounts").select("*").eq("org_id", orgId),
-                ]);
-                setExpenses(er.data || []);
-                setAccounts(ea.data || []);
+              const hdrs = { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` };
+              const url = `https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/import-expenses`;
+              
+              // Step 1: Send accounts only
+              const r1 = await (await fetch(url, { method: "POST", headers: hdrs, body: JSON.stringify({ import_type: "txn_detail", accounts, transactions: [] }) })).json();
+              if (r1.error) { showToast("Account import error: " + r1.error, "error"); setImporting(false); return; }
+              showToast(`Created ${r1.accounts} GL accounts — importing ${transactions.length} transactions...`);
+              
+              // Step 2: Send transactions in batches of 2000
+              const TBATCH = 2000;
+              let totalReports = 0, totalItems = 0;
+              for (let i = 0; i < transactions.length; i += TBATCH) {
+                const chunk = transactions.slice(i, i + TBATCH);
+                const rn = await (await fetch(url, { method: "POST", headers: hdrs, body: JSON.stringify({ import_type: "txn_detail", accounts: [], transactions: chunk }) })).json();
+                if (rn.error) { showToast(`Batch ${Math.floor(i/TBATCH)+1} error: ${rn.error}`, "error"); continue; }
+                totalReports += rn.reports || 0;
+                totalItems += rn.items || 0;
+                showToast(`Batch ${Math.floor(i/TBATCH)+1}/${Math.ceil(transactions.length/TBATCH)} done — ${totalItems} items so far...`);
               }
+              
+              showToast(`Done! ${r1.accounts} GL accounts, ${totalReports} reports, ${totalItems} transactions imported`);
+              const [er, ea] = await Promise.all([
+                supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+                supabase.from("fin_accounts").select("*").eq("org_id", orgId),
+              ]);
+              setExpenses(er.data || []);
+              setAccounts(ea.data || []);
             } catch (err) {
               console.error("Txn detail import error:", err);
               showToast("Import failed: " + err.message, "error");
