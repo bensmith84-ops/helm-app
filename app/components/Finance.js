@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 
-const TABS = ["Dashboard", "Budgets", "Purchase Orders", "Expenses", "Invoices", "Vendors", "Import"];
+const TABS = ["Dashboard", "Chart of Accounts", "Expenses", "Budgets", "Purchase Orders", "Invoices", "Vendors", "Import"];
 const CURR = "$";
 const fmt = (n) => n != null ? CURR + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "$0.00";
 const fmtK = (n) => { const v = Number(n) || 0; return v >= 1000000 ? CURR + (v/1000000).toFixed(1) + "M" : v >= 1000 ? CURR + (v/1000).toFixed(1) + "K" : fmt(v); };
@@ -68,6 +68,12 @@ export default function FinanceView() {
   const [colMap, setColMap] = useState({});
   const [importPreview, setImportPreview] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [glSearch, setGlSearch] = useState("");
+  const [expSearch, setExpSearch] = useState("");
+  const [expSort, setExpSort] = useState("amount"); // amount, name, count
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [selectedItems, setSelectedItems] = useState([]);
+  const [vendorSearch, setVendorSearch] = useState("");
 
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const orgId = profile?.org_id;
@@ -75,17 +81,16 @@ export default function FinanceView() {
   useEffect(() => {
     if (!orgId) return;
     (async () => {
-      const [b, bl, po, pol, ex, exi, inv, il, v, a, ap, pay, pr] = await Promise.all([
+      const [b, bl, po, pol, ex, inv, il, v, a, ap, pay, pr] = await Promise.all([
         supabase.from("fin_budgets").select("*").eq("org_id", orgId),
         supabase.from("fin_budget_lines").select("*"),
         supabase.from("fin_purchase_orders").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
         supabase.from("fin_po_lines").select("*"),
-        supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
-        supabase.from("fin_expense_items").select("*"),
+        supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("total_amount", { ascending: false }),
         supabase.from("fin_invoices").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
         supabase.from("fin_invoice_lines").select("*"),
         supabase.from("fin_vendors").select("*").eq("org_id", orgId),
-        supabase.from("fin_accounts").select("*").eq("org_id", orgId),
+        supabase.from("fin_accounts").select("*").eq("org_id", orgId).order("code"),
         supabase.from("fin_approvals").select("*").eq("org_id", orgId),
         supabase.from("fin_payments").select("*").eq("org_id", orgId),
         supabase.from("profiles").select("id, display_name, email, avatar_url"),
@@ -95,7 +100,7 @@ export default function FinanceView() {
       setPOs(po.data || []);
       setPOLines(pol.data || []);
       setExpenses(ex.data || []);
-      setExpenseItems(exi.data || []);
+      setExpenseItems([]); // Load on demand per report
       setInvoices(inv.data || []);
       setInvoiceLines(il.data || []);
       setVendors(v.data || []);
@@ -111,6 +116,14 @@ export default function FinanceView() {
 
   const uname = (id) => profiles[id]?.display_name || "";
   const vname = (id) => vendors.find(v => v.id === id)?.name || "";
+  const acctName = (id) => { const a = accounts.find(a => a.id === id); return a ? `${a.code} ${a.name}` : ""; };
+  
+  // Load expense items on demand for a selected report
+  const loadReportItems = async (reportId) => {
+    setSelectedReport(reportId);
+    const { data } = await supabase.from("fin_expense_items").select("*").eq("report_id", reportId).order("date", { ascending: false }).limit(500);
+    setSelectedItems(data || []);
+  };
 
   // ──── CRUD helpers ────
   const saveRecord = async (table, data, list, setList, idField = "id") => {
@@ -486,42 +499,153 @@ export default function FinanceView() {
 
       {/* Content */}
       <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        {tab === "Dashboard" && <>
-          <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
-            <StatCard label="Total Budget" value={fmtK(totalBudget)} sub={`${budgets.filter(b => b.status === "active").length} active budgets`} />
-            <StatCard label="Purchase Orders" value={fmtK(totalPO)} sub={`${pos.filter(p => p.status === "pending_approval").length} pending approval`} color={T.accent} />
-            <StatCard label="Expenses" value={fmtK(totalExp)} sub={`${expenses.filter(e => e.status === "submitted" || e.status === "pending_approval").length} awaiting review`} color="#f97316" />
-            <StatCard label="Invoices Due" value={fmtK(invoices.filter(i => !["paid", "void"].includes(i.status)).reduce((s, i) => s + Number(i.total_amount || 0), 0))} sub={overdueInvoices.length > 0 ? `${overdueInvoices.length} overdue!` : "All current"} color={overdueInvoices.length > 0 ? (T.red || "#ef4444") : (T.green || "#22c55e")} />
-            <StatCard label="Total Paid" value={fmtK(totalPaid)} sub={`${payments.length} payments`} color={T.green || "#22c55e"} />
-          </div>
-
-          {/* Pending Approvals */}
-          {pendingApprovals.length > 0 && <>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>Pending Approvals</h3>
-            <Table columns={[
-              { label: "Type", render: r => <StatusPill status={r.approvable_type.replace(/_/g, " ")} />, nowrap: true },
-              { label: "Step", render: r => `${r.current_step} / ${r.total_steps}` },
-              { label: "Submitted", render: r => r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : "—" },
-              { label: "By", render: r => uname(r.submitted_by) },
-              { label: "", align: "right", render: r => (
-                <div style={{ display: "flex", gap: 4 }}>
-                  <button onClick={(e) => { e.stopPropagation(); handleApprovalDecision(r.id, "approved"); }} style={{ ..._btn, background: T.green || "#22c55e", color: "#fff", padding: "4px 10px", fontSize: 11 }}>Approve</button>
-                  <button onClick={(e) => { e.stopPropagation(); handleApprovalDecision(r.id, "rejected"); }} style={{ ..._btn, background: T.red || "#ef4444", color: "#fff", padding: "4px 10px", fontSize: 11 }}>Reject</button>
+        {tab === "Dashboard" && (() => {
+          const expByType = {};
+          expenses.forEach(e => {
+            const code = (e.title || "").match(/^(\d+)/)?.[1] || "0";
+            const prefix = code.substring(0, 1);
+            const typeMap = { "1": "Assets", "2": "Liabilities", "3": "Equity", "4": "Revenue", "5": "COGS", "6": "Operating Expenses" };
+            const type = typeMap[prefix] || "Other";
+            if (!expByType[type]) expByType[type] = { total: 0, count: 0 };
+            expByType[type].total += Number(e.total_amount || 0);
+            expByType[type].count++;
+          });
+          const topSpend = expenses.filter(e => Number(e.total_amount || 0) > 0).sort((a, b) => Number(b.total_amount) - Number(a.total_amount)).slice(0, 10);
+          const totalRevenue = expByType["Revenue"]?.total || 0;
+          const totalCOGS = expByType["COGS"]?.total || 0;
+          const totalOpex = expByType["Operating Expenses"]?.total || 0;
+          const grossProfit = totalRevenue - totalCOGS;
+          const netIncome = grossProfit - totalOpex;
+          const txnTotal = expenses.reduce((s, e) => { const m = e.description?.match(/(\d+) txns/); return s + (m ? parseInt(m[1]) : 0); }, 0);
+          
+          return <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
+              <StatCard label="Revenue" value={fmtK(totalRevenue)} sub={`${expByType["Revenue"]?.count || 0} accounts`} color={T.green || "#22c55e"} />
+              <StatCard label="COGS" value={fmtK(totalCOGS)} sub={`${expByType["COGS"]?.count || 0} accounts`} color="#f97316" />
+              <StatCard label="Gross Profit" value={fmtK(grossProfit)} sub={totalRevenue > 0 ? `${Math.round(grossProfit/totalRevenue*100)}% margin` : ""} color={grossProfit > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444")} />
+              <StatCard label="OpEx" value={fmtK(totalOpex)} sub={`${expByType["Operating Expenses"]?.count || 0} accounts`} color={T.accent} />
+              <StatCard label="Net Income" value={fmtK(netIncome)} sub={totalRevenue > 0 ? `${Math.round(netIncome/totalRevenue*100)}% margin` : ""} color={netIncome > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444")} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>P&L by Category</h3>
+                <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                  {Object.entries(expByType).sort((a, b) => { const o = { Revenue: 0, COGS: 1, "Operating Expenses": 2, Assets: 3, Liabilities: 4, Equity: 5 }; return (o[a[0]] ?? 9) - (o[b[0]] ?? 9); }).map(([type, data]) => (
+                    <div key={type} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+                      <div><div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{type}</div><div style={{ fontSize: 11, color: T.text3 }}>{data.count} accounts</div></div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: data.total >= 0 ? (T.green || "#22c55e") : (T.red || "#ef4444"), fontVariantNumeric: "tabular-nums" }}>{fmtK(data.total)}</div>
+                    </div>
+                  ))}
                 </div>
-              )}
-            ]} data={pendingApprovals} emptyMsg="No pending approvals" />
-          </>}
+              </div>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top Accounts by Amount</h3>
+                <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                  {topSpend.map((r, i) => (
+                    <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, cursor: "pointer" }} onClick={() => { setTab("Expenses"); loadReportItems(r.id); }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 11, fontWeight: 600, color: T.text3, width: 18, textAlign: "right" }}>{i + 1}.</span><span style={{ fontSize: 13, color: T.text }}>{r.title}</span></div>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.accent, fontVariantNumeric: "tabular-nums" }}>{fmtK(r.total_amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginTop: 24 }}>
+              <StatCard label="GL Accounts" value={accounts.length} sub="Chart of Accounts" />
+              <StatCard label="Transactions" value={txnTotal.toLocaleString()} sub="Expense items" />
+              <StatCard label="Vendors" value={vendors.length.toLocaleString()} sub="Active vendors" />
+              <StatCard label="Purchase Orders" value={pos.length} sub={`${pos.filter(p => p.status === "pending_approval").length} pending`} />
+            </div>
+          </>;
+        })()}
 
-          {/* Recent Activity */}
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, margin: "24px 0 12px" }}>Recent Purchase Orders</h3>
-          <Table columns={[
-            { label: "PO #", key: "po_number", nowrap: true },
-            { label: "Title", key: "title" },
-            { label: "Vendor", render: r => vname(r.vendor_id) },
-            { label: "Amount", align: "right", render: r => fmt(r.total_amount), nowrap: true },
-            { label: "Status", render: r => <StatusPill status={r.status} /> },
-          ]} data={pos.slice(0, 5)} onRowClick={r => setModal({ type: "po", mode: "edit", data: r })} emptyMsg="No purchase orders yet" />
-        </>}
+        {tab === "Chart of Accounts" && (() => {
+          const filtered = accounts.filter(a => { if (!glSearch) return true; const s = glSearch.toLowerCase(); return (a.code || "").toLowerCase().includes(s) || (a.name || "").toLowerCase().includes(s); });
+          const grouped = {};
+          const typeMap = { "1": "Assets (1xxxx)", "2": "Liabilities (2xxxx)", "3": "Equity (3xxxx)", "4": "Revenue (4xxxx)", "5": "Cost of Goods Sold (5xxxx)", "6": "Operating Expenses (6xxxx)" };
+          filtered.forEach(a => { const prefix = (a.code || "0").substring(0, 1); const group = typeMap[prefix] || `Other (${prefix}xxxx)`; if (!grouped[group]) grouped[group] = []; grouped[group].push(a); });
+          const acctBalances = {};
+          expenses.forEach(e => { const m = accounts.find(a => e.title === `${a.code} ${a.name}` || e.title?.startsWith(a.code + " ")); if (m) acctBalances[m.id] = { bal: Number(e.total_amount || 0), txns: e.description?.match(/(\d+) txns/)?.[1] || "0", reportId: e.id }; });
+          return <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Chart of Accounts ({filtered.length})</h3>
+              <input value={glSearch} onChange={e => setGlSearch(e.target.value)} placeholder="Search accounts..." style={{ ..._inp, width: 280 }} />
+            </div>
+            {Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0])).map(([group, accts]) => (
+              <div key={group} style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginBottom: 8, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>{group} ({accts.length})</div>
+                <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                  {accts.map(a => { const info = acctBalances[a.id] || {}; return (
+                    <div key={a.id} style={{ display: "grid", gridTemplateColumns: "80px 1fr 80px 120px", alignItems: "center", padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, cursor: info.reportId ? "pointer" : "default" }} onClick={() => info.reportId && (setTab("Expenses"), loadReportItems(info.reportId))} onMouseEnter={e => info.reportId && (e.currentTarget.style.background = T.surface2)} onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: T.accent, fontFamily: "monospace" }}>{a.code}</span>
+                      <span style={{ fontSize: 13, color: T.text }}>{a.name}</span>
+                      <span style={{ fontSize: 11, color: T.text3, textAlign: "right" }}>{info.txns || "0"} txns</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (info.bal || 0) >= 0 ? T.text : (T.red || "#ef4444") }}>{info.bal ? fmt(info.bal) : "—"}</span>
+                    </div>
+                  ); })}
+                </div>
+              </div>
+            ))}
+          </>;
+        })()}
+
+        {tab === "Expenses" && (() => {
+          const filtered = expenses.filter(e => { if (!expSearch) return true; const s = expSearch.toLowerCase(); return (e.title || "").toLowerCase().includes(s); });
+          const sorted = [...filtered].sort((a, b) => {
+            if (expSort === "amount") return Math.abs(Number(b.total_amount)) - Math.abs(Number(a.total_amount));
+            if (expSort === "name") return (a.title || "").localeCompare(b.title || "");
+            if (expSort === "count") { const ca = parseInt(a.description?.match(/(\d+) txns/)?.[1] || "0"); const cb = parseInt(b.description?.match(/(\d+) txns/)?.[1] || "0"); return cb - ca; }
+            return 0;
+          });
+          return <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Expense Reports ({filtered.length})</h3>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input value={expSearch} onChange={e => setExpSearch(e.target.value)} placeholder="Search..." style={{ ..._inp, width: 200 }} />
+                <select value={expSort} onChange={e => setExpSort(e.target.value)} style={{ ..._sel, width: 140 }}><option value="amount">Sort: Amount</option><option value="name">Sort: Name</option><option value="count">Sort: Txn Count</option></select>
+                <button onClick={() => setModal({ type: "expense", mode: "new", data: { status: "draft" } })} style={{ ..._btn, background: T.accent, color: "#fff", whiteSpace: "nowrap" }}>+ New</button>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: selectedReport ? "1fr 1fr" : "1fr", gap: 16 }}>
+              <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "auto", maxHeight: "calc(100vh - 220px)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead><tr style={{ background: T.surface2, position: "sticky", top: 0, zIndex: 1 }}>
+                    <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: T.text2, fontSize: 12 }}>Account</th>
+                    <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 12 }}>Txns</th>
+                    <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 12 }}>Amount</th>
+                  </tr></thead>
+                  <tbody>{sorted.map(r => { const isSelected = selectedReport === r.id; return (
+                    <tr key={r.id} onClick={() => loadReportItems(r.id)} style={{ cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: isSelected ? (T.accentDim || "#dbeafe") : "transparent" }} onMouseEnter={e => !isSelected && (e.currentTarget.style.background = T.surface2)} onMouseLeave={e => !isSelected && (e.currentTarget.style.background = "transparent")}>
+                      <td style={{ padding: "8px 12px", color: T.text }}>{r.title}</td>
+                      <td style={{ padding: "8px 12px", textAlign: "right", color: T.text3, fontSize: 12 }}>{r.description?.match(/(\d+) txns/)?.[1] || "—"}</td>
+                      <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: Number(r.total_amount) < 0 ? (T.red || "#ef4444") : T.text }}>{fmt(r.total_amount)}</td>
+                    </tr>
+                  ); })}</tbody>
+                </table>
+              </div>
+              {selectedReport && <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "auto", maxHeight: "calc(100vh - 220px)" }}>
+                <div style={{ padding: "10px 14px", background: T.surface2, borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{expenses.find(e => e.id === selectedReport)?.title} — {selectedItems.length} txns</span>
+                  <button onClick={() => { setSelectedReport(null); setSelectedItems([]); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>×</button>
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead><tr style={{ background: T.surface2, position: "sticky", top: 41, zIndex: 1 }}>
+                    <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, color: T.text2, fontSize: 11 }}>Date</th>
+                    <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, color: T.text2, fontSize: 11 }}>Description</th>
+                    <th style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 11 }}>Amount</th>
+                  </tr></thead>
+                  <tbody>{selectedItems.map((item, i) => { let meta = {}; try { meta = JSON.parse(item.notes || "{}"); } catch(e) {} return (
+                    <tr key={item.id || i} style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <td style={{ padding: "6px 10px", color: T.text3, whiteSpace: "nowrap", fontSize: 12 }}>{item.date}</td>
+                      <td style={{ padding: "6px 10px", color: T.text }}><div style={{ fontSize: 12 }}>{item.vendor_name || item.description}</div>{meta.txn_type && <div style={{ fontSize: 10, color: T.text3 }}>{meta.txn_type}{meta.split ? ` → ${meta.split}` : ""}</div>}</td>
+                      <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: Number(item.amount) < 0 ? (T.red || "#ef4444") : T.text }}>{fmt(item.amount)}</td>
+                    </tr>
+                  ); })}</tbody>
+                </table>
+              </div>}
+            </div>
+          </>;
+        })()}
 
         {tab === "Budgets" && <>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
@@ -559,26 +683,6 @@ export default function FinanceView() {
               </div>
             )}
           ]} data={pos} onRowClick={r => setModal({ type: "po", mode: "edit", data: r })} emptyMsg="No purchase orders yet" />
-        </>}
-
-        {tab === "Expenses" && <>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Expense Reports</h3>
-            <button onClick={() => setModal({ type: "expense", mode: "new", data: { status: "draft" } })} style={{ ..._btn, background: T.accent, color: "#fff" }}>+ New Expense</button>
-          </div>
-          <Table columns={[
-            { label: "Report #", key: "report_number", nowrap: true },
-            { label: "Title", key: "title" },
-            { label: "Submitted By", render: r => uname(r.submitted_by) },
-            { label: "Amount", align: "right", render: r => fmt(r.total_amount), nowrap: true },
-            { label: "Status", render: r => <StatusPill status={r.status} /> },
-            { label: "", align: "right", render: r => (
-              <div style={{ display: "flex", gap: 4 }}>
-                {r.status === "draft" && <button onClick={e => { e.stopPropagation(); submitForApproval("expense", r.id, r.total_amount); }} style={{ ..._btn, background: "#f97316", color: "#fff", padding: "3px 8px", fontSize: 11 }}>Submit</button>}
-                <button onClick={e => { e.stopPropagation(); deleteRecord("fin_expense_reports", r.id, expenses, setExpenses); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, opacity: 0.4 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button>
-              </div>
-            )}
-          ]} data={expenses} onRowClick={r => setModal({ type: "expense", mode: "edit", data: r })} emptyMsg="No expense reports yet" />
         </>}
 
         {tab === "Invoices" && <>
