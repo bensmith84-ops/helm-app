@@ -717,7 +717,40 @@ export default function FinanceView() {
             const ext = file.name.split(".").pop().toLowerCase();
 
             if (ext === "xlsx" || ext === "xls") {
-              showToast("Excel files detected — please save as CSV in Excel first (File → Save As → CSV UTF-8), then upload the .csv file", "error");
+              // Parse Excel file using SheetJS from CDN
+              setImporting(true);
+              showToast("Processing Excel file...");
+              const reader = new FileReader();
+              reader.onload = async (ev) => {
+                try {
+                  const script = document.createElement("script");
+                  script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+                  script.onload = () => {
+                    const wb = window.XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    
+                    // Check if this is Transaction Detail by Account format
+                    const A1 = ws["A1"]?.v || "";
+                    const A2 = ws["A2"]?.v || "";
+                    if (A2?.toString().includes("Transaction Detail")) {
+                      handleTxnDetailImport(ws);
+                      return;
+                    }
+                    
+                    // Otherwise convert to CSV and process normally
+                    const csv = window.XLSX.utils.sheet_to_csv(ws);
+                    processCSVText(csv);
+                    setImporting(false);
+                  };
+                  if (!document.querySelector('script[src*="xlsx.full.min"]')) document.head.appendChild(script);
+                  else { script.onload(); }
+                } catch (err) {
+                  console.error("XLSX parse error:", err);
+                  showToast("Could not parse Excel file: " + err.message, "error");
+                  setImporting(false);
+                }
+              };
+              reader.readAsArrayBuffer(file);
               return;
             }
 
@@ -744,6 +777,82 @@ export default function FinanceView() {
               reader.readAsText(file, encoding);
             };
             tryRead("UTF-8");
+          };
+
+          const handleTxnDetailImport = async (ws) => {
+            showToast("Detected QBO Transaction Detail by Account — parsing...");
+            try {
+              const range = window.XLSX.utils.decode_range(ws["!ref"]);
+              const accounts = [];
+              const transactions = [];
+              let currentAccount = null;
+              
+              for (let r = 5; r <= range.e.r; r++) {
+                const cellA = ws[window.XLSX.utils.encode_cell({ r, c: 0 })]?.v;
+                const cellB = ws[window.XLSX.utils.encode_cell({ r, c: 1 })]?.v;
+                
+                // Account header row: col A has value, col B empty
+                if (cellA && !cellB) {
+                  const acct = String(cellA).trim();
+                  if (acct && !acct.startsWith("Total") && !acct.startsWith("TOTAL")) {
+                    currentAccount = acct;
+                    if (!accounts.includes(acct)) accounts.push(acct);
+                  }
+                  continue;
+                }
+                
+                // Transaction row: col B has date
+                if (cellB && currentAccount) {
+                  const dateVal = cellB;
+                  let dateStr = "";
+                  if (typeof dateVal === "number") {
+                    // Excel serial date
+                    const d = new Date((dateVal - 25569) * 86400000);
+                    dateStr = `${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
+                  } else {
+                    dateStr = String(dateVal);
+                  }
+                  
+                  transactions.push({
+                    account: currentAccount,
+                    date: dateStr,
+                    type: String(ws[window.XLSX.utils.encode_cell({ r, c: 2 })]?.v || ""),
+                    num: String(ws[window.XLSX.utils.encode_cell({ r, c: 3 })]?.v || ""),
+                    name: String(ws[window.XLSX.utils.encode_cell({ r, c: 4 })]?.v || ""),
+                    cls: String(ws[window.XLSX.utils.encode_cell({ r, c: 5 })]?.v || ""),
+                    memo: String(ws[window.XLSX.utils.encode_cell({ r, c: 6 })]?.v || ""),
+                    split: String(ws[window.XLSX.utils.encode_cell({ r, c: 7 })]?.v || ""),
+                    amount: Number(ws[window.XLSX.utils.encode_cell({ r, c: 8 })]?.v) || 0,
+                  });
+                }
+              }
+              
+              showToast(`Parsed ${accounts.length} GL accounts, ${transactions.length} transactions — importing...`);
+              
+              const { data: { session } } = await supabase.auth.getSession();
+              const resp = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/import-expenses`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` },
+                body: JSON.stringify({ import_type: "txn_detail", accounts, transactions })
+              });
+              const result = await resp.json();
+              if (result.error) {
+                showToast("Import error: " + result.error, "error");
+              } else {
+                showToast(`Imported ${result.accounts} GL accounts, ${result.reports} reports, ${result.items} transactions!`);
+                // Refresh data
+                const [er, ea] = await Promise.all([
+                  supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+                  supabase.from("fin_accounts").select("*").eq("org_id", orgId),
+                ]);
+                setExpenses(er.data || []);
+                setAccounts(ea.data || []);
+              }
+            } catch (err) {
+              console.error("Txn detail import error:", err);
+              showToast("Import failed: " + err.message, "error");
+            }
+            setImporting(false);
           };
 
           const handlePivotImport = async (text, delimiter) => {
