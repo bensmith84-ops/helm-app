@@ -79,7 +79,7 @@ export default function FinanceView() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReclassifying, setAiReclassifying] = useState({});
 
-  const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
+  const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), type === "error" ? 8000 : 3000); }, []);
   const orgId = profile?.org_id;
 
   useEffect(() => {
@@ -138,7 +138,7 @@ export default function FinanceView() {
         body: JSON.stringify({ action: "analyze" })
       });
       const result = await resp.json();
-      if (result.error) showToast("AI error: " + result.error, "error");
+      if (result.error) { showToast("AI error: " + result.error, "error"); setAiAnalysis({ summary: "Error: " + result.error, trends: [], misclassifications: [], recommendations: [] }); }
       else setAiAnalysis(result);
     } catch (err) { showToast("AI analysis failed: " + err.message, "error"); }
     setAiLoading(false);
