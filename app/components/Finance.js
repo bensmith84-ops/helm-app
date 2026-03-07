@@ -717,33 +717,33 @@ export default function FinanceView() {
             const ext = file.name.split(".").pop().toLowerCase();
 
             if (ext === "xlsx" || ext === "xls") {
-              // Parse Excel file using SheetJS from CDN
               setImporting(true);
               showToast("Processing Excel file...");
               const reader = new FileReader();
               reader.onload = async (ev) => {
                 try {
-                  const script = document.createElement("script");
-                  script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-                  script.onload = () => {
-                    const wb = window.XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
-                    const ws = wb.Sheets[wb.SheetNames[0]];
-                    
-                    // Check if this is Transaction Detail by Account format
-                    const A1 = ws["A1"]?.v || "";
-                    const A2 = ws["A2"]?.v || "";
-                    if (A2?.toString().includes("Transaction Detail")) {
-                      handleTxnDetailImport(ws);
-                      return;
-                    }
-                    
-                    // Otherwise convert to CSV and process normally
-                    const csv = window.XLSX.utils.sheet_to_csv(ws);
-                    processCSVText(csv);
-                    setImporting(false);
-                  };
-                  if (!document.querySelector('script[src*="xlsx.full.min"]')) document.head.appendChild(script);
-                  else { script.onload(); }
+                  // Load SheetJS if not already loaded
+                  if (!window.XLSX) {
+                    await new Promise((resolve, reject) => {
+                      const script = document.createElement("script");
+                      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+                      script.onload = resolve;
+                      script.onerror = reject;
+                      document.head.appendChild(script);
+                    });
+                  }
+                  const wb = window.XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
+                  const ws = wb.Sheets[wb.SheetNames[0]];
+                  
+                  const A2 = ws["A2"]?.v || "";
+                  if (A2?.toString().includes("Transaction Detail")) {
+                    await handleTxnDetailImport(ws);
+                    return;
+                  }
+                  
+                  const csv = window.XLSX.utils.sheet_to_csv(ws);
+                  processCSVText(csv);
+                  setImporting(false);
                 } catch (err) {
                   console.error("XLSX parse error:", err);
                   showToast("Could not parse Excel file: " + err.message, "error");
