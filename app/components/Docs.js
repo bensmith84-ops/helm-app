@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
@@ -8,13 +8,94 @@ const BLOCK_TYPES = {
   text: { icon: "¶", label: "Text" }, h1: { icon: "H1", label: "Heading 1" }, h2: { icon: "H2", label: "Heading 2" }, h3: { icon: "H3", label: "Heading 3" },
   bullet: { icon: "•", label: "Bulleted List" }, numbered: { icon: "1.", label: "Numbered List" }, todo: { icon: "☑", label: "To-do" },
   quote: { icon: "❝", label: "Quote" }, callout: { icon: "💡", label: "Callout" }, divider: { icon: "—", label: "Divider" },
-  code: { icon: "</>", label: "Code Block" }, toggle: { icon: "▶", label: "Toggle" },
+  code: { icon: "</>", label: "Code Block" }, toggle: { icon: "▶", label: "Toggle" }, table: { icon: "⊞", label: "Table" },
 };
 const SLASH_CMDS = Object.entries(BLOCK_TYPES).map(([type, cfg]) => ({ type, ...cfg }));
-const EMOJIS = ["📄","📝","📋","📊","📈","🚀","⚙️","🎨","📣","💡","🔬","📦","🏗️","🎯","📌","🗂️","💬","🔖","📐","🧪","🌍","💰","👥","📅","🔒","⭐","🏆","❤️","🔥","✅"];
+const EMOJIS = ["📄","📝","📋","📊","📈","🚀","⚙️","🎨","📣","💡","🔬","📦","🏗️","🎯","📌","🗂️","💬","🔖","📐","🧪","🌍","💰","👥","📅","🔒","⭐","🏆","❤️","🔥","✅","⚠️","💎","🧠","📡","🎵"];
+const CALLOUT_EMOJIS = ["💡","⚠️","ℹ️","✅","❌","🔥","📌","💬","🚀","⭐","💰","🎯","📣","🧪","❤️"];
 const COVERS = ["linear-gradient(135deg,#667eea,#764ba2)","linear-gradient(135deg,#f093fb,#f5576c)","linear-gradient(135deg,#4facfe,#00f2fe)","linear-gradient(135deg,#43e97b,#38f9d7)","linear-gradient(135deg,#fa709a,#fee140)","linear-gradient(135deg,#a18cd1,#fbc2eb)","linear-gradient(135deg,#89f7fe,#66a6ff)","linear-gradient(135deg,#fddb92,#d1fdff)","linear-gradient(135deg,#c1dfc4,#deecdd)","linear-gradient(135deg,#2d3436,#636e72)"];
-const mkBlock = (type = "text", content = "") => ({ id: crypto.randomUUID(), type, content, checked: false, collapsed: false });
+const mkBlock = (type = "text", content = "") => {
+  const b = { id: crypto.randomUUID(), type, content, checked: false, collapsed: false, emoji: "💡" };
+  if (type === "table") b.tableData = { cols: ["Column A", "Column B", "Column C"], rows: [["","",""],["","",""]], formulas: {} };
+  return b;
+};
 const now = () => new Date().toISOString();
+
+// ──── STABLE EDITABLE BLOCK (no re-render on typing) ────
+const EditableBlock = memo(({ blockId, initialContent, style, placeholder, onContentChange, onKeyDown, onFocus, onSlash, blockRef }) => {
+  const ref = useRef(null);
+  const contentRef = useRef(initialContent || "");
+
+  // Only update DOM if content changed externally (e.g. block type change)
+  useEffect(() => {
+    if (ref.current && ref.current.innerText !== initialContent) {
+      ref.current.innerText = initialContent || "";
+    }
+    contentRef.current = initialContent || "";
+  }, [blockId]); // Only re-sync on block ID change, NOT on content change
+
+  useEffect(() => { if (blockRef) blockRef(ref.current); }, [blockRef]);
+
+  return (
+    <div ref={ref} contentEditable suppressContentEditableWarning
+      data-placeholder={placeholder}
+      style={{ ...style, outline: "none", minHeight: "1.5em", wordBreak: "break-word" }}
+      onInput={e => {
+        const text = e.target.innerText;
+        contentRef.current = text;
+        onContentChange(text);
+        // Slash command detection
+        if (text === "/") { onSlash?.(e.target.getBoundingClientRect(), ""); }
+        else if (text.startsWith("/") && text.length < 20) { onSlash?.(e.target.getBoundingClientRect(), text.slice(1).toLowerCase()); }
+      }}
+      onKeyDown={e => onKeyDown?.(e, contentRef.current)}
+      onFocus={onFocus}
+    />
+  );
+}, (prev, next) => prev.blockId === next.blockId && prev.style === next.style && prev.placeholder === next.placeholder);
+EditableBlock.displayName = "EditableBlock";
+
+// ──── TABLE FORMULA ENGINE ────
+const evalFormula = (formula, tableData) => {
+  if (!formula || !formula.startsWith("=")) return formula;
+  const expr = formula.slice(1).toUpperCase();
+  const getCellVal = (ref) => {
+    const col = ref.charCodeAt(0) - 65;
+    const row = parseInt(ref.slice(1)) - 1;
+    const raw = tableData.rows?.[row]?.[col];
+    return parseFloat(raw) || 0;
+  };
+  const getRange = (rangeStr) => {
+    const [start, end] = rangeStr.split(":");
+    const sc = start.charCodeAt(0) - 65, sr = parseInt(start.slice(1)) - 1;
+    const ec = end.charCodeAt(0) - 65, er = parseInt(end.slice(1)) - 1;
+    const vals = [];
+    for (let r = sr; r <= er; r++) for (let c = sc; c <= ec; c++) {
+      vals.push(parseFloat(tableData.rows?.[r]?.[c]) || 0);
+    }
+    return vals;
+  };
+  try {
+    // SUM(A1:A5)
+    const sumMatch = expr.match(/^SUM\(([A-Z]\d+):([A-Z]\d+)\)$/);
+    if (sumMatch) return getRange(sumMatch[1] + ":" + sumMatch[2]).reduce((a, b) => a + b, 0);
+    // AVG / AVERAGE
+    const avgMatch = expr.match(/^(?:AVG|AVERAGE)\(([A-Z]\d+):([A-Z]\d+)\)$/);
+    if (avgMatch) { const vals = getRange(avgMatch[1] + ":" + avgMatch[2]); return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length) : 0; }
+    // MIN
+    const minMatch = expr.match(/^MIN\(([A-Z]\d+):([A-Z]\d+)\)$/);
+    if (minMatch) return Math.min(...getRange(minMatch[1] + ":" + minMatch[2]));
+    // MAX
+    const maxMatch = expr.match(/^MAX\(([A-Z]\d+):([A-Z]\d+)\)$/);
+    if (maxMatch) return Math.max(...getRange(maxMatch[1] + ":" + maxMatch[2]));
+    // COUNT
+    const cntMatch = expr.match(/^COUNT\(([A-Z]\d+):([A-Z]\d+)\)$/);
+    if (cntMatch) return getRange(cntMatch[1] + ":" + cntMatch[2]).filter(v => v !== 0).length;
+    // Simple cell ref A1+B1 style
+    const simple = expr.replace(/[A-Z]\d+/g, (m) => getCellVal(m));
+    return Function('"use strict"; return (' + simple + ')')();
+  } catch { return "ERR"; }
+};
 
 export default function DocsView() {
   const { user, profile } = useAuth();
@@ -27,12 +108,13 @@ export default function DocsView() {
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
-  const [slashMenu, setSlashMenu] = useState(null);
+  const [slashMenu, setSlashMenu] = useState(null); // { blockId, x, y, filter }
   const [emojiPicker, setEmojiPicker] = useState(false);
   const [coverPicker, setCoverPicker] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [focusedBlock, setFocusedBlock] = useState(null);
+  const [calloutEmojiPicker, setCalloutEmojiPicker] = useState(null); // blockId
   const blockRefs = useRef({});
+  const blockContents = useRef({}); // Store content in ref to avoid re-renders
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -48,49 +130,62 @@ export default function DocsView() {
     })();
   }, [orgId]);
 
-  const uname = (uid) => profiles[uid]?.display_name || "";
-
   const tree = useMemo(() => {
     const roots = [], map = {};
     docs.forEach(d => map[d.id] = { ...d, children: [] });
-    docs.forEach(d => {
-      if (d.parent_id && map[d.parent_id]) map[d.parent_id].children.push(map[d.id]);
-      else roots.push(map[d.id]);
-    });
+    docs.forEach(d => { if (d.parent_id && map[d.parent_id]) map[d.parent_id].children.push(map[d.id]); else roots.push(map[d.id]); });
     return roots;
   }, [docs]);
 
   const openDoc = async (doc) => {
-    setActiveDoc(doc);
-    setEmojiPicker(false); setCoverPicker(false); setSlashMenu(null);
+    setActiveDoc(doc); setEmojiPicker(false); setCoverPicker(false); setSlashMenu(null); setCalloutEmojiPicker(null);
     const { data } = await supabase.from("documents").select("content,content_text").eq("id", doc.id).single();
-    if (data?.content && Array.isArray(data.content)) setBlocks(data.content);
-    else if (data?.content_text) setBlocks(data.content_text.split("\n").map(l => mkBlock("text", l)));
-    else setBlocks([mkBlock("text", "")]);
+    let newBlocks;
+    if (data?.content && Array.isArray(data.content)) newBlocks = data.content;
+    else if (data?.content_text) newBlocks = data.content_text.split("\n").map(l => mkBlock("text", l));
+    else newBlocks = [mkBlock("text", "")];
+    // Sync content refs
+    blockContents.current = {};
+    newBlocks.forEach(b => { blockContents.current[b.id] = b.content || ""; });
+    setBlocks(newBlocks);
   };
 
-  const saveDoc = useCallback(async (docId, newBlocks, extra = {}) => {
+  // ──── SAVE (reads from refs, not state) ────
+  const saveDoc = useCallback(async (docId, blockList) => {
     if (!docId) return;
     setSaving(true);
-    const txt = newBlocks.map(b => b.content || "").join("\n");
-    await supabase.from("documents").update({ content: newBlocks, content_text: txt, word_count: txt.split(/\s+/).filter(Boolean).length, updated_at: now(), last_edited_by: user?.id, ...extra }).eq("id", docId);
+    // Merge ref contents into blocks for save
+    const toSave = blockList.map(b => ({ ...b, content: blockContents.current[b.id] ?? b.content }));
+    const txt = toSave.map(b => b.content || "").join("\n");
+    await supabase.from("documents").update({ content: toSave, content_text: txt, word_count: txt.split(/\s+/).filter(Boolean).length, updated_at: now(), last_edited_by: user?.id }).eq("id", docId);
     setSaving(false); setLastSaved(new Date());
-    setDocs(p => p.map(d => d.id === docId ? { ...d, ...extra, updated_at: now() } : d));
   }, [user]);
 
-  const queueSave = useCallback((docId, newBlocks, extra) => {
+  const queueSave = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveDoc(docId, newBlocks, extra), 800);
-  }, [saveDoc]);
+    saveTimer.current = setTimeout(() => {
+      if (activeDoc) saveDoc(activeDoc.id, blocks);
+    }, 1000);
+  }, [saveDoc, activeDoc, blocks]);
 
-  const updateBlock = (bid, upd) => {
-    setBlocks(prev => { const next = prev.map(b => b.id === bid ? { ...b, ...upd } : b); if (activeDoc) queueSave(activeDoc.id, next); return next; });
+  // Content change handler — does NOT trigger re-render
+  const handleContentChange = useCallback((blockId, text) => {
+    blockContents.current[blockId] = text;
+    queueSave();
+  }, [queueSave]);
+
+  // Structural changes (add/delete/reorder/type change) DO trigger re-render
+  const updateBlockMeta = (bid, upd) => {
+    setBlocks(prev => prev.map(b => b.id === bid ? { ...b, ...upd } : b));
+    queueSave();
   };
 
   const insertBlockAfter = (afterId, type = "text") => {
     const nb = mkBlock(type);
-    setBlocks(prev => { const i = prev.findIndex(b => b.id === afterId); const next = [...prev.slice(0, i + 1), nb, ...prev.slice(i + 1)]; if (activeDoc) queueSave(activeDoc.id, next); return next; });
-    setTimeout(() => { blockRefs.current[nb.id]?.focus(); setFocusedBlock(nb.id); }, 50);
+    blockContents.current[nb.id] = "";
+    setBlocks(prev => { const i = prev.findIndex(b => b.id === afterId); return [...prev.slice(0, i + 1), nb, ...prev.slice(i + 1)]; });
+    queueSave();
+    setTimeout(() => { blockRefs.current[nb.id]?.focus(); }, 50);
     return nb.id;
   };
 
@@ -99,33 +194,47 @@ export default function DocsView() {
       if (prev.length <= 1) return prev;
       const i = prev.findIndex(b => b.id === bid);
       const next = prev.filter(b => b.id !== bid);
-      if (activeDoc) queueSave(activeDoc.id, next);
+      delete blockContents.current[bid];
+      queueSave();
       setTimeout(() => { const t = next[Math.max(0, i - 1)]; if (t) blockRefs.current[t.id]?.focus(); }, 50);
       return next;
     });
   };
 
-  const changeBlockType = (bid, type) => { updateBlock(bid, { type, content: type === "divider" ? "" : undefined }); setSlashMenu(null); setTimeout(() => blockRefs.current[bid]?.focus(), 50); };
+  const changeBlockType = (bid, type) => {
+    if (type === "divider") blockContents.current[bid] = "";
+    setBlocks(prev => prev.map(b => b.id === bid ? { ...b, type, ...(type === "table" ? { tableData: { cols: ["Column A","Column B","Column C"], rows: [["","",""],["","",""]], formulas: {} } } : {}) } : b));
+    setSlashMenu(null);
+    queueSave();
+    if (type !== "divider" && type !== "table") setTimeout(() => blockRefs.current[bid]?.focus(), 50);
+  };
 
-  const handleKey = (e, block) => {
+  const handleKey = useCallback((e, blockId, currentContent) => {
+    const block = blocks.find(b => b.id === blockId);
+    if (!block) return;
     if (e.key === "Enter" && !e.shiftKey) {
-      if (block.type === "divider") return;
+      if (block.type === "divider" || block.type === "table") return;
       e.preventDefault();
       const keepType = ["bullet", "numbered", "todo"].includes(block.type);
-      insertBlockAfter(block.id, keepType ? block.type : "text");
-    } else if (e.key === "Backspace" && !block.content) {
+      insertBlockAfter(block.id, keepType && currentContent ? block.type : "text");
+    } else if (e.key === "Backspace" && !currentContent) {
       e.preventDefault();
       if (block.type !== "text") changeBlockType(block.id, "text");
       else deleteBlock(block.id);
-    } else if (e.key === "/" && !block.content) {
-      const rect = e.target.getBoundingClientRect();
-      setSlashMenu({ blockId: block.id, x: rect.left, y: rect.bottom + 4, filter: "" });
-    } else if (e.key === "ArrowUp" && e.target.selectionStart === 0) {
-      e.preventDefault(); const i = blocks.findIndex(b => b.id === block.id); if (i > 0) blockRefs.current[blocks[i - 1].id]?.focus();
+    } else if (e.key === "ArrowUp") {
+      const sel = window.getSelection();
+      if (sel && sel.anchorOffset === 0) {
+        e.preventDefault();
+        const i = blocks.findIndex(b => b.id === blockId);
+        if (i > 0) blockRefs.current[blocks[i - 1].id]?.focus();
+      }
     } else if (e.key === "ArrowDown") {
-      const i = blocks.findIndex(b => b.id === block.id); if (i < blocks.length - 1) { e.preventDefault(); blockRefs.current[blocks[i + 1].id]?.focus(); }
+      const i = blocks.findIndex(b => b.id === blockId);
+      if (i < blocks.length - 1) { e.preventDefault(); blockRefs.current[blocks[i + 1].id]?.focus(); }
+    } else if (e.key === "Escape") {
+      setSlashMenu(null);
     }
-  };
+  }, [blocks]);
 
   const createDoc = async (parentId = null) => {
     const { data } = await supabase.from("documents").insert({
@@ -152,8 +261,7 @@ export default function DocsView() {
     const { data: src } = await supabase.from("documents").select("content").eq("id", doc.id).single();
     const { data } = await supabase.from("documents").insert({
       org_id: orgId, title: doc.title + " (copy)", emoji: doc.emoji, status: "draft", visibility: "team",
-      parent_id: doc.parent_id, created_by: user?.id, content: src?.content || [mkBlock()],
-      sort_order: docs.length, depth: doc.depth || 0,
+      parent_id: doc.parent_id, created_by: user?.id, content: src?.content || [mkBlock()], sort_order: docs.length, depth: doc.depth || 0,
     }).select("id,title,emoji,cover_url,parent_id,status,created_by,created_at,updated_at,sort_order,depth").single();
     if (data) { setDocs(p => [...p, data]); openDoc(data); }
   };
@@ -164,9 +272,95 @@ export default function DocsView() {
     bullet: { fontSize: 15, lineHeight: 1.65 }, numbered: { fontSize: 15, lineHeight: 1.65 }, todo: { fontSize: 15, lineHeight: 1.65 },
     quote: { fontSize: 15, lineHeight: 1.65, fontStyle: "italic", borderLeft: `3px solid ${T.accent}`, paddingLeft: 16, color: T.text2 },
     callout: { fontSize: 14, lineHeight: 1.6, background: T.surface2 || T.surface, padding: "12px 14px", borderRadius: 8, border: `1px solid ${T.border}` },
-    code: { fontSize: 13, lineHeight: 1.5, fontFamily: "'JetBrains Mono',monospace", background: T.surface2 || T.surface, padding: "12px 14px", borderRadius: 8, whiteSpace: "pre-wrap", overflowX: "auto" },
-    toggle: { fontSize: 15, lineHeight: 1.65 }, divider: {},
+    code: { fontSize: 13, lineHeight: 1.5, fontFamily: "monospace", background: T.surface2 || T.surface, padding: "12px 14px", borderRadius: 8, whiteSpace: "pre-wrap" },
+    toggle: { fontSize: 15, lineHeight: 1.65 }, divider: {}, table: {},
   }[type] || {});
+
+  // ──── TABLE COMPONENT ────
+  const TableBlock = ({ block }) => {
+    const td = block.tableData || { cols: ["A","B","C"], rows: [["","",""],["","",""]], formulas: {} };
+    const [editCell, setEditCell] = useState(null); // "r,c"
+    const [editVal, setEditVal] = useState("");
+
+    const updateTable = (newTd) => {
+      setBlocks(prev => prev.map(b => b.id === block.id ? { ...b, tableData: newTd } : b));
+      queueSave();
+    };
+
+    const setCell = (r, c, val) => {
+      const newRows = td.rows.map((row, ri) => ri === r ? row.map((cell, ci) => ci === c ? val : cell) : [...row]);
+      const newFormulas = { ...td.formulas };
+      const key = `${r},${c}`;
+      if (val.startsWith("=")) newFormulas[key] = val;
+      else delete newFormulas[key];
+      updateTable({ ...td, rows: newRows, formulas: newFormulas });
+    };
+
+    const addRow = () => updateTable({ ...td, rows: [...td.rows, new Array(td.cols.length).fill("")] });
+    const addCol = () => updateTable({ ...td, cols: [...td.cols, `Column ${String.fromCharCode(65 + td.cols.length)}`], rows: td.rows.map(r => [...r, ""]) });
+    const delRow = (ri) => { if (td.rows.length <= 1) return; updateTable({ ...td, rows: td.rows.filter((_, i) => i !== ri) }); };
+    const delCol = (ci) => { if (td.cols.length <= 1) return; updateTable({ ...td, cols: td.cols.filter((_, i) => i !== ci), rows: td.rows.map(r => r.filter((_, i) => i !== ci)) }); };
+
+    const cellStyle = { padding: "6px 10px", border: `1px solid ${T.border}`, fontSize: 13, minWidth: 80, position: "relative", cursor: "text" };
+    const headerStyle = { ...cellStyle, fontWeight: 600, fontSize: 12, color: T.text2, background: T.surface2 || T.surface };
+
+    return (
+      <div style={{ paddingLeft: 32, paddingBottom: 8 }}>
+        <div style={{ overflow: "auto", borderRadius: 6, border: `1px solid ${T.border}` }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                {td.cols.map((col, ci) => (
+                  <th key={ci} style={headerStyle}>
+                    <input value={col} onChange={e => { const nc = [...td.cols]; nc[ci] = e.target.value; updateTable({ ...td, cols: nc }); }}
+                      style={{ background: "transparent", border: "none", outline: "none", color: T.text2, fontSize: 12, fontWeight: 600, width: "100%", fontFamily: "inherit" }} />
+                  </th>
+                ))}
+                <th style={{ ...headerStyle, width: 28, padding: 0, cursor: "pointer" }} onClick={addCol} title="Add column">
+                  <span style={{ color: T.text3, fontSize: 14 }}>+</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {td.rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => {
+                    const key = `${ri},${ci}`;
+                    const isEditing = editCell === key;
+                    const formula = td.formulas?.[key];
+                    const displayVal = formula ? evalFormula(formula, td) : cell;
+                    return (
+                      <td key={ci} style={{ ...cellStyle, background: formula ? `${T.accent}08` : "transparent" }}
+                        onClick={() => { setEditCell(key); setEditVal(formula || cell); }}>
+                        {isEditing ? (
+                          <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                            onBlur={() => { setCell(ri, ci, editVal); setEditCell(null); }}
+                            onKeyDown={e => { if (e.key === "Enter") { setCell(ri, ci, editVal); setEditCell(null); } if (e.key === "Escape") setEditCell(null); if (e.key === "Tab") { e.preventDefault(); setCell(ri, ci, editVal); const nc = ci + 1 < td.cols.length ? `${ri},${ci+1}` : ri + 1 < td.rows.length ? `${ri+1},0` : null; if (nc) { setEditCell(nc); const [nr, ncc] = nc.split(",").map(Number); setEditVal(td.formulas?.[nc] || td.rows[nr]?.[ncc] || ""); } else { setEditCell(null); } } }}
+                            style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontFamily: formula ? "monospace" : "inherit" }} />
+                        ) : (
+                          <span style={{ color: formula ? T.accent : T.text, fontFamily: formula ? "monospace" : "inherit", fontSize: 13 }}>
+                            {typeof displayVal === "number" ? displayVal.toLocaleString() : displayVal || "\u00A0"}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td style={{ ...cellStyle, width: 28, padding: 0, textAlign: "center", cursor: "pointer" }} onClick={() => delRow(ri)} title="Delete row">
+                    <span style={{ color: T.text3, fontSize: 10, opacity: 0.4 }}>×</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+          <button onClick={addRow} style={{ background: "none", border: "none", color: T.text3, fontSize: 11, cursor: "pointer", padding: "2px 6px" }}>+ Row</button>
+          <button onClick={addCol} style={{ background: "none", border: "none", color: T.text3, fontSize: 11, cursor: "pointer", padding: "2px 6px" }}>+ Column</button>
+          <span style={{ fontSize: 10, color: T.text3, opacity: 0.5, marginLeft: 8 }}>Formulas: =SUM(A1:A5) =AVG(B1:B3) =MIN =MAX =COUNT</span>
+        </div>
+      </div>
+    );
+  };
 
   // ──── TREE ITEM ────
   const TreeItem = ({ node, depth = 0 }) => {
@@ -185,10 +379,10 @@ export default function DocsView() {
         <span style={{ fontSize: 15, marginRight: 4 }}>{node.emoji || "📄"}</span>
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.title || "Untitled"}</span>
         {hov && <div style={{ display: "flex", gap: 2, position: "absolute", right: 4 }}>
-          <button onClick={e => { e.stopPropagation(); createDoc(node.id); }} style={{ background: T.surface2, border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 4px", borderRadius: 3, lineHeight: 1 }} title="Add sub-page">+</button>
-          <button onClick={e => { e.stopPropagation(); setCtx(!ctx); }} style={{ background: T.surface2, border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 4px", borderRadius: 3, lineHeight: 1 }}>···</button>
+          <button onClick={e => { e.stopPropagation(); createDoc(node.id); }} style={{ background: T.surface2, border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 4px", borderRadius: 3 }} title="Add sub-page">+</button>
+          <button onClick={e => { e.stopPropagation(); setCtx(!ctx); }} style={{ background: T.surface2, border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 4px", borderRadius: 3 }}>···</button>
         </div>}
-        {ctx && <div style={{ position: "absolute", right: 0, top: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", zIndex: 50, width: 140, overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+        {ctx && <div style={{ position: "absolute", right: 0, top: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", zIndex: 50, width: 140 }} onClick={e => e.stopPropagation()}>
           {[{ label: "Duplicate", action: () => duplicateDoc(node) }, { label: "Delete", action: () => deleteDoc(node.id), color: T.red || "#ef4444" }].map(a => (
             <button key={a.label} onClick={() => { a.action(); setCtx(false); }} style={{ width: "100%", textAlign: "left", padding: "7px 12px", border: "none", background: "transparent", color: a.color || T.text, fontSize: 12, cursor: "pointer" }}
               onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{a.label}</button>
@@ -209,45 +403,68 @@ export default function DocsView() {
       </div>
     );
 
-    // Numbered list counter
+    if (block.type === "table") return (
+      <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} style={{ position: "relative" }}>
+        {hov && <button onClick={() => deleteBlock(block.id)} style={{ position: "absolute", left: 4, top: 4, background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, zIndex: 2 }}>×</button>}
+        <TableBlock block={block} />
+      </div>
+    );
+
     let numIdx = 1;
-    if (block.type === "numbered") {
-      for (let j = index - 1; j >= 0; j--) { if (blocks[j].type === "numbered") numIdx++; else break; }
-    }
+    if (block.type === "numbered") { for (let j = index - 1; j >= 0; j--) { if (blocks[j].type === "numbered") numIdx++; else break; } }
+
+    const placeholder = block.type === "h1" ? "Heading 1" : block.type === "h2" ? "Heading 2" : block.type === "h3" ? "Heading 3" : block.type === "quote" ? "Quote..." : index === 0 && blocks.length <= 1 ? "Type '/' for commands..." : "";
 
     return (
       <div style={{ position: "relative", padding: "1px 0", display: "flex", alignItems: "flex-start", gap: 0 }}
         onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}>
-        {/* Drag handle */}
         <div style={{ width: 32, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", paddingTop: block.type.startsWith("h") ? 6 : 3, opacity: hov ? 0.6 : 0, transition: "opacity 0.1s", cursor: "grab" }}>
           <span style={{ fontSize: 10, color: T.text3, userSelect: "none" }}>⠿</span>
         </div>
-        {/* Prefix */}
         {block.type === "bullet" && <span style={{ color: T.text3, fontSize: 20, lineHeight: "26px", flexShrink: 0, width: 18, textAlign: "center" }}>•</span>}
         {block.type === "numbered" && <span style={{ color: T.text3, fontSize: 13, lineHeight: "26px", flexShrink: 0, width: 22, textAlign: "right", paddingRight: 4, fontFamily: "monospace" }}>{numIdx}.</span>}
-        {block.type === "todo" && <input type="checkbox" checked={block.checked || false} onChange={() => updateBlock(block.id, { checked: !block.checked })} style={{ marginTop: 6, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }} />}
-        {block.type === "callout" && <span style={{ fontSize: 18, marginTop: 10, flexShrink: 0 }}>💡</span>}
-        {block.type === "toggle" && <span onClick={() => updateBlock(block.id, { collapsed: !block.collapsed })} style={{ cursor: "pointer", fontSize: 10, marginTop: 6, flexShrink: 0, color: T.text3, transition: "transform 0.15s", transform: block.collapsed ? "rotate(0deg)" : "rotate(90deg)", display: "inline-block" }}>▶</span>}
-        {/* Content */}
+        {block.type === "todo" && <input type="checkbox" checked={block.checked || false} onChange={() => updateBlockMeta(block.id, { checked: !block.checked })} style={{ marginTop: 6, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }} />}
+        {block.type === "callout" && (
+          <span onClick={() => setCalloutEmojiPicker(calloutEmojiPicker === block.id ? null : block.id)}
+            style={{ fontSize: 18, marginTop: 10, flexShrink: 0, cursor: "pointer", position: "relative" }} title="Change emoji">
+            {block.emoji || "💡"}
+            {calloutEmojiPicker === block.id && (
+              <div style={{ position: "absolute", top: "100%", left: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", zIndex: 50, display: "flex", gap: 2, flexWrap: "wrap", width: 200 }}
+                onClick={e => e.stopPropagation()}>
+                {CALLOUT_EMOJIS.map(em => (
+                  <span key={em} onClick={() => { updateBlockMeta(block.id, { emoji: em }); setCalloutEmojiPicker(null); }}
+                    style={{ fontSize: 18, cursor: "pointer", padding: 3, borderRadius: 4 }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{em}</span>
+                ))}
+              </div>
+            )}
+          </span>
+        )}
+        {block.type === "toggle" && <span onClick={() => updateBlockMeta(block.id, { collapsed: !block.collapsed })} style={{ cursor: "pointer", fontSize: 10, marginTop: 6, flexShrink: 0, color: T.text3, transition: "transform 0.15s", transform: block.collapsed ? "rotate(0deg)" : "rotate(90deg)", display: "inline-block" }}>▶</span>}
         <div style={{ flex: 1, minWidth: 0 }}>
           {block.type === "code" ? (
-            <textarea ref={el => blockRefs.current[block.id] = el} value={block.content || ""}
-              onChange={e => updateBlock(block.id, { content: e.target.value })}
-              onKeyDown={e => { if (e.key === "Backspace" && !block.content) { e.preventDefault(); deleteBlock(block.id); } }}
-              onFocus={() => setFocusedBlock(block.id)} placeholder="// code..." rows={Math.max(3, (block.content || "").split("\n").length)}
+            <textarea ref={el => blockRefs.current[block.id] = el}
+              defaultValue={block.content || ""}
+              onChange={e => { blockContents.current[block.id] = e.target.value; queueSave(); }}
+              onKeyDown={e => { if (e.key === "Backspace" && !(blockContents.current[block.id] || e.target.value)) { e.preventDefault(); deleteBlock(block.id); } }}
+              placeholder="// code..." rows={Math.max(3, (block.content || "").split("\n").length)}
               style={{ ...bStyle("code"), width: "100%", color: T.text, border: "none", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
           ) : (
-            <div ref={el => blockRefs.current[block.id] = el} contentEditable suppressContentEditableWarning
-              onInput={e => {
-                const text = e.target.innerText;
-                updateBlock(block.id, { content: text });
-                if (text === "/") { const r = e.target.getBoundingClientRect(); setSlashMenu({ blockId: block.id, x: r.left, y: r.bottom + 4, filter: "" }); }
-                else if (slashMenu?.blockId === block.id) { if (text.startsWith("/")) setSlashMenu(p => ({ ...p, filter: text.slice(1).toLowerCase() })); else setSlashMenu(null); }
+            <EditableBlock
+              blockId={block.id}
+              initialContent={block.content || ""}
+              style={{
+                ...bStyle(block.type),
+                color: block.type === "todo" && block.checked ? T.text3 : T.text,
+                textDecoration: block.type === "todo" && block.checked ? "line-through" : "none",
               }}
-              onKeyDown={e => handleKey(e, block)} onFocus={() => setFocusedBlock(block.id)}
-              data-placeholder={block.type === "h1" ? "Heading 1" : block.type === "h2" ? "Heading 2" : block.type === "h3" ? "Heading 3" : block.type === "quote" ? "Quote..." : index === 0 && blocks.length <= 1 ? "Type '/' for commands..." : ""}
-              style={{ ...bStyle(block.type), color: block.type === "todo" && block.checked ? T.text3 : T.text, textDecoration: block.type === "todo" && block.checked ? "line-through" : "none", outline: "none", minHeight: "1.5em", wordBreak: "break-word" }}
-              dangerouslySetInnerHTML={{ __html: block.content || "" }} />
+              placeholder={placeholder}
+              onContentChange={(text) => handleContentChange(block.id, text)}
+              onKeyDown={(e, content) => handleKey(e, block.id, content)}
+              onFocus={() => {}}
+              onSlash={(rect, filter) => setSlashMenu({ blockId: block.id, x: rect.left, y: rect.bottom + 4, filter })}
+              blockRef={(el) => { blockRefs.current[block.id] = el; }}
+            />
           )}
         </div>
       </div>
@@ -283,7 +500,7 @@ export default function DocsView() {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40 }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📝</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: T.text, marginBottom: 8 }}>Documents</div>
-            <div style={{ fontSize: 14, color: T.text3, marginBottom: 24, textAlign: "center", maxWidth: 400 }}>Create rich documents with nested pages, headings, lists, to-dos, code blocks, and more.</div>
+            <div style={{ fontSize: 14, color: T.text3, marginBottom: 24, textAlign: "center", maxWidth: 400 }}>Create rich documents with nested pages, headings, lists, to-dos, tables, code blocks, and more.</div>
             <button onClick={() => createDoc()} style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Create a Page</button>
             {docs.length > 0 && <div style={{ marginTop: 32, width: "100%", maxWidth: 500 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 8, textTransform: "uppercase" }}>Recent</div>
@@ -305,18 +522,17 @@ export default function DocsView() {
               <span style={{ cursor: "pointer" }} onClick={() => { setActiveDoc(null); setBlocks([]); }}>Documents</span><span>/</span>
               <span style={{ color: T.text, fontWeight: 500 }}>{activeDoc.emoji} {activeDoc.title || "Untitled"}</span>
             </div>
-            <span style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>{saving ? "Saving..." : lastSaved ? `Saved` : ""}</span>
+            <span style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>{saving ? "Saving..." : lastSaved ? "Saved" : ""}</span>
             <select value={activeDoc.status || "draft"} onChange={e => updateMeta(activeDoc.id, { status: e.target.value })} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2 || T.bg, color: T.text, fontFamily: "inherit", cursor: "pointer" }}>
               <option value="draft">Draft</option><option value="published">Published</option><option value="review">In Review</option><option value="archived">Archived</option>
             </select>
-            {!sidebarCollapsed && <button onClick={() => setSidebarCollapsed(true)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: 4 }} title="Hide sidebar">◀</button>}
+            {!sidebarCollapsed && <button onClick={() => setSidebarCollapsed(true)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: 4 }}>◀</button>}
             <button onClick={() => duplicateDoc(activeDoc)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11, padding: 4 }} title="Duplicate">⧉</button>
             <button onClick={() => deleteDoc(activeDoc.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: 4 }} title="Delete">🗑️</button>
           </div>
 
           {/* EDITOR */}
           <div style={{ flex: 1, overflow: "auto" }} onClick={e => { if (e.target === e.currentTarget) { const last = blocks[blocks.length - 1]; if (last) blockRefs.current[last.id]?.focus(); } }}>
-            {/* Cover */}
             {activeDoc.cover_url && <div style={{ height: 180, background: activeDoc.cover_url, backgroundSize: "cover", backgroundPosition: "center", position: "relative" }}>
               <div style={{ position: "absolute", bottom: 8, right: 8, display: "flex", gap: 4 }}>
                 <button onClick={() => setCoverPicker(!coverPicker)} style={{ padding: "4px 10px", borderRadius: 4, background: "rgba(0,0,0,0.5)", border: "none", color: "#fff", fontSize: 11, cursor: "pointer" }}>Change</button>
@@ -326,8 +542,6 @@ export default function DocsView() {
             {coverPicker && <div style={{ padding: "12px 24px", display: "flex", gap: 8, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
               {COVERS.map((g, i) => <div key={i} onClick={() => { updateMeta(activeDoc.id, { cover_url: g }); setCoverPicker(false); }} style={{ width: 60, height: 32, borderRadius: 6, background: g, cursor: "pointer", border: `2px solid ${activeDoc.cover_url === g ? T.accent : "transparent"}` }} />)}
             </div>}
-
-            {/* Doc head */}
             <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 40px" }}>
               <div style={{ paddingTop: activeDoc.cover_url ? 20 : 50, paddingBottom: 4 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -340,12 +554,10 @@ export default function DocsView() {
                 <input value={activeDoc.title || ""} onChange={e => { const t = e.target.value; setActiveDoc(p => ({ ...p, title: t })); setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, title: t } : d)); if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => supabase.from("documents").update({ title: t, updated_at: now() }).eq("id", activeDoc.id), 600); }}
                   placeholder="Untitled" style={{ fontSize: 34, fontWeight: 800, color: T.text, background: "transparent", border: "none", outline: "none", width: "100%", fontFamily: "inherit", padding: 0, letterSpacing: "-0.02em" }} />
               </div>
-
-              {/* BLOCKS */}
               <div style={{ paddingBottom: 200, paddingTop: 8 }}>
                 {blocks.map((b, i) => <Block key={b.id} block={b} index={i} />)}
                 <div style={{ paddingLeft: 32, paddingTop: 8 }}>
-                  <button onClick={() => { const last = blocks[blocks.length - 1]; if (last) insertBlockAfter(last.id); else { const nb = mkBlock(); setBlocks([nb]); } }}
+                  <button onClick={() => { const last = blocks[blocks.length - 1]; if (last) insertBlockAfter(last.id); else { const nb = mkBlock(); blockContents.current[nb.id] = ""; setBlocks([nb]); } }}
                     style={{ background: "none", border: "none", color: T.text3, fontSize: 12, cursor: "pointer", padding: "4px 8px", borderRadius: 4, opacity: 0.4 }}
                     onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>+ Add a block</button>
                 </div>
@@ -355,17 +567,23 @@ export default function DocsView() {
         </>}
       </div>
 
-      {/* SLASH MENU */}
-      {slashMenu && <div style={{ position: "fixed", left: Math.min(slashMenu.x, window.innerWidth - 220), top: Math.min(slashMenu.y, window.innerHeight - 300), width: 210, background: T.surface || "#fff", borderRadius: 8, border: `1px solid ${T.border}`, boxShadow: "0 8px 30px rgba(0,0,0,0.2)", zIndex: 100, overflow: "hidden", maxHeight: 300, overflowY: "auto" }}>
-        <div style={{ padding: "6px 10px", fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em" }}>Block Type</div>
-        {SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter)).map(cmd => (
-          <div key={cmd.type} onClick={() => { changeBlockType(slashMenu.blockId, cmd.type); updateBlock(slashMenu.blockId, { content: "" }); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", fontSize: 13, color: T.text }}
-            onMouseEnter={e => e.currentTarget.style.background = T.surface2 || T.border} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-            <span style={{ width: 28, height: 28, borderRadius: 4, background: T.surface2 || T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: T.text2, flexShrink: 0 }}>{cmd.icon}</span>
-            <span>{cmd.label}</span>
-          </div>
-        ))}
+      {/* SLASH MENU with search */}
+      {slashMenu && <div style={{ position: "fixed", left: Math.min(slashMenu.x, window.innerWidth - 240), top: Math.min(slashMenu.y, window.innerHeight - 340), width: 230, background: T.surface || "#fff", borderRadius: 8, border: `1px solid ${T.border}`, boxShadow: "0 8px 30px rgba(0,0,0,0.2)", zIndex: 100, overflow: "hidden", maxHeight: 340 }}>
+        <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
+          <input autoFocus value={slashMenu.filter} onChange={e => setSlashMenu(p => ({ ...p, filter: e.target.value.toLowerCase() }))}
+            placeholder="Search blocks..." onKeyDown={e => { if (e.key === "Escape") setSlashMenu(null); if (e.key === "Enter") { const filtered = SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter)); if (filtered.length) { changeBlockType(slashMenu.blockId, filtered[0].type); blockContents.current[slashMenu.blockId] = ""; } } }}
+            style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, fontFamily: "inherit" }} />
+        </div>
+        <div style={{ overflowY: "auto", maxHeight: 290 }}>
+          {SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter)).map(cmd => (
+            <div key={cmd.type} onClick={() => { changeBlockType(slashMenu.blockId, cmd.type); blockContents.current[slashMenu.blockId] = ""; }}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", fontSize: 13, color: T.text }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface2 || T.border} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 28, height: 28, borderRadius: 4, background: T.surface2 || T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: T.text2, flexShrink: 0 }}>{cmd.icon}</span>
+              <span>{cmd.label}</span>
+            </div>
+          ))}
+        </div>
       </div>}
 
       <style>{`[contenteditable]:empty:before{content:attr(data-placeholder);color:${T.text3};pointer-events:none}[contenteditable]:focus{outline:none}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}`}</style>
