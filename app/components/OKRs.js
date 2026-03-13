@@ -86,6 +86,12 @@ export default function OKRsView() {
   // Milestone form
   const [msForm, setMsForm] = useState(null); // { objectiveId, title, start_date, end_date, color }
   const [objForm, setObjForm] = useState(null); // full objective creation form
+  // Financial metrics
+  const [finMetrics, setFinMetrics]   = useState([]);
+  const [finMonthly, setFinMonthly]   = useState({}); // { metricId: { month: {actual,target,id} } }
+  const [finYear, setFinYear]         = useState(new Date().getFullYear());
+  const [finEditing, setFinEditing]   = useState(null); // { metricId, month, field }
+  const [finEditVal, setFinEditVal]   = useState("");
 
   const setView = (v) => { setViewMode(v); try { localStorage.setItem("okr_view", v); } catch {} };
 
@@ -98,6 +104,35 @@ export default function OKRsView() {
       setCycles(c || []);
       const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
       const active = (c || []).find(cy => cy.status === "active") || c?.[0];
+      // Load financial metrics for current year
+      const yr = new Date().getFullYear();
+      const { data: fmData } = await supabase.from("okr_financial_metrics")
+        .select("*").eq("year", yr).order("sort_order,metric_key");
+      if (fmData) {
+        // Seed defaults if none exist
+        if (fmData.length === 0) {
+          const defaults = [
+            { year: yr, metric_key: "revenue", metric_label: "Revenue", unit: "$", sort_order: 0 },
+            { year: yr, metric_key: "ebitda",  metric_label: "EBITDA",  unit: "$", sort_order: 1 },
+          ];
+          const { data: seeded } = await supabase.from("okr_financial_metrics").insert(defaults).select();
+          if (seeded) {
+            setFinMetrics(seeded);
+            const ids = seeded.map(m => m.id);
+            const { data: mData } = await supabase.from("okr_financial_monthly").select("*").in("metric_id", ids).eq("year", yr);
+            const mMap = {};
+            (mData || []).forEach(r => { if (!mMap[r.metric_id]) mMap[r.metric_id] = {}; mMap[r.metric_id][r.month] = r; });
+            setFinMonthly(mMap);
+          }
+        } else {
+          setFinMetrics(fmData);
+          const ids = fmData.map(m => m.id);
+          const { data: mData } = await supabase.from("okr_financial_monthly").select("*").in("metric_id", ids).eq("year", yr);
+          const mMap = {};
+          (mData || []).forEach(r => { if (!mMap[r.metric_id]) mMap[r.metric_id] = {}; mMap[r.metric_id][r.month] = r; });
+          setFinMonthly(mMap);
+        }
+      }
       if (active) setActiveCycle(active.id);
       setLoading(false);
     })();
@@ -1032,6 +1067,147 @@ export default function OKRsView() {
     />
   );
 
+  // ── Financial Metrics helpers ──────────────────────────────────────────────
+  const saveMonthlyValue = async (metricId, month, field, rawVal) => {
+    const val = rawVal === "" ? null : parseFloat(rawVal.replace(/[$,%]/g, "")) || null;
+    const existing = finMonthly[metricId]?.[month];
+    let row;
+    if (existing?.id) {
+      const { data } = await supabase.from("okr_financial_monthly")
+        .update({ [field]: val, updated_at: new Date().toISOString() }).eq("id", existing.id).select().single();
+      row = data;
+    } else {
+      const { data } = await supabase.from("okr_financial_monthly")
+        .insert({ metric_id: metricId, year: finYear, month, [field]: val }).select().single();
+      row = data;
+    }
+    if (row) setFinMonthly(p => ({ ...p, [metricId]: { ...(p[metricId]||{}), [month]: row } }));
+    setFinEditing(null);
+  };
+
+  const saveAnnualTarget = async (metricId, rawVal) => {
+    const val = rawVal === "" ? null : parseFloat(rawVal.replace(/[$,%]/g, "")) || null;
+    await supabase.from("okr_financial_metrics").update({ target_annual: val }).eq("id", metricId);
+    setFinMetrics(p => p.map(m => m.id === metricId ? { ...m, target_annual: val } : m));
+  };
+
+  const fmtMoney = (v) => {
+    if (v == null) return "";
+    const abs = Math.abs(v);
+    if (abs >= 1_000_000) return (v < 0 ? "-" : "") + "$" + (abs / 1_000_000).toFixed(1) + "M";
+    if (abs >= 1_000)     return (v < 0 ? "-" : "") + "$" + (abs / 1_000).toFixed(0) + "K";
+    return "$" + v.toFixed(0);
+  };
+
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const curMonth = new Date().getMonth() + 1; // 1-based
+
+  // YTD actual = sum of actuals through current month
+  const ytdActual = (metricId) => {
+    const mData = finMonthly[metricId] || {};
+    return Array.from({length: curMonth}, (_, i) => i + 1)
+      .reduce((s, m) => s + (mData[m]?.actual || 0), 0);
+  };
+  const ytdTarget = (metricId) => {
+    const mData = finMonthly[metricId] || {};
+    return Array.from({length: curMonth}, (_, i) => i + 1)
+      .reduce((s, m) => s + (mData[m]?.target || 0), 0);
+  };
+
+  const FinMetricRow = ({ metric }) => {
+    const mData = finMonthly[metric.id] || {};
+    const ytdA = ytdActual(metric.id);
+    const ytdT = ytdTarget(metric.id);
+    const pct = ytdT > 0 ? Math.round((ytdA / ytdT) * 100) : null;
+    const color = pct == null ? T.text3 : pct >= 100 ? "#22c55e" : pct >= 75 ? "#eab308" : "#ef4444";
+
+    return (
+      <div style={{ marginBottom: 16 }}>
+        {/* Metric header row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, minWidth: 80 }}>{metric.metric_label}</div>
+          {/* Annual target */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text3 }}>
+            <span>Annual target:</span>
+            {finEditing?.metricId === metric.id && finEditing?.field === "annual" ? (
+              <input autoFocus value={finEditVal}
+                onChange={e => setFinEditVal(e.target.value)}
+                onBlur={() => saveAnnualTarget(metric.id, finEditVal)}
+                onKeyDown={e => { if (e.key === "Enter") saveAnnualTarget(metric.id, finEditVal); if (e.key === "Escape") setFinEditing(null); }}
+                style={{ width: 80, fontSize: 11, background: T.surface2, border: "1px solid "+T.accent, borderRadius: 4, padding: "1px 5px", color: T.text, outline: "none" }} />
+            ) : (
+              <span onClick={() => { setFinEditing({metricId:metric.id,field:"annual"}); setFinEditVal(metric.target_annual != null ? String(metric.target_annual) : ""); }}
+                style={{ cursor: "pointer", color: metric.target_annual != null ? T.accent : T.text3, fontWeight: 600, borderBottom: "1px dashed "+T.border }}>
+                {metric.target_annual != null ? fmtMoney(metric.target_annual) : "Set target"}
+              </span>
+            )}
+          </div>
+          {/* YTD summary */}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 11, color: T.text3 }}>YTD Actual: <strong style={{ color: T.text }}>{fmtMoney(ytdA) || "—"}</strong></div>
+            <div style={{ fontSize: 11, color: T.text3 }}>YTD Target: <strong style={{ color: T.text }}>{fmtMoney(ytdT) || "—"}</strong></div>
+            {pct != null && (
+              <div style={{ fontSize: 11, fontWeight: 700, color, background: color+"18", padding: "2px 8px", borderRadius: 4 }}>{pct}%</div>
+            )}
+          </div>
+        </div>
+        {/* Monthly cells */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 3 }}>
+          {MONTHS.map((mon, idx) => {
+            const m = idx + 1;
+            const row = mData[m] || {};
+            const isPast = m < curMonth;
+            const isCur = m === curMonth;
+            const actVal = row.actual;
+            const tgtVal = row.target;
+            const cellPct = tgtVal > 0 ? (actVal || 0) / tgtVal : null;
+            const cellColor = actVal == null ? T.text3 : cellPct == null ? T.text : cellPct >= 1 ? "#22c55e" : cellPct >= 0.75 ? "#eab308" : "#ef4444";
+            const editKey = `${metric.id}-${m}`;
+            const isEditingActual = finEditing?.key === editKey && finEditing?.field === "actual";
+            const isEditingTarget = finEditing?.key === editKey && finEditing?.field === "target";
+
+            return (
+              <div key={m} style={{
+                background: isCur ? T.accentDim : T.surface2,
+                border: "1px solid "+(isCur ? T.accent+"60" : T.border),
+                borderRadius: 6, padding: "5px 6px", minWidth: 0,
+                opacity: m > curMonth ? 0.5 : 1,
+              }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: isCur ? T.accent : T.text3, marginBottom: 3, textTransform: "uppercase" }}>{mon}</div>
+                {/* Actual */}
+                {isEditingActual ? (
+                  <input autoFocus value={finEditVal}
+                    onChange={e => setFinEditVal(e.target.value)}
+                    onBlur={() => saveMonthlyValue(metric.id, m, "actual", finEditVal)}
+                    onKeyDown={e => { if (e.key === "Enter") saveMonthlyValue(metric.id, m, "actual", finEditVal); if (e.key === "Escape") setFinEditing(null); }}
+                    style={{ width: "100%", fontSize: 10, background: T.surface, border: "1px solid "+T.accent, borderRadius: 3, padding: "1px 3px", color: T.text, outline: "none", boxSizing: "border-box" }} />
+                ) : (
+                  <div onClick={() => { setFinEditing({key:editKey,field:"actual"}); setFinEditVal(actVal != null ? String(actVal) : ""); }}
+                    style={{ fontSize: 11, fontWeight: 700, color: cellColor, cursor: "pointer", lineHeight: 1.3, minHeight: 14 }}>
+                    {actVal != null ? fmtMoney(actVal) : (isPast || isCur ? <span style={{color:T.border}}>—</span> : "")}
+                  </div>
+                )}
+                {/* Target */}
+                {isEditingTarget ? (
+                  <input autoFocus value={finEditVal}
+                    onChange={e => setFinEditVal(e.target.value)}
+                    onBlur={() => saveMonthlyValue(metric.id, m, "target", finEditVal)}
+                    onKeyDown={e => { if (e.key === "Enter") saveMonthlyValue(metric.id, m, "target", finEditVal); if (e.key === "Escape") setFinEditing(null); }}
+                    style={{ width: "100%", fontSize: 10, background: T.surface, border: "1px solid "+T.border, borderRadius: 3, padding: "1px 3px", color: T.text, outline: "none", boxSizing: "border-box" }} />
+                ) : (
+                  <div onClick={() => { setFinEditing({key:editKey,field:"target"}); setFinEditVal(tgtVal != null ? String(tgtVal) : ""); }}
+                    style={{ fontSize: 9, color: T.text3, cursor: "pointer", lineHeight: 1.3, borderTop: "1px solid "+T.border, marginTop: 2, paddingTop: 2 }}>
+                    {tgtVal != null ? fmtMoney(tgtVal) : <span style={{color:T.border}}>target</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const header = (
     <div style={{ padding: "24px 28px 0", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
@@ -1056,6 +1232,18 @@ export default function OKRsView() {
           </div>
         </div>
       </div>
+      {/* ── Financial Metrics ── */}
+      {finMetrics.length > 0 && (
+        <div style={{ marginBottom: 16, padding: "14px 0 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1 }}>Financial Metrics {finYear}</div>
+            <div style={{ height: 1, flex: 1, background: T.border }} />
+            <div style={{ fontSize: 10, color: T.text3 }}>Click any cell to edit · Top row = Actual · Bottom row = Target</div>
+          </div>
+          {finMetrics.map(m => <FinMetricRow key={m.id} metric={m} />)}
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 0 }}>
         {[{ key: "list", label: "Objectives", icon: "≡" }, { key: "roadmap", label: "Roadmap", icon: "▬" }].map(t => (
           <button key={t.key} onClick={() => setView(t.key)} style={{ padding: "9px 16px", fontSize: 13, fontWeight: 500, color: viewMode === t.key ? T.text : T.text3, borderBottom: viewMode === t.key ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", background: "none", border: "none", borderBottomWidth: 2, borderBottomStyle: "solid", display: "flex", alignItems: "center", gap: 6 }}>
