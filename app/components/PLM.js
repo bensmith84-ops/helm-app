@@ -195,16 +195,23 @@ function ClaimRow({ claim, onUpdate, onDelete }) {
 // ─── SOURCING ITEM CARD ───────────────────────────────────────────────────────
 
 function VolumeTierRow({ tier, idx, onChange, onDelete, uom }) {
+  const autoCalcTotal = (updates) => {
+    const merged = { ...tier, ...updates };
+    const qty = parseFloat(merged.min_qty) || 0;
+    const price = parseFloat(merged.unit_price) || 0;
+    if (qty > 0 && price > 0) updates.total_cost = (qty * price).toFixed(2);
+    return updates;
+  };
   const td=w=>({padding:"4px 6px",width:w,verticalAlign:"middle"});
   const inp=ex=>({width:"100%",fontSize:12,background:"transparent",border:"none",color:T.text,outline:"none",fontFamily:"inherit",...ex});
   return (
     <tr style={{ borderBottom:"1px solid "+T.border }}>
-      <td style={td(90)}><input value={tier.min_qty||""} onChange={e=>onChange(idx,"min_qty",e.target.value)} style={inp({textAlign:"right"})} placeholder="Min" /></td>
+      <td style={td(90)}><input value={tier.min_qty||""} onChange={e=>{const u=autoCalcTotal({min_qty:e.target.value});Object.entries(u).forEach(([k,v])=>onChange(idx,k,v));}} style={inp({textAlign:"right"})} placeholder="Min" /></td>
       <td style={td(90)}><input value={tier.max_qty||""} onChange={e=>onChange(idx,"max_qty",e.target.value)} style={inp({textAlign:"right"})} placeholder="Max" /></td>
       <td style={{...td(80),padding:"4px 8px"}}>
         <span style={{ fontSize:11,fontWeight:600,color:T.accent,background:T.accentDim,padding:"2px 8px",borderRadius:4,whiteSpace:"nowrap" }}>{uom||"units"}</span>
       </td>
-      <td style={td(90)}><input value={tier.unit_price||""} onChange={e=>onChange(idx,"unit_price",e.target.value)} style={inp({textAlign:"right"})} type="number" placeholder="0.000" /></td>
+      <td style={td(90)}><input value={tier.unit_price||""} onChange={e=>{const u=autoCalcTotal({unit_price:e.target.value});Object.entries(u).forEach(([k,v])=>onChange(idx,k,v));}} style={inp({textAlign:"right"})} type="number" placeholder="0.000" /></td>
       <td style={td(90)}><input value={tier.total_cost||""} onChange={e=>onChange(idx,"total_cost",e.target.value)} style={inp({textAlign:"right"})} type="number" placeholder="0.00" /></td>
       <td style={{...td(28),textAlign:"center"}}><button onClick={()=>onDelete(idx)} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:12 }}>✕</button></td>
     </tr>
