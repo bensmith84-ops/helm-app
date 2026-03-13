@@ -204,7 +204,7 @@ function VolumeTierRow({ tier, idx, onChange, onDelete }) {
 }
 
 function SourcingItemCard({ item, onUpdate, onDelete }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true); // open by default so tiers are immediately visible
   const [tiers, setTiers] = useState(item.volume_tiers||[]);
   const [vals, setVals] = useState(item);
   const color = SOURCING_TYPE_COLORS[item.sourcing_type]||"#8b93a8";
@@ -268,7 +268,13 @@ function OverviewTab({ program, onUpdate, counts }) {
   const [editing, setEditing] = useState({});
   const set=(f,v)=>setEditing(p=>({...p,[f]:v}));
   const fv=f=>f in editing?editing[f]:program[f];
-  const saveAll=async()=>{ if(!Object.keys(editing).length)return; await supabase.from("plm_programs").update(editing).eq("id",program.id); onUpdate({...program,...editing}); setEditing({}); };
+  const saveAll=async()=>{
+    if(!Object.keys(editing).length)return;
+    const NUMERIC_FIELDS=["target_gross_margin_pct","target_unit_price","development_budget"];
+    const payload=Object.fromEntries(Object.entries(editing).map(([k,v])=>[k,NUMERIC_FIELDS.includes(k)&&v!==""?parseFloat(v):v===" "?null:v]));
+    await supabase.from("plm_programs").update(payload).eq("id",program.id);
+    onUpdate({...program,...editing}); setEditing({});
+  };
   const advanceStage=async k=>{ await supabase.from("plm_programs").update({current_stage:k}).eq("id",program.id); onUpdate({...program,current_stage:k}); };
   return (
     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:24 }}>
@@ -999,7 +1005,9 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
 
   const handleCreate=async()=>{
     if(!form.name.trim())return; setSaving(true);
-    const{data}=await supabase.from("plm_programs").insert({...form,org_id:orgId}).select().single();
+    const NUMERIC=["target_gross_margin_pct","target_unit_price"];
+    const payload=Object.fromEntries(Object.entries({...form,org_id:orgId}).map(([k,v])=>[k,NUMERIC.includes(k)&&v!==""?parseFloat(v):v]));
+    const{data}=await supabase.from("plm_programs").insert(payload).select().single();
     if(data)onCreated(data); setSaving(false);
   };
 
@@ -1096,7 +1104,7 @@ export default function PLMView() {
     const load=async()=>{
       const{data:{user}}=await supabase.auth.getUser();
       if(user){
-        const{data:membership}=await supabase.from("org_memberships").select("org_id").eq("user_id",user.id).single();
+        const{data:membership}=await supabase.from("org_memberships").select("org_id").eq("user_id",user.id).maybeSingle();
         if(membership)setOrgId(membership.org_id);
       }
       const{data}=await supabase.from("plm_programs").select("*").is("deleted_at",null).order("created_at",{ascending:false});
