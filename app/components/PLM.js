@@ -32,6 +32,12 @@ const SOURCING_TYPES = [
   { value: "other",                 label: "Other"                 },
 ];
 const SOURCING_TYPE_COLORS = { ingredient:"#3b82f6", packaging:"#8b5cf6", contract_manufacturer:"#f97316", other:"#8b93a8" };
+const UOM_OPTIONS = [
+  'KG','g','lb','oz',
+  'L','mL','gal','fl oz',
+  'Units','Each','Case','Pack',
+  'MT','Pallet','Drum','Tote',
+];
 const DOC_TYPES = ["document","link","study","lab_report","regulatory"];
 const DOC_ICONS = { document:"📄", link:"🔗", study:"🔬", lab_report:"🧪", regulatory:"⚖️" };
 
@@ -227,6 +233,7 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
         <span style={{ fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4,background:color+"22",color,letterSpacing:0.3,flexShrink:0 }}>{item.sourcing_type.replace(/_/g," ").toUpperCase()}</span>
         <div style={{ fontSize:13,fontWeight:600,color:T.text,flex:1 }}>{item.name}</div>
         {item.supplier_name&&<div style={{ fontSize:12,color:T.text3 }}>{item.supplier_name}</div>}
+        {item.moq_unit&&<div style={{ fontSize:11,fontWeight:600,background:T.surface3,color:T.text3,padding:"1px 7px",borderRadius:4 }}>{item.moq_unit}</div>}
         {tiers.length>0&&<div style={{ fontSize:11,color:T.accent }}>{tiers.length} tier{tiers.length!==1?"s":""}</div>}
         <span style={{ color:T.text3,fontSize:11 }}>{expanded?"▲":"▼"}</span>
         <button onClick={e=>{e.stopPropagation();if(confirm("Delete this sourcing item?"))onDelete(item.id);}} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:12,padding:0 }}>✕</button>
@@ -241,8 +248,9 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
             <InlineField label="Supplier URL" value={vals.supplier_url} onChange={v=>setVals(p=>({...p,supplier_url:v}))} onBlur={()=>saveField("supplier_url",vals.supplier_url)} placeholder="https://…" />
             <InlineField label="Status" value={vals.status} onChange={v=>saveField("status",v)} options={["evaluating","approved","preferred","backup","disqualified"].map(s=>({value:s,label:s}))} />
             <InlineField label="Lead Time (days)" value={vals.lead_time_days} onChange={v=>setVals(p=>({...p,lead_time_days:v}))} onBlur={()=>saveField("lead_time_days",vals.lead_time_days)} type="number" />
-            <InlineField label={"MOQ ("+(vals.moq_unit||"units")+")"} value={vals.moq} onChange={v=>setVals(p=>({...p,moq:v}))} onBlur={()=>saveField("moq",vals.moq)} type="number" />
+            <InlineField label={"MOQ"} value={vals.moq} onChange={v=>setVals(p=>({...p,moq:v}))} onBlur={()=>saveField("moq",vals.moq)} type="number" />
           </div>
+          <InlineField label="Unit of Measure (UOM)" value={vals.moq_unit||""} onChange={v=>saveField("moq_unit",v)} options={UOM_OPTIONS.map(u=>({value:u,label:u}))} />
           <InlineField label="Notes" value={vals.notes} onChange={v=>setVals(p=>({...p,notes:v}))} onBlur={()=>saveField("notes",vals.notes)} multiline placeholder="Sourcing notes…" />
           <div style={{ marginTop:4 }}>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
