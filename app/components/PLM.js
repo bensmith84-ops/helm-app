@@ -137,21 +137,54 @@ function MultiSelectDropdown({ label, value=[], onChange, options }) {
 
 // ─── FORMULA ITEM ROW ─────────────────────────────────────────────────────────
 
+const ITEM_TYPES = [
+  {value:"ingredient",label:"Ingredient"},
+  {value:"packaging", label:"Packaging"},
+  {value:"other",     label:"Other"},
+];
+const FORMULA_UOM = ["g","kg","mg","lb","oz","mL","L","%","ppm","ppb","IU","CFU","units","each"];
+
 function FormulaItemRow({ item, onUpdate, onDelete }) {
   const [vals, setVals] = useState(item);
   const changed = useRef(false);
   const handleChange = (f,v) => { changed.current=true; setVals(p=>({...p,[f]:v})); };
   const handleBlur = async () => {
     if (!changed.current) return; changed.current=false;
-    await supabase.from("plm_formula_items").update({ ingredient_name:vals.ingredient_name, quantity:parseFloat(vals.quantity)||0, unit:vals.unit, function_in_formula:vals.function_in_formula }).eq("id",item.id);
+    await supabase.from("plm_formula_items").update({
+      ingredient_name:vals.ingredient_name,
+      item_type:vals.item_type||"ingredient",
+      quantity:parseFloat(vals.quantity)||0,
+      unit:vals.unit,
+      input_qty:vals.input_qty?parseFloat(vals.input_qty):null,
+      input_uom:vals.input_uom||null,
+      function_in_formula:vals.function_in_formula,
+    }).eq("id",item.id);
     onUpdate(vals);
   };
-  const td={padding:"4px 6px",verticalAlign:"middle"}, inp={width:"100%",fontSize:12,background:"transparent",border:"none",color:T.text,outline:"none",fontFamily:"inherit"};
+  const td={padding:"4px 6px",verticalAlign:"middle"};
+  const inp={width:"100%",fontSize:12,background:"transparent",border:"none",color:T.text,outline:"none",fontFamily:"inherit"};
+  const sel={width:"100%",fontSize:11,background:"transparent",border:"none",color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer"};
+  const typeColor={ingredient:T.accent,packaging:"#8b5cf6",other:"#8b93a8"};
   return (
     <tr style={{ borderBottom:"1px solid "+T.border }}>
-      <td style={td}><input value={vals.ingredient_name||""} onChange={e=>handleChange("ingredient_name",e.target.value)} onBlur={handleBlur} style={inp} placeholder="Ingredient" /></td>
-      <td style={{...td,width:70}}><input value={vals.quantity||""} onChange={e=>handleChange("quantity",e.target.value)} onBlur={handleBlur} style={{...inp,textAlign:"right"}} type="number" /></td>
-      <td style={{...td,width:60}}><input value={vals.unit||""} onChange={e=>handleChange("unit",e.target.value)} onBlur={handleBlur} style={inp} placeholder="%" /></td>
+      <td style={td}>
+        <input value={vals.ingredient_name||""} onChange={e=>handleChange("ingredient_name",e.target.value)} onBlur={handleBlur} style={inp} placeholder="Name" />
+      </td>
+      <td style={{...td,width:90}}>
+        <select value={vals.item_type||"ingredient"} onChange={e=>{handleChange("item_type",e.target.value);}} onBlur={handleBlur}
+          style={{...sel,color:typeColor[vals.item_type||"ingredient"],fontWeight:600}}>
+          {ITEM_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </td>
+      <td style={{...td,width:70}}><input value={vals.quantity||""} onChange={e=>handleChange("quantity",e.target.value)} onBlur={handleBlur} style={{...inp,textAlign:"right"}} type="number" placeholder="0" /></td>
+      <td style={{...td,width:55}}><input value={vals.unit||""} onChange={e=>handleChange("unit",e.target.value)} onBlur={handleBlur} style={inp} placeholder="%" /></td>
+      <td style={{...td,width:80}}><input value={vals.input_qty||""} onChange={e=>handleChange("input_qty",e.target.value)} onBlur={handleBlur} style={{...inp,textAlign:"right"}} type="number" placeholder="0" /></td>
+      <td style={{...td,width:75}}>
+        <select value={vals.input_uom||""} onChange={e=>handleChange("input_uom",e.target.value)} onBlur={handleBlur} style={sel}>
+          <option value="">—</option>
+          {FORMULA_UOM.map(u=><option key={u} value={u}>{u}</option>)}
+        </select>
+      </td>
       <td style={td}><input value={vals.function_in_formula||""} onChange={e=>handleChange("function_in_formula",e.target.value)} onBlur={handleBlur} style={inp} placeholder="Function" /></td>
       <td style={{...td,width:28,textAlign:"center"}}><button onClick={onDelete} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:12,padding:0 }}>✕</button></td>
     </tr>
@@ -444,19 +477,53 @@ function ClaimsSubstantiationTab({ program, onUpdate }) {
 // ─── TAB: SOURCING ────────────────────────────────────────────────────────────
 
 function SourcingTab({ program }) {
-  const [items, setItems]   = useState([]);
+  const [items, setItems]     = useState([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({name:"",sourcing_type:"ingredient",supplier_name:""});
+  const [form, setForm] = useState({name:"",sourcing_type:"ingredient",supplier_name:"",moq_unit:""});
 
   useEffect(()=>{
-    supabase.from("plm_sourcing").select("*").eq("program_id",program.id).order("created_at").then(({data})=>{setItems(data||[]);setLoading(false);});
+    supabase.from("plm_sourcing").select("*").eq("program_id",program.id).order("sourcing_type,created_at")
+      .then(({data})=>{setItems(data||[]);setLoading(false);});
   },[program.id]);
+
+  // Pull formula line items into sourcing (skips items already present by name+type)
+  const syncFromFormula = async () => {
+    setSyncing(true);
+    // Get all formula items across all formulations for this program
+    const {data:formulas} = await supabase.from("plm_formulations").select("id").eq("program_id",program.id);
+    if (!formulas?.length) { setSyncing(false); return; }
+    const formulaIds = formulas.map(f=>f.id);
+    const {data:fItems} = await supabase.from("plm_formula_items").select("*").in("formulation_id",formulaIds);
+    if (!fItems?.length) { setSyncing(false); return; }
+
+    // Deduplicate: skip if a sourcing item with same name already exists
+    const existingNames = new Set(items.map(i=>i.name?.toLowerCase().trim()));
+    const toAdd = fItems.filter(fi=>fi.ingredient_name?.trim() && !existingNames.has(fi.ingredient_name.toLowerCase().trim()));
+
+    if (!toAdd.length) { setSyncing(false); return; }
+
+    const typeMap = {ingredient:"ingredient", packaging:"packaging"};
+    const rows = toAdd.map(fi=>({
+      program_id: program.id,
+      name: fi.ingredient_name,
+      sourcing_type: typeMap[fi.item_type] || "ingredient",
+      moq_unit: fi.input_uom || "",
+      moq: fi.input_qty || null,
+      volume_tiers: [],
+      notes: fi.function_in_formula ? "Function: "+fi.function_in_formula : "",
+    }));
+
+    const {data:created} = await supabase.from("plm_sourcing").insert(rows).select();
+    if (created) setItems(p=>[...p,...created]);
+    setSyncing(false);
+  };
 
   const add=async()=>{
     if(!form.name.trim())return;
     const{data}=await supabase.from("plm_sourcing").insert({...form,program_id:program.id,volume_tiers:[]}).select().single();
-    if(data){setItems(p=>[...p,data]);setShowForm(false);setForm({name:"",sourcing_type:"ingredient",supplier_name:""});}
+    if(data){setItems(p=>[...p,data]);setShowForm(false);setForm({name:"",sourcing_type:"ingredient",supplier_name:"",moq_unit:""});}
   };
 
   const grouped=SOURCING_TYPES.reduce((acc,t)=>{acc[t.value]=items.filter(i=>i.sourcing_type===t.value);return acc;},{});
@@ -466,15 +533,29 @@ function SourcingTab({ program }) {
     <div>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
         <div style={{ fontSize:13,color:T.text2 }}>{items.length} sourcing item{items.length!==1?"s":""}</div>
-        <button onClick={()=>setShowForm(true)} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ Add Sourcing Item</button>
+        <div style={{ display:"flex",gap:8 }}>
+          <button onClick={syncFromFormula} disabled={syncing} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.surface2,color:T.accent,border:"1px solid "+T.accent+"50",borderRadius:6,cursor:"pointer",opacity:syncing?0.6:1 }}>
+            {syncing?"Syncing…":"⬇ Pull from Formula"}
+          </button>
+          <button onClick={()=>setShowForm(true)} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ Add Item</button>
+        </div>
       </div>
+
+      {/* Info banner when empty */}
+      {items.length===0&&(
+        <div style={{ padding:"12px 16px",background:T.surface2,border:"1px solid "+T.border,borderRadius:8,marginBottom:16,fontSize:12,color:T.text3,lineHeight:1.6 }}>
+          Click <strong style={{color:T.accent}}>⬇ Pull from Formula</strong> to auto-import ingredients and packaging from your formulation BOM, then add any additional items (e.g. contract manufacturers, labels) manually.
+        </div>
+      )}
+
       {showForm&&(
         <div style={{ background:T.surface2,border:"1px solid "+T.accent+"40",borderRadius:8,padding:16,marginBottom:16 }}>
           <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>New Sourcing Item</div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12 }}>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12 }}>
             <InlineField label="Name *" value={form.name} onChange={v=>setForm(p=>({...p,name:v}))} placeholder="e.g. Retinol 0.5%" />
             <InlineField label="Type" value={form.sourcing_type} onChange={v=>setForm(p=>({...p,sourcing_type:v}))} options={SOURCING_TYPES} />
             <InlineField label="Supplier" value={form.supplier_name} onChange={v=>setForm(p=>({...p,supplier_name:v}))} placeholder="Supplier name" />
+            <InlineField label="UOM" value={form.moq_unit} onChange={v=>setForm(p=>({...p,moq_unit:v}))} options={UOM_OPTIONS.map(u=>({value:u,label:u}))} />
           </div>
           <div style={{ display:"flex",gap:8,marginTop:4 }}>
             <button onClick={()=>setShowForm(false)} style={{ flex:1,padding:8,fontSize:12,background:T.surface3,color:T.text2,border:"1px solid "+T.border,borderRadius:6,cursor:"pointer" }}>Cancel</button>
@@ -482,18 +563,17 @@ function SourcingTab({ program }) {
           </div>
         </div>
       )}
-      {items.length===0?<EmptyState icon="🔗" text="No sourcing items yet — add ingredients, packaging, or contract manufacturers" />:
-        SOURCING_TYPES.map(t=>{
-          const group=grouped[t.value];
-          if(!group.length)return null;
-          return (
-            <div key={t.value} style={{ marginBottom:20 }}>
-              <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>{t.label}s</div>
-              {group.map(item=><SourcingItemCard key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={id=>setItems(p=>p.filter(x=>x.id!==id))} />)}
-            </div>
-          );
-        })
-      }
+
+      {items.length>0 && SOURCING_TYPES.map(t=>{
+        const group=grouped[t.value];
+        if(!group.length)return null;
+        return (
+          <div key={t.value} style={{ marginBottom:20 }}>
+            <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>{t.label}s</div>
+            {group.map(item=><SourcingItemCard key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={id=>setItems(p=>p.filter(x=>x.id!==id))} />)}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -651,7 +731,7 @@ function FormulationsTab({ programId }) {
   useEffect(()=>{ supabase.from("plm_formulations").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setFormulas(data||[]);setLoading(false);}); },[programId]);
   useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("formulation_id",selected.id).order("sort_order,created_at").then(({data})=>setItems(data||[])); },[selected]);
   const addFormula=async()=>{ const{data}=await supabase.from("plm_formulations").insert({program_id:programId,name:"New Formulation",version:"v1.0",status:"draft"}).select().single(); if(data){setFormulas(p=>[...p,data]);setSelected(data);} };
-  const addItem=async()=>{ if(!selected)return; const{data}=await supabase.from("plm_formula_items").insert({formulation_id:selected.id,ingredient_name:"",quantity:0,unit:"%"}).select().single(); if(data)setItems(p=>[...p,data]); };
+  const addItem=async()=>{ if(!selected)return; const{data}=await supabase.from("plm_formula_items").insert({formulation_id:selected.id,ingredient_name:"",item_type:"ingredient",quantity:0,unit:"%",input_qty:null,input_uom:null}).select().single(); if(data)setItems(p=>[...p,data]); };
   const totalPct=items.filter(i=>i.unit==="%").reduce((a,b)=>a+parseFloat(b.quantity||0),0);
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -675,7 +755,7 @@ function FormulationsTab({ programId }) {
               </div>
             </div>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
-              <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Ingredient","Qty","Unit","Function",""].map(h=><th key={h} style={{ padding:"4px 6px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>{h}</th>)}</tr></thead>
+              <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Name","Type","Formula %","Unit","Input Qty","UOM","Function",""].map(h=><th key={h} style={{ padding:"4px 6px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>{h}</th>)}</tr></thead>
               <tbody>{items.map(item=><FormulaItemRow key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={async()=>{await supabase.from("plm_formula_items").delete().eq("id",item.id);setItems(p=>p.filter(x=>x.id!==item.id));}} />)}</tbody>
             </table>
             {items.length===0&&<EmptyState icon="🧪" text="No ingredients — add one to get started" />}
@@ -929,9 +1009,9 @@ function GateReviewsTab({ programId }) {
 const DETAIL_TABS = [
   { key:"overview",      label:"Overview"       },
   { key:"claims_sub",    label:"Claims & Evidence"},
+  { key:"formulations",  label:"Formulations"   },
   { key:"sourcing",      label:"Sourcing"       },
   { key:"gm_scenarios",  label:"GM% Scenarios"  },
-  { key:"formulations",  label:"Formulations"   },
   { key:"experiments",   label:"Experiments"    },
   { key:"trials",        label:"Trials"         },
   { key:"reg_claims",    label:"Reg Claims"     },
