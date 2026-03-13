@@ -53,7 +53,7 @@ export default function HelmApp() {
   const { tokens, mode } = useTheme();
   _setTokens(tokens); // sync theme tokens to global singleton for T proxy
   const [active, setActive] = useState("dashboard");
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [badges, setBadges] = useState({});
