@@ -115,7 +115,7 @@ export default function OKRsView() {
         if (fmData.length === 0) {
           const defaults = [
             { year: yr, metric_key: "revenue", metric_label: "Revenue", unit: "$", sort_order: 0 },
-            { year: yr, metric_key: "ebitda",  metric_label: "EBITDA",  unit: "$", sort_order: 1 },
+            { year: yr, metric_key: "net_dollars", metric_label: "Net $", unit: "$", sort_order: 1 },
           ];
           const { data: seeded } = await supabase.from("okr_financial_metrics").insert(defaults).select();
           if (seeded) {
