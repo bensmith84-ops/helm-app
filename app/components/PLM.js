@@ -1103,7 +1103,13 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
   const handleCreate=async()=>{
     if(!form.name.trim())return; setSaving(true);
     const NUMERIC=["target_gross_margin_pct","target_unit_price"];
-    const payload=Object.fromEntries(Object.entries({...form,org_id:orgId}).map(([k,v])=>[k,NUMERIC.includes(k)&&v!==""?parseFloat(v):v]));
+    const ARRAYS=["target_markets_v2","channels_v2","desired_claims"];
+    const raw={...form,org_id:orgId};
+    const payload=Object.fromEntries(Object.entries(raw).map(([k,v])=>{
+      if(NUMERIC.includes(k)) return [k, v!==""&&v!==null?parseFloat(v):null];
+      if(ARRAYS.includes(k)) return [k, Array.isArray(v)?v:[]];
+      return [k,v===""?null:v];
+    }));
     const{data}=await supabase.from("plm_programs").insert(payload).select().single();
     if(data)onCreated(data); setSaving(false);
   };
