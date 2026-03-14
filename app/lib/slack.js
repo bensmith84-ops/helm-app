@@ -14,7 +14,7 @@ const EDGE_URL = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/slack-no
  * @param {string} [opts.url]       - Optional CTA link (opens in Helm)
  * @param {Array}  [opts.fields]    - Optional [{label, value}] shown as field columns
  */
-export async function notifySlack({ type = "info", title, message, channel = "general", url, fields } = {}) {
+export async function notifySlack({ type = "info", title, message, channel = "ben", url, fields } = {}) {
   try {
     const res = await fetch(EDGE_URL, {
       method: "POST",

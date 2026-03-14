@@ -97,7 +97,7 @@ export default function NotificationBell({ setActive }) {
           type: "task",
           title: `Task overdue: ${task.title}`,
           message: `${daysLate} day${daysLate!==1?"s":""} late`,
-          url: "https://helm-app-six.vercel.app",
+          channel: "ben", url: "https://helm-app-six.vercel.app",
           fields: [{ label: "Days Late", value: String(daysLate) }],
         });
       }

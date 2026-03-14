@@ -273,7 +273,7 @@ export default function SettingsView() {
             {[
               { name:"Google Sheets", desc:"Sync financial data from your Google Sheets", icon:"📊", status:"connected", detail:"Earth Breeze Hydrogen tab" },
               { name:"QuickBooks Online", desc:"Import GL accounts, transactions, and vendors", icon:"📒", status:"available", detail:"Connect for full P&L sync" },
-              { name:"Slack", desc:"Receive notifications and updates in Slack", icon:"💬", status:"connected", detail:"Connected · #general · Earth Breeze workspace" },
+              { name:"Slack", desc:"Receive notifications and updates in Slack", icon:"💬", status:"connected", detail:"Connected · DM to Ben · Earth Breeze workspace" },
               { name:"Shopify", desc:"Pull revenue, orders, and product data", icon:"🛍️", status:"available", detail:"Real-time revenue sync" },
               { name:"Amazon Seller Central", desc:"Import Amazon revenue and ad spend", icon:"📦", status:"available", detail:"Daily sales sync" },
               { name:"Meta Ads", desc:"Sync ad spend and ROAS from Meta", icon:"🎯", status:"available", detail:"Ad performance data" },
