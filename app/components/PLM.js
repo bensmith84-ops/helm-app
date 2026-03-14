@@ -1500,7 +1500,6 @@ export default function PLMView() {
           </table>
         )}
       </div>
-
       </div>}
       {view!=="library" && showNew&&<NewProgramModal onClose={()=>setShowNew(false)} onCreated={handleCreated} orgId={orgId} />}
     </div>
