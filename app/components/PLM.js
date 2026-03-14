@@ -22,7 +22,7 @@ const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]));
 const PRIORITY_COLORS = { critical: "#ef4444", high: "#f97316", medium: "#eab308", low: "#22c55e" };
 const STATUS_COLORS   = { pass: "#22c55e", fail: "#ef4444", pending: "#eab308", in_progress: "#3b82f6", draft: "#8b93a8", open: "#f97316", resolved: "#22c55e" };
 
-const PROGRAM_TYPES = ["new_product","reformulation","cost_reduction","line_extension","packaging_change","ingredient_swap","compliance","renovation"];
+const PROGRAM_TYPES = ["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"];
 const TARGET_MARKETS = ["AU","CA","Global","UK","US"];
 const CHANNELS_LIST  = ["All Channels","DTC","Marketplace - Amazon","Marketplace - Other","Marketplace - Target.com","Marketplace - Walmart.com","Retail"];
 const SOURCING_TYPES = [
@@ -205,7 +205,7 @@ function ClaimRow({ claim, onUpdate, onDelete }) {
           <textarea value={vals.claim_text} onChange={e=>setVals(p=>({...p,claim_text:e.target.value}))} style={{ width:"100%",fontSize:13,color:T.text,background:T.surface3,border:"1px solid "+T.border,borderRadius:6,padding:8,resize:"vertical",minHeight:60,outline:"none",fontFamily:"inherit",boxSizing:"border-box" }} />
           <div style={{ display:"flex",gap:8,marginTop:6 }}>
             <select value={vals.status||""} onChange={e=>setVals(p=>({...p,status:e.target.value}))} style={{ fontSize:12,background:T.surface3,border:"1px solid "+T.border,color:T.text,borderRadius:5,padding:"3px 6px" }}>
-              {["draft","pending","approved","rejected"].map(s=><option key={s} value={s}>{s}</option>)}
+              {["proposed","researching","substantiated","partially_supported","unsupported","approved","rejected","in_legal_review","active","retired"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
             </select>
             <button onClick={save} style={{ fontSize:12,background:T.accent,color:"#fff",border:"none",borderRadius:5,padding:"3px 10px",cursor:"pointer" }}>Save</button>
             <button onClick={()=>setEditing(false)} style={{ fontSize:12,background:T.surface3,color:T.text2,border:"1px solid "+T.border,borderRadius:5,padding:"3px 10px",cursor:"pointer" }}>Cancel</button>
@@ -359,7 +359,7 @@ function OverviewTab({ program, onUpdate, counts }) {
       <div>
         <Section title="Program Details">
           <InlineField label="Program Name" value={fv("name")} onChange={v=>set("name",v)} />
-          <InlineField label="Type" value={fv("program_type")} onChange={v=>set("program_type",v)} options={PROGRAM_TYPES.map(t=>({value:t,label:t.replace(/_/g," ")}))} />
+          <InlineField label="Type" value={fv("program_type")} onChange={v=>set("program_type",v)} options={["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
           <InlineField label="Priority" value={fv("priority")} onChange={v=>set("priority",v)} options={["critical","high","medium","low"].map(p=>({value:p,label:p}))} />
           <InlineField label="Brand" value={fv("brand")} onChange={v=>set("brand",v)} />
           <InlineField label="Target Launch Date" value={fv("target_launch_date")} onChange={v=>set("target_launch_date",v)} type="date" />
@@ -808,7 +808,7 @@ function TrialsTab({ programId }) {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(()=>{ supabase.from("plm_manufacturing_trials").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setTrials(data||[]);setLoading(false);}); },[programId]);
-  const add=async()=>{ const count=trials.length+1; const{data}=await supabase.from("plm_manufacturing_trials").insert({program_id:programId,trial_number:"T-"+String(count).padStart(3,"0"),name:"Trial "+count,trial_type:"lab",status:"planned"}).select().single(); if(data){setTrials(p=>[...p,data]);setSelected(data);} };
+  const add=async()=>{ const count=trials.length+1; const{data}=await supabase.from("plm_manufacturing_trials").insert({program_id:programId,trial_number:"T-"+String(count).padStart(3,"0"),name:"Trial "+count,trial_type:"lab_bench",status:"planned"}).select().single(); if(data){setTrials(p=>[...p,data]);setSelected(data);} };
   const update=async(field,val)=>{ await supabase.from("plm_manufacturing_trials").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setTrials(p=>p.map(x=>x.id===u.id?u:x)); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -825,7 +825,7 @@ function TrialsTab({ programId }) {
         {!selected?<EmptyState icon="🏭" text="Select a trial" />:(
           <div>
             <InlineField label="Trial Name" value={selected.name} onChange={v=>update("name",v)} />
-            <InlineField label="Type" value={selected.trial_type} onChange={v=>update("trial_type",v)} options={["lab","pilot","scale_up","commercial","validation"].map(t=>({value:t,label:t}))} />
+            <InlineField label="Type" value={selected.trial_type} onChange={v=>update("trial_type",v)} options={["lab_bench","pilot","scale_up","first_production","validation","process_optimization","troubleshooting","commercial"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
             <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["planned","in_progress","completed","failed","cancelled"].map(s=>({value:s,label:s}))} />
             <InlineField label="Site" value={selected.site_name} onChange={v=>update("site_name",v)} placeholder="Manufacturing site" />
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
@@ -849,7 +849,7 @@ function RegClaimsTab({ programId }) {
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(()=>{ supabase.from("plm_claims").select("*").eq("program_id",programId).order("priority,created_at").then(({data})=>{setClaims(data||[]);setLoading(false);}); },[programId]);
-  const add=async()=>{ const{data}=await supabase.from("plm_claims").insert({program_id:programId,claim_text:"New claim",claim_type:"marketing",status:"draft"}).select().single(); if(data)setClaims(p=>[...p,data]); };
+  const add=async()=>{ const{data}=await supabase.from("plm_claims").insert({program_id:programId,claim_text:"New claim",claim_type:"efficacy",status:"proposed"}).select().single(); if(data)setClaims(p=>[...p,data]); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
     <div>
@@ -889,7 +889,7 @@ function SKUsTab({ programId }) {
             <InlineField label="SKU Name" value={selected.name} onChange={v=>update("name",v)} />
             <InlineField label="SKU Code" value={selected.sku_code} onChange={v=>update("sku_code",v)} />
             <InlineField label="UPC / EAN" value={selected.upc_ean} onChange={v=>update("upc_ean",v)} />
-            <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["draft","development","approved","launched","discontinued"].map(s=>({value:s,label:s}))} />
+            <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["draft","pending_approval","approved","pilot_production","validated","active","limited_release","full_distribution","on_hold","discontinued"].map(s=>({value:s,label:s.replace(/_/g," ")}))} />
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
               <InlineField label="Net Weight" value={selected.net_weight} onChange={v=>update("net_weight",v)} type="number" />
               <InlineField label="Weight Unit" value={selected.weight_unit} onChange={v=>update("weight_unit",v)} placeholder="g / oz / ml" />
@@ -913,7 +913,7 @@ function IssuesTab({ programId }) {
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState(null);
   useEffect(()=>{ supabase.from("plm_programs").select("org_id").eq("id",programId).single().then(({data})=>setOrgId(data?.org_id)); supabase.from("plm_issues").select("*").eq("program_id",programId).order("created_at",{ascending:false}).then(({data})=>{setIssues(data||[]);setLoading(false);}); },[programId]);
-  const add=async()=>{ const{data}=await supabase.from("plm_issues").insert({program_id:programId,title:"New Issue",issue_type:"formulation",severity:"medium",status:"open",org_id:orgId}).select().single(); if(data){setIssues(p=>[data,...p]);setSelected(data);} };
+  const add=async()=>{ const{data}=await supabase.from("plm_issues").insert({program_id:programId,title:"New Issue",issue_type:"formulation",severity:"minor",status:"open",org_id:orgId}).select().single(); if(data){setIssues(p=>[data,...p]);setSelected(data);} };
   const update=async(field,val)=>{ await supabase.from("plm_issues").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setIssues(p=>p.map(x=>x.id===u.id?u:x)); };
   const sc={critical:"#ef4444",high:"#f97316",medium:"#eab308",low:"#22c55e"};
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
@@ -932,10 +932,10 @@ function IssuesTab({ programId }) {
           <div>
             <InlineField label="Title" value={selected.title} onChange={v=>update("title",v)} />
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-              <InlineField label="Type" value={selected.issue_type} onChange={v=>update("issue_type",v)} options={["formulation","process","quality","regulatory","supply","packaging","sensory","stability"].map(t=>({value:t,label:t}))} />
-              <InlineField label="Severity" value={selected.severity} onChange={v=>update("severity",v)} options={["critical","high","medium","low"].map(s=>({value:s,label:s}))} />
+              <InlineField label="Type" value={selected.issue_type} onChange={v=>update("issue_type",v)} options={["formulation","process","stability","quality","regulatory","supply_chain","equipment","packaging","labeling","safety","efficacy","consumer_complaint","deviation","capa","other"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
+              <InlineField label="Severity" value={selected.severity} onChange={v=>update("severity",v)} options={["critical","major","minor","observation"].map(s=>({value:s,label:s}))} />
             </div>
-            <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["open","investigating","in_progress","resolved","closed"].map(s=>({value:s,label:s}))} />
+            <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["open","investigating","root_cause_identified","corrective_action","verification","closed","deferred"].map(s=>({value:s,label:s.replace(/_/g," ")}))} />
             <InlineField label="Description" value={selected.description} onChange={v=>update("description",v)} multiline placeholder="Describe the issue…" />
             <InlineField label="Root Cause" value={selected.root_cause} onChange={v=>update("root_cause",v)} multiline placeholder="Root cause analysis…" />
             <InlineField label="Corrective Action" value={selected.corrective_action} onChange={v=>update("corrective_action",v)} multiline placeholder="Corrective action plan…" />
@@ -1134,7 +1134,7 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
         {step===1&&(
           <div>
             <InlineField label="Program Name *" value={form.name} onChange={v=>set("name",v)} placeholder="e.g. Next-Gen Moisturizer" />
-            <InlineField label="Type" value={form.program_type} onChange={v=>set("program_type",v)} options={PROGRAM_TYPES.map(t=>({value:t,label:t.replace(/_/g," ")}))} />
+            <InlineField label="Type" value={form.program_type} onChange={v=>set("program_type",v)} options={["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
             <InlineField label="Brand" value={form.brand} onChange={v=>set("brand",v)} placeholder="Brand name" />
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
               <InlineField label="Priority" value={form.priority} onChange={v=>set("priority",v)} options={["critical","high","medium","low"].map(x=>({value:x,label:x}))} />
