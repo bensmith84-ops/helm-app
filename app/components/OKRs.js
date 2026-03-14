@@ -92,6 +92,8 @@ export default function OKRsView() {
   const [finYear, setFinYear]         = useState(new Date().getFullYear());
   const [finEditing, setFinEditing]   = useState(null); // { metricId, month, field }
   const [finEditVal, setFinEditVal]   = useState("");
+  const [finSyncing, setFinSyncing]   = useState(false);
+  const [finSyncMsg, setFinSyncMsg]   = useState("");
 
   const setView = (v) => { setViewMode(v); try { localStorage.setItem("okr_view", v); } catch {} };
 
@@ -1114,6 +1116,38 @@ export default function OKRsView() {
       .reduce((s, m) => s + (mData[m]?.target || 0), 0);
   };
 
+  const syncFromSheets = async () => {
+    setFinSyncing(true); setFinSyncMsg("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/sheets-sync", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + session.access_token },
+      });
+      const result = await res.json();
+      if (result.success) {
+        setFinSyncMsg("✓ Synced " + result.monthsProcessed + " months");
+        // Reload financial data
+        const yr = finYear;
+        const { data: fmData } = await supabase.from("okr_financial_metrics").select("*").eq("year", yr).order("sort_order,metric_key");
+        if (fmData) {
+          setFinMetrics(fmData);
+          const ids = fmData.map(m => m.id);
+          const { data: mData } = await supabase.from("okr_financial_monthly").select("*").in("metric_id", ids).eq("year", yr);
+          const mMap = {};
+          (mData || []).forEach(r => { if (!mMap[r.metric_id]) mMap[r.metric_id] = {}; mMap[r.metric_id][r.month] = r; });
+          setFinMonthly(mMap);
+        }
+      } else {
+        setFinSyncMsg("Error: " + (result.error || "Unknown error"));
+      }
+    } catch(e) {
+      setFinSyncMsg("Error: " + e.message);
+    }
+    setFinSyncing(false);
+    setTimeout(() => setFinSyncMsg(""), 5000);
+  };
+
   const FinMetricRow = ({ metric }) => {
     const mData = finMonthly[metric.id] || {};
     const ytdA = ytdActual(metric.id);
@@ -1238,7 +1272,13 @@ export default function OKRsView() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1 }}>Financial Metrics {finYear}</div>
             <div style={{ height: 1, flex: 1, background: T.border }} />
-            <div style={{ fontSize: 10, color: T.text3 }}>Click any cell to edit · Top row = Actual · Bottom row = Target</div>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            {finSyncMsg && <span style={{ fontSize:11, color: finSyncMsg.startsWith("✓") ? "#22c55e" : "#ef4444", fontWeight:600 }}>{finSyncMsg}</span>}
+            <button onClick={syncFromSheets} disabled={finSyncing} style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:5, background:T.accentDim, color:T.accent, border:"1px solid "+T.accent+"40", cursor:"pointer", opacity:finSyncing?0.6:1, whiteSpace:"nowrap" }}>
+              {finSyncing ? "Syncing…" : "⟳ Sync from Sheet"}
+            </button>
+            <span style={{ fontSize:10, color:T.text3 }}>Click cell to edit · Actual / Target</span>
+          </div>
           </div>
           {finMetrics.map(m => <FinMetricRow key={m.id} metric={m} />)}
         </div>
