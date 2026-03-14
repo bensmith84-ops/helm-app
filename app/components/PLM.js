@@ -145,6 +145,56 @@ const ITEM_TYPES = [
 ];
 const FORMULA_UOM = ["g","kg","mg","lb","oz","mL","L","%","ppm","ppb","IU","CFU","units","each"];
 
+// Ingredient name cell: shows name with a small picker icon to open library modal
+function FormulaIngredientCell({ value, itemType, onPick, onChange, onBlur }) {
+  const [showPicker, setShowPicker] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef(null);
+  const typeColor = { ingredient:T.accent, packaging:"#8b5cf6", other:"#8b93a8" };
+  const color = typeColor[itemType] || T.text3;
+
+  // Sync draft if parent value changes (e.g. after picker sets it)
+  useEffect(() => { setDraft(value); }, [value]);
+
+  if (editing) {
+    return (
+      <>
+        <input ref={inputRef} autoFocus value={draft}
+          onChange={e=>{ setDraft(e.target.value); onChange(e.target.value); }}
+          onBlur={()=>{ setEditing(false); onBlur(); }}
+          onKeyDown={e=>{ if(e.key==="Escape"||e.key==="Enter"){ setEditing(false); onBlur(); }}}
+          style={{ width:"100%", fontSize:12, background:"transparent", border:"none", borderBottom:"1px solid "+T.accent,
+            color:T.text, outline:"none", fontFamily:"inherit", padding:"1px 0" }}
+          placeholder="Ingredient name…"
+        />
+        {showPicker && <IngredientPickerModal onPick={({name,uom,type})=>{ onPick(name,uom,type); setShowPicker(false); setEditing(false); }} onClose={()=>setShowPicker(false)} />}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div style={{ display:"flex", alignItems:"center", gap:6, cursor:"text" }}
+        onClick={()=>{ setEditing(true); setTimeout(()=>inputRef.current?.focus(),20); }}>
+        {value ? (
+          <span style={{ fontSize:12, color:T.text, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{value}</span>
+        ) : (
+          <span style={{ fontSize:12, color:T.text3, flex:1, fontStyle:"italic" }}>Click to set name…</span>
+        )}
+        <button
+          onClick={e=>{ e.stopPropagation(); setShowPicker(true); }}
+          title="Pick from library"
+          style={{ background:"none", border:"none", cursor:"pointer", padding:"1px 4px", borderRadius:4,
+            fontSize:11, color:T.text3, flexShrink:0, lineHeight:1,
+            opacity:0.6 }}
+        >📋</button>
+      </div>
+      {showPicker && <IngredientPickerModal onPick={({name,uom,type})=>{ onPick(name,uom,type); setShowPicker(false); }} onClose={()=>setShowPicker(false)} />}
+    </>
+  );
+}
+
 function FormulaItemRow({ item, onUpdate, onDelete }) {
   const [vals, setVals] = useState(item);
   const changed = useRef(false);
@@ -169,19 +219,22 @@ function FormulaItemRow({ item, onUpdate, onDelete }) {
   return (
     <tr style={{ borderBottom:"1px solid "+T.border }}>
       <td style={td}>
-        <div style={{ position:"relative" }}>
-        <input
-          list={`lib-ing-${item.id}`}
+        <FormulaIngredientCell
           value={vals.ingredient_name||""}
-          onChange={e=>{ handleChange("ingredient_name",e.target.value); }}
+          itemType={vals.item_type||"ingredient"}
+          onPick={async (name, uom, type) => {
+            const newVals = { ...vals, ingredient_name: name, item_type: type||vals.item_type||"ingredient" };
+            setVals(newVals);
+            await supabase.from("plm_formula_items").update({
+              ingredient_name: name,
+              item_type: type||vals.item_type||"ingredient",
+              input_uom: uom||vals.input_uom||null,
+            }).eq("id", item.id);
+            onUpdate(newVals);
+          }}
+          onChange={v=>handleChange("ingredient_name",v)}
           onBlur={handleBlur}
-          style={inp}
-          placeholder="Name or pick from library…"
         />
-        <datalist id={`lib-ing-${item.id}`}>
-          {(window.__helmLibIngredients||[]).map(i=><option key={i.id} value={i.name} />)}
-        </datalist>
-      </div>
       </td>
       <td style={{...td,width:90}}>
         <select value={vals.item_type||"ingredient"} onChange={e=>{handleChange("item_type",e.target.value);}} onBlur={handleBlur}
@@ -496,21 +549,21 @@ function ClaimsSubstantiationTab({ program, onUpdate }) {
 
 // ── Supplier Picker: shows library suppliers for a matched ingredient, fallback to freetext
 function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
-  const [libSuppliers, setLibSuppliers] = useState([]); // [{id, supplier_name, is_preferred, minPrice}]
+  const [libSuppliers, setLibSuppliers] = useState([]);
   const [mode, setMode] = useState("select"); // "select" | "custom"
   const [custom, setCustom] = useState("");
   const inputRef = useRef(null);
+  // Track value at mount time — only auto-select preferred if it was empty on load
+  const initialValue = useRef(value);
 
   useEffect(() => {
     if (!ingredientName?.trim()) return;
-    // Find library ingredient by name (case-insensitive)
     supabase.from("plm_ingredient_library")
       .select("id,name")
       .ilike("name", ingredientName.trim())
       .limit(1)
       .then(({ data: ing }) => {
         if (!ing?.length) return;
-        // Load suppliers + best pricing tier for that ingredient
         supabase.from("plm_ingredient_suppliers")
           .select("id,supplier_name,is_preferred,status,plm_ingredient_pricing(min_qty,unit_price,currency,uom)")
           .eq("ingredient_id", ing[0].id)
@@ -523,8 +576,8 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
               return { id: s.id, supplier_name: s.supplier_name, is_preferred: s.is_preferred, status: s.status, bestPrice: best };
             });
             setLibSuppliers(enriched);
-            // Auto-select preferred if field is currently empty
-            if (!value) {
+            // Only auto-select preferred if field was empty when this component mounted
+            if (!initialValue.current) {
               const pref = enriched.find(s => s.is_preferred) || enriched[0];
               if (pref) onChange(pref.supplier_name);
             }
