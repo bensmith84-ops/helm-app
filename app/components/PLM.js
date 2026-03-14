@@ -1444,8 +1444,11 @@ export default function PLMView() {
         ))}
       </div>
 
-      <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
-        {view==="library" ? <PLMLibraryView /> : (
+      {view==="library" ? (
+        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
+          <PLMLibraryView />
+        </div>
+      ) : (
         <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
         {loading?<div style={{ color:T.text3,fontSize:13 }}>Loading programs…</div>
         :filtered.length===0?<EmptyState icon="⬡" text={search?"No programs match your search":"No programs yet — create your first one"} />
@@ -1501,8 +1504,7 @@ export default function PLMView() {
           </table>
         )}
       </div>
-      </div>
-        )}
+      )}
       {showNew&&<NewProgramModal onClose={()=>setShowNew(false)} onCreated={handleCreated} orgId={orgId} />}
     </div>
   );
