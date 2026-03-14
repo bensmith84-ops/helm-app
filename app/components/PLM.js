@@ -773,7 +773,7 @@ function ExperimentsTab({ programId }) {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(()=>{ supabase.from("plm_experiments").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setExperiments(data||[]);setLoading(false);}); },[programId]);
-  const add=async()=>{ const{data}=await supabase.from("plm_experiments").insert({program_id:programId,name:"New Experiment",experiment_type:"formulation",status:"draft"}).select().single(); if(data){setExperiments(p=>[...p,data]);setSelected(data);} };
+  const add=async()=>{ const{data}=await supabase.from("plm_experiments").insert({program_id:programId,name:"New Experiment",experiment_type:"formulation",status:"planning"}).select().single(); if(data){setExperiments(p=>[...p,data]);setSelected(data);} };
   const update=async(field,val)=>{ await supabase.from("plm_experiments").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setExperiments(p=>p.map(x=>x.id===u.id?u:x)); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -790,8 +790,8 @@ function ExperimentsTab({ programId }) {
         {!selected?<EmptyState icon="🔬" text="Select an experiment to view details" />:(
           <div>
             <InlineField label="Name" value={selected.name} onChange={v=>update("name",v)} />
-            <InlineField label="Type" value={selected.experiment_type} onChange={v=>update("experiment_type",v)} options={["formulation","sensory","analytical","stability","consumer","clinical","process"].map(t=>({value:t,label:t}))} />
-            <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["draft","planned","in_progress","completed","cancelled"].map(s=>({value:s,label:s}))} />
+            <InlineField label="Type" value={selected.experiment_type} onChange={v=>update("experiment_type",v)} options={["formulation","process","stability","efficacy","safety","sensory","packaging","shelf_life","microbial","accelerated_aging","other"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
+            <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["planning","in_progress","completed","analyzing","concluded","cancelled"].map(s=>({value:s,label:s}))} />
             <InlineField label="Hypothesis" value={selected.hypothesis} onChange={v=>update("hypothesis",v)} multiline placeholder="State your hypothesis…" />
             <InlineField label="Conclusions" value={selected.conclusions} onChange={v=>update("conclusions",v)} multiline placeholder="Conclusions…" />
           </div>
