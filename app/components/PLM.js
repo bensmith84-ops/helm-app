@@ -550,57 +550,79 @@ function ClaimsSubstantiationTab({ program, onUpdate }) {
 // ── Supplier Picker: shows library suppliers for a matched ingredient, fallback to freetext
 function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
   const [libSuppliers, setLibSuppliers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState("select"); // "select" | "custom"
-  const [custom, setCustom] = useState("");
-  const inputRef = useRef(null);
-  // Track value at mount time — only auto-select preferred if it was empty on load
-  const initialValue = useRef(value);
+  const [custom, setCustom] = useState(value || "");
+  const autoSelectedRef = useRef(false); // only auto-select once, never overwrite
 
   useEffect(() => {
-    if (!ingredientName?.trim()) return;
+    if (!ingredientName?.trim()) { setLoading(false); return; }
+    setLoading(true);
     supabase.from("plm_ingredient_library")
       .select("id,name")
       .ilike("name", ingredientName.trim())
       .limit(1)
       .then(({ data: ing }) => {
-        if (!ing?.length) return;
+        if (!ing?.length) { setLoading(false); return; }
         supabase.from("plm_ingredient_suppliers")
           .select("id,supplier_name,is_preferred,status,plm_ingredient_pricing(min_qty,unit_price,currency,uom)")
           .eq("ingredient_id", ing[0].id)
           .order("is_preferred", { ascending: false })
           .then(({ data: sups }) => {
+            setLoading(false);
             if (!sups?.length) return;
             const enriched = sups.map(s => {
               const tiers = s.plm_ingredient_pricing || [];
               const best = tiers.length ? tiers.reduce((a,b) => a.unit_price < b.unit_price ? a : b) : null;
-              return { id: s.id, supplier_name: s.supplier_name, is_preferred: s.is_preferred, status: s.status, bestPrice: best };
+              return { id: s.id, supplier_name: s.supplier_name, is_preferred: s.is_preferred, bestPrice: best };
             });
             setLibSuppliers(enriched);
-            // Only auto-select preferred if field was empty when this component mounted
-            if (!initialValue.current) {
+            // Auto-select only once and only if there is genuinely no current value
+            if (!autoSelectedRef.current && !value) {
+              autoSelectedRef.current = true;
               const pref = enriched.find(s => s.is_preferred) || enriched[0];
               if (pref) onChange(pref.supplier_name);
             }
           });
       });
-  }, [ingredientName]);
+  }, [ingredientName]); // deliberately exclude `value` — we only want this to run on name change
 
-  // If no library suppliers found, just render a plain text input
+  // If value is set but doesn't match any library supplier, show it in "custom" mode
+  const isLibrarySupplier = libSuppliers.some(s => s.supplier_name === value);
+  const effectiveMode = !loading && libSuppliers.length && value && !isLibrarySupplier ? "custom" : mode;
+
+  // Keep custom input in sync when parent clears value
+  useEffect(() => { if (effectiveMode === "custom") setCustom(value || ""); }, [value]);
+
+  // Still loading library — show the current value as read-only hint with spinner
+  if (loading) {
+    return (
+      <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+        <input value={value||""} readOnly
+          style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",opacity:0.7 }} />
+        <span style={{ fontSize:11,color:T.text3 }}>⟳</span>
+      </div>
+    );
+  }
+
+  // No library match — plain text input
   if (!libSuppliers.length) {
     return (
       <input value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur}
-        placeholder="Supplier name" ref={inputRef}
+        placeholder="Supplier name"
         style={{ width:"100%",fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",boxSizing:"border-box" }} />
     );
   }
 
-  if (mode === "custom") {
+  // Custom / non-library supplier
+  if (effectiveMode === "custom") {
     return (
       <div style={{ display:"flex",gap:6 }}>
-        <input value={custom} onChange={e=>setCustom(e.target.value)} onBlur={()=>{onChange(custom);onBlur&&onBlur();}}
+        <input value={custom} onChange={e=>setCustom(e.target.value)}
+          onBlur={()=>{ onChange(custom); onBlur&&onBlur(); }}
           placeholder="Enter supplier name" autoFocus
           style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.accent,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit" }} />
-        <button onClick={()=>{ setMode("select"); onChange(value); }} title="Pick from library"
+        <button onClick={()=>setMode("select")} title="Pick from library"
           style={{ fontSize:11,padding:"4px 8px",background:T.surface3,border:"1px solid "+T.border,borderRadius:5,cursor:"pointer",color:T.text3,whiteSpace:"nowrap" }}>
           📋 Library
         </button>
@@ -608,19 +630,18 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
     );
   }
 
+  // Library dropdown
   return (
     <div style={{ display:"flex",gap:6 }}>
-      <div style={{ flex:1,position:"relative" }}>
-        <select value={value||""} onChange={e=>{ onChange(e.target.value); onBlur&&onBlur(); }}
-          style={{ width:"100%",fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",cursor:"pointer",appearance:"auto" }}>
-          <option value="">— Select supplier —</option>
-          {libSuppliers.map(s => (
-            <option key={s.id} value={s.supplier_name}>
-              {s.is_preferred?"⭐ ":""}{s.supplier_name}{s.bestPrice ? " · $"+Number(s.bestPrice.unit_price).toFixed(2)+"/"+s.bestPrice.uom : ""}
-            </option>
-          ))}
-        </select>
-      </div>
+      <select value={value||""} onChange={e=>{ onChange(e.target.value); onBlur&&onBlur(); }}
+        style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",cursor:"pointer" }}>
+        <option value="">— Select supplier —</option>
+        {libSuppliers.map(s => (
+          <option key={s.id} value={s.supplier_name}>
+            {s.is_preferred?"⭐ ":""}{s.supplier_name}{s.bestPrice ? " · $"+Number(s.bestPrice.unit_price).toFixed(2)+"/"+s.bestPrice.uom : ""}
+          </option>
+        ))}
+      </select>
       <button onClick={()=>{ setCustom(value||""); setMode("custom"); }} title="Enter a different supplier"
         style={{ fontSize:11,padding:"4px 8px",background:T.surface3,border:"1px solid "+T.border,borderRadius:5,cursor:"pointer",color:T.text3,whiteSpace:"nowrap" }}>
         ✎ Other
