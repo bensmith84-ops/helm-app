@@ -1110,6 +1110,7 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
       if(ARRAYS.includes(k)) return [k, Array.isArray(v)?v:[]];
       return [k,v===""?null:v];
     }));
+    if(!payload.org_id){ setSaving(false); alert("Unable to determine your organization. Please refresh and try again."); return; }
     const{data}=await supabase.from("plm_programs").insert(payload).select().single();
     if(data)onCreated(data); setSaving(false);
   };
@@ -1207,8 +1208,15 @@ export default function PLMView() {
     const load=async()=>{
       const{data:{user}}=await supabase.auth.getUser();
       if(user){
+        // Try org_memberships first
         const{data:membership}=await supabase.from("org_memberships").select("org_id").eq("user_id",user.id).maybeSingle();
-        if(membership)setOrgId(membership.org_id);
+        if(membership?.org_id){
+          setOrgId(membership.org_id);
+        } else {
+          // Fall back to reading org_id from any existing plm_program
+          const{data:prog}=await supabase.from("plm_programs").select("org_id").not("org_id","is",null).limit(1).maybeSingle();
+          if(prog?.org_id) setOrgId(prog.org_id);
+        }
       }
       const{data}=await supabase.from("plm_programs").select("*").is("deleted_at",null).order("created_at",{ascending:false});
       setPrograms(data||[]); setLoading(false);
