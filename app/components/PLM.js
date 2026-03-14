@@ -286,7 +286,12 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:8 }}>
             <InlineField label="Name" value={vals.name} onChange={v=>setVals(p=>({...p,name:v}))} onBlur={()=>saveField("name",vals.name)} />
             <InlineField label="Type" value={vals.sourcing_type} onChange={v=>saveField("sourcing_type",v)} options={SOURCING_TYPES} />
-            <InlineField label="Supplier Name" value={vals.supplier_name} onChange={v=>setVals(p=>({...p,supplier_name:v}))} onBlur={()=>saveField("supplier_name",vals.supplier_name)} />
+            <div>
+              <div style={{ fontSize:11,color:T.text3,marginBottom:4,fontWeight:600 }}>Supplier Name</div>
+              <SupplierPicker ingredientName={vals.name} value={vals.supplier_name}
+                onChange={v=>setVals(p=>({...p,supplier_name:v}))}
+                onBlur={()=>saveField("supplier_name",vals.supplier_name)} />
+            </div>
             <InlineField label="Supplier Contact" value={vals.supplier_contact} onChange={v=>setVals(p=>({...p,supplier_contact:v}))} onBlur={()=>saveField("supplier_contact",vals.supplier_contact)} />
             <InlineField label="Supplier URL" value={vals.supplier_url} onChange={v=>setVals(p=>({...p,supplier_url:v}))} onBlur={()=>saveField("supplier_url",vals.supplier_url)} placeholder="https://…" />
             <InlineField label="Status" value={vals.status} onChange={v=>saveField("status",v)} options={["evaluating","approved","preferred","backup","disqualified"].map(s=>({value:s,label:s}))} />
@@ -477,48 +482,171 @@ function ClaimsSubstantiationTab({ program, onUpdate }) {
 
 // ─── TAB: SOURCING ────────────────────────────────────────────────────────────
 
+// ── Supplier Picker: shows library suppliers for a matched ingredient, fallback to freetext
+function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
+  const [libSuppliers, setLibSuppliers] = useState([]); // [{id, supplier_name, is_preferred, minPrice}]
+  const [mode, setMode] = useState("select"); // "select" | "custom"
+  const [custom, setCustom] = useState("");
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!ingredientName?.trim()) return;
+    // Find library ingredient by name (case-insensitive)
+    supabase.from("plm_ingredient_library")
+      .select("id,name")
+      .ilike("name", ingredientName.trim())
+      .limit(1)
+      .then(({ data: ing }) => {
+        if (!ing?.length) return;
+        // Load suppliers + best pricing tier for that ingredient
+        supabase.from("plm_ingredient_suppliers")
+          .select("id,supplier_name,is_preferred,status,plm_ingredient_pricing(min_qty,unit_price,currency,uom)")
+          .eq("ingredient_id", ing[0].id)
+          .order("is_preferred", { ascending: false })
+          .then(({ data: sups }) => {
+            if (!sups?.length) return;
+            const enriched = sups.map(s => {
+              const tiers = s.plm_ingredient_pricing || [];
+              const best = tiers.length ? tiers.reduce((a,b) => a.unit_price < b.unit_price ? a : b) : null;
+              return { id: s.id, supplier_name: s.supplier_name, is_preferred: s.is_preferred, status: s.status, bestPrice: best };
+            });
+            setLibSuppliers(enriched);
+            // Auto-select preferred if field is currently empty
+            if (!value) {
+              const pref = enriched.find(s => s.is_preferred) || enriched[0];
+              if (pref) onChange(pref.supplier_name);
+            }
+          });
+      });
+  }, [ingredientName]);
+
+  // If no library suppliers found, just render a plain text input
+  if (!libSuppliers.length) {
+    return (
+      <input value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur}
+        placeholder="Supplier name" ref={inputRef}
+        style={{ width:"100%",fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",boxSizing:"border-box" }} />
+    );
+  }
+
+  if (mode === "custom") {
+    return (
+      <div style={{ display:"flex",gap:6 }}>
+        <input value={custom} onChange={e=>setCustom(e.target.value)} onBlur={()=>{onChange(custom);onBlur&&onBlur();}}
+          placeholder="Enter supplier name" autoFocus
+          style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.accent,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit" }} />
+        <button onClick={()=>{ setMode("select"); onChange(value); }} title="Pick from library"
+          style={{ fontSize:11,padding:"4px 8px",background:T.surface3,border:"1px solid "+T.border,borderRadius:5,cursor:"pointer",color:T.text3,whiteSpace:"nowrap" }}>
+          📋 Library
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display:"flex",gap:6 }}>
+      <div style={{ flex:1,position:"relative" }}>
+        <select value={value||""} onChange={e=>{ onChange(e.target.value); onBlur&&onBlur(); }}
+          style={{ width:"100%",fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",cursor:"pointer",appearance:"auto" }}>
+          <option value="">— Select supplier —</option>
+          {libSuppliers.map(s => (
+            <option key={s.id} value={s.supplier_name}>
+              {s.is_preferred?"⭐ ":""}{s.supplier_name}{s.bestPrice ? " · $"+Number(s.bestPrice.unit_price).toFixed(2)+"/"+s.bestPrice.uom : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+      <button onClick={()=>{ setCustom(value||""); setMode("custom"); }} title="Enter a different supplier"
+        style={{ fontSize:11,padding:"4px 8px",background:T.surface3,border:"1px solid "+T.border,borderRadius:5,cursor:"pointer",color:T.text3,whiteSpace:"nowrap" }}>
+        ✎ Other
+      </button>
+    </div>
+  );
+}
+
 function SourcingTab({ program }) {
   const [items, setItems]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({name:"",sourcing_type:"ingredient",supplier_name:"",moq_unit:""});
+  const [libIngredients, setLibIngredients] = useState([]); // for name autocomplete
 
   useEffect(()=>{
     supabase.from("plm_sourcing").select("*").eq("program_id",program.id).order("sourcing_type,created_at")
       .then(({data})=>{setItems(data||[]);setLoading(false);});
+    // Load library ingredient names for autocomplete
+    supabase.from("plm_ingredient_library").select("id,name,default_uom").eq("active",true).order("name")
+      .then(({data})=>setLibIngredients(data||[]));
   },[program.id]);
 
-  // Pull formula line items into sourcing (skips items already present by name+type)
+  // Pull formula line items into sourcing, auto-populating preferred suppliers from library
   const syncFromFormula = async () => {
     setSyncing(true);
-    // Get all formula items across all formulations for this program
     const {data:formulas} = await supabase.from("plm_formulations").select("id").eq("program_id",program.id);
     if (!formulas?.length) { setSyncing(false); return; }
-    const formulaIds = formulas.map(f=>f.id);
-    const {data:fItems} = await supabase.from("plm_formula_items").select("*").in("formulation_id",formulaIds);
+    const {data:fItems} = await supabase.from("plm_formula_items").select("*").in("formulation_id",formulas.map(f=>f.id));
     if (!fItems?.length) { setSyncing(false); return; }
 
-    // Deduplicate: skip if a sourcing item with same name already exists
     const existingNames = new Set(items.map(i=>i.name?.toLowerCase().trim()));
     const toAdd = fItems.filter(fi=>fi.ingredient_name?.trim() && !existingNames.has(fi.ingredient_name.toLowerCase().trim()));
-
     if (!toAdd.length) { setSyncing(false); return; }
 
+    // For each item, look up preferred supplier in library
     const typeMap = {ingredient:"ingredient", packaging:"packaging"};
-    const rows = toAdd.map(fi=>({
-      program_id: program.id,
-      name: fi.ingredient_name,
-      sourcing_type: typeMap[fi.item_type] || "ingredient",
-      moq_unit: fi.input_uom || "",
-      moq: fi.input_qty || null,
-      volume_tiers: [],
-      notes: fi.function_in_formula ? "Function: "+fi.function_in_formula : "",
+    const rows = await Promise.all(toAdd.map(async fi => {
+      let supplier_name = "";
+      let moq = fi.input_qty || null;
+      let moq_unit = fi.input_uom || "";
+      let volume_tiers = [];
+
+      // Look up library match
+      const {data:libMatch} = await supabase.from("plm_ingredient_library")
+        .select("id,default_uom").ilike("name", fi.ingredient_name.trim()).limit(1);
+      if (libMatch?.length) {
+        const {data:prefSup} = await supabase.from("plm_ingredient_suppliers")
+          .select("supplier_name,plm_ingredient_pricing(min_qty,max_qty,unit_price,currency,uom)")
+          .eq("ingredient_id", libMatch[0].id)
+          .order("is_preferred", { ascending: false })
+          .limit(1);
+        if (prefSup?.length) {
+          supplier_name = prefSup[0].supplier_name;
+          if (!moq_unit && libMatch[0].default_uom) moq_unit = libMatch[0].default_uom;
+          // Import pricing tiers
+          if (prefSup[0].plm_ingredient_pricing?.length) {
+            volume_tiers = prefSup[0].plm_ingredient_pricing.map(t => ({
+              min_qty: t.min_qty, max_qty: t.max_qty||"",
+              unit: t.uom||moq_unit, unit_price: t.unit_price, total_cost: ""
+            }));
+          }
+        }
+      }
+
+      return {
+        program_id: program.id,
+        name: fi.ingredient_name,
+        sourcing_type: typeMap[fi.item_type] || "ingredient",
+        moq_unit, moq, supplier_name, volume_tiers,
+        notes: fi.function_in_formula ? "Function: "+fi.function_in_formula : "",
+      };
     }));
 
     const {data:created} = await supabase.from("plm_sourcing").insert(rows).select();
     if (created) setItems(p=>[...p,...created]);
     setSyncing(false);
+  };
+
+  // When name changes in add form, auto-fill supplier from library
+  const handleNameChange = async (name) => {
+    setForm(p=>({...p,name}));
+    if (!name.trim()) return;
+    const {data:libMatch} = await supabase.from("plm_ingredient_library")
+      .select("id,default_uom").ilike("name", name.trim()).limit(1);
+    if (libMatch?.length) {
+      const {data:prefSup} = await supabase.from("plm_ingredient_suppliers")
+        .select("supplier_name").eq("ingredient_id",libMatch[0].id).order("is_preferred",{ascending:false}).limit(1);
+      if (prefSup?.length) setForm(p=>({...p,supplier_name:prefSup[0].supplier_name,moq_unit:libMatch[0].default_uom||p.moq_unit}));
+    }
   };
 
   const add=async()=>{
@@ -542,23 +670,34 @@ function SourcingTab({ program }) {
         </div>
       </div>
 
-      {/* Info banner when empty */}
       {items.length===0&&(
         <div style={{ padding:"12px 16px",background:T.surface2,border:"1px solid "+T.border,borderRadius:8,marginBottom:16,fontSize:12,color:T.text3,lineHeight:1.6 }}>
-          Click <strong style={{color:T.accent}}>⬇ Pull from Formula</strong> to auto-import ingredients and packaging from your formulation BOM, then add any additional items (e.g. contract manufacturers, labels) manually.
+          Click <strong style={{color:T.accent}}>⬇ Pull from Formula</strong> to auto-import ingredients — suppliers and pricing will be pre-filled from your library.
         </div>
       )}
 
       {showForm&&(
         <div style={{ background:T.surface2,border:"1px solid "+T.accent+"40",borderRadius:8,padding:16,marginBottom:16 }}>
           <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>New Sourcing Item</div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12 }}>
-            <InlineField label="Name *" value={form.name} onChange={v=>setForm(p=>({...p,name:v}))} placeholder="e.g. Retinol 0.5%" />
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+            <div>
+              <div style={{ fontSize:11,color:T.text3,marginBottom:4,fontWeight:600 }}>Name *</div>
+              <input list="lib-ingredients" value={form.name} onChange={e=>handleNameChange(e.target.value)}
+                placeholder="Type or pick from library…"
+                style={{ width:"100%",fontSize:13,color:T.text,background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",boxSizing:"border-box" }} />
+              <datalist id="lib-ingredients">
+                {libIngredients.map(i=><option key={i.id} value={i.name} />)}
+              </datalist>
+            </div>
             <InlineField label="Type" value={form.sourcing_type} onChange={v=>setForm(p=>({...p,sourcing_type:v}))} options={SOURCING_TYPES} />
-            <InlineField label="Supplier" value={form.supplier_name} onChange={v=>setForm(p=>({...p,supplier_name:v}))} placeholder="Supplier name" />
+            <div>
+              <div style={{ fontSize:11,color:T.text3,marginBottom:4,fontWeight:600 }}>Supplier</div>
+              <SupplierPicker ingredientName={form.name} value={form.supplier_name}
+                onChange={v=>setForm(p=>({...p,supplier_name:v}))} />
+            </div>
             <InlineField label="UOM" value={form.moq_unit} onChange={v=>setForm(p=>({...p,moq_unit:v}))} options={UOM_OPTIONS.map(u=>({value:u,label:u}))} />
           </div>
-          <div style={{ display:"flex",gap:8,marginTop:4 }}>
+          <div style={{ display:"flex",gap:8,marginTop:12 }}>
             <button onClick={()=>setShowForm(false)} style={{ flex:1,padding:8,fontSize:12,background:T.surface3,color:T.text2,border:"1px solid "+T.border,borderRadius:6,cursor:"pointer" }}>Cancel</button>
             <button onClick={add} style={{ flex:2,padding:8,fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>Add</button>
           </div>
