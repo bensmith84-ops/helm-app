@@ -4,7 +4,7 @@ import { T } from "../tokens";
 export const NAV_ITEMS = [
   { key: "dashboard", icon: "⬡", label: "Home" },
   { key: "okrs", icon: "◎", label: "OKRs" },
-  { key: "scorecard", icon: "▣", label: "Scorecard" },
+  { key: "scorecard", icon: "📊", label: "Scoreboard" },
   { key: "projects", icon: "◫", label: "Projects" },
   { key: "messages", icon: "◬", label: "Messages" },
   { key: "docs", icon: "▤", label: "Docs" },
@@ -15,7 +15,6 @@ export const NAV_ITEMS = [
   { type: "divider" },
   { key: "plm", icon: "⬢", label: "PLM" },
   { key: "finance", icon: "◆", label: "Finance" },
-  { key: "scoreboard", icon: "📊", label: "Scoreboard" },
   { type: "divider" },
   { key: "automation", icon: "⚡", label: "Automation" },
   { key: "reports", icon: "▥", label: "Reports" },

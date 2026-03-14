@@ -297,20 +297,23 @@ export default function ScoreboardView() {
 
   const syncSheet = async () => {
     setSyncing(true);
+    setActiveTab("chat");
     try {
-      // First sync daily data
       const r1 = await fetch(`${BASE}/sheets-daily-sync`, { method:"POST", headers:HEADERS });
       const d1 = await r1.json();
-      // Then sync monthly
       const r2 = await fetch(`${BASE}/sheets-sync`, { method:"POST", headers:HEADERS });
       const d2 = await r2.json();
       await loadData();
-      const msg = d1.rows_upserted > 0
-        ? `Synced ${d1.rows_upserted} daily rows (${d1.metrics_found?.join(", ")}) + ${d2.rowsUpserted} monthly rows`
-        : d2.success ? `Monthly sync: ${d2.rowsUpserted} rows` : "Sync complete";
-      setMessages(p => [...p, { role:"assistant", content:`📊 ${msg}` }]);
+      if (d1.error) {
+        setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync error: ${d1.error}` }]);
+      } else if (d1.rows_upserted > 0) {
+        setMessages(p => [...p, { role:"assistant", content:`📊 Daily sync complete!\n\nMatched ${d1.matched?.length||0} metrics: ${d1.matched?.join(", ")||"none"}\nRows imported: ${d1.rows_upserted}\nDate columns: ${d1.date_columns}\n\nUnmatched labels (check spelling): ${d1.unmatched?.slice(0,10).join(", ")||"none"}` }]);
+      } else {
+        setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync ran but found 0 matching rows.\n\nMatched: ${d1.matched?.join(", ")||"none"}\nDate columns found: ${d1.date_columns||0}\nUnmatched row labels in sheet: ${d1.unmatched?.slice(0,20).join(", ")||"none"}\n\nThe unmatched list above shows the exact row labels in your sheet — reply with any that should be captured.` }]);
+      }
+      if (d2.success) setMessages(p => [...p, { role:"assistant", content:`✅ Monthly sync: ${d2.rowsUpserted} rows` }]);
     } catch(e) {
-      setMessages(p => [...p, { role:"assistant", content:`Sync error: ${e}` }]);
+      setMessages(p => [...p, { role:"assistant", content:`❌ Sync failed: ${e}` }]);
     }
     setSyncing(false);
   };
