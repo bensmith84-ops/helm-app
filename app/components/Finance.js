@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 
-const TABS = ["Dashboard", "Forecast", "Chart of Accounts", "Expenses", "Budgets", "Purchase Orders", "Invoices", "Vendors", "Import"];
+const TABS = ["Dashboard", "Forecast", "Chart of Accounts", "Expenses", "Budgets", "Purchase Orders", "Invoices", "Vendors", "QBO", "Import"];
 const CURR = "$";
 const fmt = (n) => n != null ? CURR + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "$0.00";
 const fmtK = (n) => { const v = Number(n) || 0; return v >= 1000000 ? CURR + (v/1000000).toFixed(1) + "M" : v >= 1000 ? CURR + (v/1000).toFixed(1) + "K" : fmt(v); };
@@ -78,6 +78,17 @@ export default function FinanceView() {
   const [aiAnalysis, setAiAnalysis] = useState(null); // AI insights
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReclassifying, setAiReclassifying] = useState({});
+  // QBO state
+  const [qboConn, setQboConn] = useState(null);
+  const [qboAccounts, setQboAccounts] = useState([]);
+  const [qboVendors, setQboVendors] = useState([]);
+  const [qboBills, setQboBills] = useState([]);
+  const [qboCustomers, setQboCustomers] = useState([]);
+  const [qboInvoices, setQboInvoices] = useState([]);
+  const [qboPlRows, setQboPlRows] = useState([]);
+  const [qboSyncing, setQboSyncing] = useState(false);
+  const [qboLoaded, setQboLoaded] = useState(false);
+  const [qboTab, setQboTab] = useState("pl");
   const [fcDrivers, setFcDrivers] = useState({
     dtcAdSpend: 2300000, dtcCAC: 65, dtcAOV1st: 44.52, dtcAOV2nd: 49.15,
     amznAdSpend: 400000, amznCAC: 12.4, amznAOV: 19.3,
@@ -1057,6 +1068,190 @@ export default function FinanceView() {
           ]} data={vendors} onRowClick={r => setModal({ type: "vendor", mode: "edit", data: r })} emptyMsg="No vendors yet — add your first vendor" />
         </>}
 
+        {tab === "QBO" && (
+          <div style={{ padding: "20px 24px" }}>
+            {/* QBO Header */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+              <div>
+                <h2 style={{ fontSize:18, fontWeight:700, marginBottom:4 }}>QuickBooks Online</h2>
+                {qboConn ? (
+                  <div style={{ fontSize:12, color:"#22c55e", display:"flex", alignItems:"center", gap:6 }}>
+                    <span>● Connected</span>
+                    <span style={{ color:T.text3 }}>·</span>
+                    <span style={{ color:T.text3 }}>{qboConn.company_name}</span>
+                    {qboConn.last_synced_at && <span style={{ color:T.text3 }}>· Last sync: {new Date(qboConn.last_synced_at).toLocaleString()}</span>}
+                  </div>
+                ) : (
+                  <div style={{ fontSize:12, color:T.text3 }}>Not connected — go to Settings → Integrations to connect</div>
+                )}
+              </div>
+              {qboConn && (
+                <div style={{ display:"flex", gap:8 }}>
+                  {["pl","accounts","vendors","bills","customers","invoices"].map(what => (
+                    <button key={what} onClick={()=>syncQBO(what)} disabled={qboSyncing}
+                      style={{ padding:"5px 12px", fontSize:11, fontWeight:600, background:T.surface2, color:T.text2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer", opacity:qboSyncing?0.5:1 }}>
+                      ↻ {what === "pl" ? "P&L" : what.charAt(0).toUpperCase()+what.slice(1)}
+                    </button>
+                  ))}
+                  <button onClick={()=>syncQBO("all")} disabled={qboSyncing}
+                    style={{ padding:"5px 14px", fontSize:12, fontWeight:700, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", opacity:qboSyncing?0.5:1 }}>
+                    {qboSyncing ? "Syncing…" : "↻ Sync All"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Sub-tabs */}
+            <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:20 }}>
+              {[["pl","P&L"],["accounts","Chart of Accounts"],["vendors","Vendors"],["bills","Bills"],["customers","Customers"],["invoices","Invoices"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setQboTab(k)} style={{ padding:"8px 16px", fontSize:12, fontWeight:qboTab===k?600:400, color:qboTab===k?T.accent:T.text3, background:"none", border:"none", borderBottom:qboTab===k?`2px solid ${T.accent}`:"2px solid transparent", cursor:"pointer" }}>{l}</button>
+              ))}
+            </div>
+
+            {!qboLoaded && <div style={{ color:T.text3, fontSize:13 }}>Loading QBO data…</div>}
+
+            {/* P&L */}
+            {qboTab==="pl" && qboLoaded && (
+              <div>
+                {qboPlRows.length === 0 ? (
+                  <div style={{ textAlign:"center", padding:"40px 0", color:T.text3 }}>
+                    <div style={{ fontSize:32, marginBottom:8 }}>📒</div>
+                    <div style={{ fontSize:14, fontWeight:600, marginBottom:4 }}>No P&L data yet</div>
+                    <div style={{ fontSize:12 }}>Connect QBO and click "↻ P&L" to import</div>
+                  </div>
+                ) : (
+                  <div>
+                    {["Revenue","Expense"].map(cls => {
+                      const rows = qboPlRows.filter(r=>r.classification===cls);
+                      if (!rows.length) return null;
+                      const total = rows.reduce((s,r)=>s+Number(r.amount),0);
+                      return (
+                        <div key={cls} style={{ marginBottom:24 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 12px", background:T.surface2, borderRadius:"8px 8px 0 0", borderBottom:`1px solid ${T.border}` }}>
+                            <span style={{ fontSize:13, fontWeight:700, color:cls==="Revenue"?"#22c55e":"#ef4444" }}>{cls}</span>
+                            <span style={{ fontSize:13, fontWeight:700, color:cls==="Revenue"?"#22c55e":"#ef4444" }}>{fmt(total)}</span>
+                          </div>
+                          {rows.map(r=>(
+                            <div key={r.id} style={{ display:"flex", justifyContent:"space-between", padding:"7px 12px", borderBottom:`1px solid ${T.border}`, background:T.surface }}>
+                              <span style={{ fontSize:12, color:T.text2 }}>{r.account_name}</span>
+                              <span style={{ fontSize:12, fontWeight:500, color:T.text }}>{fmt(r.amount)}</span>
+                            </div>
+                          ))}
+                          <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 12px", background:T.surface3, borderRadius:"0 0 8px 8px" }}>
+                            <span style={{ fontSize:12, fontWeight:700, color:T.text2 }}>Total {cls}</span>
+                            <span style={{ fontSize:12, fontWeight:700 }}>{fmt(total)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {/* Net Income */}
+                    {(() => {
+                      const rev = qboPlRows.filter(r=>r.classification==="Revenue").reduce((s,r)=>s+Number(r.amount),0);
+                      const exp = qboPlRows.filter(r=>r.classification==="Expense").reduce((s,r)=>s+Number(r.amount),0);
+                      const net = rev - exp;
+                      return (
+                        <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 16px", background:net>=0?"#22c55e18":"#ef444418", borderRadius:8, border:`1px solid ${net>=0?"#22c55e40":"#ef444440"}` }}>
+                          <span style={{ fontSize:14, fontWeight:800, color:net>=0?"#22c55e":"#ef4444" }}>Net Income</span>
+                          <span style={{ fontSize:14, fontWeight:800, color:net>=0?"#22c55e":"#ef4444" }}>{fmt(net)}</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Chart of Accounts */}
+            {qboTab==="accounts" && qboLoaded && (
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
+                  {["Name","Type","Sub-Type","Classification","Balance"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{qboAccounts.map(a=>(
+                  <tr key={a.id} style={{ borderBottom:`1px solid ${T.border}` }}>
+                    <td style={{ padding:"8px 10px", fontSize:13 }}>{a.name}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{a.account_type}</td>
+                    <td style={{ padding:"8px 10px", fontSize:11, color:T.text3 }}>{a.account_sub_type}</td>
+                    <td style={{ padding:"8px 10px" }}><span style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:4, background:{Revenue:"#22c55e18",Expense:"#ef444418",Asset:"#3b82f618",Liability:"#a855f618"}[a.classification]||T.surface2, color:{Revenue:"#22c55e",Expense:"#ef4444",Asset:"#3b82f6",Liability:"#a855f6"}[a.classification]||T.text3 }}>{a.classification}</span></td>
+                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:500, textAlign:"right" }}>{fmt(a.current_balance)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+
+            {/* Vendors */}
+            {qboTab==="vendors" && qboLoaded && (
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
+                  {["Vendor","Email","Phone","Balance"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{qboVendors.map(v=>(
+                  <tr key={v.id} style={{ borderBottom:`1px solid ${T.border}` }}>
+                    <td style={{ padding:"8px 10px" }}><div style={{ fontSize:13, fontWeight:500 }}>{v.display_name}</div>{v.company_name&&v.company_name!==v.display_name&&<div style={{ fontSize:11, color:T.text3 }}>{v.company_name}</div>}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{v.email||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text3 }}>{v.phone||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:v.balance>0?600:400, color:v.balance>0?"#ef4444":T.text3, textAlign:"right" }}>{fmt(v.balance)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+
+            {/* Bills */}
+            {qboTab==="bills" && qboLoaded && (
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
+                  {["Vendor","Date","Due","Amount","Balance","Status"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{qboBills.map(b=>(
+                  <tr key={b.id} style={{ borderBottom:`1px solid ${T.border}` }}>
+                    <td style={{ padding:"8px 10px", fontSize:13 }}>{b.vendor_name||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{b.txn_date||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text3 }}>{b.due_date||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:500, textAlign:"right" }}>{fmt(b.total_amount)}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:b.balance>0?"#ef4444":T.text3, fontWeight:b.balance>0?600:400, textAlign:"right" }}>{fmt(b.balance)}</td>
+                    <td style={{ padding:"8px 10px" }}><StatusPill status={b.payment_status||"open"} /></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+
+            {/* Customers */}
+            {qboTab==="customers" && qboLoaded && (
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
+                  {["Customer","Email","Phone","Balance"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{qboCustomers.map(c=>(
+                  <tr key={c.id} style={{ borderBottom:`1px solid ${T.border}` }}>
+                    <td style={{ padding:"8px 10px" }}><div style={{ fontSize:13, fontWeight:500 }}>{c.display_name}</div>{c.company_name&&c.company_name!==c.display_name&&<div style={{ fontSize:11, color:T.text3 }}>{c.company_name}</div>}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{c.email||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text3 }}>{c.phone||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:c.balance>0?600:400, textAlign:"right" }}>{fmt(c.balance)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+
+            {/* Invoices */}
+            {qboTab==="invoices" && qboLoaded && (
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
+                  {["Customer","Date","Due","Amount","Balance","Status"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{qboInvoices.map(inv=>(
+                  <tr key={inv.id} style={{ borderBottom:`1px solid ${T.border}` }}>
+                    <td style={{ padding:"8px 10px", fontSize:13 }}>{inv.customer_name||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{inv.txn_date||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text3 }}>{inv.due_date||"—"}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:500, textAlign:"right" }}>{fmt(inv.total_amount)}</td>
+                    <td style={{ padding:"8px 10px", fontSize:12, color:inv.balance>0?"#ef4444":T.text3, fontWeight:inv.balance>0?600:400, textAlign:"right" }}>{fmt(inv.balance)}</td>
+                    <td style={{ padding:"8px 10px" }}><StatusPill status={inv.balance<=0?"paid":"open"} /></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
         {tab === "Import" && (() => {
           const IMPORT_TYPES = {
             vendors: { table: "fin_vendors", label: "Vendors", fields: [

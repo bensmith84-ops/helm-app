@@ -273,7 +273,7 @@ export default function SettingsView() {
             <h1 style={{ fontSize:20, fontWeight:800, marginBottom:20 }}>Integrations</h1>
             {[
               { name:"Google Sheets", desc:"Sync financial data from your Google Sheets", icon:"📊", status:"connected", detail:"Earth Breeze Hydrogen tab" },
-              { name:"QuickBooks Online", desc:"Import GL accounts, transactions, and vendors", icon:"📒", status:"available", detail:"Connect for full P&L sync" },
+              { name:"QuickBooks Online", desc:"Sync P&L, Chart of Accounts, Vendors, Bills & Invoices", icon:"📒", status:"qbo", detail:"Connect to Earth Breeze QBO account" },
               { name:"Slack", desc:"Receive notifications and updates in Slack", icon:"💬", status:"connected", detail:"Connected · DM to Ben · Earth Breeze workspace", testable:true },
               { name:"Shopify", desc:"Pull revenue, orders, and product data", icon:"🛍️", status:"available", detail:"Real-time revenue sync" },
               { name:"Amazon Seller Central", desc:"Import Amazon revenue and ad spend", icon:"📦", status:"available", detail:"Daily sales sync" },
@@ -292,11 +292,27 @@ export default function SettingsView() {
                 </div>
                 <div style={{ display:"flex", gap:6, flexShrink:0 }}>
                   <button style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer",
-                    background: integ.status==="connected"?"#22c55e15":T.accentDim,
-                    color: integ.status==="connected"?"#22c55e":T.accent,
-                    border: `1px solid ${integ.status==="connected"?"#22c55e40":T.accent+"40"}` }}>
-                    {integ.status==="connected"?"Connected":"Connect"}
+                    background: integ.status==="connected"?"#22c55e15":integ.status==="qbo"?T.surface2:T.accentDim,
+                    color: integ.status==="connected"?"#22c55e":integ.status==="qbo"?T.text3:T.accent,
+                    border: `1px solid ${integ.status==="connected"?"#22c55e40":T.border}` }}>
+                    {integ.status==="connected"?"Connected":integ.status==="qbo"?"Connect QBO":"Connect"}
                   </button>
+                  {integ.status==="qbo" && (
+                    <button onClick={()=>{
+                      const clientId = process.env.NEXT_PUBLIC_QBO_CLIENT_ID || "";
+                      if (!clientId) { alert("Add NEXT_PUBLIC_QBO_CLIENT_ID to Vercel env vars"); return; }
+                      const redirectUri = encodeURIComponent("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-callback");
+                      const scope = encodeURIComponent("com.intuit.quickbooks.accounting");
+                      const state = Math.random().toString(36).slice(2);
+                      const env = process.env.NEXT_PUBLIC_QBO_ENVIRONMENT || "production";
+                      const authBase = env === "sandbox"
+                        ? "https://appcenter.intuit.com/connect/oauth2"
+                        : "https://appcenter.intuit.com/connect/oauth2";
+                      window.location.href = `${authBase}?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&state=${state}`;
+                    }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", flexShrink:0, background:T.accent, color:"#fff", border:"none" }}>
+                      Connect →
+                    </button>
+                  )}
                   {integ.testable && (
                     <button onClick={async () => {
                       const res = await notifySlack({ type:"info", title:"Helm test notification 🔔", message:"Your Slack integration is working. Helm will send you notifications here automatically.", url:"https://helm-app-six.vercel.app" });
