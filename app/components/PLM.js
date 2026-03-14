@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import PLMLibraryView from "./PLMLibrary";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -1427,7 +1428,7 @@ export default function PLMView() {
         <div style={{ fontSize:18,fontWeight:700,color:T.text,flex:1 }}>Product Lifecycle</div>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs…" style={{ fontSize:12,padding:"6px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:7,color:T.text,width:200,outline:"none" }} />
         <div style={{ display:"flex",background:T.surface2,border:"1px solid "+T.border,borderRadius:6,overflow:"hidden" }}>
-          {[["pipeline","⬢ Pipeline"],["list","☰ List"]].map(([k,label])=>(
+          {[["pipeline","⬢ Pipeline"],["list","☰ List"],["library","🧪 Library"]].map(([k,label])=>(
             <button key={k} onClick={()=>setView(k)} style={{ padding:"5px 12px",fontSize:12,fontWeight:600,background:view===k?T.accent:"transparent",color:view===k?"#fff":T.text3,border:"none",cursor:"pointer" }}>{label}</button>
           ))}
         </div>
@@ -1443,7 +1444,8 @@ export default function PLMView() {
         ))}
       </div>
 
-      <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
+      <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
+        {view==="library" ? <PLMLibraryView /> : <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
         {loading?<div style={{ color:T.text3,fontSize:13 }}>Loading programs…</div>
         :filtered.length===0?<EmptyState icon="⬡" text={search?"No programs match your search":"No programs yet — create your first one"} />
         :view==="pipeline"?(
@@ -1499,7 +1501,8 @@ export default function PLMView() {
         )}
       </div>
 
-      {showNew&&<NewProgramModal onClose={()=>setShowNew(false)} onCreated={handleCreated} orgId={orgId} />}
+      </div>}
+      {view!=="library" && showNew&&<NewProgramModal onClose={()=>setShowNew(false)} onCreated={handleCreated} orgId={orgId} />}
     </div>
   );
 }
