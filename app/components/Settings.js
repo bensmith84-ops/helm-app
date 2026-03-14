@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
+import { notifySlack } from "../lib/slack";
 
 const TABS = ["Profile","Organization","Team","Integrations","Notifications","About"];
 const TIMEZONES = ["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Anchorage","Pacific/Honolulu","Europe/London","Europe/Paris","Europe/Berlin","Asia/Tokyo","Asia/Shanghai","Asia/Kolkata","Australia/Sydney","Pacific/Auckland"];
@@ -273,7 +274,7 @@ export default function SettingsView() {
             {[
               { name:"Google Sheets", desc:"Sync financial data from your Google Sheets", icon:"📊", status:"connected", detail:"Earth Breeze Hydrogen tab" },
               { name:"QuickBooks Online", desc:"Import GL accounts, transactions, and vendors", icon:"📒", status:"available", detail:"Connect for full P&L sync" },
-              { name:"Slack", desc:"Receive notifications and updates in Slack", icon:"💬", status:"connected", detail:"Connected · DM to Ben · Earth Breeze workspace" },
+              { name:"Slack", desc:"Receive notifications and updates in Slack", icon:"💬", status:"connected", detail:"Connected · DM to Ben · Earth Breeze workspace", testable:true },
               { name:"Shopify", desc:"Pull revenue, orders, and product data", icon:"🛍️", status:"available", detail:"Real-time revenue sync" },
               { name:"Amazon Seller Central", desc:"Import Amazon revenue and ad spend", icon:"📦", status:"available", detail:"Daily sales sync" },
               { name:"Meta Ads", desc:"Sync ad spend and ROAS from Meta", icon:"🎯", status:"available", detail:"Ad performance data" },
@@ -289,12 +290,23 @@ export default function SettingsView() {
                     {integ.status==="connected"?"✓ ":""}{integ.detail}
                   </div>}
                 </div>
-                <button style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", flexShrink:0,
-                  background: integ.status==="connected"?"#22c55e15":T.accentDim,
-                  color: integ.status==="connected"?"#22c55e":T.accent,
-                  border: `1px solid ${integ.status==="connected"?"#22c55e40":T.accent+"40"}` }}>
-                  {integ.status==="connected"?"Connected":"Connect"}
-                </button>
+                <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                  <button style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer",
+                    background: integ.status==="connected"?"#22c55e15":T.accentDim,
+                    color: integ.status==="connected"?"#22c55e":T.accent,
+                    border: `1px solid ${integ.status==="connected"?"#22c55e40":T.accent+"40"}` }}>
+                    {integ.status==="connected"?"Connected":"Connect"}
+                  </button>
+                  {integ.testable && (
+                    <button onClick={async () => {
+                      const res = await notifySlack({ type:"info", title:"Helm test notification 🔔", message:"Your Slack integration is working. Helm will send you notifications here automatically.", url:"https://helm-app-six.vercel.app" });
+                      showToast(res?.success ? "Test message sent to your Slack DM ✓" : "Failed — check SLACK_BOT_TOKEN in Supabase secrets", res?.success ? "#22c55e" : "#ef4444");
+                    }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer",
+                      background:T.surface2, color:T.text2, border:`1px solid ${T.border}` }}>
+                      ↗ Test
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </>
