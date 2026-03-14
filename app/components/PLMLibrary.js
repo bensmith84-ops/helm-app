@@ -181,8 +181,19 @@ function IngredientDetail({ ingredient, onUpdate, onClose }) {
   const [newSupplier, setNewSupplier] = useState({ supplier_name:"", contact_email:"", status:"active" });
 
   useEffect(() => {
-    supabase.from("plm_ingredient_suppliers").select("*").eq("ingredient_id", ingredient.id).order("is_preferred desc, supplier_name")
-      .then(({ data }) => { setSuppliers(data || []); setLoadingSuppliers(false); });
+    if (!ingredient?.id) return;
+    setLoadingSuppliers(true);
+    setSuppliers([]);
+    supabase.from("plm_ingredient_suppliers")
+      .select("*")
+      .eq("ingredient_id", ingredient.id)
+      .order("is_preferred", { ascending: false })
+      .order("supplier_name")
+      .then(({ data, error }) => {
+        if (error) console.error("Supplier load error:", error);
+        setSuppliers(data || []);
+        setLoadingSuppliers(false);
+      });
   }, [ingredient.id]);
 
   const save = async (field, val) => {
@@ -274,8 +285,9 @@ function IngredientDetail({ ingredient, onUpdate, onClose }) {
             </div>
           )}
 
-          {loadingSuppliers ? <div style={{ fontSize:12, color:T.text3 }}>Loading…</div>
-          : suppliers.length === 0 ? (
+          {loadingSuppliers ? (
+            <div style={{ fontSize:12, color:T.text3, padding:"20px 0", textAlign:"center" }}>Loading suppliers…</div>
+          ) : suppliers.length === 0 ? (
             <div style={{ padding:"24px 0", textAlign:"center", color:T.text3 }}>
               <div style={{ fontSize:28, marginBottom:8 }}>🏭</div>
               <div style={{ fontSize:12 }}>No suppliers yet — add your first supplier to start tracking pricing</div>
@@ -484,14 +496,13 @@ export default function PLMLibraryView() {
   );
 }
 
-// Lazy supplier count to avoid N+1 on the list
-const supplierCounts = {};
+// Lazy supplier count
 function SupplierCount({ ingredientId }) {
-  const [count, setCount] = useState(supplierCounts[ingredientId]);
+  const [count, setCount] = useState(null);
   useEffect(() => {
-    if (count != null) return;
+    if (!ingredientId) return;
     supabase.from("plm_ingredient_suppliers").select("id", { count:"exact", head:true }).eq("ingredient_id", ingredientId)
-      .then(({ count: c }) => { supplierCounts[ingredientId]=c||0; setCount(c||0); });
+      .then(({ count: c }) => setCount(c || 0));
   }, [ingredientId]);
   if (count == null) return <span style={{ color:T.border }}>—</span>;
   return <span style={{ color: count>0?T.text:T.text3, fontWeight:count>0?600:400 }}>{count} {count===1?"supplier":"suppliers"}</span>;
