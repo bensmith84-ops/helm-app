@@ -307,9 +307,9 @@ export default function ScoreboardView() {
       if (d1.error) {
         setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync error: ${d1.error}` }]);
       } else if (d1.rows_upserted > 0) {
-        setMessages(p => [...p, { role:"assistant", content:`📊 Daily sync complete!\n\nMatched ${d1.matched?.length||0} metrics: ${d1.matched?.join(", ")||"none"}\nRows imported: ${d1.rows_upserted}\nDate columns: ${d1.date_columns}\n\nUnmatched labels (check spelling): ${d1.unmatched?.slice(0,10).join(", ")||"none"}` }]);
+        setMessages(p => [...p, { role:"assistant", content:`📊 Daily sync complete!\n\nMatched ${d1.matched?.length||0} metrics: ${d1.matched?.join(", ")||"none"}\nRows imported: ${d1.rows_upserted}\nDates parsed: ${d1.dates_parsed}` }]);
       } else {
-        setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync ran but found 0 matching rows.\n\nMatched: ${d1.matched?.join(", ")||"none"}\nDate columns found: ${d1.date_columns||0}\nUnmatched row labels in sheet: ${d1.unmatched?.slice(0,20).join(", ")||"none"}\n\nThe unmatched list above shows the exact row labels in your sheet — reply with any that should be captured.` }]);
+        setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync: 0 rows imported.\n\nMetrics matched in header row: ${d1.matched?.join(", ")||"none"}\nDates parsed: ${d1.dates_parsed||0} | Dates failed: ${d1.dates_failed||0}\n\nSample of col A values (raw from sheet):\n${d1.sample_col_a?.join("\n")||"(none)"}\n\nSample header row (first 8 cols):\n${d1.sample_headers?.join(" | ")||"(none)"}\n\nUnmatched column headers: ${d1.unmatched_headers?.join(", ")||"none"}` }]);
       }
       if (d2.success) setMessages(p => [...p, { role:"assistant", content:`✅ Monthly sync: ${d2.rowsUpserted} rows` }]);
     } catch(e) {
