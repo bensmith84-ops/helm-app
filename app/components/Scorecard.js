@@ -1,462 +1,388 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { T } from "../tokens";
 import { supabase } from "../lib/supabase";
+import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
-import { useModal } from "../lib/modal";
 
-// Get Monday of a given week
-const getMonday = (d) => {
-  const dt = new Date(d);
-  const day = dt.getDay();
-  const diff = dt.getDate() - day + (day === 0 ? -6 : 1);
-  dt.setDate(diff);
-  dt.setHours(0, 0, 0, 0);
-  return dt;
+const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
+const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length-1)%AVATAR_COLORS.length] : T.text3;
+
+const fmt = (v, unit) => {
+  if (v == null) return "—";
+  if (unit === "$") {
+    const abs = Math.abs(v);
+    const s = v < 0 ? "-" : "";
+    if (abs >= 1_000_000) return s + "$" + (abs/1e6).toFixed(1) + "M";
+    if (abs >= 1_000)     return s + "$" + (abs/1e3).toFixed(0) + "K";
+    return s + "$" + Number(v).toFixed(0);
+  }
+  if (unit === "%") return Number(v).toFixed(1) + "%";
+  if (unit === "bool") return v ? "✓" : "✗";
+  return Number(v).toLocaleString();
 };
 
-const fmt = (d) => d.toISOString().split("T")[0];
-
-const getWeekLabel = (d) => {
-  const dt = new Date(d + "T00:00:00");
-  const m = dt.toLocaleDateString("en-US", { month: "short" });
-  return `${m} ${dt.getDate()}`;
+const getWeekStart = (d = new Date()) => {
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const mon = new Date(d.setDate(diff));
+  return mon.toISOString().split("T")[0];
 };
+
+const weeksBack = (n) => {
+  const weeks = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i * 7);
+    weeks.push(getWeekStart(d));
+  }
+  return [...new Set(weeks)];
+};
+
+const WEEKS = weeksBack(13); // 13 weeks = rolling quarter
+const SHORT_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function InlineEntry({ value, onSave, unit }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value != null ? String(value) : "");
+  const inputRef = useRef(null);
+
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+
+  const save = () => {
+    const parsed = val === "" ? null : unit === "bool" ? (val.toLowerCase() === "y" || val === "1" || val.toLowerCase() === "true" ? 1 : 0) : parseFloat(val);
+    onSave(isNaN(parsed) ? null : parsed);
+    setEditing(false);
+  };
+
+  if (unit === "bool") {
+    return (
+      <div onClick={() => onSave(value ? 0 : 1)} style={{ cursor:"pointer", fontSize:16, textAlign:"center", userSelect:"none" }}>
+        {value ? "✅" : "⬜"}
+      </div>
+    );
+  }
+
+  if (editing) {
+    return (
+      <input ref={inputRef} value={val} onChange={e => setVal(e.target.value)}
+        onBlur={save} onKeyDown={e => { if (e.key==="Enter") save(); if (e.key==="Escape") setEditing(false); }}
+        style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.accent}`,
+          borderRadius:4, padding:"2px 4px", color:T.text, outline:"none", textAlign:"center" }} />
+    );
+  }
+
+  return (
+    <div onClick={() => { setVal(value != null ? String(value) : ""); setEditing(true); }}
+      style={{ cursor:"pointer", fontSize:12, textAlign:"center", color: value != null ? T.text : T.text3,
+        fontWeight: value != null ? 600 : 400, padding:"2px 4px", borderRadius:4,
+        background:"transparent", transition:"background 0.1s",
+        minHeight:20, display:"flex", alignItems:"center", justifyContent:"center" }}
+      onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      {value != null ? fmt(value, unit) : <span style={{ color:T.border, fontSize:10 }}>—</span>}
+    </div>
+  );
+}
+
+function RagDot({ value, goal, unit }) {
+  if (value == null || goal == null) return <div style={{ width:10, height:10, borderRadius:"50%", background:T.border }} />;
+  const ratio = unit === "bool" ? (value ? 1 : 0) : (goal !== 0 ? value / goal : 1);
+  const color = ratio >= 1 ? "#22c55e" : ratio >= 0.8 ? "#eab308" : "#ef4444";
+  return <div style={{ width:10, height:10, borderRadius:"50%", background:color, flexShrink:0 }} />;
+}
+
+function SparkTrend({ values }) {
+  const nums = values.filter(v => v != null);
+  if (nums.length < 2) return <div style={{ width:60, height:20 }} />;
+  const min = Math.min(...nums), max = Math.max(...nums);
+  const range = max - min || 1;
+  const w = 60, h = 20;
+  const pts = values.map((v, i) => v != null
+    ? `${(i / (values.length - 1)) * w},${h - ((v - min) / range) * (h - 4) - 2}` : null
+  ).filter(Boolean).join(" ");
+  const last = nums[nums.length - 1], prev = nums[nums.length - 2];
+  const trending = last >= prev ? "#22c55e" : "#ef4444";
+  return (
+    <svg width={w} height={h}>
+      <polyline points={pts} fill="none" stroke={trending} strokeWidth={1.5} strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export default function ScorecardView() {
   const { user, profile } = useAuth();
-  const { showPrompt, showConfirm } = useModal();
   const [metrics, setMetrics] = useState([]);
-  const [entries, setEntries] = useState([]);
+  const [entries, setEntries] = useState({}); // { metricId: { weekStart: value } }
   const [profiles, setProfiles] = useState({});
   const [loading, setLoading] = useState(true);
-  const [editMetric, setEditMetric] = useState(null);
-  const [editEntry, setEditEntry] = useState(null);
-  const [weekOffset, setWeekOffset] = useState(0);
-
-  // Calculate visible weeks (13 weeks = 1 quarter, centered on current)
-  const VISIBLE_WEEKS = 13;
-  const today = new Date();
-  const currentMonday = getMonday(today);
-
-  const weeks = [];
-  for (let i = -Math.floor(VISIBLE_WEEKS / 2) + weekOffset; i < Math.ceil(VISIBLE_WEEKS / 2) + weekOffset; i++) {
-    const d = new Date(currentMonday);
-    d.setDate(d.getDate() + i * 7);
-    weeks.push(fmt(d));
-  }
-  const thisWeek = fmt(currentMonday);
-
-  const [okrObjectives, setOkrObjectives] = useState([]);
-  const [okrKRs, setOkrKRs] = useState([]);
-  const [okrMilestones, setOkrMilestones] = useState([]);
+  const [showAddMetric, setShowAddMetric] = useState(false);
+  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"" });
+  const [saving, setSaving] = useState(false);
+  const [orgId, setOrgId] = useState(null);
 
   useEffect(() => {
     (async () => {
-      const [{ data: m }, { data: p }, { data: obj }, { data: kr }, { data: ms }] = await Promise.all([
-        supabase.from("l10_metrics").select("*").eq("org_id", profile?.org_id).order("sort_order"),
-        supabase.from("profiles").select("id,display_name,avatar_url"),
-        supabase.from("objectives").select("id,title").is("deleted_at", null),
-        supabase.from("key_results").select("id,title,objective_id,current_value,target_value,unit").is("deleted_at", null),
-        supabase.from("okr_milestones").select("id,title,objective_id,current_value,target_value,unit"),
+      const [{ data: met }, { data: prof }, { data: mem }] = await Promise.all([
+        supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order,created_at"),
+        supabase.from("profiles").select("id,display_name"),
+        supabase.from("org_memberships").select("org_id").eq("user_id", (await supabase.auth.getUser()).data.user?.id).maybeSingle(),
       ]);
-      setMetrics(m || []);
-      const pm = {};
-      (p || []).forEach(u => { pm[u.id] = u; });
-      setProfiles(pm);
-      setOkrObjectives(obj || []);
-      setOkrKRs(kr || []);
-      setOkrMilestones(ms || []);
+      const profMap = {};
+      (prof || []).forEach(u => { profMap[u.id] = u; });
+      setProfiles(profMap);
+      setOrgId(mem?.org_id);
+      setMetrics(met || []);
 
-      if (m && m.length > 0) {
-        const ids = m.map(x => x.id);
-        const { data: e } = await supabase.from("l10_entries").select("*").in("metric_id", ids);
-        setEntries(e || []);
+      if (met?.length) {
+        const { data: ent } = await supabase.from("scorecard_entries")
+          .select("*").in("metric_id", met.map(m => m.id))
+          .in("week_start", WEEKS);
+        const map = {};
+        (ent || []).forEach(e => {
+          if (!map[e.metric_id]) map[e.metric_id] = {};
+          map[e.metric_id][e.week_start] = e.value;
+        });
+        setEntries(map);
       }
       setLoading(false);
     })();
-  }, [profile?.org_id]);
+  }, []);
 
-  const getEntry = (metricId, weekStart) => entries.find(e => e.metric_id === metricId && e.week_start === weekStart);
-
-  const uname = (uid) => profiles[uid]?.display_name || "";
-  const ini = (uid) => {
-    const u = profiles[uid];
-    return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?";
-  };
-  const acol = (uid) => {
-    if (!uid) return T.text3;
-    let h = 0;
-    for (let i = 0; i < uid.length; i++) h = uid.charCodeAt(i) + ((h << 5) - h);
-    const hue = Math.abs(h) % 360;
-    return `hsl(${hue},60%,60%)`;
-  };
-  const Ava = ({ uid, sz = 24 }) => {
-    if (!uid) return <div style={{ width: sz, height: sz }} />;
-    const c = acol(uid);
-    return (<div title={uname(uid)} style={{ width: sz, height: sz, borderRadius: "50%", background: `${c}18`, border: `1.5px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: Math.max(sz * 0.38, 9), fontWeight: 700, color: c, flexShrink: 0 }}>{ini(uid)}</div>);
-  };
-
-  // CRUD
-  const addMetric = () => {
-    setEditMetric({ title: "", owner_id: user?.id || "", unit: "", target_value: 0, goal_direction: "above", linked_kr_id: null, linked_milestone_id: null });
-  };
-
-  const saveMetric = async () => {
-    if (!editMetric || !editMetric.title.trim()) return;
-    if (editMetric.id) {
-      const { id, ...rest } = editMetric;
-      const updates = { title: rest.title, owner_id: rest.owner_id || null, unit: rest.unit, target_value: Number(rest.target_value), goal_direction: rest.goal_direction, linked_kr_id: rest.linked_kr_id || null, linked_milestone_id: rest.linked_milestone_id || null };
-      setMetrics(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
-      await supabase.from("l10_metrics").update(updates).eq("id", id);
+  const saveEntry = async (metricId, weekStart, value) => {
+    setEntries(p => ({
+      ...p,
+      [metricId]: { ...(p[metricId]||{}), [weekStart]: value }
+    }));
+    const existing = await supabase.from("scorecard_entries")
+      .select("id").eq("metric_id", metricId).eq("week_start", weekStart).maybeSingle();
+    if (existing.data?.id) {
+      await supabase.from("scorecard_entries").update({ value, entered_by: user.id }).eq("id", existing.data.id);
     } else {
-      const ins = { org_id: profile?.org_id, title: editMetric.title.trim(), owner_id: editMetric.owner_id || null, unit: editMetric.unit, target_value: Number(editMetric.target_value), goal_direction: editMetric.goal_direction, sort_order: metrics.length, linked_kr_id: editMetric.linked_kr_id || null, linked_milestone_id: editMetric.linked_milestone_id || null };
-      const { data } = await supabase.from("l10_metrics").insert(ins).select().single();
-      if (data) setMetrics(p => [...p, data]);
+      await supabase.from("scorecard_entries").insert({ metric_id: metricId, week_start: weekStart, value, entered_by: user.id });
     }
-    setEditMetric(null);
+  };
+
+  const addMetric = async () => {
+    if (!newMetric.name.trim()) return;
+    setSaving(true);
+    const { data } = await supabase.from("scorecard_metrics").insert({
+      name: newMetric.name, unit: newMetric.unit,
+      goal: newMetric.goal ? parseFloat(newMetric.goal) : null,
+      frequency: newMetric.frequency, description: newMetric.description,
+      org_id: orgId, owner_id: user.id, sort_order: metrics.length,
+    }).select().single();
+    if (data) { setMetrics(p => [...p, data]); setEntries(p => ({...p, [data.id]: {}})); }
+    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"" });
+    setShowAddMetric(false);
+    setSaving(false);
   };
 
   const deleteMetric = async (id) => {
-    const ok = await showConfirm("Delete this metric? All weekly entries will also be removed.");
-    if (!ok) return;
+    if (!confirm("Delete this metric and all its history?")) return;
+    await supabase.from("scorecard_metrics").update({ active: false }).eq("id", id);
     setMetrics(p => p.filter(m => m.id !== id));
-    setEntries(p => p.filter(e => e.metric_id !== id));
-    await supabase.from("l10_metrics").delete().eq("id", id);
   };
 
-  const openEntry = (metricId, weekStart) => {
-    const existing = getEntry(metricId, weekStart);
-    const metric = metrics.find(m => m.id === metricId);
-    setEditEntry({
-      id: existing?.id || null,
-      metric_id: metricId,
-      week_start: weekStart,
-      actual_value: existing?.actual_value ?? "",
-      comment: existing?.comment || "",
-      improvement_plan: existing?.improvement_plan || "",
-      _metric: metric,
-    });
-  };
+  const thisWeek = WEEKS[WEEKS.length - 1];
+  const ini = uid => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase() : "?"; };
 
-  const saveEntry = async () => {
-    if (!editEntry) return;
-    const metric = metrics.find(m => m.id === editEntry.metric_id);
-    const av = Number(editEntry.actual_value);
-    const onTrack = metric?.goal_direction === "above" ? av >= metric.target_value : av <= metric.target_value;
-    const payload = {
-      metric_id: editEntry.metric_id,
-      week_start: editEntry.week_start,
-      actual_value: av || null,
-      on_track: editEntry.actual_value !== "" ? onTrack : null,
-      comment: editEntry.comment || null,
-      improvement_plan: editEntry.improvement_plan || null,
-      entered_by: user?.id,
-    };
+  if (loading) return (
+    <div style={{ display:"flex", height:"100%", alignItems:"center", justifyContent:"center", color:T.text3, fontSize:13 }}>Loading scorecard…</div>
+  );
 
-    let newEntries;
-    if (editEntry.id) {
-      newEntries = entries.map(e => e.id === editEntry.id ? { ...e, ...payload } : e);
-      setEntries(newEntries);
-      await supabase.from("l10_entries").update(payload).eq("id", editEntry.id);
-    } else {
-      const { data } = await supabase.from("l10_entries").insert(payload).select().single();
-      if (data) {
-        newEntries = [...entries, data];
-        setEntries(newEntries);
-      } else {
-        newEntries = entries;
-      }
-    }
+  // Summary stats
+  const metricSummary = metrics.map(m => {
+    const vals = WEEKS.map(w => entries[m.id]?.[w] ?? null);
+    const latest = vals.filter(v=>v!=null).slice(-1)[0];
+    const goal = m.goal;
+    const hits = vals.filter(v => v!=null && goal != null && (m.unit==="bool"?v>=1:v>=goal)).length;
+    const total = vals.filter(v=>v!=null).length;
+    return { ...m, latest, vals, hits, total };
+  });
 
-    // Sync cumulative weekly values to linked milestone or KR
-    if (metric && (metric.linked_milestone_id || metric.linked_kr_id)) {
-      const metricEntries = (newEntries || entries).filter(e => e.metric_id === metric.id && e.actual_value != null);
-      const cumulative = metricEntries.reduce((sum, e) => sum + Number(e.actual_value || 0), 0);
-
-      if (metric.linked_milestone_id) {
-        const prog = metric.target_value > 0 ? Math.min(100, Math.round((cumulative / metric.target_value) * 100)) : 0;
-        await supabase.from("okr_milestones").update({ current_value: cumulative, progress: prog, status: prog >= 100 ? "complete" : prog > 0 ? "in_progress" : "not_started" }).eq("id", metric.linked_milestone_id);
-      }
-      if (metric.linked_kr_id) {
-        const kr = okrKRs.find(k => k.id === metric.linked_kr_id);
-        if (kr) {
-          const tv = Number(kr.target_value) || 100;
-          const prog = tv > 0 ? Math.min(100, Math.round((cumulative / tv) * 100)) : 0;
-          await supabase.from("key_results").update({ current_value: cumulative, progress: prog }).eq("id", metric.linked_kr_id);
-        }
-      }
-    }
-    setEditEntry(null);
-  };
-
-  // Styles
-  const _lbl = { fontSize: 11, fontWeight: 500, color: T.text3, display: "block", marginBottom: 3 };
-  const _inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: "inherit" };
-
-  if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading Scorecard…</div>;
-
-  // Stats
-  const currentEntries = entries.filter(e => e.week_start === thisWeek);
-  const onTrackCount = currentEntries.filter(e => e.on_track === true).length;
-  const offTrackCount = currentEntries.filter(e => e.on_track === false).length;
-  const missingCount = metrics.length - currentEntries.length;
+  const onTrack = metricSummary.filter(m => m.goal!=null && m.latest!=null && (m.unit==="bool"?m.latest>=1:m.latest>=m.goal)).length;
+  const offTrack = metricSummary.filter(m => m.goal!=null && m.latest!=null && (m.unit==="bool"?m.latest<1:m.latest<m.goal)).length;
+  const noData = metricSummary.filter(m => m.latest==null).length;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", overflow:"hidden" }}>
       {/* Header */}
-      <div style={{ padding: "16px 24px 12px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div>
-          <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>L10 Scorecard</h2>
-          <p style={{ fontSize: 12, color: T.text3, margin: "4px 0 0" }}>Weekly metrics tracking • {metrics.length} metrics</p>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Stats badges */}
-          <div style={{ display: "flex", gap: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: `${T.green}15`, color: T.green }}>{onTrackCount} on track</span>
-            {offTrackCount > 0 && <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: `${T.red}15`, color: T.red }}>{offTrackCount} off track</span>}
-            {missingCount > 0 && <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: `${T.yellow}15`, color: T.yellow }}>{missingCount} missing</span>}
+      <div style={{ padding:"20px 28px 0", borderBottom:`1px solid ${T.border}`, background:T.surface, flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+          <div>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:2 }}>Weekly Scorecard</h2>
+            <div style={{ fontSize:12, color:T.text3 }}>Rolling 13-week view · Week of {new Date(thisWeek+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric"})}</div>
           </div>
-          <button onClick={addMetric} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>+ Add Metric</button>
-        </div>
-      </div>
-
-      {/* Week navigation */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "8px 24px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <button onClick={() => setWeekOffset(p => p - 4)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "4px 8px" }}>«</button>
-        <button onClick={() => setWeekOffset(p => p - 1)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "4px 8px" }}>‹</button>
-        <button onClick={() => setWeekOffset(0)} style={{ padding: "4px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: weekOffset === 0 ? T.accent : T.surface2, color: weekOffset === 0 ? "#fff" : T.text2, cursor: "pointer" }}>This Week</button>
-        <button onClick={() => setWeekOffset(p => p + 1)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "4px 8px" }}>›</button>
-        <button onClick={() => setWeekOffset(p => p + 4)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "4px 8px" }}>»</button>
-      </div>
-
-      {/* Scorecard table */}
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {metrics.length === 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: T.text3 }}>
-            <div style={{ fontSize: 40 }}>▣</div>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>No metrics yet</div>
-            <div style={{ fontSize: 12 }}>Add your first L10 scorecard metric to start tracking weekly numbers</div>
-            <button onClick={addMetric} style={{ marginTop: 8, padding: "10px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px dashed ${T.border}`, background: "transparent", color: T.accent, cursor: "pointer" }}>+ Add Metric</button>
-          </div>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-                <th style={{ position: "sticky", left: 0, background: T.surface, zIndex: 2, padding: "8px 16px", textAlign: "left", fontWeight: 600, color: T.text3, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", minWidth: 200, borderRight: `1px solid ${T.border}` }}>Metric</th>
-                <th style={{ position: "sticky", left: 200, background: T.surface, zIndex: 2, padding: "8px 12px", textAlign: "center", fontWeight: 600, color: T.text3, fontSize: 10, textTransform: "uppercase", minWidth: 50, borderRight: `1px solid ${T.border}` }}>Owner</th>
-                <th style={{ padding: "8px 12px", textAlign: "center", fontWeight: 600, color: T.text3, fontSize: 10, textTransform: "uppercase", minWidth: 60, borderRight: `1px solid ${T.border}` }}>Goal</th>
-                {weeks.map(w => {
-                  const isCurrent = w === thisWeek;
-                  return (
-                    <th key={w} style={{ padding: "6px 8px", textAlign: "center", fontWeight: isCurrent ? 700 : 500, color: isCurrent ? T.accent : T.text3, fontSize: 10, minWidth: 72, borderRight: `1px solid ${T.border}`, background: isCurrent ? `${T.accent}08` : "transparent" }}>
-                      {getWeekLabel(w)}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.map(metric => (
-                <tr key={metric.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                  {/* Metric name */}
-                  <td style={{ position: "sticky", left: 0, background: T.bg, zIndex: 1, padding: "10px 16px", borderRight: `1px solid ${T.border}`, minWidth: 200 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span onClick={() => setEditMetric({ ...metric })} style={{ fontWeight: 600, fontSize: 13, cursor: "pointer", flex: 1 }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{metric.title}</span>
-                      <button onClick={() => deleteMetric(metric.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11, opacity: 0.3, padding: 0 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.3}>×</button>
-                    </div>
-                    {metric.unit && <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{metric.unit}</div>}
-                    {(metric.linked_kr_id || metric.linked_milestone_id) && <div style={{ fontSize: 8, color: T.accent, marginTop: 2, fontWeight: 600 }}>⟂ Linked to OKR</div>}
-                  </td>
-                  {/* Owner */}
-                  <td style={{ position: "sticky", left: 200, background: T.bg, zIndex: 1, textAlign: "center", borderRight: `1px solid ${T.border}` }}>
-                    <Ava uid={metric.owner_id} sz={24} />
-                  </td>
-                  {/* Goal */}
-                  <td style={{ textAlign: "center", padding: "8px", borderRight: `1px solid ${T.border}`, fontWeight: 600, color: T.text2 }}>
-                    {metric.goal_direction === "above" ? "≥" : "≤"} {metric.target_value}
-                  </td>
-                  {/* Week cells */}
-                  {weeks.map(w => {
-                    const entry = getEntry(metric.id, w);
-                    const isCurrent = w === thisWeek;
-                    const hasValue = entry?.actual_value != null;
-                    const isOnTrack = entry?.on_track;
-                    const isOffTrack = entry?.on_track === false;
-
-                    let cellBg = "transparent";
-                    let cellColor = T.text3;
-                    if (hasValue && isOnTrack) { cellBg = `${T.green}12`; cellColor = T.green; }
-                    else if (hasValue && isOffTrack) { cellBg = `${T.red}12`; cellColor = T.red; }
-                    if (isCurrent) cellBg = hasValue ? cellBg : `${T.accent}06`;
-
-                    return (
-                      <td key={w} onClick={() => openEntry(metric.id, w)}
-                        style={{ textAlign: "center", padding: "8px 6px", borderRight: `1px solid ${T.border}`, cursor: "pointer", background: cellBg, transition: "background 0.15s", position: "relative" }}
-                        onMouseEnter={e => { if (!hasValue) e.currentTarget.style.background = `${T.accent}15`; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = cellBg; }}>
-                        {hasValue ? (
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 13, color: cellColor }}>{entry.actual_value}</div>
-                            {isOffTrack && entry.improvement_plan && <div title={entry.improvement_plan} style={{ fontSize: 8, marginTop: 2, color: T.red, opacity: 0.7 }}>⚠ plan</div>}
-                            {entry.comment && <div title={entry.comment} style={{ fontSize: 8, marginTop: 1, color: T.text3 }}>💬</div>}
-                          </div>
-                        ) : (
-                          <span style={{ color: T.text3, opacity: 0.3, fontSize: 16 }}>·</span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            {/* Summary pills */}
+            <div style={{ display:"flex", gap:8 }}>
+              {[["#22c55e",onTrack,"On Track"],["#ef4444",offTrack,"Off Track"],["#8b93a8",noData,"No Data"]].map(([c,v,l])=>(
+                <div key={l} style={{ display:"flex", alignItems:"center", gap:6, padding:"4px 10px", borderRadius:6, background:c+"18", border:`1px solid ${c}40` }}>
+                  <div style={{ width:8, height:8, borderRadius:"50%", background:c }} />
+                  <span style={{ fontSize:11, fontWeight:700, color:c }}>{v}</span>
+                  <span style={{ fontSize:11, color:T.text3 }}>{l}</span>
+                </div>
               ))}
-            </tbody>
-          </table>
-        )}
+            </div>
+            <button onClick={() => setShowAddMetric(true)}
+              style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:7, cursor:"pointer" }}>
+              + Add Metric
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Edit Metric Modal */}
-      {editMetric && (
-        <div onClick={() => setEditMetric(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 440, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden" }}>
-            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{editMetric.id ? "Edit" : "Add"} Metric</h3>
-              <button onClick={() => setEditMetric(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>×</button>
-            </div>
-            <div style={{ padding: "20px 24px" }}>
-              <div style={{ marginBottom: 12 }}>
-                <label style={_lbl}>Metric Name</label>
-                <input value={editMetric.title} onChange={e => setEditMetric(p => ({ ...p, title: e.target.value }))} autoFocus placeholder="e.g. Weekly Revenue, New Leads, NPS Score" style={_inp} />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label style={_lbl}>Target Value</label>
-                  <input type="number" value={editMetric.target_value} onChange={e => setEditMetric(p => ({ ...p, target_value: e.target.value }))} style={_inp} />
-                </div>
-                <div>
-                  <label style={_lbl}>Unit</label>
-                  <input value={editMetric.unit} onChange={e => setEditMetric(p => ({ ...p, unit: e.target.value }))} placeholder="e.g. $, leads, points" style={_inp} />
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label style={_lbl}>On Track When</label>
-                  <select value={editMetric.goal_direction} onChange={e => setEditMetric(p => ({ ...p, goal_direction: e.target.value }))} style={{ ..._inp, cursor: "pointer" }}>
-                    <option value="above">At or Above Target</option>
-                    <option value="below">At or Below Target</option>
+      {/* Add Metric Panel */}
+      {showAddMetric && (
+        <div style={{ padding:"16px 28px", background:T.surface2, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 2fr auto", gap:10, alignItems:"end" }}>
+            {[
+              { label:"Metric Name *", key:"name", placeholder:"e.g. Weekly Revenue" },
+              { label:"Unit", key:"unit", type:"select", options:["number","$","%","bool"] },
+              { label:"Weekly Goal", key:"goal", placeholder:"e.g. 250000" },
+              { label:"Frequency", key:"frequency", type:"select", options:["daily","weekly","monthly"] },
+              { label:"Description", key:"description", placeholder:"Optional description" },
+            ].map(f => (
+              <div key={f.key}>
+                <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>{f.label}</div>
+                {f.type==="select" ? (
+                  <select value={newMetric[f.key]} onChange={e=>setNewMetric(p=>({...p,[f.key]:e.target.value}))}
+                    style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"7px 8px", color:T.text, outline:"none" }}>
+                    {f.options.map(o=><option key={o} value={o}>{o}</option>)}
                   </select>
-                </div>
-                <div>
-                  <label style={_lbl}>Owner</label>
-                  <select value={editMetric.owner_id || ""} onChange={e => setEditMetric(p => ({ ...p, owner_id: e.target.value || null }))} style={{ ..._inp, cursor: "pointer" }}>
-                    <option value="">Unassigned</option>
-                    {Object.values(profiles).map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-                  </select>
-                </div>
-              </div>
-              {/* OKR Linkage */}
-              <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 12 }}>
-                <label style={{ ..._lbl, fontWeight: 600, fontSize: 12, marginBottom: 8 }}>Link to OKR <span style={{ fontWeight: 400, color: T.text3 }}>(optional — weekly totals push to OKR progress)</span></label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <label style={{ ..._lbl, fontSize: 10 }}>Key Result</label>
-                    <select value={editMetric.linked_kr_id || ""} onChange={e => setEditMetric(p => ({ ...p, linked_kr_id: e.target.value || null }))} style={{ ..._inp, fontSize: 12, cursor: "pointer" }}>
-                      <option value="">None</option>
-                      {okrKRs.map(kr => {
-                        const obj = okrObjectives.find(o => o.id === kr.objective_id);
-                        return <option key={kr.id} value={kr.id}>{obj ? obj.title + " → " : ""}{kr.title}</option>;
-                      })}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ ..._lbl, fontSize: 10 }}>Milestone</label>
-                    <select value={editMetric.linked_milestone_id || ""} onChange={e => setEditMetric(p => ({ ...p, linked_milestone_id: e.target.value || null }))} style={{ ..._inp, fontSize: 12, cursor: "pointer" }}>
-                      <option value="">None</option>
-                      {okrMilestones.map(ms => {
-                        const obj = okrObjectives.find(o => o.id === ms.objective_id);
-                        return <option key={ms.id} value={ms.id}>{obj ? obj.title + " → " : ""}{ms.title}</option>;
-                      })}
-                    </select>
-                  </div>
-                </div>
-                {(editMetric.linked_kr_id || editMetric.linked_milestone_id) && (
-                  <div style={{ fontSize: 10, color: T.accent, marginTop: 6 }}>Sum of all weekly entries will auto-update the linked OKR's current value</div>
+                ) : (
+                  <input value={newMetric[f.key]} onChange={e=>setNewMetric(p=>({...p,[f.key]:e.target.value}))}
+                    placeholder={f.placeholder}
+                    style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"7px 8px", color:T.text, outline:"none", boxSizing:"border-box" }} />
                 )}
               </div>
-            </div>
-            <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setEditMetric(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-              <button onClick={saveMetric} disabled={!editMetric.title?.trim()} style={{ padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600, opacity: editMetric.title?.trim() ? 1 : 0.5 }}>Save</button>
+            ))}
+            <div style={{ display:"flex", gap:6 }}>
+              <button onClick={() => setShowAddMetric(false)}
+                style={{ padding:"7px 10px", fontSize:12, background:T.surface3, color:T.text2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer" }}>Cancel</button>
+              <button onClick={addMetric} disabled={saving||!newMetric.name.trim()}
+                style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", opacity:saving?0.6:1 }}>
+                {saving?"Adding…":"Add"}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Entry Modal */}
-      {editEntry && (() => {
-        const metric = editEntry._metric;
-        const av = Number(editEntry.actual_value);
-        const hasVal = editEntry.actual_value !== "" && editEntry.actual_value != null;
-        const onTrack = hasVal && metric ? (metric.goal_direction === "above" ? av >= metric.target_value : av <= metric.target_value) : null;
-        return (
-          <div onClick={() => setEditEntry(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div onClick={e => e.stopPropagation()} style={{ width: 480, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden" }}>
-              <div style={{ padding: "16px 24px", borderBottom: `1px solid ${T.border}` }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{metric?.title || "Entry"}</h3>
-                <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>Week of {getWeekLabel(editEntry.week_start)} • Target: {metric?.goal_direction === "above" ? "≥" : "≤"} {metric?.target_value} {metric?.unit}</div>
-              </div>
-              <div style={{ padding: "20px 24px" }}>
-                {/* Actual value + status indicator */}
-                <div style={{ marginBottom: 16 }}>
-                  <label style={_lbl}>Actual Value</label>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <input type="number" value={editEntry.actual_value} onChange={e => setEditEntry(p => ({ ...p, actual_value: e.target.value }))} autoFocus placeholder="Enter this week's number" style={{ ..._inp, flex: 1, fontSize: 18, fontWeight: 700, padding: "12px 14px" }} />
-                    {hasVal && (
-                      <div style={{ padding: "8px 16px", borderRadius: 8, fontWeight: 700, fontSize: 13, background: onTrack ? `${T.green}15` : `${T.red}15`, color: onTrack ? T.green : T.red }}>
-                        {onTrack ? "✓ On Track" : "✗ Off Track"}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Off-track improvement plan */}
-                {hasVal && !onTrack && (
-                  <div style={{ marginBottom: 16, padding: 16, background: `${T.red}08`, border: `1px solid ${T.red}25`, borderRadius: 10 }}>
-                    <label style={{ ..._lbl, color: T.red, fontWeight: 600, fontSize: 12 }}>⚠ Improvement Plan — What will you do to get this back on track?</label>
-                    <textarea value={editEntry.improvement_plan} onChange={e => setEditEntry(p => ({ ...p, improvement_plan: e.target.value }))} rows={3}
-                      placeholder="Describe the specific actions you'll take this week to improve this number..."
-                      style={{ ..._inp, resize: "vertical", background: T.surface, marginTop: 4 }} />
-                  </div>
-                )}
-
-                {/* OKR sync info */}
-                {metric && (metric.linked_kr_id || metric.linked_milestone_id) && (() => {
-                  const otherEntries = entries.filter(e => e.metric_id === metric.id && e.actual_value != null && e.week_start !== editEntry.week_start);
-                  const otherSum = otherEntries.reduce((s, e) => s + Number(e.actual_value || 0), 0);
-                  const projectedTotal = otherSum + (Number(editEntry.actual_value) || 0);
-                  const linkedName = metric.linked_kr_id ? okrKRs.find(k => k.id === metric.linked_kr_id)?.title : okrMilestones.find(m => m.id === metric.linked_milestone_id)?.title;
-                  return (
-                    <div style={{ marginBottom: 16, padding: 12, background: `${T.accent}08`, border: `1px solid ${T.accent}25`, borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginBottom: 4 }}>⟂ Linked: {linkedName}</div>
-                      <div style={{ fontSize: 12, color: T.text2 }}>Cumulative total across all weeks: <strong>{projectedTotal}</strong> {metric.unit}</div>
-                      <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>This total will sync to the linked OKR on save</div>
-                    </div>
-                  );
-                })()}
-
-                {/* Comment */}
-                <div>
-                  <label style={_lbl}>Comment (optional)</label>
-                  <textarea value={editEntry.comment} onChange={e => setEditEntry(p => ({ ...p, comment: e.target.value }))} rows={2} placeholder="Any context or notes for this week..." style={{ ..._inp, resize: "vertical" }} />
-                </div>
-              </div>
-              <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => setEditEntry(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-                <button onClick={saveEntry} style={{ padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Save</button>
-              </div>
+      {/* Scorecard Table */}
+      <div style={{ flex:1, overflow:"auto", padding:"16px 28px" }}>
+        {metrics.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"60px 0", color:T.text3 }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
+            <div style={{ fontSize:15, fontWeight:600, marginBottom:8 }}>No metrics yet</div>
+            <div style={{ fontSize:13, marginBottom:20, color:T.text3 }}>Add your weekly scorecard metrics to track KPIs over time</div>
+            <div style={{ fontSize:12, color:T.text3, maxWidth:400, margin:"0 auto", lineHeight:1.7 }}>
+              Suggested metrics: Weekly Revenue, New Customers, Ad Spend, ROAS, Refund Rate, NPS, Team Utilization
             </div>
           </div>
-        );
-      })()}
+        ) : (
+          <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
+            <thead>
+              <tr style={{ borderBottom:`2px solid ${T.border}` }}>
+                <th style={{ padding:"8px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5, minWidth:200, position:"sticky", left:0, background:T.bg||T.surface }}>Metric</th>
+                <th style={{ padding:"8px 8px", textAlign:"center", fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5, minWidth:55 }}>Goal</th>
+                <th style={{ padding:"8px 8px", textAlign:"center", fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5, minWidth:60 }}>Trend</th>
+                <th style={{ padding:"8px 8px", textAlign:"center", fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5, minWidth:50 }}>Hit%</th>
+                {WEEKS.map(w => {
+                  const d = new Date(w+"T12:00:00");
+                  const isThis = w === thisWeek;
+                  return (
+                    <th key={w} style={{ padding:"6px 4px", textAlign:"center", fontSize:9, fontWeight:700, color:isThis?T.accent:T.text3, textTransform:"uppercase", minWidth:56, background: isThis?T.accentDim:"transparent", borderRadius:isThis?"6px 6px 0 0":"0" }}>
+                      <div>{SHORT_MONTHS[d.getMonth()]}</div>
+                      <div style={{ fontSize:11, fontWeight:isThis?800:600 }}>{d.getDate()}</div>
+                    </th>
+                  );
+                })}
+                <th style={{ width:28 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {metricSummary.map((m, idx) => {
+                const hitPct = m.total > 0 ? Math.round((m.hits/m.total)*100) : null;
+                return (
+                  <tr key={m.id} style={{ borderBottom:`1px solid ${T.border}`, background: idx%2===0?"transparent":T.surface2+"60" }}>
+                    {/* Metric name + owner */}
+                    <td style={{ padding:"10px 12px", position:"sticky", left:0, background: idx%2===0?T.bg||"transparent":T.surface2+"60" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <RagDot value={m.latest} goal={m.goal} unit={m.unit} />
+                        <div>
+                          <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{m.name}</div>
+                          {m.description && <div style={{ fontSize:10, color:T.text3 }}>{m.description}</div>}
+                        </div>
+                        {m.owner_id && (
+                          <div style={{ marginLeft:"auto", width:22, height:22, borderRadius:11, background:acol(m.owner_id)+"25",
+                            border:`1.5px solid ${acol(m.owner_id)}60`, display:"flex", alignItems:"center", justifyContent:"center",
+                            fontSize:8, fontWeight:700, color:acol(m.owner_id), flexShrink:0 }}>
+                            {ini(m.owner_id)}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    {/* Goal */}
+                    <td style={{ padding:"10px 8px", textAlign:"center" }}>
+                      <span style={{ fontSize:12, color:T.text2, fontWeight:500 }}>
+                        {m.goal != null ? fmt(m.goal, m.unit) : "—"}
+                      </span>
+                    </td>
+                    {/* Sparkline */}
+                    <td style={{ padding:"10px 8px", textAlign:"center" }}>
+                      <div style={{ display:"flex", justifyContent:"center" }}>
+                        <SparkTrend values={m.vals} />
+                      </div>
+                    </td>
+                    {/* Hit % */}
+                    <td style={{ padding:"10px 8px", textAlign:"center" }}>
+                      {hitPct != null ? (
+                        <span style={{ fontSize:11, fontWeight:700,
+                          color: hitPct>=80?"#22c55e":hitPct>=60?"#eab308":"#ef4444" }}>
+                          {hitPct}%
+                        </span>
+                      ) : <span style={{ color:T.border, fontSize:11 }}>—</span>}
+                    </td>
+                    {/* Weekly cells */}
+                    {WEEKS.map(w => {
+                      const isThis = w === thisWeek;
+                      const v = entries[m.id]?.[w] ?? null;
+                      const onTarget = v!=null && m.goal!=null && (m.unit==="bool"?v>=1:v>=m.goal);
+                      return (
+                        <td key={w} style={{ padding:"6px 4px", background: isThis?T.accentDim+"80":"transparent" }}>
+                          <div style={{ position:"relative" }}>
+                            {v!=null && m.goal!=null && (
+                              <div style={{ position:"absolute", top:0, right:2, width:5, height:5, borderRadius:"50%",
+                                background: onTarget?"#22c55e":"#ef4444", zIndex:1 }} />
+                            )}
+                            <InlineEntry value={v} unit={m.unit}
+                              onSave={(val) => saveEntry(m.id, w, val)} />
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding:"6px 4px", textAlign:"center" }}>
+                      <button onClick={() => deleteMetric(m.id)}
+                        style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:12, opacity:0.5 }}>✕</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        {/* Legend */}
+        {metrics.length > 0 && (
+          <div style={{ marginTop:16, display:"flex", gap:16, fontSize:10, color:T.text3, flexWrap:"wrap" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:8, height:8, borderRadius:"50%", background:"#22c55e" }} /> On target</div>
+            <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:8, height:8, borderRadius:"50%", background:"#ef4444" }} /> Below target</div>
+            <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:5, height:5, borderRadius:"50%", background:"#22c55e", position:"relative" }} /> <span>Green dot = hit goal that week</span></div>
+            <div>Click any cell to enter or edit a value · Bool metrics: click to toggle</div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

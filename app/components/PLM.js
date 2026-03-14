@@ -1004,10 +1004,195 @@ function GateReviewsTab({ programId }) {
   );
 }
 
+
+// ─── AI ADVISOR TAB ──────────────────────────────────────────────────────────
+
+function AIAdvisorTab({ program }) {
+  const [advisorType, setAdvisorType] = useState("claims_review");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const ADVISORS = [
+    { key:"claims_review", label:"Claims Advisor", icon:"✅", desc:"Assess claim feasibility against your formula and substantiation evidence" },
+    { key:"gm_advisor",    label:"GM% Advisor",    icon:"💰", desc:"Strategic recommendations to hit your gross margin target" },
+    { key:"stage_readiness",label:"Stage Readiness",icon:"🚦", desc:"Assess readiness to advance to the next stage gate" },
+  ];
+
+  const runAdvisor = async () => {
+    setLoading(true); setResult(null); setError(null);
+    try {
+      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/plm-advisor", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4"},
+        body:JSON.stringify({ program_id:program.id, advisor_type:advisorType }),
+      });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else setResult(data.result);
+    } catch(e) { setError(String(e)); }
+    setLoading(false);
+  };
+
+  const RAG = ({ val }) => {
+    const colors = { high:"#22c55e", medium:"#eab308", low:"#ef4444", strong:"#22c55e", moderate:"#eab308", weak:"#f97316", none:"#ef4444", complete:"#22c55e", in_progress:"#eab308", not_started:"#ef4444", critical:"#ef4444", major:"#f97316", minor:"#eab308" };
+    const c = colors[val?.toLowerCase()] || T.text3;
+    return <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:4, background:c+"20", color:c, textTransform:"uppercase" }}>{val}</span>;
+  };
+
+  return (
+    <div>
+      {/* Advisor selector */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:20 }}>
+        {ADVISORS.map(a=>(
+          <div key={a.key} onClick={()=>setAdvisorType(a.key)} style={{ padding:"14px 16px", borderRadius:10, cursor:"pointer",
+            background: advisorType===a.key ? T.accentDim : T.surface2,
+            border:`1px solid ${advisorType===a.key ? T.accent : T.border}`,
+            transition:"all 0.15s" }}>
+            <div style={{ fontSize:20, marginBottom:6 }}>{a.icon}</div>
+            <div style={{ fontSize:13, fontWeight:700, color:advisorType===a.key?T.accent:T.text, marginBottom:4 }}>{a.label}</div>
+            <div style={{ fontSize:11, color:T.text3, lineHeight:1.5 }}>{a.desc}</div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={runAdvisor} disabled={loading} style={{ width:"100%", padding:12, fontSize:14, fontWeight:700,
+        background:loading?"transparent":T.accent, color:loading?T.text3:"#fff",
+        border:`1px solid ${loading?T.border:T.accent}`, borderRadius:9, cursor:loading?"wait":"pointer",
+        marginBottom:20, transition:"all 0.15s" }}>
+        {loading ? "🤖 Analyzing your program…" : `Run ${ADVISORS.find(a=>a.key===advisorType)?.label}`}
+      </button>
+
+      {loading && (
+        <div style={{ textAlign:"center", padding:"40px 0", color:T.text3 }}>
+          <div style={{ fontSize:32, marginBottom:12, animation:"pulse 1s ease-in-out infinite" }}>🤖</div>
+          <div style={{ fontSize:14, fontWeight:600, marginBottom:4 }}>Analyzing your program…</div>
+          <div style={{ fontSize:12 }}>Reviewing formula, claims, sourcing, and test data</div>
+        </div>
+      )}
+
+      {error && <div style={{ padding:"12px 16px", background:"#ef444415", border:"1px solid #ef444440", borderRadius:9, color:"#ef4444", fontSize:13 }}>⚠️ {error}</div>}
+
+      {result && !loading && (
+        <div>
+          {/* Claims Review */}
+          {advisorType==="claims_review" && (
+            <div>
+              {result.overall_assessment && (
+                <div style={{ padding:"14px 16px", background:T.surface2, border:"1px solid "+T.border, borderRadius:10, marginBottom:16 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:1, marginBottom:6 }}>Overall Assessment</div>
+                  <div style={{ fontSize:13, color:T.text, lineHeight:1.7 }}>{result.overall_assessment}</div>
+                </div>
+              )}
+              {(result.claim_reviews||[]).map((cr,i)=>(
+                <div key={i} style={{ padding:"16px", background:T.surface2, border:"1px solid "+T.border, borderRadius:10, marginBottom:12 }}>
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:12 }}>
+                    <span style={{ fontSize:16, fontWeight:800, color:T.accent, flexShrink:0 }}>#{cr.claim_number}</span>
+                    <div style={{ fontSize:13, color:T.text, lineHeight:1.5, flex:1 }}>{cr.claim_text}</div>
+                  </div>
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12 }}>
+                    {cr.feasibility&&<div style={{ display:"flex", alignItems:"center", gap:4 }}><span style={{ fontSize:10, color:T.text3 }}>Feasibility:</span><RAG val={cr.feasibility}/></div>}
+                    {cr.evidence_strength&&<div style={{ display:"flex", alignItems:"center", gap:4 }}><span style={{ fontSize:10, color:T.text3 }}>Evidence:</span><RAG val={cr.evidence_strength}/></div>}
+                    {cr.regulatory_risk&&<div style={{ display:"flex", alignItems:"center", gap:4 }}><span style={{ fontSize:10, color:T.text3 }}>Reg Risk:</span><RAG val={cr.regulatory_risk}/></div>}
+                  </div>
+                  {cr.gaps?.length>0&&(
+                    <div style={{ marginBottom:10 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"#ef4444", marginBottom:4 }}>Gaps</div>
+                      {cr.gaps.map((g,gi)=><div key={gi} style={{ fontSize:12, color:T.text2, padding:"2px 0" }}>• {g}</div>)}
+                    </div>
+                  )}
+                  {cr.recommendations?.length>0&&(
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:"#22c55e", marginBottom:4 }}>Recommendations</div>
+                      {cr.recommendations.map((r,ri)=><div key={ri} style={{ fontSize:12, color:T.text2, padding:"2px 0" }}>✓ {r}</div>)}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {result.next_steps?.length>0&&(
+                <div style={{ padding:"14px 16px", background:T.accentDim, border:"1px solid "+T.accent+"40", borderRadius:10 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:T.accent, marginBottom:8 }}>Priority Next Steps</div>
+                  {result.next_steps.map((s,i)=><div key={i} style={{ fontSize:12, color:T.text, padding:"3px 0" }}>{i+1}. {s}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* GM Advisor */}
+          {advisorType==="gm_advisor" && (
+            <div>
+              {result.summary&&<div style={{ padding:"14px 16px", background:T.surface2, border:"1px solid "+T.border, borderRadius:10, marginBottom:16, fontSize:13, color:T.text, lineHeight:1.7 }}>{result.summary}</div>}
+              {result.gm_benchmark&&(
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:16 }}>
+                  {[["Low",result.gm_benchmark.low+"%","#ef4444"],["Typical",result.gm_benchmark.typical+"%","#eab308"],["High",result.gm_benchmark.high+"%","#22c55e"]].map(([l,v,c])=>(
+                    <div key={l} style={{ padding:"14px", background:T.surface2, border:"1px solid "+T.border, borderRadius:9, textAlign:"center" }}>
+                      <div style={{ fontSize:22, fontWeight:800, color:c }}>{v}</div>
+                      <div style={{ fontSize:11, color:T.text3 }}>{l} GM%</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(result.recommendations||[]).map((r,i)=>(
+                <div key={i} style={{ padding:"12px 14px", background:T.surface2, border:"1px solid "+T.border, borderRadius:9, marginBottom:10, display:"flex", gap:10 }}>
+                  <RAG val={r.impact}/>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:600, marginBottom:4 }}>{r.title}</div>
+                    <div style={{ fontSize:12, color:T.text2, lineHeight:1.5 }}>{r.detail}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Stage Readiness */}
+          {advisorType==="stage_readiness" && (
+            <div>
+              {result.readiness_score!=null&&(
+                <div style={{ display:"flex", alignItems:"center", gap:20, padding:"20px", background:T.surface2, border:"1px solid "+T.border, borderRadius:12, marginBottom:16 }}>
+                  <div style={{ position:"relative", flexShrink:0 }}>
+                    <svg width={80} height={80} style={{ transform:"rotate(-90deg)" }}>
+                      <circle cx={40} cy={40} r={32} fill="none" stroke={T.surface3} strokeWidth={6}/>
+                      <circle cx={40} cy={40} r={32} fill="none" stroke={result.readiness_score>=80?"#22c55e":result.readiness_score>=60?"#eab308":"#ef4444"} strokeWidth={6}
+                        strokeDasharray={`${(result.readiness_score/100)*201} 201`} strokeLinecap="round"/>
+                    </svg>
+                    <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:800, color:T.text }}>{result.readiness_score}%</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>{result.current_stage} → {result.next_stage}</div>
+                    <div style={{ fontSize:13, color:T.text2, lineHeight:1.6 }}>{result.summary}</div>
+                  </div>
+                </div>
+              )}
+              {result.blockers?.length>0&&(
+                <div style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:"#ef4444", textTransform:"uppercase", letterSpacing:1, marginBottom:8 }}>Blockers</div>
+                  {result.blockers.map((b,i)=>(
+                    <div key={i} style={{ display:"flex", gap:8, alignItems:"center", padding:"9px 12px", background:"#ef444410", border:"1px solid #ef444430", borderRadius:8, marginBottom:6 }}>
+                      <RAG val={b.severity}/><div style={{ fontSize:12, color:T.text }}>{b.item}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(result.checklist||[]).map((item,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:T.surface2, border:"1px solid "+T.border, borderRadius:8, marginBottom:6 }}>
+                  <span style={{ fontSize:16 }}>{item.status==="complete"?"✅":item.status==="in_progress"?"🔄":"⬜"}</span>
+                  <div style={{ flex:1, fontSize:12, color:T.text }}>{item.item}</div>
+                  {item.required&&<span style={{ fontSize:9, fontWeight:700, color:T.accent, background:T.accentDim, padding:"2px 6px", borderRadius:4 }}>REQUIRED</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PROGRAM DETAIL ───────────────────────────────────────────────────────────
 
 const DETAIL_TABS = [
   { key:"overview",      label:"Overview"       },
+  { key:"ai_advisor",    label:"🤖 AI Advisor"  },
   { key:"claims_sub",    label:"Claims & Evidence"},
   { key:"formulations",  label:"Formulations"   },
   { key:"sourcing",      label:"Sourcing"       },
@@ -1043,6 +1228,7 @@ function ProgramDetail({ program, onBack, onUpdate }) {
   const renderTab=()=>{
     switch(tab){
       case "overview":     return <OverviewTab program={program} onUpdate={onUpdate} counts={counts} />;
+      case "ai_advisor":   return <AIAdvisorTab program={program} />;
       case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
       case "sourcing":     return <SourcingTab program={program} />;
       case "gm_scenarios": return <GMScenarioTab program={program} />;

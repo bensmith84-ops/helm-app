@@ -4,107 +4,196 @@ import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 
+const TYPE_CONFIG = {
+  okr_deadline:   { icon:"◎", color:"#f97316", label:"OKR Deadline" },
+  task_overdue:   { icon:"☐", color:"#ef4444", label:"Overdue Task" },
+  plm_stage:      { icon:"⬢", color:"#8b5cf6", label:"PLM Update" },
+  approval:       { icon:"⏳", color:"#eab308", label:"Approval Needed" },
+  mention:        { icon:"💬", color:"#3b82f6", label:"Mention" },
+  system:         { icon:"🔔", color:"#22c55e", label:"System" },
+  sheets_sync:    { icon:"📊", color:"#22c55e", label:"Sync Complete" },
+};
+
+const relTime = (d) => {
+  const diff = Date.now() - new Date(d).getTime();
+  if (diff < 60000)     return "just now";
+  if (diff < 3600000)   return `${Math.floor(diff/60000)}m ago`;
+  if (diff < 86400000)  return `${Math.floor(diff/3600000)}h ago`;
+  if (diff < 604800000) return `${Math.floor(diff/86400000)}d ago`;
+  return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+};
+
 export default function NotificationBell({ setActive }) {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState([]);
   const [open, setOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(false);
   const ref = useRef(null);
+
+  const unread = notifications.filter(n => !n.is_read).length;
+
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   useEffect(() => {
     if (!user) return;
-    (async () => {
-      const { data } = await supabase.from("notifications").select("*")
-        .eq("user_id", user.id).order("created_at", { ascending: false }).limit(20);
-      setNotifications(data || []);
-    })();
-    // Realtime
-    const channel = supabase.channel(`notif-${user.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, (payload) => {
-        setNotifications(p => [payload.new, ...p.slice(0, 19)]);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user?.id]);
+    loadNotifications();
 
+    // Subscribe to new notifications
+    const channel = supabase.channel("notifications")
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "notifications",
+        filter: `user_id=eq.${user.id}`
+      }, payload => {
+        setNotifications(p => [payload.new, ...p]);
+      }).subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user]);
+
+  // Auto-generate notifications for overdue tasks and OKR deadlines
   useEffect(() => {
-    const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
-  }, []);
+    if (!user) return;
+    generateNotifications();
+  }, [user]);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const loadNotifications = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("notifications")
+      .select("*").eq("user_id", user.id)
+      .order("created_at", { ascending: false }).limit(30);
+    setNotifications(data || []);
+    setLoading(false);
+  };
+
+  const generateNotifications = async () => {
+    const today = new Date().toISOString().split("T")[0];
+    // Check for overdue tasks assigned to me
+    const { data: overdueTasks } = await supabase.from("tasks")
+      .select("id,title,due_date").eq("assignee_id", user.id)
+      .lt("due_date", today).neq("status","done").neq("status","cancelled")
+      .limit(5);
+
+    for (const task of (overdueTasks || [])) {
+      const daysLate = Math.ceil((new Date() - new Date(task.due_date)) / 86400000);
+      // Check if we already sent this notification recently
+      const { data: existing } = await supabase.from("notifications")
+        .select("id").eq("user_id", user.id).eq("type", "task_overdue")
+        .eq("link_id", task.id).gte("created_at", new Date(Date.now() - 86400000).toISOString())
+        .maybeSingle();
+      if (!existing) {
+        await supabase.from("notifications").insert({
+          user_id: user.id, type:"task_overdue",
+          title: `Task overdue: ${task.title}`,
+          body: `${daysLate} day${daysLate!==1?"s":""} late`,
+          link_module: "projects", link_id: task.id,
+        });
+      }
+    }
+    loadNotifications();
+  };
 
   const markRead = async (id) => {
-    setNotifications(p => p.map(n => n.id === id ? { ...n, read: true } : n));
-    await supabase.from("notifications").update({ read: true }).eq("id", id);
+    await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+    setNotifications(p => p.map(n => n.id === id ? {...n, is_read: true} : n));
   };
 
   const markAllRead = async () => {
-    const unread = notifications.filter(n => !n.read).map(n => n.id);
-    if (unread.length === 0) return;
-    setNotifications(p => p.map(n => ({ ...n, read: true })));
-    await supabase.from("notifications").update({ read: true }).in("id", unread);
+    await supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("is_read", false);
+    setNotifications(p => p.map(n => ({...n, is_read: true})));
   };
 
-  const timeAgo = (d) => {
-    const s = Math.floor((Date.now() - new Date(d)) / 1000);
-    if (s < 60) return "just now";
-    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-    return `${Math.floor(s / 86400)}d ago`;
+  const deleteNotif = async (id, e) => {
+    e.stopPropagation();
+    await supabase.from("notifications").delete().eq("id", id);
+    setNotifications(p => p.filter(n => n.id !== id));
   };
-
-  const TYPE_ICONS = { task_assigned: "📋", comment: "💬", overdue: "⚠️", mention: "@", info: "ℹ️" };
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button onClick={() => setOpen(p => !p)} style={{
-        background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6,
-        cursor: "pointer", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center",
-        position: "relative", color: T.text3, fontSize: 15,
+    <div ref={ref} style={{ position:"relative" }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width:36, height:36, borderRadius:9, background: open ? T.accentDim : "transparent",
+        border: open ? `1px solid ${T.accent}40` : "1px solid transparent",
+        cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+        position:"relative", transition:"all 0.15s",
       }}>
-        🔔
-        {unreadCount > 0 && (
-          <span style={{
-            position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: 8,
-            background: "#ef4444", color: "#fff", fontSize: 9, fontWeight: 700,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>{unreadCount > 9 ? "9+" : unreadCount}</span>
+        <span style={{ fontSize:18, filter: unread>0?"none":"opacity(0.6)" }}>🔔</span>
+        {unread > 0 && (
+          <div style={{
+            position:"absolute", top:4, right:4, minWidth:16, height:16,
+            borderRadius:8, background:"#ef4444", color:"#fff",
+            fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center",
+            padding:"0 3px", lineHeight:1,
+          }}>{unread > 9 ? "9+" : unread}</div>
         )}
       </button>
 
       {open && (
         <div style={{
-          position: "absolute", top: 40, right: 0, width: 340, maxHeight: 420,
-          background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`,
-          boxShadow: "0 12px 40px rgba(0,0,0,0.4)", overflow: "hidden", zIndex: 50,
+          position:"absolute", top:"calc(100% + 8px)", right:0, width:380, maxHeight:520,
+          background:T.surface, border:`1px solid ${T.border}`, borderRadius:12,
+          boxShadow:"0 16px 48px #00000060", zIndex:500, display:"flex", flexDirection:"column",
+          overflow:"hidden",
         }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontSize: 14, fontWeight: 700 }}>Notifications</span>
-            {unreadCount > 0 && (
-              <button onClick={markAllRead} style={{ background: "none", border: "none", color: T.accent, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>Mark all read</button>
+          {/* Header */}
+          <div style={{ padding:"14px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+            <div style={{ fontSize:14, fontWeight:700 }}>Notifications {unread>0&&<span style={{ fontSize:11, color:T.accent, marginLeft:4 }}>{unread} new</span>}</div>
+            {unread > 0 && (
+              <button onClick={markAllRead} style={{ fontSize:11, color:T.accent, background:"none", border:"none", cursor:"pointer", fontWeight:600 }}>Mark all read</button>
             )}
           </div>
-          <div style={{ overflow: "auto", maxHeight: 360 }}>
-            {notifications.length === 0 && (
-              <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 13 }}>No notifications</div>
-            )}
-            {notifications.map(n => (
-              <div key={n.id}
-                onClick={() => { markRead(n.id); if (n.link) { setActive?.(n.link); setOpen(false); } }}
-                style={{
-                  display: "flex", gap: 10, padding: "10px 16px", cursor: "pointer",
-                  background: n.read ? "transparent" : `${T.accent}06`,
-                  borderBottom: `1px solid ${T.border}`, borderLeft: n.read ? "3px solid transparent" : `3px solid ${T.accent}`,
-                }}>
-                <span style={{ fontSize: 16, flexShrink: 0 }}>{TYPE_ICONS[n.type] || "ℹ️"}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: n.read ? 400 : 600, color: T.text, lineHeight: 1.4 }}>{n.title}</div>
-                  {n.body && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{n.body}</div>}
-                  <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>{timeAgo(n.created_at)}</div>
-                </div>
+
+          {/* List */}
+          <div style={{ overflowY:"auto", flex:1 }}>
+            {loading && <div style={{ padding:20, textAlign:"center", color:T.text3, fontSize:12 }}>Loading…</div>}
+            {!loading && notifications.length === 0 && (
+              <div style={{ padding:"32px 16px", textAlign:"center", color:T.text3 }}>
+                <div style={{ fontSize:28, marginBottom:8 }}>🔔</div>
+                <div style={{ fontSize:13 }}>You're all caught up!</div>
               </div>
-            ))}
+            )}
+            {notifications.map(n => {
+              const cfg = TYPE_CONFIG[n.type] || TYPE_CONFIG.system;
+              return (
+                <div key={n.id} onClick={() => { markRead(n.id); if(n.link_module) setActive(n.link_module); setOpen(false); }}
+                  style={{
+                    padding:"12px 16px", borderBottom:`1px solid ${T.border}`, cursor:"pointer",
+                    background: n.is_read ? "transparent" : T.accentDim+"30",
+                    display:"flex", gap:12, alignItems:"flex-start", transition:"background 0.1s",
+                  }}
+                  onMouseEnter={e=>e.currentTarget.style.background=T.surface2}
+                  onMouseLeave={e=>e.currentTarget.style.background=n.is_read?"transparent":T.accentDim+"30"}>
+                  <div style={{ width:34, height:34, borderRadius:9, background:cfg.color+"20", border:`1px solid ${cfg.color}40`,
+                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>
+                    {cfg.icon}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:n.is_read?400:600, color:T.text, lineHeight:1.4, marginBottom:2 }}>{n.title}</div>
+                    {n.body && <div style={{ fontSize:11, color:T.text3, lineHeight:1.4 }}>{n.body}</div>}
+                    <div style={{ fontSize:10, color:T.text3, marginTop:4, display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ color:cfg.color, fontWeight:600 }}>{cfg.label}</span>
+                      <span>·</span>
+                      <span>{relTime(n.created_at)}</span>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, flexShrink:0 }}>
+                    {!n.is_read && <div style={{ width:8, height:8, borderRadius:"50%", background:T.accent }} />}
+                    <button onClick={e => deleteNotif(n.id, e)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:12, opacity:0.5, padding:0 }}>✕</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Footer */}
+          <div style={{ padding:"10px 16px", borderTop:`1px solid ${T.border}`, flexShrink:0, display:"flex", justifyContent:"center" }}>
+            <button onClick={() => { setActive("activity"); setOpen(false); }}
+              style={{ fontSize:12, color:T.accent, background:"none", border:"none", cursor:"pointer", fontWeight:500 }}>
+              View all activity →
+            </button>
           </div>
         </div>
       )}
