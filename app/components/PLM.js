@@ -301,7 +301,7 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
             <div>
               <div style={{ fontSize:11,color:T.text3,marginBottom:4,fontWeight:600 }}>Supplier Name</div>
               <SupplierPicker ingredientName={vals.name} value={vals.supplier_name}
-                onChange={v=>setVals(p=>({...p,supplier_name:v}))}
+                onChange={v=>{ setVals(p=>({...p,supplier_name:v})); saveField("supplier_name",v); }}
                 onBlur={()=>saveField("supplier_name",vals.supplier_name)} />
             </div>
             <InlineField label="Supplier Contact" value={vals.supplier_contact} onChange={v=>setVals(p=>({...p,supplier_contact:v}))} onBlur={()=>saveField("supplier_contact",vals.supplier_contact)} />
