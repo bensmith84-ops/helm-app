@@ -1119,13 +1119,10 @@ export default function OKRsView() {
   const syncFromSheets = async () => {
     setFinSyncing(true); setFinSyncMsg("");
     try {
-      // Refresh session to get a fresh token
-      const { data: { session } } = await supabase.auth.refreshSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
       const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/sheets-sync", {
         method: "POST",
         headers: {
-          Authorization: "Bearer " + session.access_token,
+          Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4",
           "Content-Type": "application/json",
         },
       });
