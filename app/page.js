@@ -57,6 +57,39 @@ export default function HelmApp() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [badges, setBadges] = useState({});
+  const [globalToast, setGlobalToast] = useState(null);
+
+  // Handle QBO OAuth redirect params (Intuit sends back to root URL)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("qbo_connected")) {
+      const co = params.get("company");
+      setGlobalToast({ msg: `QuickBooks${co ? ` (${decodeURIComponent(co)})` : ""} connected successfully ✓`, color: "#22c55e" });
+      setActive("finance");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("qbo_disconnected")) {
+      setGlobalToast({ msg: "QuickBooks disconnected", color: "#8b93a8" });
+      setActive("settings");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("qbo_reconnect")) {
+      setGlobalToast({ msg: "Reconnect QuickBooks from Settings → Integrations", color: "#f97316" });
+      setActive("settings");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("qbo_error")) {
+      setGlobalToast({ msg: `QBO connection error: ${params.get("qbo_error")}`, color: "#ef4444" });
+      setActive("settings");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
+  // Auto-dismiss global toast
+  useEffect(() => {
+    if (!globalToast) return;
+    const t = setTimeout(() => setGlobalToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [globalToast]);
 
   useEffect(() => {
     let gPressed = false; let gTimer = null;
@@ -173,6 +206,14 @@ export default function HelmApp() {
         </div>
       </div>
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} setActive={setActive} />
+      {globalToast && (
+        <div style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", padding:"12px 24px", borderRadius:10,
+          background:globalToast.color, color:"#fff", fontSize:13, fontWeight:600, zIndex:9999,
+          boxShadow:"0 4px 20px #00000050", whiteSpace:"nowrap", pointerEvents:"none",
+          animation:"slideUp 0.2s ease" }}>
+          {globalToast.msg}
+        </div>
+      )}
       {showShortcuts && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowShortcuts(false)}>
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
