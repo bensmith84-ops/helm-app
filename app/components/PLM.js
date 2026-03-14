@@ -169,7 +169,19 @@ function FormulaItemRow({ item, onUpdate, onDelete }) {
   return (
     <tr style={{ borderBottom:"1px solid "+T.border }}>
       <td style={td}>
-        <input value={vals.ingredient_name||""} onChange={e=>handleChange("ingredient_name",e.target.value)} onBlur={handleBlur} style={inp} placeholder="Name" />
+        <div style={{ position:"relative" }}>
+        <input
+          list={`lib-ing-${item.id}`}
+          value={vals.ingredient_name||""}
+          onChange={e=>{ handleChange("ingredient_name",e.target.value); }}
+          onBlur={handleBlur}
+          style={inp}
+          placeholder="Name or pick from library…"
+        />
+        <datalist id={`lib-ing-${item.id}`}>
+          {(window.__helmLibIngredients||[]).map(i=><option key={i.id} value={i.name} />)}
+        </datalist>
+      </div>
       </td>
       <td style={{...td,width:90}}>
         <select value={vals.item_type||"ingredient"} onChange={e=>{handleChange("item_type",e.target.value);}} onBlur={handleBlur}
@@ -861,6 +873,142 @@ function GMScenarioTab({ program }) {
   );
 }
 
+// ─── INGREDIENT PICKER MODAL ─────────────────────────────────────────────────
+// Shown when clicking "+ Ingredient" — lets user search library or create custom
+
+function IngredientPickerModal({ onPick, onClose }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [allIngredients, setAllIngredients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState("library"); // "library" | "custom"
+  const [customName, setCustomName] = useState("");
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    supabase.from("plm_ingredient_library").select("id,name,category,ingredient_type,default_uom")
+      .eq("active", true).order("name")
+      .then(({ data }) => {
+        const ing = data || [];
+        setAllIngredients(ing);
+        setResults(ing);
+        // Cache globally for datalist in FormulaItemRow
+        window.__helmLibIngredients = ing;
+        setLoading(false);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!query.trim()) { setResults(allIngredients); return; }
+    const q = query.toLowerCase();
+    setResults(allIngredients.filter(i =>
+      i.name.toLowerCase().includes(q) || (i.category||"").toLowerCase().includes(q)
+    ));
+  }, [query, allIngredients]);
+
+  const pick = (name, uom, type) => {
+    onPick({ name, uom: uom||"", type: type||"ingredient" });
+  };
+
+  const typeColor = { ingredient:T.accent, packaging:"#8b5cf6", other:"#8b93a8" };
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"#00000060",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center" }}
+      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div style={{ background:T.surface,border:"1px solid "+T.border,borderRadius:14,width:520,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px #00000080" }}>
+        {/* Header */}
+        <div style={{ padding:"16px 20px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:15,fontWeight:700,color:T.text }}>Add Ingredient</div>
+            <div style={{ fontSize:11,color:T.text3,marginTop:2 }}>Search your library or enter a custom ingredient</div>
+          </div>
+          <button onClick={onClose} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:18,lineHeight:1,padding:0 }}>✕</button>
+        </div>
+
+        {/* Tab toggle */}
+        <div style={{ display:"flex",padding:"10px 20px 0",gap:4,flexShrink:0 }}>
+          {[["library","📋 From Library"],["custom","✏️ Custom"]].map(([m,l])=>(
+            <button key={m} onClick={()=>setMode(m)} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,borderRadius:"6px 6px 0 0",border:"1px solid "+(mode===m?T.border:"transparent"),borderBottom:"none",background:mode===m?T.surface2:"transparent",color:mode===m?T.text:T.text3,cursor:"pointer" }}>{l}</button>
+          ))}
+        </div>
+
+        {/* Library search */}
+        {mode==="library" && (
+          <>
+            <div style={{ padding:"12px 20px",borderTop:"1px solid "+T.border,borderBottom:"1px solid "+T.border,flexShrink:0 }}>
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={e=>setQuery(e.target.value)}
+                placeholder="Search by name or category…"
+                style={{ width:"100%",fontSize:13,padding:"8px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:7,color:T.text,outline:"none",boxSizing:"border-box" }}
+              />
+            </div>
+            <div style={{ overflow:"auto",flex:1 }}>
+              {loading && <div style={{ padding:24,textAlign:"center",color:T.text3,fontSize:12 }}>Loading library…</div>}
+              {!loading && results.length===0 && (
+                <div style={{ padding:24,textAlign:"center",color:T.text3 }}>
+                  <div style={{ fontSize:13,marginBottom:8 }}>No matches for "{query}"</div>
+                  <button onClick={()=>{ setCustomName(query); setMode("custom"); }}
+                    style={{ fontSize:12,fontWeight:600,color:T.accent,background:"none",border:"none",cursor:"pointer" }}>
+                    Add "{query}" as a custom ingredient →
+                  </button>
+                </div>
+              )}
+              {!loading && results.map(ing => (
+                <div key={ing.id} onClick={()=>pick(ing.name, ing.default_uom, ing.ingredient_type)}
+                  style={{ display:"flex",alignItems:"center",gap:12,padding:"11px 20px",cursor:"pointer",borderBottom:"1px solid "+T.border }}
+                  onMouseEnter={e=>e.currentTarget.style.background=T.surface2}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13,fontWeight:600,color:T.text }}>{ing.name}</div>
+                    {ing.category && <div style={{ fontSize:11,color:T.text3,marginTop:1 }}>{ing.category}</div>}
+                  </div>
+                  <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                    {ing.default_uom && <span style={{ fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:4,background:T.surface3,color:T.text3 }}>{ing.default_uom}</span>}
+                    <span style={{ fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4,
+                      background:typeColor[ing.ingredient_type]+"20",color:typeColor[ing.ingredient_type] }}>
+                      {ing.ingredient_type}
+                    </span>
+                  </div>
+                  <span style={{ fontSize:11,color:T.accent }}>+ Add →</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Custom entry */}
+        {mode==="custom" && (
+          <div style={{ padding:20,flex:1 }}>
+            <div style={{ fontSize:11,fontWeight:600,color:T.text3,marginBottom:6 }}>Ingredient Name *</div>
+            <input
+              autoFocus
+              value={customName}
+              onChange={e=>setCustomName(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"&&customName.trim()) pick(customName.trim(),"","ingredient"); }}
+              placeholder="e.g. Sodium Carbonate"
+              style={{ width:"100%",fontSize:14,padding:"10px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:8,color:T.text,outline:"none",boxSizing:"border-box",marginBottom:16 }}
+            />
+            <div style={{ fontSize:11,color:T.text3,marginBottom:12 }}>
+              💡 Adding a custom ingredient won't save it to the library. To reuse it across programs, add it to the <strong>Library</strong> tab first.
+            </div>
+            <div style={{ display:"flex",gap:8 }}>
+              <button onClick={onClose} style={{ flex:1,padding:"9px 0",fontSize:13,background:T.surface3,color:T.text2,border:"1px solid "+T.border,borderRadius:7,cursor:"pointer" }}>Cancel</button>
+              <button onClick={()=>{ if(customName.trim()) pick(customName.trim(),"","ingredient"); }}
+                disabled={!customName.trim()}
+                style={{ flex:2,padding:"9px 0",fontSize:13,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:7,cursor:"pointer",opacity:customName.trim()?1:0.5 }}>
+                Add "{customName||"…"}"
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── TAB: FORMULATIONS ────────────────────────────────────────────────────────
 
 function FormulationsTab({ programId }) {
@@ -868,10 +1016,11 @@ function FormulationsTab({ programId }) {
   const [selected, setSelected] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showPicker, setShowPicker] = useState(false);
   useEffect(()=>{ supabase.from("plm_formulations").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setFormulas(data||[]);setLoading(false);}); },[programId]);
   useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("formulation_id",selected.id).order("sort_order,created_at").then(({data})=>setItems(data||[])); },[selected]);
   const addFormula=async()=>{ const{data}=await supabase.from("plm_formulations").insert({program_id:programId,name:"New Formulation",version:"v1.0",status:"draft"}).select().single(); if(data){setFormulas(p=>[...p,data]);setSelected(data);} };
-  const addItem=async()=>{ if(!selected)return; const{data}=await supabase.from("plm_formula_items").insert({formulation_id:selected.id,ingredient_name:"",item_type:"ingredient",quantity:0,unit:"%",input_qty:null,input_uom:null}).select().single(); if(data)setItems(p=>[...p,data]); };
+  const addItem=async({ name="", uom="", type="ingredient" }={})=>{ if(!selected)return; const{data}=await supabase.from("plm_formula_items").insert({formulation_id:selected.id,ingredient_name:name,item_type:type,quantity:0,unit:"%",input_qty:null,input_uom:uom||null}).select().single(); if(data)setItems(p=>[...p,data]); };
   const totalPct=items.filter(i=>i.unit==="%").reduce((a,b)=>a+parseFloat(b.quantity||0),0);
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -891,17 +1040,18 @@ function FormulationsTab({ programId }) {
               <div><div style={{ fontSize:15,fontWeight:600,color:T.text }}>{selected.name}</div><div style={{ fontSize:11,color:T.text3 }}>{selected.version}</div></div>
               <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                 <span style={{ fontSize:12,color:totalPct>100.5?"#ef4444":totalPct>99.4?"#22c55e":"#eab308",fontWeight:600 }}>Total: {totalPct.toFixed(2)}%</span>
-                <AddBtn onClick={addItem} label="Ingredient" />
+                <button onClick={()=>setShowPicker(true)} style={{ display:"flex",alignItems:"center",gap:5,padding:"5px 12px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ Ingredient</button>
               </div>
             </div>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Name","Type","Formula %","Unit","Input Qty","UOM","Function",""].map(h=><th key={h} style={{ padding:"4px 6px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>{h}</th>)}</tr></thead>
               <tbody>{items.map(item=><FormulaItemRow key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={async()=>{await supabase.from("plm_formula_items").delete().eq("id",item.id);setItems(p=>p.filter(x=>x.id!==item.id));}} />)}</tbody>
             </table>
-            {items.length===0&&<EmptyState icon="🧪" text="No ingredients — add one to get started" />}
+            {items.length===0&&<EmptyState icon="🧪" text="No ingredients — click + Ingredient to add from library or type your own" />}
           </>
         )}
       </div>
+      {showPicker&&<IngredientPickerModal onPick={async(picked)=>{ await addItem(picked); setShowPicker(false); }} onClose={()=>setShowPicker(false)} />}
     </div>
   );
 }
