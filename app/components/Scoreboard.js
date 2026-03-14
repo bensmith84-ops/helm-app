@@ -18,6 +18,47 @@ const fmt$ = (v, compact=true) => {
 };
 const fmtN = (v) => v == null ? "—" : Number(v).toLocaleString();
 const fmtPct = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
+
+// METRIC_META: display info for all scoreboard metrics
+const METRIC_META = {
+  revenue:          { label:"Revenue",                  unit:"$",  group:"Finance",      color:"#22c55e" },
+  comp_yago:        { label:"COMP YAGO",                unit:"$",  group:"Finance",      color:"#22c55e" },
+  amazon_revenue:   { label:"Amazon Revenue",           unit:"$",  group:"Finance",      color:"#f97316" },
+  net_dollars:      { label:"Net $",                    unit:"$",  group:"Finance",      color:"#22c55e" },
+  ad_spend:         { label:"Ad Spend",                 unit:"$",  group:"Finance",      color:"#ef4444" },
+  opex_pct_rev:     { label:"OPEX % REV",               unit:"%",  group:"Finance",      color:"#8b5cf6" },
+  roas:             { label:"ROAS",                     unit:"x",  group:"Finance",      color:"#4f7fff" },
+  units_shipped:    { label:"Units Shipped",            unit:"#",  group:"Operations",   color:"#4f7fff" },
+  total_orders:     { label:"Total Orders",             unit:"#",  group:"Orders",       color:"#4f7fff" },
+  new_orders:       { label:"New Orders",               unit:"#",  group:"Orders",       color:"#22c55e" },
+  amazon_total_orders:{ label:"Amazon Total Orders",    unit:"#",  group:"Orders",       color:"#f97316" },
+  dtc_new_customers:{ label:"DTC New Unique Customers", unit:"#",  group:"Customers",    color:"#22c55e" },
+  amz_new_customers:{ label:"AMZ New Unique Customers", unit:"#",  group:"Customers",    color:"#f97316" },
+  new_gwp_subs:     { label:"New GWP Subs",             unit:"#",  group:"Subscriptions",color:"#4f7fff" },
+  gwp_cpa:          { label:"GWP CPA",                  unit:"$",  group:"Subscriptions",color:"#8b5cf6" },
+  new_shopify_subs: { label:"New Shopify Subs",         unit:"#",  group:"Subscriptions",color:"#22c55e" },
+  upsell_take_rate: { label:"Upsell Take Rate",         unit:"%",  group:"Subscriptions",color:"#f97316" },
+  sub_rate:         { label:"Sub Rate %",               unit:"%",  group:"Subscriptions",color:"#4f7fff" },
+  daily_cancels:    { label:"Daily Cancels",            unit:"#",  group:"Subscriptions",color:"#ef4444" },
+  amz_net_subs:     { label:"Amz Net Daily Subs",       unit:"#",  group:"Subscriptions",color:"#f97316" },
+  net_daily_subs:   { label:"Net Daily Subs",           unit:"#",  group:"Subscriptions",color:"#22c55e" },
+  cpa:              { label:"CPA",                      unit:"$",  group:"Acquisition",  color:"#8b5cf6" },
+  dtc_cac:          { label:"DTC CAC",                  unit:"$",  group:"Acquisition",  color:"#4f7fff" },
+  x_cac:            { label:"X-CAC",                    unit:"$",  group:"Acquisition",  color:"#8b5cf6" },
+  nc_aov:           { label:"NC AOV",                   unit:"$",  group:"Acquisition",  color:"#22c55e" },
+  traffic:          { label:"Traffic (Sessions)",        unit:"#",  group:"Marketing",    color:"#4f7fff" },
+  blended_cvr:      { label:"Blended CVR",              unit:"%",  group:"Marketing",    color:"#22c55e" },
+};
+
+const fmtVal = (v, unit, compact=true) => {
+  if (v == null || v === undefined) return "—";
+  const n = Number(v);
+  if (isNaN(n)) return "—";
+  if (unit === "$") return fmt$(n, compact);
+  if (unit === "%") return n.toFixed(1) + "%";
+  if (unit === "x") return n.toFixed(2) + "x";
+  return compact && n >= 1e6 ? (n/1e6).toFixed(1)+"M" : compact && n >= 1e3 ? (n/1e3).toFixed(1)+"K" : n.toLocaleString();
+};
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // ── Mini SVG Bar Chart ──────────────────────────────────────────────────────
@@ -498,10 +539,23 @@ export default function ScoreboardView() {
             ) : (
               <div>
                 <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
-                  {Object.keys(daily).map(k => (
-                    <button key={k} onClick={()=>setSelectedMetric(k)} style={{ padding:"5px 12px", fontSize:12, fontWeight:600, borderRadius:6, border:"none", cursor:"pointer", background:selectedMetric===k?T.accent:T.surface2, color:selectedMetric===k?"#fff":T.text3 }}>
-                      {daily[k]?.[0]?.metric_label || k}
-                    </button>
+                  {/* Group metrics by category */}
+                  {Object.entries(
+                    Object.keys(daily).reduce((groups, k) => {
+                      const g = (METRIC_META[k]?.group) || "Other";
+                      if (!groups[g]) groups[g] = [];
+                      groups[g].push(k);
+                      return groups;
+                    }, {})
+                  ).map(([group, keys]) => (
+                    <div key={group} style={{ display:"flex", flexWrap:"wrap", gap:4, alignItems:"center" }}>
+                      <span style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5, marginRight:2 }}>{group}</span>
+                      {keys.map(k => (
+                        <button key={k} onClick={()=>setSelectedMetric(k)} style={{ padding:"4px 10px", fontSize:11, fontWeight:600, borderRadius:5, border:"none", cursor:"pointer", background:selectedMetric===k?(METRIC_META[k]?.color||T.accent):T.surface2, color:selectedMetric===k?"#fff":T.text3 }}>
+                          {METRIC_META[k]?.label || daily[k]?.[0]?.metric_label || k}
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
                 {selectedMetric && daily[selectedMetric] && (
@@ -511,7 +565,7 @@ export default function ScoreboardView() {
                       <span style={{ fontSize:11, color:T.text3, marginLeft:8, fontWeight:400 }}>{daily[selectedMetric]?.length} days</span>
                     </div>
                     <div style={{ height:120, marginBottom:12 }}>
-                      <BarChart data={[...daily[selectedMetric]].reverse()} color={T.accent} height={120} />
+                      <BarChart data={[...daily[selectedMetric]].reverse()} color={METRIC_META[selectedMetric]?.color||T.accent} height={120} />
                     </div>
                     {/* Recent rows table */}
                     <table style={{ width:"100%", borderCollapse:"collapse" }}>
@@ -527,7 +581,7 @@ export default function ScoreboardView() {
                           return (
                             <tr key={row.date} style={{ borderBottom:`1px solid ${T.border}` }}>
                               <td style={{ padding:"6px 8px", fontSize:12, color:T.text2 }}>{row.date}</td>
-                              <td style={{ padding:"6px 8px", textAlign:"right", fontSize:12, fontWeight:500, color:row.value<0?"#ef4444":T.text }}>{fmt$(row.value)}</td>
+                              <td style={{ padding:"6px 8px", textAlign:"right", fontSize:12, fontWeight:500, color:row.value<0?"#ef4444":T.text }}>{fmtVal(row.value, METRIC_META[selectedMetric]?.unit||"$")}</td>
                               <td style={{ padding:"6px 8px", textAlign:"right", fontSize:11, color:change>0?"#22c55e":change<0?"#ef4444":T.text3 }}>{change!=null?`${change>0?"▲":"▼"}${Math.abs(change).toFixed(1)}%`:"—"}</td>
                             </tr>
                           );
