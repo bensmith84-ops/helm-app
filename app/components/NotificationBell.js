@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { notifySlack } from "../lib/slack";
 
 const TYPE_CONFIG = {
   okr_deadline:   { icon:"◎", color:"#f97316", label:"OKR Deadline" },
@@ -90,6 +91,14 @@ export default function NotificationBell({ setActive }) {
           title: `Task overdue: ${task.title}`,
           body: `${daysLate} day${daysLate!==1?"s":""} late`,
           link_module: "projects", link_id: task.id,
+        });
+        // Also push to Slack
+        notifySlack({
+          type: "task",
+          title: `Task overdue: ${task.title}`,
+          message: `${daysLate} day${daysLate!==1?"s":""} late`,
+          url: "https://helm-app-six.vercel.app",
+          fields: [{ label: "Days Late", value: String(daysLate) }],
         });
       }
     }
