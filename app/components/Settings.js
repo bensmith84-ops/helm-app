@@ -298,17 +298,17 @@ export default function SettingsView() {
                     {integ.status==="connected"?"Connected":integ.status==="qbo"?"Connect QBO":"Connect"}
                   </button>
                   {integ.status==="qbo" && (
-                    <button onClick={()=>{
-                      const clientId = process.env.NEXT_PUBLIC_QBO_CLIENT_ID || "";
-                      if (!clientId) { alert("Add NEXT_PUBLIC_QBO_CLIENT_ID to Vercel env vars"); return; }
-                      const redirectUri = encodeURIComponent("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-callback");
-                      const scope = encodeURIComponent("com.intuit.quickbooks.accounting");
-                      const state = Math.random().toString(36).slice(2);
-                      const env = process.env.NEXT_PUBLIC_QBO_ENVIRONMENT || "production";
-                      const authBase = env === "sandbox"
-                        ? "https://appcenter.intuit.com/connect/oauth2"
-                        : "https://appcenter.intuit.com/connect/oauth2";
-                      window.location.href = `${authBase}?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&state=${state}`;
+                    <button onClick={async ()=>{
+                      // Uses edge function: fetches endpoint from Intuit discovery doc + stores CSRF state server-side
+                      try {
+                        const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-auth-url", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
+                        });
+                        const data = await res.json();
+                        if (data.auth_url) { window.location.href = data.auth_url; }
+                        else { alert("Could not start QBO connection: " + (data.error || "unknown error")); }
+                      } catch(e) { alert("Connection error: " + e); }
                     }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", flexShrink:0, background:T.accent, color:"#fff", border:"none" }}>
                       Connect →
                     </button>
