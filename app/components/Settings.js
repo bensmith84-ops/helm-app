@@ -39,7 +39,7 @@ const inp = {
 
 export default function SettingsView() {
   const { user, profile, signOut } = useAuth();
-  const { mode, toggle } = useTheme();
+  const { mode, toggle, accentKey, setAccent, ACCENT_PRESETS } = useTheme();
   const [activeTab, setActiveTab] = useState("Profile");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
@@ -177,6 +177,21 @@ export default function SettingsView() {
                       background: mode===m?T.accentDim:T.surface2, color:mode===m?T.text:T.text3,
                       fontSize:13, fontWeight:600, transition:"all 0.15s" }}>{l}</div>
                   ))}
+                </div>
+              </Field>
+              <Field label="Accent Color" hint="Choose your brand color for the interface">
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                  {ACCENT_PRESETS && Object.entries(ACCENT_PRESETS).map(([key, preset]) => (
+                    <div key={key} onClick={() => setAccent?.(key)}
+                      title={key.charAt(0).toUpperCase() + key.slice(1)}
+                      style={{ width:32, height:32, borderRadius:16, background:preset.accent, cursor:"pointer",
+                        border: accentKey===key ? `3px solid ${T.text}` : "3px solid transparent",
+                        boxShadow: accentKey===key ? `0 0 0 2px ${preset.accent}` : "none",
+                        transition:"all 0.15s" }} />
+                  ))}
+                </div>
+                <div style={{ fontSize:11, color:T.text3, marginTop:6 }}>
+                  Current: <strong style={{ color:T.accent }}>{accentKey ? accentKey.charAt(0).toUpperCase() + accentKey.slice(1) : "Blue"}</strong>
                 </div>
               </Field>
             </Section>
