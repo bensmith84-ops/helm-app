@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
@@ -38,7 +38,7 @@ export default function PeopleView() {
   const [hoveredRow, setHoveredRow] = useState(null);
   // Teams view state
   const [showTeamForm, setShowTeamForm] = useState(false);
-  const [teamForm, setTeamForm] = useState({ name: "", description: "", color: TEAM_COLORS[0] });
+  const [teamForm, setTeamForm] = useState({ name: "", description: "", color: TEAM_COLORS[0], parent_team_id: null });
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [teamSearch, setTeamSearch] = useState("");
   const [addingMemberToTeam, setAddingMemberToTeam] = useState(null);
@@ -112,7 +112,7 @@ export default function PeopleView() {
   const hasProjectAccess = (uid, pid) => projectMembers.some(pm => pm.user_id === uid && pm.project_id === pid);
 
   // Team CRUD
-  const createTeam = async () => { if (!teamForm.name.trim()) return showToast("Team name required"); const { data, error } = await supabase.from("teams").insert({ org_id: profile.org_id, name: teamForm.name.trim(), description: teamForm.description, color: teamForm.color, created_by: user.id }).select().single(); if (error) return showToast("Failed to create team"); setTeams(p => [...p, data]); setShowTeamForm(false); setTeamForm({ name: "", description: "", color: TEAM_COLORS[0] }); showToast("Team created", "success"); };
+  const createTeam = async () => { if (!teamForm.name.trim()) return showToast("Team name required"); const { data, error } = await supabase.from("teams").insert({ org_id: profile.org_id, name: teamForm.name.trim(), description: teamForm.description, color: teamForm.color, parent_team_id: teamForm.parent_team_id || null, created_by: user.id }).select().single(); if (error) return showToast("Failed to create team"); setTeams(p => [...p, data]); setShowTeamForm(false); setTeamForm({ name: "", description: "", color: TEAM_COLORS[0], parent_team_id: null }); showToast("Team created", "success"); };
   const deleteTeam = async (tid) => { if (!confirm("Delete this team?")) return; await supabase.from("team_members").delete().eq("team_id", tid); await supabase.from("teams").update({ deleted_at: new Date().toISOString() }).eq("id", tid); setTeams(p => p.filter(t => t.id !== tid)); setTeamMembers(p => p.filter(tm => tm.team_id !== tid)); if (selectedTeam === tid) setSelectedTeam(null); showToast("Team deleted", "success"); };
   const addTeamMember = async (teamId, userId) => { const exists = teamMembers.find(tm => tm.team_id === teamId && tm.user_id === userId); if (exists) return; const { data, error } = await supabase.from("team_members").insert({ team_id: teamId, user_id: userId }).select().single(); if (!error && data) { setTeamMembers(p => [...p, data]); showToast("Member added", "success"); } };
   const removeTeamMember = async (tmId) => { await supabase.from("team_members").delete().eq("id", tmId); setTeamMembers(p => p.filter(tm => tm.id !== tmId)); };
@@ -206,27 +206,27 @@ export default function PeopleView() {
       </div>
       {filteredTeams.length === 0 && <div style={{ textAlign: "center", padding: 40, color: T.text3 }}><div style={{ fontSize: 32, marginBottom: 8 }}>👥</div><div style={{ fontSize: 14, marginBottom: 4 }}>No teams yet</div><div style={{ fontSize: 12 }}>Create a team to organize your people</div></div>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
-        {filteredTeams.map(team => {
+        {filteredTeams.filter(t => !t.parent_team_id).map(team => {
           const tms = teamMembers.filter(tm => tm.team_id === team.id);
           const tmProfiles = tms.map(tm => members.find(m => m.id === tm.user_id)).filter(Boolean);
           const isExp = selectedTeam === team.id;
-          return (
-            <div key={team.id} style={{ borderRadius: 10, border: `1px solid ${isExp ? T.accent + "40" : T.border}`, background: T.surface, overflow: "hidden", transition: "border-color 0.15s" }}>
-              {/* Team header */}
+          const subTeams = teams.filter(t => t.parent_team_id === team.id);
+          const totalMembers = tms.length + subTeams.reduce((s, st) => s + teamMembers.filter(tm => tm.team_id === st.id).length, 0);
+          return (<React.Fragment key={team.id}>
+            <div style={{ borderRadius: 10, border: `1px solid ${isExp ? T.accent + "40" : T.border}`, background: T.surface, overflow: "hidden", transition: "border-color 0.15s", gridColumn: "1 / -1" }}>
               <div onClick={() => setSelectedTeam(isExp ? null : team.id)} style={{ padding: "16px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: (team.color || TEAM_COLORS[0]) + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: team.color || TEAM_COLORS[0], flexShrink: 0 }}>{team.name?.[0]?.toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{team.name}</div>
-                  <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{tms.length} member{tms.length !== 1 ? "s" : ""}{team.description ? ` · ${team.description}` : ""}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{team.name}{subTeams.length > 0 && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400, marginLeft: 6 }}>({subTeams.length} sub-team{subTeams.length !== 1 ? "s" : ""})</span>}</div>
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{totalMembers} member{totalMembers !== 1 ? "s" : ""}{team.description ? ` · ${team.description}` : ""}</div>
                 </div>
                 <div style={{ display: "flex", gap: 4 }}>
+                  <button onClick={(e) => { e.stopPropagation(); setTeamForm({ name: "", description: "", color: team.color || TEAM_COLORS[0], parent_team_id: team.id }); setShowTeamForm(true); }} title="Add sub-team" style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", cursor: "pointer", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700 }}>+</button>
                   <button onClick={(e) => { e.stopPropagation(); deleteTeam(team.id); }} title="Delete team" style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", cursor: "pointer", color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2" style={{ transition: "transform 0.2s", transform: isExp ? "rotate(180deg)" : "rotate(0)" }}><path d="M6 9l6 6 6-6"/></svg>
                 </div>
               </div>
-              {/* Expanded: member list + add */}
               {isExp && <div style={{ borderTop: `1px solid ${T.border}`, padding: "12px 18px" }}>
-                {/* Member avatars row */}
                 {tmProfiles.map(m => { const c = acol(m.id); const tm = tms.find(t => t.user_id === m.id); return (
                   <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
                     <div style={{ width: 28, height: 28, borderRadius: 14, background: `${c}18`, border: `1.5px solid ${c}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: c }}>{ini(m.display_name)}</div>
@@ -236,7 +236,6 @@ export default function PeopleView() {
                     </div>
                     <button onClick={() => removeTeamMember(tm.id)} style={{ width: 22, height: 22, borderRadius: 4, border: `1px solid ${T.border}`, background: "transparent", cursor: "pointer", color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>×</button>
                   </div>); })}
-                {/* Add member - searchable */}
                 {addingMemberToTeam === team.id ? (
                   <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
                     <SearchablePicker people={members.filter(m => !tms.some(t => t.user_id === m.id))} onToggle={(uid) => { addTeamMember(team.id, uid); }} placeholder="Search to add member…" />
@@ -245,8 +244,47 @@ export default function PeopleView() {
                 ) : (
                   <button onClick={() => setAddingMemberToTeam(team.id)} style={{ marginTop: 8, padding: "6px 12px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.accent, fontSize: 12, cursor: "pointer", width: "100%", fontWeight: 500 }}>+ Add Member</button>
                 )}
+                {/* Sub-teams inside expanded parent */}
+                {subTeams.length > 0 && <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Sub-teams</div>
+                  {subTeams.map(sub => {
+                    const stms = teamMembers.filter(tm => tm.team_id === sub.id);
+                    const stmProfiles = stms.map(tm => members.find(m => m.id === tm.user_id)).filter(Boolean);
+                    const isSubExp = selectedTeam === sub.id;
+                    return (
+                      <div key={sub.id} style={{ marginLeft: 8, borderRadius: 8, border: `1px solid ${isSubExp ? T.accent + "40" : T.border}`, background: T.bg, overflow: "hidden", marginBottom: 6 }}>
+                        <div onClick={(e) => { e.stopPropagation(); setSelectedTeam(isSubExp ? null : sub.id); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ width: 26, height: 26, borderRadius: 6, background: (sub.color || team.color || TEAM_COLORS[0]) + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: sub.color || team.color || TEAM_COLORS[0], flexShrink: 0 }}>{sub.name?.[0]?.toUpperCase()}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{sub.name}</div>
+                            <div style={{ fontSize: 10, color: T.text3 }}>{stms.length} member{stms.length !== 1 ? "s" : ""}{sub.description ? ` · ${sub.description}` : ""}</div>
+                          </div>
+                          <button onClick={(e) => { e.stopPropagation(); deleteTeam(sub.id); }} title="Delete" style={{ width: 22, height: 22, borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", cursor: "pointer", color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2" style={{ transition: "transform 0.2s", transform: isSubExp ? "rotate(180deg)" : "rotate(0)" }}><path d="M6 9l6 6 6-6"/></svg>
+                        </div>
+                        {isSubExp && <div style={{ borderTop: `1px solid ${T.border}`, padding: "8px 14px" }}>
+                          {stmProfiles.map(m => { const c2 = acol(m.id); const tm2 = stms.find(t => t.user_id === m.id); return (
+                            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
+                              <div style={{ width: 22, height: 22, borderRadius: 11, background: `${c2}18`, border: `1px solid ${c2}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: c2 }}>{ini(m.display_name)}</div>
+                              <span style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>{m.display_name}</span>
+                              <button onClick={() => removeTeamMember(tm2.id)} style={{ width: 18, height: 18, borderRadius: 3, border: `1px solid ${T.border}`, background: "transparent", cursor: "pointer", color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8 }}>×</button>
+                            </div>); })}
+                          {addingMemberToTeam === sub.id ? (
+                            <div style={{ marginTop: 6, border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
+                              <SearchablePicker people={members.filter(m => !stms.some(t => t.user_id === m.id))} onToggle={(uid) => { addTeamMember(sub.id, uid); }} placeholder="Search to add…" />
+                              <div style={{ padding: 4, borderTop: `1px solid ${T.border}`, textAlign: "right" }}><button onClick={() => setAddingMemberToTeam(null)} style={{ padding: "2px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, fontSize: 10, cursor: "pointer" }}>Done</button></div>
+                            </div>
+                          ) : (
+                            <button onClick={() => setAddingMemberToTeam(sub.id)} style={{ marginTop: 6, padding: "4px 8px", borderRadius: 5, border: `1px dashed ${T.border}`, background: "transparent", color: T.accent, fontSize: 11, cursor: "pointer", width: "100%", fontWeight: 500 }}>+ Add Member</button>
+                          )}
+                        </div>}
+                      </div>
+                    );
+                  })}
+                </div>}
               </div>}
-            </div>); })}
+            </div>
+          </React.Fragment>); })}
       </div>
     </div>);
   };
@@ -365,9 +403,24 @@ export default function PeopleView() {
   const TeamFormModal = () => { if (!showTeamForm) return null; return (
     <div onClick={() => setShowTeamForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={e => e.stopPropagation()} style={{ width: 400, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>New Team</h3>
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Team Name</label><input value={teamForm.name} onChange={e => setTeamForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Engineering" autoFocus style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>{teamForm.parent_team_id ? "New Sub-team" : "New Team"}</h3>
+        {teamForm.parent_team_id && (() => { const parent = teams.find(t => t.id === teamForm.parent_team_id); return parent ? (
+          <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 6, background: T.accentDim, fontSize: 12, color: T.accent, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontWeight: 600 }}>Sub-team of:</span> {parent.name}
+            <button onClick={() => setTeamForm(p => ({ ...p, parent_team_id: null }))} style={{ marginLeft: "auto", background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11 }}>✕ Remove</button>
+          </div>
+        ) : null; })()}
+        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Team Name</label><input value={teamForm.name} onChange={e => setTeamForm(p => ({ ...p, name: e.target.value }))} placeholder={teamForm.parent_team_id ? "e.g. Manufacturing" : "e.g. Operations"} autoFocus style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
         <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Description</label><input value={teamForm.description} onChange={e => setTeamForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional description" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        {!teamForm.parent_team_id && teams.filter(t => !t.parent_team_id).length > 0 && (
+          <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Parent Team (optional)</label>
+            <select value={teamForm.parent_team_id || ""} onChange={e => setTeamForm(p => ({ ...p, parent_team_id: e.target.value || null }))}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, cursor: "pointer" }}>
+              <option value="">None (top-level team)</option>
+              {teams.filter(t => !t.parent_team_id).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+        )}
         <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 6 }}>Color</label><div style={{ display: "flex", gap: 6 }}>{TEAM_COLORS.map(c => <div key={c} onClick={() => setTeamForm(p => ({ ...p, color: c }))} style={{ width: 28, height: 28, borderRadius: 14, background: c, cursor: "pointer", border: teamForm.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: teamForm.color === c ? `0 0 0 2px ${c}` : "none" }} />)}</div></div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button onClick={() => setShowTeamForm(false)} style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button><button onClick={createTeam} style={{ padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Create Team</button></div>
       </div>
