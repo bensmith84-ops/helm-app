@@ -23,20 +23,24 @@ export default function MessagesView() {
   const [showTaskModal, setShowTaskModal] = useState(null); // message object or null
   const [taskTitle, setTaskTitle] = useState("");
   const [taskProject, setTaskProject] = useState("");
+  const [taskSection, setTaskSection] = useState("");
   const [taskDueDate, setTaskDueDate] = useState("");
   const [projects, setProjects] = useState([]);
+  const [sections, setSections] = useState([]);
   const bottomRef = useRef(null);
 
   useEffect(() => {
     (async () => {
-      const [{ data: ch }, { data: prof }, { data: reads }, { data: projs }] = await Promise.all([
+      const [{ data: ch }, { data: prof }, { data: reads }, { data: projs }, { data: secs }] = await Promise.all([
         supabase.from("channels").select("*").eq("is_archived", false).order("name"),
         supabase.from("profiles").select("id,display_name,avatar_url"),
         supabase.from("message_reads").select("*").eq("user_id", user?.id),
         supabase.from("projects").select("id,name,color").is("deleted_at", null).order("name"),
+        supabase.from("sections").select("id,name,project_id,sort_order").order("sort_order"),
       ]);
       setChannels(ch || []);
       setProjects(projs || []);
+      setSections(secs || []);
       const rm = {}; (reads || []).forEach(r => { rm[r.channel_id] = r; }); setMessageReads(rm);
       const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
       // Compute unread counts per channel
@@ -248,6 +252,7 @@ export default function MessagesView() {
                     setShowTaskModal(item);
                     setTaskTitle(item.content?.slice(0, 100) || "");
                     setTaskProject("");
+                    setTaskSection("");
                     setTaskDueDate(new Date().toISOString().split("T")[0]);
                   }} title="Create task from message" style={{ background: "none", border: "none", cursor: "pointer", padding: "3px 5px", fontSize: 12, color: T.text3 }}
                     onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.text3}>
@@ -314,7 +319,7 @@ export default function MessagesView() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Project</label>
-                  <select value={taskProject} onChange={e => setTaskProject(e.target.value)}
+                  <select value={taskProject} onChange={e => { setTaskProject(e.target.value); setTaskSection(""); }}
                     style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, cursor: "pointer" }}>
                     <option value="">Personal Task</option>
                     {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -326,13 +331,27 @@ export default function MessagesView() {
                     style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, cursor: "pointer", boxSizing: "border-box" }} />
                 </div>
               </div>
+              {/* Section picker — only when project is selected and has sections */}
+              {taskProject && sections.filter(s => s.project_id === taskProject).length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Section</label>
+                  <select value={taskSection} onChange={e => setTaskSection(e.target.value)}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, cursor: "pointer" }}>
+                    <option value="">Default (first section)</option>
+                    {sections.filter(s => s.project_id === taskProject).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
             <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setShowTaskModal(null)} style={{ padding: "7px 14px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 12, cursor: "pointer" }}>Cancel</button>
               <button id="msg-create-task-btn" onClick={async () => {
                 if (!taskTitle.trim()) return;
+                const projSecs = taskProject ? sections.filter(s => s.project_id === taskProject) : [];
+                const secId = taskSection || (projSecs.length > 0 ? projSecs[0].id : null);
                 const { error } = await supabase.from("tasks").insert({
                   org_id: profile?.org_id, project_id: taskProject || null,
+                  section_id: secId,
                   title: taskTitle.trim(), status: "todo", priority: "none",
                   due_date: taskDueDate || null, assignee_id: user?.id,
                   description: "From message in #" + (channel?.name || "unknown") + ": " + showTaskModal.content?.slice(0, 500),
