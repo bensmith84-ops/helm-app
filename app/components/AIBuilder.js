@@ -66,42 +66,114 @@ export default function AIBuilderView() {
     // We'll load schema info via the AI when needed
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
-    const userMsg = { role: "user", content: input.trim() };
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
-    setInput("");
+  const abortRef = useRef(null);
+  const [streamingText, setStreamingText] = useState("");
+
+  const sendMessage = async (retryCount = 0) => {
+    if ((!input.trim() && retryCount === 0) || loading) return;
+    const userContent = retryCount === 0 ? input.trim() : messages[messages.length - 1]?.role === "user" ? messages[messages.length - 1].content : input.trim();
+    const userMsg = { role: "user", content: userContent };
+    let newMessages;
+    if (retryCount === 0) {
+      newMessages = [...messages, userMsg];
+      setMessages(newMessages);
+      setInput("");
+    } else {
+      // Retry: remove last assistant message (the error) and re-send
+      newMessages = messages.filter((_, i) => i < messages.length - (messages[messages.length - 1]?.role === "assistant" ? 1 : 0));
+      if (newMessages[newMessages.length - 1]?.role !== "user") newMessages.push(userMsg);
+      setMessages(newMessages);
+    }
     setLoading(true);
+    setStreamingText("");
+
+    // Abort controller for cancellation
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const MAX_RETRIES = 3;
+    const apiMessages = newMessages.map(m => ({ role: m.role, content: m.content }));
 
     try {
-      // Build conversation for Claude API
-      const apiMessages = newMessages.map(m => ({
-        role: m.role,
-        content: m.content,
-      }));
-
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 4096,
+          max_tokens: 8192,
+          stream: true,
           system: SYSTEM_PROMPT,
           messages: apiMessages,
         }),
       });
 
-      const data = await response.json();
-      const assistantContent = data.content?.map(c => c.text || "").join("\n") || "No response received.";
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => "");
+        // Rate limit or server error — retry
+        if ((response.status === 429 || response.status >= 500) && retryCount < MAX_RETRIES) {
+          const waitMs = Math.min(2000 * Math.pow(2, retryCount), 30000);
+          setStreamingText(`⟳ Rate limited — retrying in ${Math.round(waitMs/1000)}s (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
+          await new Promise(r => setTimeout(r, waitMs));
+          setLoading(false);
+          return sendMessage(retryCount + 1);
+        }
+        throw new Error(`API error ${response.status}: ${errBody.slice(0, 200)}`);
+      }
 
-      setMessages(prev => [...prev, { role: "assistant", content: assistantContent }]);
+      // Stream the response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.type === "content_block_delta" && parsed.delta?.text) {
+              fullText += parsed.delta.text;
+              setStreamingText(fullText);
+            }
+          } catch {}
+        }
+      }
+
+      const finalText = fullText || "No response received.";
+      setStreamingText("");
+      setMessages(prev => [...prev, { role: "assistant", content: finalText }]);
     } catch (err) {
-      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
+      setStreamingText("");
+      if (err.name === "AbortError") {
+        setMessages(prev => [...prev, { role: "assistant", content: "⏹ Request cancelled." }]);
+      } else if (retryCount < MAX_RETRIES && (err.message.includes("network") || err.message.includes("Failed to fetch"))) {
+        const waitMs = 2000 * Math.pow(2, retryCount);
+        setStreamingText(`⟳ Network error — retrying in ${Math.round(waitMs/1000)}s...`);
+        await new Promise(r => setTimeout(r, waitMs));
+        setLoading(false);
+        return sendMessage(retryCount + 1);
+      } else {
+        setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}\n\nClick "Retry" to try again.`, isError: true }]);
+      }
     }
 
     setLoading(false);
+    abortRef.current = null;
     setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const cancelRequest = () => {
+    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
   };
 
   const runSQL = async () => {
@@ -201,6 +273,9 @@ export default function AIBuilderView() {
                   </span>
                 );
               })}
+              {msg.isError && (
+                <button onClick={() => sendMessage(1)} style={{ marginTop: 8, padding: "4px 12px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: `${T.accent}10`, color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>↻ Retry</button>
+              )}
             </div>
           )}
         </div>
@@ -273,19 +348,30 @@ export default function AIBuilderView() {
             ) : (
               <>
                 {messages.map(renderMessage)}
-                {loading && (
-                  <div style={{ display: "flex", gap: 12, padding: "16px 20px" }}>
-                    <div style={{
-                      width: 28, height: 28, borderRadius: 8,
-                      background: "linear-gradient(135deg, #a855f7, #6366f1)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 12, color: "#fff", fontWeight: 800,
-                    }}>✦</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, color: T.text3, fontSize: 13 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: "pulse 1.4s infinite" }} />
-                      <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: "pulse 1.4s infinite 0.2s" }} />
-                      <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: "pulse 1.4s infinite 0.4s" }} />
-                      <span style={{ marginLeft: 8 }}>Thinking...</span>
+                {(loading || streamingText) && (
+                  <div style={{ padding: "16px 20px" }}>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                        background: "linear-gradient(135deg, #a855f7, #6366f1)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 12, color: "#fff", fontWeight: 800,
+                      }}>✦</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {streamingText ? (
+                          <div style={{ fontSize: 13, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{streamingText}<span style={{ display: "inline-block", width: 2, height: 14, background: T.accent, marginLeft: 2, animation: "blink 1s infinite", verticalAlign: "text-bottom" }} /></div>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, color: T.text3, fontSize: 13 }}>
+                            <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: "pulse 1.4s infinite" }} />
+                            <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: "pulse 1.4s infinite 0.2s" }} />
+                            <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: "pulse 1.4s infinite 0.4s" }} />
+                            <span style={{ marginLeft: 8 }}>Thinking...</span>
+                          </div>
+                        )}
+                        {loading && (
+                          <button onClick={cancelRequest} style={{ marginTop: 8, padding: "3px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.text3, fontSize: 11, cursor: "pointer" }}>⏹ Cancel</button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -416,6 +502,10 @@ export default function AIBuilderView() {
         @keyframes pulse {
           0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
           40% { opacity: 1; transform: scale(1.2); }
+        }
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
         }
       `}</style>
     </div>
