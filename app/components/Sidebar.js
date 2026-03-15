@@ -52,7 +52,7 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
       flexDirection: "column", paddingTop: 12, flexShrink: 0,
       transition: "width 0.2s ease", overflow: "hidden",
     }}>
-      {/* Logo */}
+      {/* Logo + Collapse */}
       <div style={{
         display: "flex", alignItems: "center", gap: 10, marginBottom: 14,
         padding: expanded ? "0 14px" : "0", justifyContent: expanded ? "flex-start" : "center",
@@ -63,7 +63,16 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 15, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px",
         }}>H</div>
-        {expanded && <span style={{ fontSize: 15, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>Helm</span>}
+        {expanded && <span style={{ fontSize: 15, fontWeight: 700, color: T.text, whiteSpace: "nowrap", flex: 1 }}>Helm</span>}
+        <button onClick={() => setExpanded(!expanded)} title={expanded ? "Collapse sidebar" : "Expand sidebar"} style={{
+          width: 26, height: 26, borderRadius: 6, border: "none", cursor: "pointer", flexShrink: 0,
+          background: "transparent", color: T.text3, display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "all 0.15s",
+        }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transition: "transform 0.2s", transform: expanded ? "rotate(180deg)" : "rotate(0)" }}>
+            <path d="M11 19l-7-7 7-7" /><path d="M18 19l-7-7 7-7" />
+          </svg>
+        </button>
       </div>
 
       {/* Nav items */}
@@ -120,25 +129,6 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
           )
         )}
       </div>
-
-      {/* Collapse toggle */}
-      <button onClick={() => setExpanded(!expanded)} style={{
-        height: 32, borderRadius: 7, border: "none", cursor: "pointer",
-        display: "flex", alignItems: "center", gap: 9,
-        background: "transparent", color: T.text3,
-        padding: expanded ? "0 9px" : "0",
-        justifyContent: expanded ? "flex-start" : "center",
-        margin: expanded ? "4px 8px 4px" : "4px 8px 4px",
-        transition: "all 0.15s",
-        width: expanded ? "calc(100% - 16px)" : 36,
-      }}>
-        <span style={{
-          fontSize: 14, width: 18, textAlign: "center", flexShrink: 0,
-          transition: "transform 0.2s",
-          transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
-        }}>»</span>
-        {expanded && <span style={{ fontSize: 12, whiteSpace: "nowrap" }}>Collapse</span>}
-      </button>
 
       {/* Profile */}
       <div style={{
