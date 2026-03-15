@@ -7,7 +7,7 @@ import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
-const TABS = ["List", "Board", "Timeline", "Calendar"];
+const TABS = ["List", "Board", "Timeline", "Calendar", "Updates", "Docs"];
 const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
 
@@ -60,6 +60,21 @@ export default function ProjectsView() {
   const [showMyTasks, setShowMyTasks] = useState(false);
   const [ctxProject, setCtxProject] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  // Templates & copy
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [copyingProject, setCopyingProject] = useState(null);
+  // Status updates
+  const [statusUpdates, setStatusUpdates] = useState([]);
+  const [showStatusForm, setShowStatusForm] = useState(false);
+  const [statusForm, setStatusForm] = useState({ health: "on_track", summary: "", highlights: "", blockers: "" });
+  // Bulk select
+  const [selectedTasks, setSelectedTasks] = useState(new Set());
+  const [bulkMode, setBulkMode] = useState(false);
+  // Task activity
+  const [taskActivity, setTaskActivity] = useState([]);
+  // Docs
+  const [docs, setDocs] = useState([]);
 
   const showToast = useCallback((msg, type = "error") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const archiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "archived" }).eq("id", id); if (error) return showToast("Failed to archive"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "archived" } : pr)); if (activeProject === id) setActiveProject(null); showToast("Project archived", "success"); };
@@ -90,6 +105,13 @@ export default function ProjectsView() {
         setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
+        // Load templates and docs
+        const [tmplR, docsR] = await Promise.all([
+          supabase.from("project_templates").select("*").order("is_builtin desc, name"),
+          supabase.from("docs").select("id,title,updated_at").order("updated_at", { ascending: false }),
+        ]);
+        setTemplates(tmplR.data || []);
+        setDocs(docsR.data || []);
       } catch (e) { showToast("Failed to load data"); }
       setLoading(false);
     };
@@ -111,8 +133,9 @@ export default function ProjectsView() {
       supabase.from("custom_fields").select("*").eq("project_id", activeProject).order("sort_order"),
       supabase.from("custom_field_values").select("*"),
       supabase.from("milestones").select("*").eq("project_id", activeProject).order("sort_order"),
-    ]).then(([dR, cfR, cvR, msR]) => {
-      setDependencies(dR.data || []); setCustomFields(cfR.data || []); setMilestones(msR.data || []);
+      supabase.from("project_status_updates").select("*").eq("project_id", activeProject).order("created_at", { ascending: false }).limit(10),
+    ]).then(([dR, cfR, cvR, msR, suR]) => {
+      setDependencies(dR.data || []); setCustomFields(cfR.data || []); setMilestones(msR.data || []); setStatusUpdates(suR.data || []);
       const cfm = {}; (cvR.data || []).forEach(v => { if (!cfm[v.task_id]) cfm[v.task_id] = {}; cfm[v.task_id][v.field_id] = v.value; }); setCustomFieldValues(cfm);
     });
   }, [activeProject]);
@@ -150,6 +173,100 @@ export default function ProjectsView() {
   const deleteSection = async (secId) => { const st = tasks.filter(t => t.section_id === secId); const ok = await showConfirm("Delete Section", st.length ? `Delete ${st.length} task(s) too?` : "Delete this section?"); if (!ok) return; if (st.length) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("section_id", secId); await supabase.from("sections").delete().eq("id", secId); setSections(p => p.filter(s => s.id !== secId)); setTasks(p => p.filter(t => t.section_id !== secId)); };
   const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: user?.id || "", start_date: "", target_end_date: "", default_view: "List", members: [] }); setFormStep(1); setShowProjectForm("new"); };
   const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active", visibility: proj.visibility || "private", join_policy: proj.join_policy || "invite_only", team_id: proj.team_id || "", objective_id: proj.objective_id || "", owner_id: proj.owner_id || "", start_date: proj.start_date || "", target_end_date: proj.target_end_date || "", default_view: proj.default_view || "List", members: [] }); setFormStep(1); setShowProjectForm("edit"); };
+  const createProjectFromTemplate = async (template) => {
+    if (!profile?.org_id) return showToast("No organization found");
+    const secs = template.sections || [];
+    const color = template.color || "#3b82f6";
+    const { data, error } = await supabase.from("projects").insert({
+      org_id: profile.org_id, created_by: profile.id,
+      name: template.name, description: template.description || "",
+      color, status: "active", visibility: "private",
+    }).select().single();
+    if (error) return showToast("Failed to create: " + error.message);
+    setProjects(p => [...p, data]);
+    setActiveProject(data.id);
+    setShowTemplates(false);
+    // Create sections and tasks from template
+    for (let i = 0; i < secs.length; i++) {
+      const sec = secs[i];
+      const { data: secData } = await supabase.from("sections").insert({ project_id: data.id, name: sec.name, sort_order: i + 1 }).select().single();
+      if (secData && sec.tasks?.length) {
+        for (let j = 0; j < sec.tasks.length; j++) {
+          await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: data.id, section_id: secData.id, title: sec.tasks[j], status: "todo", priority: "none", sort_order: j + 1, created_by: profile.id });
+        }
+      }
+      if (secData) setSections(p => [...p, secData]);
+    }
+    // Reload tasks
+    const { data: newTasks } = await supabase.from("tasks").select("*").eq("project_id", data.id).is("deleted_at", null);
+    setTasks(p => [...p.filter(t => t.project_id !== data.id), ...(newTasks || [])]);
+    showToast(`Project created from ${template.name} template`, "success");
+  };
+
+  const copyProject = async (srcProject) => {
+    if (!profile?.org_id) return;
+    const srcSections = sections.filter(s => s.project_id === srcProject.id);
+    const srcTasks = tasks.filter(t => t.project_id === srcProject.id && !t.parent_task_id);
+    const { data, error } = await supabase.from("projects").insert({
+      org_id: profile.org_id, created_by: profile.id,
+      name: srcProject.name + " (copy)", description: srcProject.description || "",
+      color: srcProject.color, status: "active", visibility: srcProject.visibility || "private",
+    }).select().single();
+    if (error) return showToast("Copy failed: " + error.message);
+    setProjects(p => [...p, data]);
+    // Copy sections
+    const secMap = {};
+    for (const sec of srcSections) {
+      const { data: newSec } = await supabase.from("sections").insert({ project_id: data.id, name: sec.name, sort_order: sec.sort_order }).select().single();
+      if (newSec) { secMap[sec.id] = newSec.id; setSections(p => [...p, newSec]); }
+    }
+    // Copy tasks
+    const newTaskList = [];
+    for (const task of srcTasks) {
+      const { data: newTask } = await supabase.from("tasks").insert({
+        org_id: profile.org_id, project_id: data.id,
+        section_id: secMap[task.section_id] || null,
+        title: task.title, status: "todo", priority: task.priority,
+        sort_order: task.sort_order, created_by: profile.id,
+        estimated_hours: task.estimated_hours, story_points: task.story_points,
+        labels: task.labels,
+      }).select().single();
+      if (newTask) newTaskList.push(newTask);
+    }
+    setTasks(p => [...p, ...newTaskList]);
+    setActiveProject(data.id);
+    setCopyingProject(null);
+    showToast("Project copied successfully", "success");
+  };
+
+  const saveStatusUpdate = async () => {
+    if (!statusForm.summary.trim()) return showToast("Summary required");
+    const { data, error } = await supabase.from("project_status_updates").insert({
+      project_id: activeProject, author_id: user?.id,
+      health: statusForm.health, summary: statusForm.summary,
+      highlights: statusForm.highlights || null, blockers: statusForm.blockers || null,
+    }).select().single();
+    if (error) return showToast("Failed to save update");
+    setStatusUpdates(p => [data, ...p]);
+    // Update project health based on status
+    await supabase.from("projects").update({ status: statusForm.health === "off_track" ? "on_hold" : "active" }).eq("id", activeProject);
+    setShowStatusForm(false);
+    setStatusForm({ health: "on_track", summary: "", highlights: "", blockers: "" });
+    showToast("Status update posted", "success");
+  };
+
+  const bulkUpdateTasks = async (field, value) => {
+    const ids = [...selectedTasks];
+    setTasks(p => p.map(t => ids.includes(t.id) ? { ...t, [field]: value } : t));
+    await supabase.from("tasks").update({ [field]: value }).in("id", ids);
+    setSelectedTasks(new Set()); setBulkMode(false);
+    showToast(`Updated ${ids.length} task${ids.length > 1 ? "s" : ""}`, "success");
+  };
+
+  const logActivity = async (taskId, action, field, oldVal, newVal) => {
+    await supabase.from("task_activity").insert({ task_id: taskId, actor_id: user?.id, action, field, old_value: oldVal ? String(oldVal) : null, new_value: newVal ? String(newVal) : null });
+  };
+
   const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List" }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
   const addComment = async () => { if (!newComment.trim() || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: newComment.trim() }).select().single(); if (!error && data) setComments(p => [...p, data]); setNewComment(""); };
   const uploadAttachment = async (file) => { if (!selectedTask) return; const path = `${profile.org_id}/${selectedTask.id}/${Date.now()}_${file.name}`; const { error: ue } = await supabase.storage.from("attachments").upload(path, file); if (ue) return showToast("Upload failed"); const { data, error } = await supabase.from("attachments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user.id }).select().single(); if (!error && data) setAttachments(p => [...p, data]); };
@@ -173,7 +290,10 @@ export default function ProjectsView() {
     <div style={{ width: showSidebar ? 260 : 0, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflow: "hidden", transition: "width 0.2s", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Projects</span>
-        <button onClick={openNewProject} style={{ ...S.iconBtn, background: T.accent, color: "#fff", borderRadius: 6, width: 24, height: 24, fontSize: 16 }}>+</button>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setShowTemplates(true)} title="From template" style={{ ...S.iconBtn, fontSize: 12, padding: "3px 6px", borderRadius: 5, color: T.accent }}>⊞</button>
+          <button onClick={openNewProject} style={{ ...S.iconBtn, background: T.accent, color: "#fff", borderRadius: 6, width: 24, height: 24, fontSize: 16 }}>+</button>
+        </div>
       </div>
       <div onClick={() => { setShowMyTasks(true); setActiveProject(null); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", margin: "0 8px", borderRadius: 6, cursor: "pointer", background: showMyTasks ? T.accentDim : "transparent", color: showMyTasks ? T.accent : T.text2, fontSize: 13, fontWeight: 500 }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
@@ -191,6 +311,9 @@ export default function ProjectsView() {
             </div>
             <div style={{ width: 32, height: 3, borderRadius: 2, background: T.surface3, flexShrink: 0 }}><div style={{ width: `${pp}%`, height: "100%", borderRadius: 2, background: p.color || T.accent, transition: "width 0.4s" }} /></div>
             {ctxProject === p.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 4, top: "100%", zIndex: 50, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 4, minWidth: 140, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
+              <div onClick={() => { setCopyingProject(p); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Copy
+              </div>
               <div onClick={() => { archiveProject(p.id); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>Archive
               </div>
@@ -226,6 +349,9 @@ export default function ProjectsView() {
         <span style={{ ...S.pill, background: proj.status === "active" ? T.greenDim : T.surface3, color: proj.status === "active" ? T.green : T.text3 }}>{proj.status || "active"}</span>
         <span style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>{progress}%</span>
         <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3 }}><div style={{ width: `${progress}%`, height: "100%", borderRadius: 2, background: proj.color || T.accent, transition: "width 0.5s" }} /></div>
+        <button onClick={() => { setStatusForm({ health: "on_track", summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }} style={{ ...S.pill, background: T.surface2, color: T.text3, fontSize: 11, gap: 4 }} title="Post status update">
+          📋 Status Update
+        </button>
         <button onClick={openEditProject} style={S.iconBtn} title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18.4 2.6a2.17 2.17 0 013 3L12 15l-4 1 1-4 9.4-9.4z"/></svg></button>
         <button onClick={() => archiveProject(proj.id)} style={S.iconBtn} title="Archive"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg></button>
         <button onClick={() => deleteProject(proj.id)} style={{ ...S.iconBtn, color: T.red }} title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
@@ -465,6 +591,248 @@ export default function ProjectsView() {
         </div>
       </div>
     </div>); })();
+  const UpdatesView = () => {
+    const HEALTH_COLORS = { on_track: "#22c55e", at_risk: "#eab308", off_track: "#ef4444" };
+    const HEALTH_LABELS = { on_track: "On Track", at_risk: "At Risk", off_track: "Off Track" };
+    return (
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Project Status Updates</h3>
+          <button onClick={() => { setStatusForm({ health: "on_track", summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }}
+            style={{ padding: "7px 14px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+            + Post Update
+          </button>
+        </div>
+        {statusUpdates.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 0", color: T.text3 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>No status updates yet</div>
+            <div style={{ fontSize: 13, marginBottom: 20 }}>Post a weekly update to keep the team informed on progress, wins, and blockers.</div>
+            <button onClick={() => { setStatusForm({ health: "on_track", summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }}
+              style={{ padding: "9px 20px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+              Post First Update
+            </button>
+          </div>
+        ) : statusUpdates.map(su => {
+          const h = su.health || "on_track";
+          const color = HEALTH_COLORS[h];
+          const dAgo = Math.floor((Date.now() - new Date(su.created_at).getTime()) / 86400000);
+          return (
+            <div key={su.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "18px 22px", marginBottom: 12, borderLeft: `4px solid ${color}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 12, background: color + "20", color }}>{HEALTH_LABELS[h]}</span>
+                <span style={{ fontSize: 12, color: T.text3 }}>{dAgo === 0 ? "Today" : `${dAgo} day${dAgo > 1 ? "s" : ""} ago`}</span>
+                <span style={{ fontSize: 12, color: T.text3 }}>· {uname(su.author_id) || "Unknown"}</span>
+              </div>
+              <p style={{ fontSize: 14, color: T.text, lineHeight: 1.6, margin: "0 0 10px" }}>{su.summary}</p>
+              {su.highlights && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#22c55e", marginBottom: 4 }}>✨ Highlights</div>
+                  <p style={{ fontSize: 13, color: T.text2, margin: 0, lineHeight: 1.5 }}>{su.highlights}</p>
+                </div>
+              )}
+              {su.blockers && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>⚠️ Blockers</div>
+                  <p style={{ fontSize: 13, color: T.text2, margin: 0, lineHeight: 1.5 }}>{su.blockers}</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const DocsView = () => {
+    const projDoc = proj?.linked_doc_id ? docs.find(d => d.id === proj.linked_doc_id) : null;
+    return (
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Project Docs</h3>
+        </div>
+        {/* Linked doc */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Linked Project Doc</div>
+          {projDoc ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: T.surface, border: `1px solid ${T.accent}40`, borderRadius: 10 }}>
+              <span style={{ fontSize: 24 }}>📄</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{projDoc.title || "Untitled"}</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>Updated {new Date(projDoc.updated_at).toLocaleDateString()}</div>
+              </div>
+              <button onClick={() => { /* navigate to docs */ }} style={{ padding: "6px 14px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Open →</button>
+            </div>
+          ) : (
+            <div style={{ padding: "20px 16px", background: T.surface2, border: `1px dashed ${T.border}`, borderRadius: 10 }}>
+              <div style={{ fontSize: 13, color: T.text3, marginBottom: 10 }}>Link a doc to this project for easy access to briefs, specs, and notes.</div>
+              <select onChange={async e => {
+                const docId = e.target.value;
+                if (!docId) return;
+                await supabase.from("projects").update({ linked_doc_id: docId }).eq("id", activeProject);
+                setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: docId } : pr));
+              }} defaultValue="" style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, cursor: "pointer", outline: "none", width: 280 }}>
+                <option value="">Select a doc to link…</option>
+                {docs.map(d => <option key={d.id} value={d.id}>{d.title || "Untitled"}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        {/* All org docs */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>All Docs</div>
+          {docs.length === 0 ? (
+            <div style={{ fontSize: 13, color: T.text3, padding: "20px 0" }}>No docs yet — create one in the Docs module.</div>
+          ) : docs.map(d => (
+            <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 18 }}>📄</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{d.title || "Untitled"}</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>Updated {new Date(d.updated_at).toLocaleDateString()}</div>
+              </div>
+              {proj?.linked_doc_id === d.id ? (
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.accentDim, color: T.accent, fontWeight: 700 }}>Linked</span>
+              ) : (
+                <button onClick={async () => {
+                  await supabase.from("projects").update({ linked_doc_id: d.id }).eq("id", activeProject);
+                  setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: d.id } : pr));
+                }} style={{ fontSize: 10, padding: "3px 9px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>Link</button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Templates modal
+  const TemplatesModal = () => {
+    if (!showTemplates) return null;
+    return (
+      <div onClick={() => setShowTemplates(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 640, maxHeight: "80vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.35)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Start from Template</h3>
+              <button onClick={() => setShowTemplates(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
+            </div>
+            <p style={{ fontSize: 13, color: T.text3, margin: "6px 0 0" }}>Choose a template to pre-populate your project with sections and tasks.</p>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {templates.map(t => (
+                <div key={t.id} onClick={() => createProjectFromTemplate(t)}
+                  style={{ padding: "16px 18px", background: T.surface2, border: `1.5px solid ${T.border}`, borderRadius: 12, cursor: "pointer", transition: "all 0.15s" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = t.color || T.accent; e.currentTarget.style.background = (t.color || T.accent) + "10"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface2; }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <span style={{ fontSize: 24 }}>{t.icon || "📋"}</span>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{t.name}</div>
+                      <div style={{ fontSize: 11, color: T.text3 }}>{t.description}</div>
+                    </div>
+                  </div>
+                  {t.sections && t.sections.length > 0 && (
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {t.sections.map((s, i) => (
+                        <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, background: (t.color || T.accent) + "15", color: t.color || T.accent, fontWeight: 600 }}>
+                          {s.name} ({s.tasks?.length || 0})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div onClick={() => { setShowTemplates(false); openNewProject(); }} style={{ marginTop: 16, padding: "14px 18px", border: `1.5px dashed ${T.border}`, borderRadius: 12, cursor: "pointer", textAlign: "center", color: T.text3, fontSize: 13, fontWeight: 500 }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}>
+              + Start with blank project
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Copy project modal
+  const CopyModal = () => {
+    if (!copyingProject) return null;
+    return (
+      <div onClick={() => setCopyingProject(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 380, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 10px" }}>Copy "{copyingProject.name}"</h3>
+          <p style={{ fontSize: 13, color: T.text3, margin: "0 0 20px", lineHeight: 1.5 }}>
+            This will create a new project with all the same sections and tasks (reset to "To Do" status). Assignees and due dates will not be copied.
+          </p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setCopyingProject(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => copyProject(copyingProject)} style={{ padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Copy Project</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Status form modal
+  const StatusFormModal = () => {
+    if (!showStatusForm) return null;
+    const HEALTH_OPTS = [{ k: "on_track", l: "On Track", color: "#22c55e" }, { k: "at_risk", l: "At Risk", color: "#eab308" }, { k: "off_track", l: "Off Track", color: "#ef4444" }];
+    return (
+      <div onClick={() => setShowStatusForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 500, maxHeight: "80vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Post Status Update</h3>
+              <button onClick={() => setShowStatusForm(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
+            </div>
+            <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>{proj?.name}</div>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+            {/* Health */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 8 }}>Overall Health</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {HEALTH_OPTS.map(h => (
+                  <button key={h.k} onClick={() => setStatusForm(p => ({ ...p, health: h.k }))}
+                    style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1.5px solid ${statusForm.health === h.k ? h.color : T.border}`, background: statusForm.health === h.k ? h.color + "20" : "transparent", color: statusForm.health === h.k ? h.color : T.text3, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                    {h.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Summary */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>Summary *</label>
+              <textarea value={statusForm.summary} onChange={e => setStatusForm(p => ({ ...p, summary: e.target.value }))}
+                placeholder="How is the project going overall? What's the current state?"
+                rows={3} autoFocus style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>Highlights <span style={{ color: T.text3, fontWeight: 400 }}>(optional)</span></label>
+              <textarea value={statusForm.highlights} onChange={e => setStatusForm(p => ({ ...p, highlights: e.target.value }))}
+                placeholder="Wins, completions, milestones hit…"
+                rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>Blockers <span style={{ color: T.text3, fontWeight: 400 }}>(optional)</span></label>
+              <textarea value={statusForm.blockers} onChange={e => setStatusForm(p => ({ ...p, blockers: e.target.value }))}
+                placeholder="What's slowing you down? What do you need?"
+                rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+            </div>
+          </div>
+          <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setShowStatusForm(false)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={saveStatusUpdate} disabled={!statusForm.summary.trim()}
+              style={{ padding: "9px 18px", borderRadius: 8, background: statusForm.summary.trim() ? T.accent : T.surface3, color: statusForm.summary.trim() ? "#fff" : T.text3, border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+              Post Update
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // MAIN RENDER
   return (
     <div onClick={() => ctxProject && setCtxProject(null)} style={{ display: "flex", height: "100%", background: T.bg, overflow: "hidden" }}>
@@ -481,6 +849,8 @@ export default function ProjectsView() {
               {viewMode === "Board" && <BoardView />}
               {viewMode === "Timeline" && <TimelineView />}
               {viewMode === "Calendar" && <CalendarView />}
+              {viewMode === "Updates" && <UpdatesView />}
+              {viewMode === "Docs" && <DocsView />}
             </div>
             <DetailPane />
           </div>
@@ -495,6 +865,9 @@ export default function ProjectsView() {
         )}
       </div>
       {projectFormModalEl}
+      <TemplatesModal />
+      <CopyModal />
+      <StatusFormModal />
     </div>
   );
 }

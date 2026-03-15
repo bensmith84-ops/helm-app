@@ -94,6 +94,9 @@ export default function OKRsView() {
   const [finEditVal, setFinEditVal]   = useState("");
   const [finSyncing, setFinSyncing]   = useState(false);
   const [finSyncMsg, setFinSyncMsg]   = useState("");
+  // Check-in state
+  const [checkInModal, setCheckInModal] = useState(null); // { kr, objective }
+  const [checkIns, setCheckIns] = useState([]); // all check-ins loaded
 
   const setView = (v) => { setViewMode(v); try { localStorage.setItem("okr_view", v); } catch {} };
 
@@ -153,6 +156,12 @@ export default function OKRsView() {
       setKeyResults(filteredKR);
       const filteredMS = (ms || []).filter(m => (obj || []).some(o => o.id === m.objective_id));
       setMilestones(filteredMS);
+      // Fetch check-ins for this cycle
+      if (obj?.length > 0) {
+        const objIds = (obj || []).map(o => o.id);
+        const { data: ciData } = await supabase.from("okr_check_ins").select("*").in("objective_id", objIds).order("created_at", { ascending: false });
+        setCheckIns(ciData || []);
+      }
       // Fetch milestone updates
       if (filteredMS.length > 0) {
         const msIds = filteredMS.map(m => m.id);
@@ -758,7 +767,21 @@ export default function OKRsView() {
                   const p = Number(kr.progress || 0); const sel = selectedKR === kr.id;
                   return (
                     <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent", transition: "background 0.1s" }}>
-                      <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>{kr.title}{kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}</span>
+                      <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                        {kr.title}
+                        {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
+                        {(() => {
+                          const krCIs = checkIns.filter(c => c.key_result_id === kr.id);
+                          const lastCI = krCIs[0];
+                          const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
+                          return (
+                            <button onClick={e => { e.stopPropagation(); setCheckInModal({ kr, objective: objectives.find(o => o.id === kr.objective_id) }); }}
+                              style={{ fontSize: 9, padding: "2px 7px", borderRadius: 10, border: `1px solid ${daysSince > 6 || !lastCI ? "#ef444460" : T.accent+"40"}`, background: daysSince > 6 || !lastCI ? "#ef444415" : T.accentDim, color: daysSince > 6 || !lastCI ? "#ef4444" : T.accent, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
+                              {lastCI ? (daysSince === 0 ? "✓ Today" : `${daysSince}d ago`) : "Check in"}
+                            </button>
+                          );
+                        })()}
+                      </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${p}%`, height: "100%", borderRadius: 5, background: p >= 70 ? T.green : p >= 40 ? T.yellow : T.accent, transition: "width 0.3s" }} /></div>
                         <span style={{ fontSize: 11, fontWeight: 600, color: p >= 70 ? T.green : p >= 40 ? T.yellow : T.text2, minWidth: 28 }}>{Math.round(p)}%</span>
@@ -1116,6 +1139,36 @@ export default function OKRsView() {
       .reduce((s, m) => s + (mData[m]?.target || 0), 0);
   };
 
+  const saveCheckIn = async (formData) => {
+    if (!checkInModal) return;
+    const { kr, objective } = checkInModal;
+    const payload = {
+      org_id: profile?.org_id,
+      key_result_id: kr.id,
+      objective_id: objective.id,
+      author_id: user?.id,
+      check_in_date: new Date().toISOString().split("T")[0],
+      current_value: formData.current_value != null ? Number(formData.current_value) : kr.current_value,
+      confidence: formData.confidence,
+      health: formData.health,
+      summary: formData.summary || null,
+      blockers: formData.blockers || null,
+      next_steps: formData.next_steps || null,
+      sentiment: formData.sentiment || null,
+    };
+    const { data, error } = await supabase.from("okr_check_ins").insert(payload).select().single();
+    if (error) return;
+    setCheckIns(p => [data, ...p]);
+    // Update KR current value and health if provided
+    if (payload.current_value !== kr.current_value) {
+      await updateKRValue(kr.id, payload.current_value);
+    }
+    if (payload.health !== objective.health) {
+      await updateHealth(objective.id, payload.health);
+    }
+    setCheckInModal(null);
+  };
+
   const syncFromSheets = async () => {
     setFinSyncing(true); setFinSyncMsg("");
     try {
@@ -1296,6 +1349,157 @@ export default function OKRsView() {
     </div>
   );
 
+  // CHECK-IN MODAL
+  const CheckInModal = () => {
+    const [form, setForm] = useState({
+      current_value: checkInModal?.kr?.current_value ?? "",
+      confidence: checkInModal?.kr?.confidence ?? 0.7,
+      health: checkInModal?.objective?.health || "on_track",
+      summary: "",
+      blockers: "",
+      next_steps: "",
+      sentiment: "good",
+    });
+    if (!checkInModal) return null;
+    const { kr, objective } = checkInModal;
+    const krCIs = checkIns.filter(c => c.key_result_id === kr.id).slice(0, 5);
+    const SENTIMENTS = [
+      { key: "great", label: "🚀 Great", color: "#22c55e" },
+      { key: "good", label: "👍 Good", color: "#4f7fff" },
+      { key: "neutral", label: "😐 Neutral", color: "#eab308" },
+      { key: "concerned", label: "😟 Concerned", color: "#f97316" },
+      { key: "blocked", label: "🚫 Blocked", color: "#ef4444" },
+    ];
+    const confPct = Math.round((form.confidence || 0) * 100);
+    const confColor = confPct >= 70 ? "#22c55e" : confPct >= 40 ? "#eab308" : "#ef4444";
+
+    return (
+      <div onClick={() => setCheckInModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 540, maxHeight: "88vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, background: `${T.accent}08` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: 1 }}>Weekly Check-In</div>
+              <button onClick={() => setCheckInModal(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{kr.title}</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Under: {objective.title}</div>
+          </div>
+
+          <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+            {/* Sentiment row */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 8 }}>How are you feeling about this KR?</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {SENTIMENTS.map(s => (
+                  <button key={s.key} onClick={() => setForm(p => ({ ...p, sentiment: s.key }))}
+                    style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: `1.5px solid ${form.sentiment === s.key ? s.color : T.border}`, background: form.sentiment === s.key ? s.color + "20" : "transparent", color: form.sentiment === s.key ? s.color : T.text3, cursor: "pointer", transition: "all 0.15s" }}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Progress & confidence */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 18 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>
+                  Current Value <span style={{ color: T.text3, fontWeight: 400 }}>/ {kr.target_value} {kr.unit || ""}</span>
+                </label>
+                <input type="number" value={form.current_value} onChange={e => setForm(p => ({ ...p, current_value: e.target.value }))}
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 700, outline: "none", boxSizing: "border-box" }} />
+                <div style={{ marginTop: 6, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(100, ((Number(form.current_value) || 0) / (kr.target_value || 100)) * 100)}%`, height: "100%", borderRadius: 5, background: T.accent, transition: "width 0.3s" }} />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>
+                  Confidence: <span style={{ color: confColor, fontWeight: 700 }}>{confPct}%</span>
+                </label>
+                <input type="range" min={0} max={1} step={0.05} value={form.confidence}
+                  onChange={e => setForm(p => ({ ...p, confidence: Number(e.target.value) }))}
+                  style={{ width: "100%", accentColor: confColor, cursor: "pointer" }} />
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: T.text3, marginTop: 2 }}>
+                  <span>Low</span><span>Medium</span><span>High</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Health */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 8 }}>Overall Health</label>
+              <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
+                {Object.entries(HEALTH).map(([k, v]) => (
+                  <button key={k} onClick={() => setForm(p => ({ ...p, health: k }))}
+                    style={{ flex: 1, padding: "8px 0", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: form.health === k ? v.color : T.surface3, color: form.health === k ? "#fff" : T.text3, transition: "all 0.15s" }}>
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>What happened this week? *</label>
+              <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))}
+                placeholder="Key progress, wins, or updates…"
+                rows={3} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} autoFocus />
+            </div>
+
+            {/* Blockers */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>Blockers or risks <span style={{ color: T.text3, fontWeight: 400 }}>(optional)</span></label>
+              <textarea value={form.blockers} onChange={e => setForm(p => ({ ...p, blockers: e.target.value }))}
+                placeholder="What's in the way? What help do you need?"
+                rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+            </div>
+
+            {/* Next steps */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>Next week focus <span style={{ color: T.text3, fontWeight: 400 }}>(optional)</span></label>
+              <textarea value={form.next_steps} onChange={e => setForm(p => ({ ...p, next_steps: e.target.value }))}
+                placeholder="What will you do next week?"
+                rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+            </div>
+
+            {/* Recent check-in history */}
+            {krCIs.length > 0 && (
+              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Recent Check-ins</div>
+                {krCIs.map(ci => {
+                  const sent = { great:"🚀", good:"👍", neutral:"😐", concerned:"😟", blocked:"🚫" }[ci.sentiment] || "•";
+                  const h = HEALTH[ci.health] || HEALTH.on_track;
+                  const dAgo = Math.floor((Date.now() - new Date(ci.created_at).getTime()) / 86400000);
+                  return (
+                    <div key={ci.id} style={{ padding: "10px 12px", borderRadius: 8, background: T.surface2, marginBottom: 6, borderLeft: `3px solid ${h.color}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: ci.summary ? 4 : 0 }}>
+                        <span style={{ fontSize: 14 }}>{sent}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: h.color }}>{h.label}</span>
+                        {ci.current_value != null && <span style={{ fontSize: 11, color: T.text3 }}>→ {ci.current_value} / {kr.target_value}</span>}
+                        {ci.confidence != null && <span style={{ fontSize: 10, color: T.text3, marginLeft: "auto" }}>{Math.round(ci.confidence * 100)}% confident</span>}
+                        <span style={{ fontSize: 10, color: T.text3 }}>{dAgo === 0 ? "Today" : `${dAgo}d ago`}</span>
+                      </div>
+                      {ci.summary && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.4 }}>{ci.summary}</div>}
+                      {ci.blockers && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 3 }}>⚠️ {ci.blockers}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setCheckInModal(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => saveCheckIn(form)} disabled={!form.summary.trim()}
+              style={{ padding: "9px 20px", borderRadius: 8, background: form.summary.trim() ? T.accent : T.surface3, color: form.summary.trim() ? "#fff" : T.text3, border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+              Submit Check-in ✓
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1305,6 +1509,7 @@ export default function OKRsView() {
       {editModal}
       <MilestoneModal />
       {objFormModal}
+      <CheckInModal />
     </div>
   );
 }
