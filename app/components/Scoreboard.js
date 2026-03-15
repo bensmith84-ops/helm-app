@@ -344,7 +344,11 @@ export default function ScoreboardView() {
       });
       const data = await res.json();
       if (data.text) setAiSummary({ text: data.text, date: yesterday });
-    } catch(e) { console.warn("AI summary failed:", e); }
+      else if (data.error) setAiSummary({ text: `⚠️ ${data.error}`, date: yesterday });
+    } catch(e) {
+      console.warn("AI summary failed:", e);
+      setAiSummary({ text: `Error: ${e}`, date: yesterday });
+    }
     setAiSummaryLoading(false);
   };
 
