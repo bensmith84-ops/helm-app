@@ -12,20 +12,22 @@ const SYSTEM_PROMPT = [
   "",
   "HOW YOU WORK:",
   "1. The system AUTOMATICALLY reads files before you respond. The file content will be in the conversation.",
-  "2. You ALWAYS output exact str_replace patches in this format:",
+  "2. Output patches inside a code block tagged patch:filepath. Inside, use <<<FIND, ===, and >>> as delimiters:",
   "",
-  "```patch:path/to/file.js",
+  "Example (this is the EXACT format to use):",
+  "",
+  "```patch:app/components/Projects.js",
   "<<<FIND",
-  "exact code to find (copy-paste from the file shown to you)",
+  "        <h2 style={{ fontSize: 18 }}>{proj.name}</h2>",
   "===",
-  "replacement code",
+  "        <h2 style={{ fontSize: 18 }}>{proj.name} <span style={{ fontSize: 12, color: T.text3 }}>({openTasks.length})</span></h2>",
   ">>>",
   "```",
   "",
-  "3. You can have MULTIPLE <<<FIND/===/>>> blocks in one patch.",
-  "4. The FIND section must EXACTLY match text in the file. Copy it character-for-character.",
-  "5. For SQL migrations use: ```sql:migration_name",
-  "6. For NEW files only (that dont exist yet): ```deploy:path/to/file.js",
+  "3. Multiple patches in one block — just repeat <<<FIND/===/>>> for each change.",
+  "4. The FIND section MUST be an exact copy-paste from the file content shown to you. Even whitespace matters.",
+  "5. For SQL: ```sql:migration_name with the SQL inside.",
+  "6. For brand new files only: ```deploy:path/to/new_file.js with full content inside.",
   "",
   "CRITICAL RULES:",
   "- NEVER rewrite entire files. Always use targeted patches.",
@@ -453,12 +455,25 @@ export default function AIBuilderView() {
       const raw = match[3].trim();
       
       if (type === "patch") {
-        // Parse <<<FIND/===/>>> blocks
+        // Parse <<<FIND/===/>>> blocks (flexible matching)
         const replacements = [];
-        const patchRegex = /<<<FIND\n([\s\S]*?)\n===\n([\s\S]*?)\n>>>/g;
-        let pm;
-        while ((pm = patchRegex.exec(raw)) !== null) {
-          replacements.push({ find: pm[1], replace: pm[2] });
+        // Try multiple regex patterns to catch various AI output formats
+        const patterns = [
+          /<<<\s*FIND\s*\n([\s\S]*?)\n\s*===+\s*\n([\s\S]*?)\n\s*>>>/g,
+          /<<<\s*(?:FIND|SEARCH|OLD)\s*\n([\s\S]*?)\n\s*===+\s*(?:REPLACE|NEW)?\s*\n([\s\S]*?)\n\s*>>>/g,
+          /\/\/\s*FIND(?:\s*THIS)?(?:\s*CODE)?:?\s*\n([\s\S]*?)\n\s*\/\/\s*REPLACE(?:\s*WITH)?:?\s*\n([\s\S]*?)(?=\n\s*\/\/\s*FIND|\n\s*<<<|$)/g,
+          /FIND:\s*\n```[^\n]*\n([\s\S]*?)```\s*\nREPLACE(?:\s*WITH)?:\s*\n```[^\n]*\n([\s\S]*?)```/g,
+        ];
+        for (const pat of patterns) {
+          let pm;
+          while ((pm = pat.exec(raw)) !== null) {
+            const find = pm[1].trim();
+            const replace = pm[2].trim();
+            if (find && !replacements.some(r => r.find === find)) {
+              replacements.push({ find, replace });
+            }
+          }
+          if (replacements.length > 0) break;
         }
         blocks.push({ type: "patch", name, content: raw, replacements, id: `patch-${name}-${match.index}` });
       } else {
