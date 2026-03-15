@@ -108,7 +108,7 @@ export default function ProjectsView() {
         // Load templates and docs
         const [tmplR, docsR] = await Promise.all([
           supabase.from("project_templates").select("*").order("is_builtin desc, name"),
-          supabase.from("docs").select("id,title,emoji,updated_at,project_id,status").is("deleted_at", null).order("updated_at", { ascending: false }),
+          supabase.from("documents").select("id,title,emoji,updated_at,project_id,status").is("deleted_at", null).order("updated_at", { ascending: false }),
         ]);
         setTemplates(tmplR.data || []);
         setDocs(docsR.data || []);
@@ -159,12 +159,26 @@ export default function ProjectsView() {
   const sortedTasks = (list) => { if (sortCol === "sort_order") return list; return [...list].sort((a, b) => { let va = a[sortCol] || "", vb = b[sortCol] || ""; if (sortCol === "due_date") { va = va ? new Date(va).getTime() : 9e15; vb = vb ? new Date(vb).getTime() : 9e15; } const c = va < vb ? -1 : va > vb ? 1 : 0; return sortDir === "asc" ? c : -c; }); };
   const doneCount = projTasks.filter(t => t.status === "done").length;
   const progress = projTasks.length ? Math.round((doneCount / projTasks.length) * 100) : 0;
+  // Auto-compute project health from tasks
+  const today = new Date().toISOString().split("T")[0];
+  const projOverdue = projTasks.filter(t => t.status !== "done" && t.due_date && t.due_date < today);
+  const projHealth = projOverdue.length > projTasks.length * 0.2 ? "off_track" : projOverdue.length > 0 ? "at_risk" : "on_track";
+  const healthColors = { on_track: "#22c55e", at_risk: "#eab308", off_track: "#ef4444" };
+  const healthLabels = { on_track: "On Track", at_risk: "At Risk", off_track: "Off Track" };
+
+  // Sync progress to DB whenever it changes meaningfully
+  const syncProjectProgress = useCallback(async (pid, taskList) => {
+    const done = taskList.filter(t => t.project_id === pid && t.status === "done").length;
+    const total = taskList.filter(t => t.project_id === pid && !t.parent_task_id).length;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    await supabase.from("projects").update({ progress: pct }).eq("id", pid);
+  }, []);
   const getBlockedBy = (tid) => dependencies.filter(d => d.successor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.predecessor_id) })).filter(d => d.task);
   const getBlocking = (tid) => dependencies.filter(d => d.predecessor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.successor_id) })).filter(d => d.task);
   const createTask = async (sid) => { if (!newTitle.trim()) return; const st = tasks.filter(t => t.section_id === sid && !t.parent_task_id); const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: sid, title: newTitle.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create task"); setTasks(p => [...p, data]); setNewTitle(""); showToast("Task created", "success"); };
   const createSubtask = async (parentTask) => { if (!newSubtaskTitle.trim()) return; const mx = tasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id, title: newSubtaskTitle.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create subtask"); setTasks(p => [...p, data]); setExpandedTasks(p => ({ ...p, [parentTask.id]: true })); setNewSubtaskTitle(""); setAddingSubtaskTo(null); };
   const startAddSubtask = (task, e) => { e?.stopPropagation(); setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); setExpandedTasks(p => ({ ...p, [task.id]: true })); };
-  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); } };
+  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); } };
   const toggleDone = async (task, e) => { e?.stopPropagation(); await updateField(task.id, "status", task.status === "done" ? "todo" : "done"); };
   const deleteTask = async (taskId) => { const ok = await showConfirm("Delete Task", "Are you sure?"); if (!ok) return; await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId); setTasks(p => p.filter(t => t.id !== taskId)); if (selectedTask?.id === taskId) setSelectedTask(null); };
   const duplicateTask = async (task) => { const mx = tasks.filter(t => t.section_id === task.section_id && !t.parent_task_id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: task.section_id, title: task.title + " (copy)", status: task.status, priority: task.priority, assignee_id: task.assignee_id, due_date: task.due_date, sort_order: mx + 1, created_by: user.id }).select().single(); if (!error && data) setTasks(p => [...p, data]); };
@@ -372,17 +386,38 @@ export default function ProjectsView() {
       </div>
     </div>
   );
-  const ProjectHeader = () => { if (!proj) return null; return (
+  const ProjectHeader = () => { if (!proj) return null;
+    const hColor = healthColors[projHealth];
+    const hLabel = healthLabels[projHealth];
+    return (
     <div style={{ borderBottom: `1px solid ${T.border}`, background: T.surface }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 20px 8px" }}>
         {!showSidebar && <button onClick={() => setShowSidebar(true)} style={S.iconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>}
-        <div style={{ width: 12, height: 12, borderRadius: 6, background: proj.color || T.accent }} />
-        <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, flex: 1 }}>{proj.name}</h2>
-        <span style={{ ...S.pill, background: proj.status === "active" ? T.greenDim : T.surface3, color: proj.status === "active" ? T.green : T.text3 }}>{proj.status || "active"}</span>
-        <span style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>{progress}%</span>
-        <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3 }}><div style={{ width: `${progress}%`, height: "100%", borderRadius: 2, background: proj.color || T.accent, transition: "width 0.5s" }} /></div>
-        <button onClick={() => { setStatusForm({ health: "on_track", summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }} style={{ ...S.pill, background: T.surface2, color: T.text3, fontSize: 11, gap: 4 }} title="Post status update">
-          📋 Status Update
+        <div style={{ width: 12, height: 12, borderRadius: 6, background: proj.color || T.accent, flexShrink: 0 }} />
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, flex: 1 }}>{proj.emoji || ""} {proj.name}</h2>
+        {/* Health badge */}
+        <span style={{ ...S.pill, background: hColor + "18", color: hColor, border: `1px solid ${hColor}40`, fontSize: 11, fontWeight: 700 }}>
+          {hLabel}
+        </span>
+        {projOverdue.length > 0 && (
+          <span style={{ ...S.pill, background: "#ef444415", color: "#ef4444", fontSize: 11 }}>
+            ⚠ {projOverdue.length} overdue
+          </span>
+        )}
+        {/* Progress ring */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div style={{ position: "relative", width: 32, height: 32 }}>
+            <svg width="32" height="32" style={{ transform: "rotate(-90deg)" }}>
+              <circle cx="16" cy="16" r="12" fill="none" stroke={T.surface3} strokeWidth="3" />
+              <circle cx="16" cy="16" r="12" fill="none" stroke={proj.color || T.accent} strokeWidth="3"
+                strokeDasharray={`${progress * 0.754} 100`} strokeLinecap="round" />
+            </svg>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 800, color: T.text }}>{progress}%</div>
+          </div>
+          <div style={{ fontSize: 11, color: T.text3 }}>{doneCount}/{projTasks.length} done</div>
+        </div>
+        <button onClick={() => { setStatusForm({ health: projHealth, summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }} style={{ ...S.pill, background: T.surface2, color: T.text3, fontSize: 11, gap: 4 }} title="Post status update">
+          📋 Update
         </button>
         <button onClick={openEditProject} style={S.iconBtn} title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18.4 2.6a2.17 2.17 0 013 3L12 15l-4 1 1-4 9.4-9.4z"/></svg></button>
         <button onClick={() => archiveProject(proj.id)} style={S.iconBtn} title="Archive"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg></button>
@@ -1029,14 +1064,16 @@ export default function ProjectsView() {
     const createDoc = async () => {
       if (!newDocTitle.trim()) return;
       setSaving(true);
-      const { data, error } = await supabase.from("docs").insert({
+      const { data, error } = await supabase.from("documents").insert({
         org_id: profile.org_id,
-        author_id: user?.id,
+        created_by: user?.id,
         title: newDocTitle.trim(),
         emoji: newDocEmoji,
         project_id: activeProject,
         status: "draft",
-        content: JSON.stringify([{ id: crypto.randomUUID(), type: "text", content: "" }]),
+        visibility: "team",
+        content: [{ id: crypto.randomUUID(), type: "text", content: "" }],
+        sort_order: 0,
       }).select().single();
       if (!error && data) {
         setDocs(p => [data, ...p]);
@@ -1045,9 +1082,9 @@ export default function ProjectsView() {
           await supabase.from("projects").update({ linked_doc_id: data.id }).eq("id", activeProject);
           setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: data.id } : pr));
         }
-        showToast("Doc created", "success");
+        showToast("Doc created — open it in the Docs module to edit", "success");
       } else {
-        showToast("Failed to create doc");
+        showToast("Failed to create doc: " + (error?.message || "unknown error"));
       }
       setNewDocTitle("");
       setNewDocEmoji("📄");
@@ -1056,7 +1093,7 @@ export default function ProjectsView() {
     };
 
     const linkDoc = async (docId) => {
-      await supabase.from("docs").update({ project_id: activeProject }).eq("id", docId);
+      await supabase.from("documents").update({ project_id: activeProject }).eq("id", docId);
       setDocs(p => p.map(d => d.id === docId ? { ...d, project_id: activeProject } : d));
       if (!proj?.linked_doc_id) {
         await supabase.from("projects").update({ linked_doc_id: docId }).eq("id", activeProject);
@@ -1071,7 +1108,7 @@ export default function ProjectsView() {
     };
 
     const unlinkDoc = async (docId) => {
-      await supabase.from("docs").update({ project_id: null }).eq("id", docId);
+      await supabase.from("documents").update({ project_id: null }).eq("id", docId);
       setDocs(p => p.map(d => d.id === docId ? { ...d, project_id: null } : d));
       if (proj?.linked_doc_id === docId) {
         await supabase.from("projects").update({ linked_doc_id: null }).eq("id", activeProject);

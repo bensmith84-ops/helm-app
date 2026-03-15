@@ -97,7 +97,7 @@ const evalFormula = (formula, tableData) => {
   } catch { return "ERR"; }
 };
 
-export default function DocsView() {
+export default function DocsView({ setActive }) {
   const { user, profile } = useAuth();
   const orgId = profile?.org_id;
   const [docs, setDocs] = useState([]);
@@ -117,14 +117,18 @@ export default function DocsView() {
   const blockContents = useRef({}); // Store content in ref to avoid re-renders
   const saveTimer = useRef(null);
 
+  const [projects, setProjects] = useState([]);
+
   useEffect(() => {
     if (!orgId) return;
     (async () => {
-      const [{ data: d }, { data: p }] = await Promise.all([
-        supabase.from("documents").select("id,title,emoji,cover_url,parent_id,status,created_by,created_at,updated_at,sort_order,depth").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
+      const [{ data: d }, { data: p }, { data: proj }] = await Promise.all([
+        supabase.from("documents").select("id,title,emoji,cover_url,parent_id,status,created_by,created_at,updated_at,sort_order,depth,project_id").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
         supabase.from("profiles").select("id,display_name"),
+        supabase.from("projects").select("id,name,color,emoji").is("deleted_at", null).order("name"),
       ]);
       setDocs(d || []);
+      setProjects(proj || []);
       const m = {}; (p || []).forEach(u => m[u.id] = u); setProfiles(m);
       setLoading(false);
     })();
@@ -378,6 +382,10 @@ export default function DocsView() {
         {hasKids ? <span onClick={e => { e.stopPropagation(); setExp(!exp); }} style={{ fontSize: 8, color: T.text3, width: 14, textAlign: "center", cursor: "pointer", transition: "transform 0.15s", transform: exp ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span> : <span style={{ width: 14 }} />}
         <span style={{ fontSize: 15, marginRight: 4 }}>{node.emoji || "📄"}</span>
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.title || "Untitled"}</span>
+        {node.project_id && (() => {
+          const lp = projects.find(p => p.id === node.project_id);
+          return lp ? <span title={`Linked to ${lp.name}`} style={{ width: 6, height: 6, borderRadius: 3, background: lp.color || T.accent, flexShrink: 0, marginRight: 2 }} /> : null;
+        })()}
         {hov && <div style={{ display: "flex", gap: 2, position: "absolute", right: 4 }}>
           <button onClick={e => { e.stopPropagation(); createDoc(node.id); }} style={{ background: T.surface2, border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 4px", borderRadius: 3 }} title="Add sub-page">+</button>
           <button onClick={e => { e.stopPropagation(); setCtx(!ctx); }} style={{ background: T.surface2, border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "2px 4px", borderRadius: 3 }}>···</button>
@@ -522,6 +530,30 @@ export default function DocsView() {
               <span style={{ cursor: "pointer" }} onClick={() => { setActiveDoc(null); setBlocks([]); }}>Documents</span><span>/</span>
               <span style={{ color: T.text, fontWeight: 500 }}>{activeDoc.emoji} {activeDoc.title || "Untitled"}</span>
             </div>
+            {/* Project backlink */}
+            {(() => {
+              const linkedProj = activeDoc.project_id ? projects.find(p => p.id === activeDoc.project_id) : null;
+              if (linkedProj) return (
+                <button onClick={() => setActive?.("projects")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, fontSize: 11, cursor: "pointer", fontWeight: 500 }}
+                  title="Open linked project">
+                  <span style={{ width: 8, height: 8, borderRadius: 4, background: linkedProj.color || T.accent, flexShrink: 0, display: "inline-block" }} />
+                  {linkedProj.name}
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </button>
+              );
+              return (
+                <select onChange={async e => {
+                  const pid = e.target.value;
+                  if (!pid) return;
+                  await supabase.from("documents").update({ project_id: pid }).eq("id", activeDoc.id);
+                  setActiveDoc(p => ({ ...p, project_id: pid }));
+                  setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, project_id: pid } : d));
+                }} defaultValue="" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", outline: "none" }}>
+                  <option value="">Link to project…</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              );
+            })()}
             <span style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>{saving ? "Saving..." : lastSaved ? "Saved" : ""}</span>
             <select value={activeDoc.status || "draft"} onChange={e => updateMeta(activeDoc.id, { status: e.target.value })} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2 || T.bg, color: T.text, fontFamily: "inherit", cursor: "pointer" }}>
               <option value="draft">Draft</option><option value="published">Published</option><option value="review">In Review</option><option value="archived">Archived</option>

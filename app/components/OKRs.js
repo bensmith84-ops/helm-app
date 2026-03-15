@@ -776,28 +776,43 @@ export default function OKRsView() {
                 </div>
                 {objKRs.map(kr => {
                   const p = Number(kr.progress || 0); const sel = selectedKR === kr.id;
+                  const krCIs = checkIns.filter(c => c.key_result_id === kr.id);
+                  const lastCI = krCIs[0];
+                  const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
+                  const isStale = daysSince === null || daysSince >= 7;
                   return (
-                    <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent", transition: "background 0.1s" }}>
+                    <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s" }}>
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         {kr.title}
                         {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
-                        {(() => {
-                          const krCIs = checkIns.filter(c => c.key_result_id === kr.id);
-                          const lastCI = krCIs[0];
-                          const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
-                          return (
-                            <button onClick={e => { e.stopPropagation(); setCheckInModal({ kr, objective: objectives.find(o => o.id === kr.objective_id) }); }}
-                              style={{ fontSize: 9, padding: "2px 7px", borderRadius: 10, border: `1px solid ${daysSince > 6 || !lastCI ? "#ef444460" : T.accent+"40"}`, background: daysSince > 6 || !lastCI ? "#ef444415" : T.accentDim, color: daysSince > 6 || !lastCI ? "#ef4444" : T.accent, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
-                              {lastCI ? (daysSince === 0 ? "✓ Today" : `${daysSince}d ago`) : "Check in"}
-                            </button>
-                          );
-                        })()}
+                        <button onClick={e => { e.stopPropagation(); setCheckInModal({ kr, objective: objectives.find(o => o.id === kr.objective_id) }); }}
+                          style={{ fontSize: 9, padding: "2px 7px", borderRadius: 10, border: `1px solid ${isStale ? "#ef444460" : T.accent+"40"}`, background: isStale ? "#ef444415" : T.accentDim, color: isStale ? "#ef4444" : T.accent, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
+                          {lastCI ? (daysSince === 0 ? "✓ Today" : `${daysSince}d ago`) : "Check in"}
+                        </button>
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${p}%`, height: "100%", borderRadius: 5, background: p >= 70 ? T.green : p >= 40 ? T.yellow : T.accent, transition: "width 0.3s" }} /></div>
+                        <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${Math.min(p, 100)}%`, height: "100%", borderRadius: 5, background: p >= 70 ? T.green : p >= 40 ? T.yellow : T.accent, transition: "width 0.3s" }} /></div>
                         <span style={{ fontSize: 11, fontWeight: 600, color: p >= 70 ? T.green : p >= 40 ? T.yellow : T.text2, minWidth: 28 }}>{Math.round(p)}%</span>
                       </div>
-                      <span style={{ fontSize: 12, color: T.text2 }}>{kr.current_value}/{kr.target_value}</span>
+                      {/* Inline value edit */}
+                      {kr.progress_mode === "milestones" ? (
+                        <span style={{ fontSize: 12, color: T.text3 }}>{kr.current_value}/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                      ) : (
+                        <span onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <input
+                            type="number"
+                            defaultValue={kr.current_value || 0}
+                            onBlur={async e => {
+                              const val = Number(e.target.value);
+                              if (val !== kr.current_value) await updateKRValue(kr.id, val);
+                            }}
+                            onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") { e.target.value = kr.current_value; e.target.blur(); } }}
+                            onClick={e => { e.stopPropagation(); e.target.select(); }}
+                            style={{ width: 52, padding: "2px 5px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", textAlign: "right" }}
+                          />
+                          <span style={{ fontSize: 10, color: T.text3 }}>/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                        </span>
+                      )}
                       <ConfidenceDot value={kr.confidence} />
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <Ava uid={kr.owner_id} sz={22} />

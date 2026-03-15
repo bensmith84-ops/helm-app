@@ -151,7 +151,7 @@ export default function HelmApp() {
       case "scorecard": return <ScorecardView />;
       case "scoreboard": return <ScoreboardView2 />;
       case "messages": return <MessagesView />;
-      case "docs": return <DocsView />;
+      case "docs": return <DocsView setActive={setActive} />;
       case "calendar": return <CalendarView />;
       case "calls": return <CallsView />;
       case "campaigns": return <CampaignsView />;
