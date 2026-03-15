@@ -620,6 +620,38 @@ export default function AIBuilderView() {
                         </div>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => navigator.clipboard.writeText(code)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, fontWeight: 600 }}>Copy</button>
+                          {/* Manual patch button for untagged blocks with <<<FIND markers */}
+                          {!isDeployable && code.includes("<<<") && code.includes("===") && code.includes(">>>") && !deployResults[`manual-patch-${j}`] && (
+                            <button onClick={async () => {
+                              const filePath = prompt("File path to patch:", "app/components/Projects.js");
+                              if (!filePath) return;
+                              const reps = [];
+                              const cleaned = code.replace(/^<<<[^\n]*\n/gm, "").replace(/\n>>>\s*$/gm, "");
+                              // Try regex first
+                              const pat = /<<<\s*FIND\s*\n([\s\S]*?)\n\s*===+\s*\n([\s\S]*?)\n\s*>>>/g;
+                              let pm;
+                              while ((pm = pat.exec(code)) !== null) { reps.push({ find: pm[1].trim(), replace: pm[2].trim() }); }
+                              // Fallback: split on ===
+                              if (reps.length === 0) {
+                                const c2 = code.replace(/^<<<[^\n]*\n/gm, "").replace(/\n>>>\s*$/gm, "").replace(/^>>>\s*$/gm, "");
+                                const halves = c2.split(/\n\s*===+\s*\n/);
+                                for (let hi = 0; hi < halves.length - 1; hi += 2) {
+                                  if (halves[hi]?.trim()) reps.push({ find: halves[hi].trim(), replace: (halves[hi+1]||"").trim() });
+                                }
+                              }
+                              if (reps.length === 0) { alert("Could not parse patches from this block."); return; }
+                              applyPatch(filePath, reps, `patch(ai-builder): ${filePath}`, `manual-patch-${j}`);
+                            }}
+                              disabled={deploying[`manual-patch-${j}`]}
+                              style={{ padding: "2px 10px", borderRadius: 4, border: "none", background: "#a855f7", color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
+                              {deploying[`manual-patch-${j}`] ? "Applying..." : "🔧 Apply Patch"}
+                            </button>
+                          )}
+                          {deployResults[`manual-patch-${j}`] && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: deployResults[`manual-patch-${j}`].success ? "#22c55e" : "#ef4444" }}>
+                              {deployResults[`manual-patch-${j}`].success ? "✓ Applied" : "✕ Failed: " + (deployResults[`manual-patch-${j}`].results?.[0]?.error || deployResults[`manual-patch-${j}`].error || "Unknown")}
+                            </span>
+                          )}
                           {isDeployable && !deployResults[blockId] && (
                             <button
                               onClick={async () => {
