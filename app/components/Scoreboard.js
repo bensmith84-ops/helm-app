@@ -273,7 +273,7 @@ export default function ScoreboardView() {
     const yr = new Date().getFullYear();
     const [{ data: mets }, { data: dailyRows }] = await Promise.all([
       supabase.from("okr_financial_metrics").select("*, okr_financial_monthly(month, actual, target)").eq("year", yr).order("sort_order"),
-      supabase.from("scoreboard_daily").select("*").order("date", { ascending:false }).limit(1000),
+      supabase.from("scoreboard_daily").select("*").order("date", { ascending:false }).limit(2000),
     ]);
 
     // Build monthly map
@@ -284,14 +284,14 @@ export default function ScoreboardView() {
     setMetrics(mets||[]);
     setMonthly(mMap);
 
-    // Build daily map
+    // Build daily map { metric_key: [{date, value, label}] } newest first
     const dMap = {};
     for (const r of (dailyRows||[])) {
       if (!dMap[r.metric_key]) dMap[r.metric_key] = [];
-      dMap[r.metric_key].push({ date:r.date, value:r.value, label:r.date?.slice(5) });
+      dMap[r.metric_key].push({ date:r.date, value:Number(r.value), label:r.date?.slice(5) });
     }
     setDaily(dMap);
-    if (mets?.length) setSelectedMetric(mets[0].metric_key);
+    if (Object.keys(dMap).length) setSelectedMetric(Object.keys(dMap)[0]);
     setLoading(false);
   };
 
@@ -413,75 +413,152 @@ export default function ScoreboardView() {
         )}
 
         {/* Overview tab */}
-        {activeTab === "overview" && hasData && (
-          <div>
-            {/* KPI row */}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>
-              <KPICard label={`Revenue (${MONTH_NAMES[curMonth-1]})`} value={revCur} prev={revPrev} sparkData={revSpark} color="#22c55e" />
-              <KPICard label={`Net $ (${MONTH_NAMES[curMonth-1]})`} value={netCur} prev={netPrev} sparkData={netSpark} color={netCur>=0?"#22c55e":"#ef4444"} />
-              <KPICard label={`Ad Spend (${MONTH_NAMES[curMonth-1]})`} value={adsCur} prev={adsPrev} sparkData={adsSpark} color="#f97316" />
-              <KPICard label="ROAS" value={roasCur} prev={roasPrev} unit="x" color="#8b5cf6" />
-              <KPICard label="Net Margin" value={marginCur} prev={marginPrev} unit="%" color={marginCur>=0?"#22c55e":"#ef4444"} />
-            </div>
+        {activeTab === "overview" && (
+          (() => {
+            // Pull latest day and previous day from daily data
+            const latest = daily["revenue"]?.[0];
+            const latestDate = latest?.date || "—";
+            const getDayVal = (key, offset=0) => daily[key]?.[offset]?.value ?? null;
+            const getDayChange = (key) => {
+              const cur = getDayVal(key, 0), prev = getDayVal(key, 1);
+              return cur != null && prev != null && prev !== 0 ? ((cur-prev)/Math.abs(prev))*100 : null;
+            };
+            const get7d = (key) => (daily[key]||[]).slice(0,7).reverse();
+            const sum7d = (key) => (daily[key]||[]).slice(0,7).reduce((s,r)=>s+r.value,0);
 
-            {/* YTD summary */}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:24 }}>
-              {[
-                {label:"YTD Revenue", value:ytdRev, color:"#22c55e"},
-                {label:"YTD Net $", value:ytdNet, color:ytdNet>=0?"#22c55e":"#ef4444"},
-                {label:"YTD Ad Spend", value:ytdAds, color:"#f97316"},
-              ].map(k => (
-                <div key={k.label} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, padding:"16px 18px" }}>
-                  <div style={{ fontSize:11, fontWeight:600, color:T.text3, textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>{k.label}</div>
-                  <div style={{ fontSize:28, fontWeight:800, color:k.color }}>{fmt$(k.value)}</div>
-                  <div style={{ fontSize:11, color:T.text3, marginTop:4 }}>Jan – {MONTH_NAMES[curMonth-1]} {yr}</div>
-                </div>
-              ))}
-            </div>
+            // Key metrics for overview
+            const kpis = [
+              { key:"revenue",      label:"Revenue",        unit:"$", color:"#22c55e" },
+              { key:"ad_spend",     label:"Ad Spend",       unit:"$", color:"#f97316" },
+              { key:"net_dollars",  label:"Net $",          unit:"$", color:getDayVal("net_dollars")>=0?"#22c55e":"#ef4444" },
+              { key:"traffic",      label:"Sessions",       unit:"#", color:"#4f7fff" },
+              { key:"blended_cvr",  label:"Blended CVR",    unit:"%", color:"#8b5cf6" },
+              { key:"new_orders",   label:"New Orders",     unit:"#", color:"#22c55e" },
+              { key:"net_daily_subs", label:"Net Daily Subs", unit:"#", color:"#4f7fff" },
+              { key:"daily_cancels",label:"Cancels",        unit:"#", color:"#ef4444" },
+            ];
 
-            {/* Monthly chart */}
-            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, padding:20 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-                <div style={{ fontSize:14, fontWeight:700 }}>Monthly Performance</div>
-                <div style={{ display:"flex", gap:6 }}>
-                  {Object.keys(monthly).map(k => (
-                    <button key={k} onClick={()=>setSelectedMetric(k)} style={{ padding:"3px 10px", fontSize:11, fontWeight:600, borderRadius:5, border:"none", cursor:"pointer", background:selectedMetric===k?T.accent:T.surface2, color:selectedMetric===k?"#fff":T.text3 }}>
-                      {monthly[k]?.metric_label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {selectedMetric && monthly[selectedMetric] && (
-                <div>
-                  {/* Bar chart */}
-                  <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:120, marginBottom:8 }}>
-                    {MONTH_NAMES.map((m, i) => {
-                      const mv = monthly[selectedMetric]?.monthly?.find(r=>r.month===i+1);
-                      const v = mv?.actual ?? null;
-                      const maxV = Math.max(...(monthly[selectedMetric]?.monthly?.map(r=>Math.abs(r.actual||0))||[1]),1);
-                      const pct = v != null ? Math.abs(v)/maxV : 0;
-                      const h = Math.max(2, pct * 112);
-                      const isCur = i+1 === curMonth;
-                      const isFuture = i+1 > curMonth;
-                      return (
-                        <div key={m} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-                          {v != null && <div style={{ fontSize:8, color:T.text3, fontWeight:isCur?700:400 }}>{fmt$(v,true)}</div>}
-                          <div style={{ width:"100%", height:`${h}px`, borderRadius:"3px 3px 0 0",
-                            background: isFuture ? T.surface3 : v<0 ? "#ef4444" : isCur ? T.accent : T.accent+"80",
-                            transition:"height 0.4s" }} />
-                          <div style={{ fontSize:8, color:isCur?T.accent:T.text3, fontWeight:isCur?700:400 }}>{m}</div>
+            const hasDaily = Object.keys(daily).length > 0;
+
+            return (
+              <div>
+                {!hasDaily && (
+                  <div style={{ textAlign:"center", padding:"60px 0", color:T.text3 }}>
+                    <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
+                    <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>No daily data yet</div>
+                    <div style={{ fontSize:13, marginBottom:24 }}>Click "↻ Sync Sheet" to import data from the Google Sheet</div>
+                    <button onClick={syncSheet} disabled={syncing} style={{ padding:"10px 24px", fontSize:13, fontWeight:700, background:T.accent, color:"#fff", border:"none", borderRadius:8, cursor:"pointer" }}>{syncing?"Syncing…":"↻ Sync Now"}</button>
+                  </div>
+                )}
+
+                {hasDaily && (
+                  <div>
+                    {/* Date badge */}
+                    <div style={{ fontSize:12, color:T.text3, marginBottom:16, display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ background:T.accentDim, color:T.accent, padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>Latest: {latestDate}</span>
+                      <span>·</span>
+                      <span>{(daily["revenue"]||[]).length} days of data</span>
+                      <span>·</span>
+                      <span style={{ cursor:"pointer", color:T.accent, textDecoration:"underline" }} onClick={()=>setActiveTab("chat")}>Ask the AI →</span>
+                    </div>
+
+                    {/* KPI grid */}
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))", gap:10, marginBottom:20 }}>
+                      {kpis.map(({ key, label, unit, color }) => {
+                        const v = getDayVal(key);
+                        const chg = getDayChange(key);
+                        const spark = get7d(key);
+                        return (
+                          <div key={key} onClick={()=>{ setSelectedMetric(key); setActiveTab("daily"); }}
+                            style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer" }}
+                            onMouseEnter={e=>e.currentTarget.style.borderColor=color}
+                            onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+                            <div style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5, marginBottom:4 }}>{label}</div>
+                            <div style={{ fontSize:22, fontWeight:800, color: v==null ? T.text3 : (v<0 ? "#ef4444" : color), lineHeight:1, marginBottom:4 }}>
+                              {fmtVal(v, unit, true)}
+                            </div>
+                            {chg != null && (
+                              <div style={{ fontSize:10, fontWeight:600, color:chg>0?"#22c55e":"#ef4444", marginBottom:4 }}>
+                                {chg>0?"▲":"▼"} {Math.abs(chg).toFixed(1)}% vs prev day
+                              </div>
+                            )}
+                            {spark.length > 1 && (
+                              <div style={{ height:28 }}>
+                                <LineChart data={spark} color={v<0?"#ef4444":color} height={28} showArea={false} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Two-column section: 7-day revenue trend + subscription health */}
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                      {/* Revenue 7-day trend */}
+                      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:16 }}>
+                        <div style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>Revenue — Last 7 Days</div>
+                        <div style={{ fontSize:22, fontWeight:800, color:"#22c55e", marginBottom:8 }}>{fmt$(sum7d("revenue"))}</div>
+                        <div style={{ height:80 }}>
+                          <BarChart data={get7d("revenue")} color="#22c55e" height={80} />
                         </div>
-                      );
-                    })}
+                        <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
+                          {get7d("revenue").map(r => (
+                            <div key={r.date} style={{ fontSize:8, color:T.text3, textAlign:"center" }}>{r.label?.slice(3)}</div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Subscription health */}
+                      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:16 }}>
+                        <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Subscription Health — Today</div>
+                        {[
+                          { key:"new_gwp_subs",   label:"New GWP Subs",    color:"#22c55e" },
+                          { key:"daily_cancels",  label:"Cancels",         color:"#ef4444" },
+                          { key:"net_daily_subs", label:"Net Daily Subs",  color:"#4f7fff" },
+                          { key:"sub_rate",       label:"Sub Rate %",      color:"#8b5cf6" },
+                        ].map(({ key, label, color }) => {
+                          const v = getDayVal(key);
+                          const meta = METRIC_META[key];
+                          return (
+                            <div key={key} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0", borderBottom:`1px solid ${T.border}` }}>
+                              <span style={{ fontSize:12, color:T.text2 }}>{label}</span>
+                              <span style={{ fontSize:13, fontWeight:700, color: v==null?T.text3 : (key==="daily_cancels"&&v>0?"#ef4444":color) }}>
+                                {fmtVal(v, meta?.unit||"#", false)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Ad spend breakdown row */}
+                    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:16 }}>
+                      <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Acquisition — Today</div>
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(120px,1fr))", gap:12 }}>
+                        {[
+                          { key:"ad_spend",  label:"Total Ad Spend", unit:"$" },
+                          { key:"cpa",       label:"CPA",            unit:"$" },
+                          { key:"dtc_cac",   label:"DTC CAC",        unit:"$" },
+                          { key:"x_cac",     label:"X-CAC",          unit:"$" },
+                          { key:"nc_aov",    label:"NC AOV",         unit:"$" },
+                          { key:"traffic",   label:"Sessions",       unit:"#" },
+                          { key:"blended_cvr", label:"Blended CVR",  unit:"%" },
+                        ].map(({ key, label, unit }) => {
+                          const v = getDayVal(key);
+                          return (
+                            <div key={key}>
+                              <div style={{ fontSize:10, fontWeight:600, color:T.text3, textTransform:"uppercase", marginBottom:2 }}>{label}</div>
+                              <div style={{ fontSize:16, fontWeight:700, color:v==null?T.text3:T.text }}>{fmtVal(v, unit, false)}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:T.text3 }}>
-                    <span>YTD: <strong style={{ color:T.text }}>{fmt$(monthly[selectedMetric]?.monthly?.filter(r=>r.month<=curMonth).reduce((s,r)=>s+(r.actual||0),0))}</strong></span>
-                    <span style={{ color:T.text3 }}>Click "AI Chat" to ask questions about this data</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+                )}
+              </div>
+            );
+          })()
         )}
 
         {/* Monthly tab */}
