@@ -260,6 +260,8 @@ export default function ScoreboardView() {
   const [aiLoading, setAiLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedMetric, setSelectedMetric] = useState(null);
+  const [aiSummary, setAiSummary] = useState(null);
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -291,7 +293,10 @@ export default function ScoreboardView() {
       dMap[r.metric_key].push({ date:r.date, value:Number(r.value), label:r.date?.slice(5) });
     }
     setDaily(dMap);
-    if (Object.keys(dMap).length) setSelectedMetric(Object.keys(dMap)[0]);
+    if (Object.keys(dMap).length) {
+      setSelectedMetric(Object.keys(dMap)[0]);
+      fetchAiSummary(dMap);
+    }
     setLoading(false);
   };
 
@@ -454,12 +459,35 @@ export default function ScoreboardView() {
                 {hasDaily && (
                   <div>
                     {/* Date badge */}
-                    <div style={{ fontSize:12, color:T.text3, marginBottom:16, display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ fontSize:12, color:T.text3, marginBottom:16, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                       <span style={{ background:T.accentDim, color:T.accent, padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>Latest: {latestDate}</span>
                       <span>·</span>
                       <span>{(daily["revenue"]||[]).length} days of data</span>
                       <span>·</span>
                       <span style={{ cursor:"pointer", color:T.accent, textDecoration:"underline" }} onClick={()=>setActiveTab("chat")}>Ask the AI →</span>
+                    </div>
+
+                    {/* AI Summary card */}
+                    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:"14px 18px", marginBottom:20, position:"relative", overflow:"hidden" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                        <span style={{ fontSize:14 }}>🤖</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:T.text }}>AI Summary</span>
+                        {aiSummary?.date && <span style={{ fontSize:11, color:T.text3 }}>— {aiSummary.date}</span>}
+                        <button onClick={()=>fetchAiSummary(daily)} disabled={aiSummaryLoading}
+                          style={{ marginLeft:"auto", fontSize:11, padding:"3px 10px", background:"none", border:`1px solid ${T.border}`, borderRadius:5, color:T.text3, cursor:"pointer", opacity:aiSummaryLoading?0.5:1 }}>
+                          {aiSummaryLoading ? "..." : "↻ Refresh"}
+                        </button>
+                      </div>
+                      {aiSummaryLoading ? (
+                        <div style={{ display:"flex", gap:4, alignItems:"center" }}>
+                          {[0,1,2].map(i => <div key={i} style={{ width:6,height:6,borderRadius:"50%",background:T.accent,animation:`bounce 1s ease-in-out ${i*0.15}s infinite` }} />)}
+                          <span style={{ fontSize:12, color:T.text3, marginLeft:6 }}>Analyzing yesterday's performance…</span>
+                        </div>
+                      ) : aiSummary ? (
+                        <p style={{ fontSize:13, color:T.text2, lineHeight:1.7, margin:0 }}>{aiSummary.text}</p>
+                      ) : (
+                        <p style={{ fontSize:12, color:T.text3, margin:0 }}>Loading AI analysis…</p>
+                      )}
                     </div>
 
                     {/* KPI grid */}
@@ -562,49 +590,112 @@ export default function ScoreboardView() {
         )}
 
         {/* Monthly tab */}
-        {activeTab === "monthly" && hasData && (
-          <div>
-            <table style={{ width:"100%", borderCollapse:"collapse" }}>
-              <thead>
-                <tr style={{ borderBottom:`2px solid ${T.border}` }}>
-                  <th style={{ padding:"8px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>Metric</th>
-                  {MONTH_NAMES.slice(0, curMonth).map(m => (
-                    <th key={m} style={{ padding:"8px 8px", textAlign:"right", fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{m}</th>
-                  ))}
-                  <th style={{ padding:"8px 12px", textAlign:"right", fontSize:11, fontWeight:700, color:T.accent, textTransform:"uppercase" }}>YTD</th>
-                  <th style={{ padding:"8px 12px", textAlign:"center", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>Trend</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.values(monthly).map((m, idx) => {
-                  const ytd = m.monthly?.filter(r=>r.month<=curMonth).reduce((s,r)=>s+(r.actual||0),0);
-                  const sparkVals = m.monthly?.filter(r=>r.month<=curMonth).map(r=>({value:r.actual||0})) || [];
-                  return (
-                    <tr key={m.metric_key} style={{ borderBottom:`1px solid ${T.border}`, background:idx%2===0?"transparent":T.surface2+"40" }}>
-                      <td style={{ padding:"10px 12px", fontSize:13, fontWeight:600 }}>{m.metric_label}</td>
-                      {MONTH_NAMES.slice(0, curMonth).map((mn, i) => {
-                        const row = m.monthly?.find(r=>r.month===i+1);
-                        const v = row?.actual;
-                        const prev = m.monthly?.find(r=>r.month===i)?.actual;
-                        const change = prev && v ? ((v-prev)/Math.abs(prev))*100 : null;
-                        return (
-                          <td key={mn} style={{ padding:"10px 8px", textAlign:"right", fontSize:12 }}>
-                            <div style={{ fontWeight: i+1===curMonth ? 700 : 400, color: v<0?"#ef4444":T.text }}>{fmt$(v)}</div>
-                            {change!=null && <div style={{ fontSize:9, color:change>0?"#22c55e":"#ef4444" }}>{change>0?"▲":"▼"}{Math.abs(change).toFixed(0)}%</div>}
-                          </td>
-                        );
-                      })}
-                      <td style={{ padding:"10px 12px", textAlign:"right", fontSize:13, fontWeight:700, color:ytd<0?"#ef4444":"#22c55e" }}>{fmt$(ytd)}</td>
-                      <td style={{ padding:"10px 12px", width:80 }}>
-                        <LineChart data={sparkVals} color={ytd<0?"#ef4444":T.accent} height={32} showArea={false} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {activeTab === "monthly" && (() => {
+          const agg = buildMonthlyAgg(daily);
+          const months = Array.from({length: curMonth}, (_, i) => i + 1);
+          const hasDailyData = Object.keys(daily).length > 0;
+
+          // Group metrics for display
+          const GROUPS = [
+            { label: "💰 Revenue", keys: ["revenue","amazon_revenue","comp_yago","net_dollars"] },
+            { label: "📣 Advertising", keys: ["ad_spend","cpa","dtc_cac","x_cac","gwp_cpa","nc_aov","opex_pct_rev"] },
+            { label: "🛒 Orders", keys: ["total_orders","new_orders","amazon_total_orders","units_shipped"] },
+            { label: "👥 Customers & Traffic", keys: ["dtc_new_customers","amz_new_customers","traffic","blended_cvr"] },
+            { label: "🔁 Subscriptions", keys: ["new_gwp_subs","new_shopify_subs","daily_cancels","net_daily_subs","amz_net_subs","sub_rate","upsell_take_rate"] },
+          ];
+
+          // Which keys to SUM vs AVG for monthly display
+          const AVG_KEYS = new Set(["blended_cvr","sub_rate","upsell_take_rate","comp_yago","cpa","dtc_cac","x_cac","gwp_cpa","nc_aov","opex_pct_rev","roas"]);
+
+          const getMonthVal = (key, month) => {
+            const m = agg[key]?.months[month];
+            if (!m) return null;
+            return AVG_KEYS.has(key) ? m.avg : m.total;
+          };
+
+          const thStyle = { padding:"8px 10px", textAlign:"right", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", whiteSpace:"nowrap" };
+          const tdStyle = (isCur) => ({ padding:"7px 10px", textAlign:"right", fontSize:12, fontWeight:isCur?700:400 });
+
+          if (!hasDailyData) return (
+            <div style={{ textAlign:"center", padding:"60px 0", color:T.text3 }}>
+              <div style={{ fontSize:13 }}>No data yet — click ↻ Sync Sheet</div>
+            </div>
+          );
+
+          return (
+            <div>
+              {GROUPS.map(group => {
+                const groupKeys = group.keys.filter(k => agg[k]);
+                if (!groupKeys.length) return null;
+                return (
+                  <div key={group.label} style={{ marginBottom:28 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:8, paddingBottom:6, borderBottom:`2px solid ${T.border}` }}>
+                      {group.label}
+                    </div>
+                    <div style={{ overflowX:"auto" }}>
+                      <table style={{ width:"100%", borderCollapse:"collapse", minWidth:500 }}>
+                        <thead>
+                          <tr style={{ borderBottom:`1px solid ${T.border}` }}>
+                            <th style={{ padding:"6px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", minWidth:180 }}>Metric</th>
+                            {months.map(m => (
+                              <th key={m} style={{ ...thStyle, color: m===curMonth ? T.accent : T.text3 }}>
+                                {MONTH_NAMES[m-1]}
+              {m===curMonth && <span style={{ display:"block", fontSize:8, fontWeight:400, color:T.text3 }}>MTD</span>}
+                              </th>
+                            ))}
+                            <th style={{ ...thStyle, color: T.accent }}>YTD</th>
+                            <th style={{ padding:"6px 10px", textAlign:"center", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", width:70 }}>Trend</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupKeys.map((key, idx) => {
+                            const meta = METRIC_META[key] || { label: key, unit: "#", color: T.accent };
+                            const monthVals = months.map(m => getMonthVal(key, m));
+                            const ytd = AVG_KEYS.has(key)
+                              ? (monthVals.filter(v=>v!=null).reduce((s,v)=>s+v,0) / monthVals.filter(v=>v!=null).length) || 0
+                              : monthVals.filter(v=>v!=null).reduce((s,v)=>s+v,0);
+                            const sparkData = monthVals.filter(v=>v!=null).map(v=>({value:v}));
+                            return (
+                              <tr key={key} style={{ borderBottom:`1px solid ${T.border}`, background: idx%2===0 ? "transparent" : T.surface2+"30" }}
+                                onMouseEnter={e=>e.currentTarget.style.background=T.accentDim+"20"}
+                                onMouseLeave={e=>e.currentTarget.style.background=idx%2===0?"transparent":T.surface2+"30"}>
+                                <td style={{ padding:"7px 10px", fontSize:12, fontWeight:600, color:T.text }}>
+                                  <span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:meta.color, marginRight:6 }} />
+                                  {meta.label}
+                                </td>
+                                {months.map((m, mi) => {
+                                  const v = monthVals[mi];
+                                  const prev = mi > 0 ? monthVals[mi-1] : null;
+                                  const chg = v!=null && prev!=null && prev!==0 ? ((v-prev)/Math.abs(prev))*100 : null;
+                                  return (
+                                    <td key={m} style={{ ...tdStyle(m===curMonth), color: v==null ? T.text3 : v<0 ? "#ef4444" : T.text }}>
+                                      <div>{v!=null ? fmtVal(v, meta.unit, true) : "—"}</div>
+                                      {chg!=null && <div style={{ fontSize:9, color:chg>0?"#22c55e":"#ef4444", fontWeight:400 }}>{chg>0?"▲":"▼"}{Math.abs(chg).toFixed(1)}%</div>}
+                                    </td>
+                                  );
+                                })}
+                                <td style={{ ...tdStyle(true), color: ytd<0?"#ef4444":meta.color }}>
+                                  {fmtVal(ytd, meta.unit, true)}
+                                </td>
+                                <td style={{ padding:"7px 10px" }}>
+                                  {sparkData.length > 1 && <LineChart data={sparkData} color={ytd<0?"#ef4444":meta.color} height={28} showArea={false} />}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div style={{ fontSize:11, color:T.text3, marginTop:8 }}>
+                * Percentage metrics (CVR, Sub Rate, CAC, CPA, OPEX %) show monthly averages. Revenue, orders, subs show monthly totals. MTD = month to date ({agg["revenue"]?.months[curMonth]?.days||0} days).
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Daily tab */}
         {activeTab === "daily" && (
