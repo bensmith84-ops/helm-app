@@ -313,7 +313,7 @@ export default function AIBuilderView() {
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
         signal: controller.signal,
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-opus-4-20250514",
           max_tokens: 20000,
           stream: true,
           system: SYSTEM_PROMPT,
@@ -386,7 +386,7 @@ export default function AIBuilderView() {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
               signal: ctrl2.signal,
-              body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 20000, stream: true, system: SYSTEM_PROMPT, messages: allMsgs.map(m => ({ role: m.role, content: m.content })), api_key: apiKey }),
+              body: JSON.stringify({ model: "claude-opus-4-20250514", max_tokens: 20000, stream: true, system: SYSTEM_PROMPT, messages: allMsgs.map(m => ({ role: m.role, content: m.content })), api_key: apiKey }),
             });
             if (!resp.ok) { setMessages(p => [...p, { role: "assistant", content: "Error: " + resp.status }]); setLoading(false); abortRef.current = null; return; }
             const rdr = resp.body.getReader();
