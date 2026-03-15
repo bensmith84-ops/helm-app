@@ -66,6 +66,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [showMyTasks, setShowMyTasks] = useState(true);
   const [ctxProject, setCtxProject] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [favorites, setFavorites] = useState(new Set());
   // Templates & copy
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState([]);
@@ -88,6 +89,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [ruleForm, setRuleForm] = useState({ name: "", trigger_type: "task_moved_to_section", trigger_config: {}, actions: [] });
 
   const showToast = useCallback((msg, type = "error") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
+  const toggleFavorite = async (projectId, e) => {
+    e?.stopPropagation();
+    const isFav = favorites.has(projectId);
+    if (isFav) {
+      setFavorites(p => { const n = new Set(p); n.delete(projectId); return n; });
+      await supabase.from("project_favorites").delete().eq("user_id", user?.id).eq("project_id", projectId);
+    } else {
+      setFavorites(p => new Set(p).add(projectId));
+      await supabase.from("project_favorites").insert({ user_id: user?.id, project_id: projectId });
+    }
+  };
   const archiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "archived" }).eq("id", id); if (error) return showToast("Failed to archive"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "archived" } : pr)); if (activeProject === id) setActiveProject(null); showToast("Project archived", "success"); };
   const unarchiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "active" }).eq("id", id); if (error) return showToast("Failed to restore"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "active" } : pr)); showToast("Project restored", "success"); };
   const deleteProject = async (id) => { const name = projects.find(p => p.id === id)?.name || "this project"; if (!window.confirm(`Delete "${name}"? This will permanently remove the project and all its tasks. This cannot be undone.`)) return; const { error } = await supabase.from("projects").delete().eq("id", id); if (error) return showToast("Failed to delete: " + error.message); setProjects(p => p.filter(pr => pr.id !== id)); setTasks(p => p.filter(t => t.project_id !== id)); setSections(p => p.filter(s => s.project_id !== id)); if (activeProject === id) { setActiveProject(null); setSelectedTask(null); } showToast("Project deleted", "success"); };
@@ -104,16 +116,18 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const load = async () => {
       setLoading(true);
       try {
-        const [pR, sR, tR, prR, tmR, obR] = await Promise.all([
+        const [pR, sR, tR, prR, tmR, obR, favR] = await Promise.all([
           supabase.from("projects").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("sections").select("*").order("sort_order"),
           supabase.from("tasks").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("sort_order"),
           supabase.from("profiles").select("*").eq("org_id", profile.org_id),
           supabase.from("teams").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("objectives").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
+          supabase.from("project_favorites").select("project_id").eq("user_id", user?.id),
         ]);
         setProjects(pR.data || []); setSections(sR.data || []); setTasks(tR.data || []);
         setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
+        setFavorites(new Set((favR.data || []).map(f => f.project_id)));
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
         // Load templates and docs
@@ -661,7 +675,13 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         My Tasks
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "4px 8px" }}>
-        {projects.filter(p => p.status !== "archived").map(p => {
+        {/* ★ Favorites */}
+        {projects.filter(p => p.status !== "archived" && favorites.has(p.id)).length > 0 && (
+          <>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em", padding: "8px 10px 4px", display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ color: "#eab308", fontSize: 11 }}>★</span> Favorites
+            </div>
+            {projects.filter(p => p.status !== "archived" && favorites.has(p.id)).map(p => {
           const pt = tasks.filter(t => t.project_id === p.id && !t.parent_task_id);
           const pd = pt.filter(t => t.status === "done").length;
           const pp = pt.length ? Math.round((pd / pt.length) * 100) : 0;
@@ -673,7 +693,42 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus("all"); setFilterPriority("all"); setFilterAssignee([]); }}
             onContextMenu={e => { e.preventDefault(); setCtxProject(ctxProject === p.id ? null : p.id); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
-            <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
+            <div onClick={e => toggleFavorite(p.id, e)} style={{ cursor: "pointer", fontSize: 12, color: "#eab308", flexShrink: 0, lineHeight: 1 }} title="Remove from favorites">★</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.emoji || ""} {p.name}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 10, background: act ? T.accent : T.surface3, color: act ? "#fff" : T.text2, flexShrink: 0 }}>{tasks.filter(t => t.project_id === p.id && t.status !== "done" && !t.parent_task_id).length}</span>
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: pHealth, display: "inline-block" }} />
+                {pt.length} tasks · {pp}%
+                {pOverdue > 0 && <span style={{ color: "#ef4444" }}>· {pOverdue} late</span>}
+              </div>
+            </div>
+            <div style={{ width: 28, height: 3, borderRadius: 2, background: T.surface3, flexShrink: 0 }}><div style={{ width: `${pp}%`, height: "100%", borderRadius: 2, background: p.color || T.accent, transition: "width 0.4s" }} /></div>
+          </div>); })}
+            <div style={{ height: 1, background: T.border, margin: "6px 10px" }} />
+          </>
+        )}
+        {/* All Projects */}
+        {projects.filter(p => p.status !== "archived" && !favorites.has(p.id)).length > 0 && favorites.size > 0 && (
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em", padding: "4px 10px 4px" }}>All Projects</div>
+        )}
+        {projects.filter(p => p.status !== "archived" && (!favorites.size || !favorites.has(p.id))).map(p => {
+          const pt = tasks.filter(t => t.project_id === p.id && !t.parent_task_id);
+          const pd = pt.filter(t => t.status === "done").length;
+          const pp = pt.length ? Math.round((pd / pt.length) * 100) : 0;
+          const act = activeProject === p.id && !showMyTasks;
+          const pToday = new Date().toISOString().split("T")[0];
+          const pOverdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < pToday).length;
+          const pHealth = pOverdue > pt.length * 0.2 ? "#ef4444" : pOverdue > 0 ? "#eab308" : "#22c55e";
+          return (
+          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus("all"); setFilterPriority("all"); setFilterAssignee([]); }}
+            onContextMenu={e => { e.preventDefault(); setCtxProject(ctxProject === p.id ? null : p.id); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
+            <div onClick={e => toggleFavorite(p.id, e)} style={{ cursor: "pointer", fontSize: 12, color: T.text3, flexShrink: 0, lineHeight: 1, opacity: 0.3, transition: "opacity 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.color = "#eab308"; }} onMouseLeave={e => { e.currentTarget.style.opacity = "0.3"; e.currentTarget.style.color = T.text3; }}
+              title="Add to favorites">☆</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.emoji || ""} {p.name}</span>
