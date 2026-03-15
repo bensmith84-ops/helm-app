@@ -1862,10 +1862,8 @@ export default function ProjectsView() {
   };
 
   // Status form modal
-  const StatusFormModal = () => {
-    if (!showStatusForm) return null;
-    const HEALTH_OPTS = [{ k: "on_track", l: "On Track", color: "#22c55e" }, { k: "at_risk", l: "At Risk", color: "#eab308" }, { k: "off_track", l: "Off Track", color: "#ef4444" }];
-    return (
+  const HEALTH_OPTS = [{ k: "on_track", l: "On Track", color: "#22c55e" }, { k: "at_risk", l: "At Risk", color: "#eab308" }, { k: "off_track", l: "Off Track", color: "#ef4444" }];
+  const statusFormModalEl = !showStatusForm ? null : (
       <div onClick={() => setShowStatusForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div onClick={e => e.stopPropagation()} style={{ width: 500, maxHeight: "80vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}` }}>
@@ -1918,7 +1916,6 @@ export default function ProjectsView() {
         </div>
       </div>
     );
-  };
 
   // MAIN RENDER
   return (
@@ -2050,7 +2047,7 @@ export default function ProjectsView() {
       <TemplatesModal />
       <SaveAsTemplateModal />
       <CopyModal />
-      <StatusFormModal />
+      {statusFormModalEl}
     </div>
   );
 }
