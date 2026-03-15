@@ -7,44 +7,40 @@ import { useAuth } from "../lib/auth";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4";
 const EDGE_BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
 
-const SYSTEM_PROMPT = `You are Helm AI Builder — an engineering assistant embedded inside Helm, a business operating system (Next.js + Supabase + Vercel).
+const SYSTEM_PROMPT = [
+  "You are Helm AI Builder — an engineering assistant embedded inside Helm (Next.js + Supabase + Vercel).",
+  "",
+  "CRITICAL RULES:",
+  "1. NEVER output full file rewrites for files over 100 lines. Most components are 1000-2000 lines.",
+  "2. Instead, output TARGETED PATCHES showing the old code and new code.",
+  "3. For new small files (<200 lines) or edge functions, you may write the full content.",
+  "4. For SQL migrations, use code blocks labeled sql:migration_name.",
+  "5. ALWAYS explain what you are changing and why before showing code.",
+  "6. Use deploy: prefix ONLY for new files. Use patch: prefix for changes to existing files.",
+  "",
+  "INFRASTRUCTURE:",
+  "- Supabase project: upbjdmnykheubxkuknuj",
+  "- Frontend: Next.js React, components in app/components/",
+  "- Theme: T.accent, T.text, T.surface via Proxy (import { T } from ../tokens)",
+  "- DB: import { supabase } from ../lib/supabase",
+  "- Auth: import { useAuth } from ../lib/auth gives { user, profile }",
+  "",
+  "KEY TABLES: tasks, sections, projects, objectives, key_results, okr_check_ins, profiles, notifications, documents, campaigns, calls, calendars, calendar_events, dashboard_focus_items, custom_fields",
+  "",
+  "LARGE COMPONENTS (1000-2000 lines — NEVER rewrite fully):",
+  "Dashboard.js, Projects.js, OKRs.js, Finance.js, PLM.js",
+  "",
+  "For changes to existing files, show targeted patches like:",
+  "// FIND THIS CODE:",
+  "...existing code...",
+  "// REPLACE WITH:",
+  "...new code...",
+  "",
+  "For SQL migrations, label them as sql:name.",
+  "For new files only, label them as deploy:path/to/file.js.",
+  "The admin will review all changes before deploying.",
+].join("\n");
 
-You can BUILD features, FIX bugs, RUN SQL, and AUTO-DEPLOY changes.
-
-INFRASTRUCTURE:
-- Supabase project: upbjdmnykheubxkuknuj
-- Frontend: Next.js React, all components in app/components/
-- Theme: T.accent, T.text, T.surface etc. via Proxy on tokens.js
-- Deploy: push to GitHub main → Vercel auto-deploys
-
-KEY TABLES: tasks, sections, projects, objectives, key_results, okr_check_ins, okr_cycles, profiles, notifications, documents, campaigns, calls, calendars, calendar_events, event_attendees, dashboard_focus_items, custom_fields, custom_field_values, scorecard_metrics, plm_programs
-
-COMPONENTS: Dashboard.js, Projects.js, OKRs.js, Scorecard.js, Scoreboard.js, Messages.js, Docs.js, Calendar.js, Calls.js, Campaigns.js, PLM.js, Finance.js, Automation.js, Reports.js, People.js, Activity.js, Settings.js, Sidebar.js, CommandPalette.js, NotificationBell.js, AIBuilder.js
-
-PATTERNS:
-- import { T } from "../tokens" for theme
-- import { supabase } from "../lib/supabase" for DB
-- import { useAuth } from "../lib/auth" for { user, profile }
-- Use defaultValue + key + onBlur for text inputs (not controlled value)
-- Components that use useState must be at module scope (not inside other components)
-- Always .order("col1").order("col2") — never .order("col1,col2")
-
-WHEN GENERATING CODE TO DEPLOY:
-You MUST format deployable code in special blocks that the UI will parse:
-
-For file changes, use:
-\`\`\`deploy:path/to/file.js
-// full file content here
-\`\`\`
-
-For SQL migrations, use:
-\`\`\`sql:migration_name
--- SQL here
-\`\`\`
-
-The system will extract these blocks, show them to the admin with Deploy buttons, and push to GitHub + run migrations automatically.
-
-Be thorough — write complete files, not partial diffs. Always include the full file content for any file you modify. Test your logic mentally before outputting.`;
 
 export default function AIBuilderView() {
   const { profile } = useAuth();
@@ -301,8 +297,15 @@ export default function AIBuilderView() {
                           <button onClick={() => navigator.clipboard.writeText(code)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, fontWeight: 600 }}>Copy</button>
                           {isDeployable && !deployResults[blockId] && (
                             <button
-                              onClick={() => {
-                                if (blockType === "deploy") deployFiles([{ path: blockName, content: code }], null, `feat(ai-builder): ${blockName}`, blockId);
+                              onClick={async () => {
+                                if (blockType === "deploy") {
+                                  // Safety: warn if deploying to an existing large file
+                                  const isLargeFile = blockName.includes("Projects") || blockName.includes("Dashboard") || blockName.includes("OKRs") || blockName.includes("Finance") || blockName.includes("PLM");
+                                  if (isLargeFile && code.split("\n").length < 500) {
+                                    if (!window.confirm(`⚠️ WARNING: ${blockName} is a large component (1000+ lines). This deploy block only has ${code.split("\n").length} lines — it may be truncated and could break the app. Deploy anyway?`)) return;
+                                  }
+                                  deployFiles([{ path: blockName, content: code }], null, `feat(ai-builder): ${blockName}`, blockId);
+                                }
                                 else if (blockType === "sql") deployFiles(null, code, `sql: ${blockName}`, blockId);
                               }}
                               disabled={deploying[blockId]}
@@ -334,6 +337,10 @@ export default function AIBuilderView() {
                   <button onClick={() => {
                     const fileBlocks = deployBlocks.filter(b => b.type === "deploy");
                     const sqlBlocks = deployBlocks.filter(b => b.type === "sql");
+                    const dangerousFiles = fileBlocks.filter(b => ["Projects","Dashboard","OKRs","Finance","PLM"].some(n => b.name.includes(n)) && b.content.split("\n").length < 500);
+                    if (dangerousFiles.length > 0) {
+                      if (!window.confirm(`⚠️ WARNING: ${dangerousFiles.map(f=>f.name).join(", ")} appear truncated. This could break the app. Deploy anyway?`)) return;
+                    }
                     const files = fileBlocks.map(b => ({ path: b.name, content: b.content }));
                     const sql = sqlBlocks.map(b => b.content).join(";\n");
                     const allId = "deploy-all-" + i;
