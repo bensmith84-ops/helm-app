@@ -124,7 +124,7 @@ export default function ScorecardView() {
   useEffect(() => {
     (async () => {
       const [{ data: met }, { data: prof }, { data: mem }, { data: krs }] = await Promise.all([
-        supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order,created_at"),
+        supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order").order("created_at"),
         supabase.from("profiles").select("id,display_name"),
         supabase.from("org_memberships").select("org_id").eq("user_id", (await supabase.auth.getUser()).data.user?.id).maybeSingle(),
         supabase.from("key_results").select("id,title,current_value,target_value,unit,progress").is("deleted_at", null).order("sort_order"),

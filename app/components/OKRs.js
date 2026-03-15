@@ -119,7 +119,7 @@ export default function OKRsView() {
       // Load financial metrics for current year
       const yr = new Date().getFullYear();
       const { data: fmData } = await supabase.from("okr_financial_metrics")
-        .select("*").eq("year", yr).order("sort_order,metric_key");
+        .select("*").eq("year", yr).order("sort_order").order("metric_key");
       if (fmData) {
         // Seed defaults if none exist
         if (fmData.length === 0) {
@@ -1223,7 +1223,7 @@ export default function OKRsView() {
         setFinSyncMsg("✓ Synced " + result.monthsProcessed + " months");
         // Reload financial data
         const yr = finYear;
-        const { data: fmData } = await supabase.from("okr_financial_metrics").select("*").eq("year", yr).order("sort_order,metric_key");
+        const { data: fmData } = await supabase.from("okr_financial_metrics").select("*").eq("year", yr).order("sort_order").order("metric_key");
         if (fmData) {
           setFinMetrics(fmData);
           const ids = fmData.map(m => m.id);

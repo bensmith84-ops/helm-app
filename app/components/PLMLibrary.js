@@ -326,7 +326,7 @@ export default function PLMLibraryView() {
           if (prog?.org_id) setOrgId(prog.org_id);
         }
       }
-      const { data } = await supabase.from("plm_ingredient_library").select("*").eq("active", true).order("ingredient_type,name");
+      const { data } = await supabase.from("plm_ingredient_library").select("*").eq("active", true).order("ingredient_type").order("name");
       setItems(data || []);
       setLoading(false);
     })();

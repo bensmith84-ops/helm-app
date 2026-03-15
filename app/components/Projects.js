@@ -261,9 +261,11 @@ export default function ProjectsView() {
   const saveStatusUpdate = async () => {
     if (!statusForm.summary.trim()) return showToast("Summary required");
     const { data, error } = await supabase.from("project_status_updates").insert({
+      org_id: profile?.org_id,
       project_id: activeProject, author_id: user?.id,
-      health: statusForm.health, summary: statusForm.summary,
-      highlights: statusForm.highlights || null, blockers: statusForm.blockers || null,
+      status: statusForm.health,
+      title: statusForm.summary,
+      body: [statusForm.highlights ? `**Highlights:** ${statusForm.highlights}` : "", statusForm.blockers ? `**Blockers:** ${statusForm.blockers}` : ""].filter(Boolean).join("\n\n") || null,
     }).select().single();
     if (error) return showToast("Failed to save update");
     setStatusUpdates(p => [data, ...p]);
@@ -1257,7 +1259,7 @@ export default function ProjectsView() {
             </button>
           </div>
         ) : statusUpdates.map(su => {
-          const h = su.health || "on_track";
+          const h = su.status || "on_track";
           const color = HEALTH_COLORS[h];
           const dAgo = Math.floor((Date.now() - new Date(su.created_at).getTime()) / 86400000);
           return (
@@ -1267,19 +1269,8 @@ export default function ProjectsView() {
                 <span style={{ fontSize: 12, color: T.text3 }}>{dAgo === 0 ? "Today" : `${dAgo} day${dAgo > 1 ? "s" : ""} ago`}</span>
                 <span style={{ fontSize: 12, color: T.text3 }}>· {uname(su.author_id) || "Unknown"}</span>
               </div>
-              <p style={{ fontSize: 14, color: T.text, lineHeight: 1.6, margin: "0 0 10px" }}>{su.summary}</p>
-              {su.highlights && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#22c55e", marginBottom: 4 }}>✨ Highlights</div>
-                  <p style={{ fontSize: 13, color: T.text2, margin: 0, lineHeight: 1.5 }}>{su.highlights}</p>
-                </div>
-              )}
-              {su.blockers && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>⚠️ Blockers</div>
-                  <p style={{ fontSize: 13, color: T.text2, margin: 0, lineHeight: 1.5 }}>{su.blockers}</p>
-                </div>
-              )}
+              {su.title && <p style={{ fontSize: 14, color: T.text, lineHeight: 1.6, margin: "0 0 10px" }}>{su.title}</p>}
+              {su.body && <p style={{ fontSize: 13, color: T.text2, margin: 0, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{su.body}</p>}
             </div>
           );
         })}

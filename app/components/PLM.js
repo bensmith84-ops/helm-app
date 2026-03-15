@@ -659,7 +659,7 @@ function SourcingTab({ program }) {
   const [libIngredients, setLibIngredients] = useState([]); // for name autocomplete
 
   useEffect(()=>{
-    supabase.from("plm_sourcing").select("*").eq("program_id",program.id).order("sourcing_type,created_at")
+    supabase.from("plm_sourcing").select("*").eq("program_id",program.id).order("sourcing_type").order("created_at")
       .then(({data})=>{setItems(data||[]);setLoading(false);});
     // Load library ingredient names for autocomplete
     supabase.from("plm_ingredient_library").select("id,name,default_uom").eq("active",true).order("name")
@@ -1092,7 +1092,7 @@ function FormulationsTab({ programId }) {
   const [loading, setLoading] = useState(true);
   const [showPicker, setShowPicker] = useState(false);
   useEffect(()=>{ supabase.from("plm_formulations").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setFormulas(data||[]);setLoading(false);}); },[programId]);
-  useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("formulation_id",selected.id).order("sort_order,created_at").then(({data})=>setItems(data||[])); },[selected]);
+  useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("formulation_id",selected.id).order("sort_order").order("created_at").then(({data})=>setItems(data||[])); },[selected]);
   const addFormula=async()=>{ const{data}=await supabase.from("plm_formulations").insert({program_id:programId,name:"New Formulation",version:"v1.0",status:"draft"}).select().single(); if(data){setFormulas(p=>[...p,data]);setSelected(data);} };
   const addItem=async({ name="", uom="", type="ingredient" }={})=>{ if(!selected)return; const{data}=await supabase.from("plm_formula_items").insert({formulation_id:selected.id,ingredient_name:name,item_type:type,quantity:0,unit:"%",input_qty:null,input_uom:uom||null}).select().single(); if(data)setItems(p=>[...p,data]); };
   const totalPct=items.filter(i=>i.unit==="%").reduce((a,b)=>a+parseFloat(b.quantity||0),0);
@@ -1212,7 +1212,7 @@ function TrialsTab({ programId }) {
 function RegClaimsTab({ programId }) {
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(()=>{ supabase.from("plm_claims").select("*").eq("program_id",programId).order("priority,created_at").then(({data})=>{setClaims(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_claims").select("*").eq("program_id",programId).order("priority").order("created_at").then(({data})=>{setClaims(data||[]);setLoading(false);}); },[programId]);
   const add=async()=>{ const{data}=await supabase.from("plm_claims").insert({program_id:programId,claim_text:"New claim",claim_type:"efficacy",status:"proposed"}).select().single(); if(data)setClaims(p=>[...p,data]); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
