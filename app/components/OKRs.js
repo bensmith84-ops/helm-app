@@ -1542,6 +1542,7 @@ export default function OKRsView() {
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>
                   Current Value <span style={{ color: T.text3, fontWeight: 400 }}>/ {kr.target_value} {kr.unit || ""}</span>
+                  <button onClick={() => setForm(p => ({ ...p, current_value: kr.current_value }))} style={{ marginLeft: 8, fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>No change ↩</button>
                 </label>
                 <input type="number" value={form.current_value} onChange={e => setForm(p => ({ ...p, current_value: e.target.value }))}
                   style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 700, outline: "none", boxSizing: "border-box" }} />

@@ -228,6 +228,20 @@ export default function ScorecardView() {
                 </div>
               ))}
             </div>
+            <button onClick={() => {
+              // Export scorecard as CSV
+              const header = ["Metric","Goal","Unit","Hit Rate", ...WEEKS].join(",");
+              const rows = metricSummary.map(m => [
+                `"${m.name}"`, m.goal ?? "", m.unit,
+                m.total > 0 ? `${Math.round((m.hits/m.total)*100)}%` : "—",
+                ...WEEKS.map(w => entries[m.id]?.[w] ?? "")
+              ].join(","));
+              const csv = [header, ...rows].join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "scorecard.csv"; a.click();
+            }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.surface2, color:T.text2, border:`1px solid ${T.border}`, borderRadius:7, cursor:"pointer" }}>
+              ↓ Export
+            </button>
             <button onClick={() => setShowAddMetric(true)}
               style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:7, cursor:"pointer" }}>
               + Add Metric
