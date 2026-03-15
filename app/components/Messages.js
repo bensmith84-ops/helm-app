@@ -18,16 +18,37 @@ export default function MessagesView() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [messageReads, setMessageReads] = useState({});
+  const [unreadCounts, setUnreadCounts] = useState({});
+  const [showTaskModal, setShowTaskModal] = useState(null); // message object or null
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskProject, setTaskProject] = useState("");
+  const [taskDueDate, setTaskDueDate] = useState("");
+  const [projects, setProjects] = useState([]);
   const bottomRef = useRef(null);
 
   useEffect(() => {
     (async () => {
-      const [{ data: ch }, { data: prof }] = await Promise.all([
+      const [{ data: ch }, { data: prof }, { data: reads }, { data: projs }] = await Promise.all([
         supabase.from("channels").select("*").eq("is_archived", false).order("name"),
         supabase.from("profiles").select("id,display_name,avatar_url"),
+        supabase.from("message_reads").select("*").eq("user_id", user?.id),
+        supabase.from("projects").select("id,name,color").is("deleted_at", null).order("name"),
       ]);
       setChannels(ch || []);
+      setProjects(projs || []);
+      const rm = {}; (reads || []).forEach(r => { rm[r.channel_id] = r; }); setMessageReads(rm);
       const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
+      // Compute unread counts per channel
+      const uc = {};
+      for (const c of (ch || [])) {
+        const r = (reads || []).find(rr => rr.channel_id === c.id);
+        const since = r?.last_read_at || "2000-01-01T00:00:00Z";
+        const { count } = await supabase.from("messages").select("id", { count: "exact", head: true })
+          .eq("channel_id", c.id).neq("author_id", user?.id).gt("created_at", since).is("deleted_at", null);
+        if (count > 0 || r?.is_unread_override) uc[c.id] = (count || 0) + (r?.is_unread_override && count === 0 ? 1 : 0);
+      }
+      setUnreadCounts(uc);
       if (ch?.length) setActiveCh(ch[0].id);
       setLoading(false);
     })();
@@ -41,6 +62,15 @@ export default function MessagesView() {
         .order("created_at", { ascending: true });
       setMessages(msgs || []);
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      // Mark channel as read
+      const now = new Date().toISOString();
+      const lastMsg = msgs?.[msgs.length - 1];
+      await supabase.from("message_reads").upsert({
+        user_id: user?.id, channel_id: activeCh, last_read_at: now,
+        last_read_message_id: lastMsg?.id || null, is_unread_override: false,
+      }, { onConflict: "user_id,channel_id" });
+      setMessageReads(p => ({ ...p, [activeCh]: { ...p[activeCh], last_read_at: now, is_unread_override: false } }));
+      setUnreadCounts(p => { const n = { ...p }; delete n[activeCh]; return n; });
     })();
   }, [activeCh]);
 
@@ -148,10 +178,15 @@ export default function MessagesView() {
                 width: "100%", textAlign: "left", padding: "8px 12px", borderRadius: 8, border: "none",
                 cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, marginBottom: 1,
                 background: on ? `${T.accent}15` : "transparent",
-                color: on ? T.text : T.text2, fontWeight: on ? 600 : 400,
+                color: on ? T.text : T.text2, fontWeight: unreadCounts[ch.id] ? 700 : on ? 600 : 400,
               }}>
                 <span style={{ color: T.text3, fontSize: 15 }}>#</span>
-                {ch.name}
+                <span style={{ flex: 1 }}>{ch.name}</span>
+                {unreadCounts[ch.id] > 0 && (
+                  <span style={{ fontSize: 9, fontWeight: 700, minWidth: 16, height: 16, borderRadius: 8, background: T.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>
+                    {unreadCounts[ch.id]}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -197,7 +232,9 @@ export default function MessagesView() {
             }
 
             return (
-              <div key={item.id} style={{ display: "flex", gap: 12, padding: "8px 0" }}>
+              <div key={item.id} style={{ display: "flex", gap: 12, padding: "8px 0", position: "relative" }}
+                onMouseEnter={e => e.currentTarget.querySelector(".msg-actions")?.style.setProperty("display","flex")}
+                onMouseLeave={e => e.currentTarget.querySelector(".msg-actions")?.style.setProperty("display","none")}>
                 <Ava uid={item.author_id} sz={36} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
@@ -205,6 +242,28 @@ export default function MessagesView() {
                     <span style={{ fontSize: 11, color: T.text3 }}>{time}</span>
                   </div>
                   <div style={{ fontSize: 14, color: T.text2, lineHeight: 1.5 }}>{item.content}</div>
+                </div>
+                <div className="msg-actions" style={{ display: "none", position: "absolute", top: 0, right: 0, gap: 2, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 4px", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
+                  <button onClick={() => {
+                    setShowTaskModal(item);
+                    setTaskTitle(item.content?.slice(0, 100) || "");
+                    setTaskProject("");
+                    setTaskDueDate(new Date().toISOString().split("T")[0]);
+                  }} title="Create task from message" style={{ background: "none", border: "none", cursor: "pointer", padding: "3px 5px", fontSize: 12, color: T.text3 }}
+                    onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.text3}>
+                    ☐
+                  </button>
+                  <button onClick={async () => {
+                    await supabase.from("message_reads").upsert({
+                      user_id: user?.id, channel_id: activeCh,
+                      last_read_at: new Date(new Date(item.created_at).getTime() - 1000).toISOString(),
+                      is_unread_override: true,
+                    }, { onConflict: "user_id,channel_id" });
+                    setUnreadCounts(p => ({ ...p, [activeCh]: (p[activeCh] || 0) + 1 }));
+                  }} title="Mark as unread" style={{ background: "none", border: "none", cursor: "pointer", padding: "3px 5px", fontSize: 12, color: T.text3 }}
+                    onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.text3}>
+                    ◉
+                  </button>
                 </div>
               </div>
             );
@@ -233,6 +292,62 @@ export default function MessagesView() {
           </div>
         </div>
       </div>
+
+      {/* Create Task from Message modal */}
+      {showTaskModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={() => setShowTaskModal(null)} />
+          <div style={{ position: "relative", width: 440, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201, overflow: "hidden" }}>
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}` }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Create Task from Message</h3>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 4, padding: "6px 8px", borderRadius: 6, background: T.surface2, fontStyle: "italic" }}>
+                "{showTaskModal.content?.slice(0, 120)}{showTaskModal.content?.length > 120 ? "..." : ""}"
+              </div>
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Task Title</label>
+                <input autoFocus value={taskTitle} onChange={e => setTaskTitle(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && taskTitle.trim()) document.getElementById("msg-create-task-btn")?.click(); }}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Project</label>
+                  <select value={taskProject} onChange={e => setTaskProject(e.target.value)}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, cursor: "pointer" }}>
+                    <option value="">Personal Task</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Due Date</label>
+                  <input type="date" value={taskDueDate} onChange={e => setTaskDueDate(e.target.value)}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, cursor: "pointer", boxSizing: "border-box" }} />
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowTaskModal(null)} style={{ padding: "7px 14px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button id="msg-create-task-btn" onClick={async () => {
+                if (!taskTitle.trim()) return;
+                const { error } = await supabase.from("tasks").insert({
+                  org_id: profile?.org_id, project_id: taskProject || null,
+                  title: taskTitle.trim(), status: "todo", priority: "none",
+                  due_date: taskDueDate || null, assignee_id: user?.id,
+                  description: "From message in #" + (channel?.name || "unknown") + ": " + showTaskModal.content?.slice(0, 500),
+                  sort_order: 0, created_by: user?.id,
+                }).select().single();
+                if (!error) setShowTaskModal(null);
+              }}
+                disabled={!taskTitle.trim()}
+                style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: taskTitle.trim() ? T.accent : T.surface3, color: taskTitle.trim() ? "#fff" : T.text3, fontSize: 12, fontWeight: 600, cursor: taskTitle.trim() ? "pointer" : "default" }}>
+                Create Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

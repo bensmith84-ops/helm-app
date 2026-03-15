@@ -63,7 +63,7 @@ export default function ProjectsView() {
   const [customFieldValues, setCustomFieldValues] = useState({});
   const [milestones, setMilestones] = useState([]);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
-  const [showMyTasks, setShowMyTasks] = useState(false);
+  const [showMyTasks, setShowMyTasks] = useState(true);
   const [ctxProject, setCtxProject] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
   // Templates & copy
@@ -2189,7 +2189,12 @@ export default function ProjectsView() {
       })()}
       <ProjectSidebar />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {showMyTasks ? <MyTasksView /> : proj ? (<>
+        {showMyTasks ? (
+          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+            <MyTasksView />
+            <DetailPane />
+          </div>
+        ) : proj ? (<>
           <ProjectHeader />
           {viewMode !== "Info" && filterBarEl}
           <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>

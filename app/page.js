@@ -128,18 +128,33 @@ export default function HelmApp() {
         const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
         const [
           { count: overdue },
-          { count: unreadMsgs },
+          { data: myReads },
           { data: myKRs },
           { count: pendingNotifs },
         ] = await Promise.all([
           supabase.from("tasks").select("id", { count: "exact", head: true })
             .is("deleted_at", null).lt("due_date", now).neq("status", "done"),
-          supabase.from("messages").select("id", { count: "exact", head: true })
-            .neq("author_id", user.id).gte("created_at", new Date(Date.now() - 24 * 86400000).toISOString()),
+          supabase.from("message_reads").select("*").eq("user_id", user.id),
           supabase.from("key_results").select("id").eq("owner_id", user.id).is("deleted_at", null),
           supabase.from("notifications").select("id", { count: "exact", head: true })
             .eq("user_id", user.id).eq("is_read", false),
         ]);
+
+        // Count unread messages across all channels
+        let unreadMsgs = 0;
+        const readMap = {};
+        (myReads || []).forEach(r => { readMap[r.channel_id] = r; });
+        const { data: channels } = await supabase.from("channels").select("id").is("deleted_at", null);
+        if (channels?.length) {
+          for (const ch of channels) {
+            const r = readMap[ch.id];
+            const since = r?.last_read_at || "2000-01-01T00:00:00Z";
+            const isManualUnread = r?.is_unread_override;
+            const { count } = await supabase.from("messages").select("id", { count: "exact", head: true })
+              .eq("channel_id", ch.id).neq("author_id", user.id).gt("created_at", since).is("deleted_at", null);
+            if (isManualUnread || count > 0) unreadMsgs += (count || 0) + (isManualUnread && count === 0 ? 1 : 0);
+          }
+        }
 
         // Count stale KRs (no check-in in 7+ days)
         let staleKRs = 0;

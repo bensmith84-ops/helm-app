@@ -840,7 +840,7 @@ export default function DashboardView({ setActive }) {
   const [checkIns, setCheckIns] = useState([]);
   const [focusItems, setFocusItems] = useState([]);
   const [showNewTask, setShowNewTask] = useState(false);
-  const [newTaskForm, setNewTaskForm] = useState({ title: "", project_id: "", section_id: "", priority: "none" });
+  const [newTaskForm, setNewTaskForm] = useState({ title: "", project_id: "", section_id: "", priority: "none", due_date: new Date().toISOString().split("T")[0] });
   const [calCollapsed, setCalCollapsed] = useState(() => {
     try { return localStorage.getItem("helm-cal-collapsed") === "true"; } catch { return false; }
   });
@@ -1002,7 +1002,7 @@ export default function DashboardView({ setActive }) {
         {/* ── Quick Actions ── */}
         <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap", alignItems:"center" }}>
           {[
-            { icon:"☐", label:"New Task", action:() => { setNewTaskForm({ title: "", project_id: "", section_id: "", priority: "none" }); setShowNewTask(true); }, color:"#3b82f6" },
+            { icon:"☐", label:"New Task", action:() => { setNewTaskForm({ title: "", project_id: "", section_id: "", priority: "none", due_date: new Date().toISOString().split("T")[0] }); setShowNewTask(true); }, color:"#3b82f6" },
             { icon:"📄", label:"New Doc", action:async () => {
               await supabase.from("documents").insert({
                 org_id: profile.org_id, title: "Untitled", emoji: "📄", status: "draft", visibility: "team",
@@ -1068,6 +1068,11 @@ export default function DashboardView({ setActive }) {
                     ))}
                   </div>
                 </div>
+                <div style={{ marginBottom:14 }}>
+                  <label style={{ fontSize:11, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Due Date</label>
+                  <input type="date" value={newTaskForm.due_date || ""} onChange={e => setNewTaskForm(p => ({...p, due_date: e.target.value}))}
+                    style={{ padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:12, cursor:"pointer", outline:"none" }} />
+                </div>
               </div>
               <div style={{ padding:"14px 24px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8, justifyContent:"space-between", alignItems:"center" }}>
                 <div style={{ fontSize:11, color:T.text3 }}>{newTaskForm.project_id ? "Will be added to project" : "Personal task — appears in My Tasks"}</div>
@@ -1083,6 +1088,7 @@ export default function DashboardView({ setActive }) {
                       org_id: profile.org_id, project_id: newTaskForm.project_id || null,
                       section_id: secId, title: newTaskForm.title.trim(),
                       status: "todo", priority: newTaskForm.priority || "none",
+                      due_date: newTaskForm.due_date || null,
                       assignee_id: profile.id, sort_order: 0, created_by: profile.id,
                     }).select().single();
                     if (error) { alert("Failed: " + error.message); return; }
