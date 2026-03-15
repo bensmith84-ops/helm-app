@@ -252,6 +252,7 @@ const PROMPTS = [
 export default function ScoreboardView() {
   const [metrics, setMetrics] = useState([]);
   const [monthly, setMonthly] = useState({});
+  const [monthlyPrev, setMonthlyPrev] = useState({});
   const [daily, setDaily] = useState({});
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -259,6 +260,7 @@ export default function ScoreboardView() {
   const [input, setInput] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMetric, setSelectedMetric] = useState(null);
   const [aiSummary, setAiSummary] = useState(null);
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
@@ -273,9 +275,10 @@ export default function ScoreboardView() {
 
   const loadData = async () => {
     const yr = new Date().getFullYear();
-    const [{ data: mets }, { data: dailyRows }] = await Promise.all([
+    const [{ data: mets }, { data: metsPrev }, { data: dailyRows }] = await Promise.all([
       supabase.from("okr_financial_metrics").select("*, okr_financial_monthly(month, actual, target)").eq("year", yr).order("sort_order"),
-      supabase.from("scoreboard_daily").select("*").gte("date", `${yr}-01-01`).order("date", { ascending:false }).limit(10000),
+      supabase.from("okr_financial_metrics").select("*, okr_financial_monthly(month, actual, target)").eq("year", yr - 1).order("sort_order"),
+      supabase.from("scoreboard_daily").select("*").order("date", { ascending:false }).limit(20000),
     ]);
 
     // Build monthly map
@@ -285,6 +288,13 @@ export default function ScoreboardView() {
     }
     setMetrics(mets||[]);
     setMonthly(mMap);
+
+    // Build previous year monthly map
+    const mMapPrev = {};
+    for (const m of (metsPrev||[])) {
+      mMapPrev[m.metric_key] = { ...m, monthly: m.okr_financial_monthly || [] };
+    }
+    setMonthlyPrev(mMapPrev);
 
     // Build daily map { metric_key: [{date, value, label}] } newest first
     const dMap = {};
@@ -301,14 +311,14 @@ export default function ScoreboardView() {
   };
 
   // Build monthly aggregates from daily data
-  const buildMonthlyAgg = (dailyMap) => {
+  const buildMonthlyAgg = (dailyMap, filterYear) => {
     const agg = {};
-    const yrStr = String(new Date().getFullYear());
+    const yrStr = filterYear ? String(filterYear) : null;
     for (const [key, rows] of Object.entries(dailyMap)) {
       const meta = METRIC_META[key] || { label: key, unit: "#", color: T.accent };
       agg[key] = { label: meta.label, unit: meta.unit, color: meta.color, months: {} };
       for (const row of rows) {
-        if (!row.date?.startsWith(yrStr)) continue;
+        if (yrStr && !row.date?.startsWith(yrStr)) continue;
         const m = parseInt(row.date?.slice(5, 7));
         if (!m) continue;
         if (!agg[key].months[m]) agg[key].months[m] = { total: 0, days: 0, min: Infinity, max: -Infinity };
@@ -701,9 +711,13 @@ export default function ScoreboardView() {
 
         {/* Monthly tab */}
         {activeTab === "monthly" && (() => {
-          const agg = buildMonthlyAgg(daily);
-          const months = Array.from({length: curMonth}, (_, i) => i + 1);
+          const isCurrentYear = selectedYear === new Date().getFullYear();
+          const agg = buildMonthlyAgg(daily, selectedYear);
+          const months = isCurrentYear ? Array.from({length: curMonth}, (_, i) => i + 1) : Array.from({length: 12}, (_, i) => i + 1);
           const hasDailyData = Object.keys(daily).length > 0;
+
+          // Available years from daily data
+          const availableYears = [...new Set(Object.values(daily).flat().map(r => r.date?.slice(0,4)).filter(Boolean))].sort().reverse();
 
           // Group metrics for display
           const GROUPS = [
@@ -734,6 +748,19 @@ export default function ScoreboardView() {
 
           return (
             <div>
+              {/* Year selector */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em" }}>Year:</span>
+                {availableYears.map(y => (
+                  <button key={y} onClick={() => setSelectedYear(Number(y))}
+                    style={{ padding: "4px 14px", borderRadius: 6, fontSize: 12, fontWeight: selectedYear === Number(y) ? 700 : 400,
+                      background: selectedYear === Number(y) ? T.accent : T.surface3,
+                      color: selectedYear === Number(y) ? "#fff" : T.text2,
+                      border: "none", cursor: "pointer" }}>
+                    {y}
+                  </button>
+                ))}
+              </div>
               {GROUPS.map(group => {
                 const groupKeys = group.keys.filter(k => agg[k]);
                 if (!groupKeys.length) return null;
