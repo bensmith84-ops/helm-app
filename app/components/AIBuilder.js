@@ -12,6 +12,9 @@ const SYSTEM_PROMPT = [
   "",
   "CRITICAL RULES:",
   "1. NEVER output full file rewrites for files over 100 lines. Most components are 1000-2000 lines.",
+  "   BEFORE suggesting changes, ask the user to load the file so you can see the actual code.",
+  "   Say: I need to see the current code first. Let me read the file.",
+  "   Then output: [READ_FILE:app/components/FileName.js] and the system will load it into context.",
   "2. Instead, output TARGETED PATCHES showing the old code and new code.",
   "3. For new small files (<200 lines) or edge functions, you may write the full content.",
   "4. For SQL migrations, use code blocks labeled sql:migration_name.",
@@ -227,6 +230,19 @@ export default function AIBuilderView() {
       setDeployResults(p => ({ ...p, [blockId]: { success: false, error: err.message } }));
     }
     setDeploying(p => ({ ...p, [blockId]: false }));
+  };
+
+  // ── Read file from GitHub ──
+  const readFile = async (path) => {
+    try {
+      const res = await fetch(`${EDGE_BASE}/ai-deploy`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "read", files: [{ path }] }),
+      });
+      const data = await res.json();
+      return data.content || null;
+    } catch { return null; }
   };
 
   // ── Run SQL directly ──

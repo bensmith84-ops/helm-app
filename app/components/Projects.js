@@ -756,6 +756,26 @@ export default function ProjectsView() {
           </div>
         );
       })}
+      {/* Add Section column */}
+      {addingSection ? (
+        <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", borderRadius: 10, background: T.surface, border: `1px dashed ${T.accent}40`, padding: 12 }}>
+          <input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && newSectionName.trim()) createSection(); if (e.key === "Escape") { setAddingSection(false); setNewSectionName(""); } }}
+            onBlur={() => { if (newSectionName.trim()) createSection(); else { setAddingSection(false); setNewSectionName(""); } }}
+            placeholder="Section name…"
+            style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+        </div>
+      ) : (
+        <div onClick={() => { setAddingSection(true); setNewSectionName(""); }}
+          style={{ width: 280, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 10, border: `2px dashed ${T.border}`, cursor: "pointer", minHeight: 120, transition: "all 0.15s" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "60"; e.currentTarget.style.background = T.surface + "80"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}>
+          <div style={{ textAlign: "center", color: T.text3 }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ margin: "0 auto 6px", display: "block", opacity: 0.5 }}><path d="M12 5v14M5 12h14"/></svg>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Add Section</span>
+          </div>
+        </div>
+      )}
     </div>
   );
   const TimelineView = () => {
