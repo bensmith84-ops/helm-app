@@ -254,7 +254,42 @@ export default function ProjectsView() {
   const createSubtask = async (parentTask) => { if (!newSubtaskTitle.trim()) return; const mx = tasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id, title: newSubtaskTitle.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create subtask"); setTasks(p => [...p, data]); setExpandedTasks(p => ({ ...p, [parentTask.id]: true })); setNewSubtaskTitle(""); setAddingSubtaskTo(null); };
   const startAddSubtask = (task, e) => { e?.stopPropagation(); setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); setExpandedTasks(p => ({ ...p, [task.id]: true })); };
   const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); } };
-  const toggleDone = async (task, e) => { e?.stopPropagation(); await updateField(task.id, "status", task.status === "done" ? "todo" : "done"); };
+  const toggleDone = async (task, e) => {
+    e?.stopPropagation();
+    const newStatus = task.status === "done" ? "todo" : "done";
+    await updateField(task.id, "status", newStatus);
+    // Handle recurring tasks
+    if (newStatus === "done" && task.recurrence && task.recurrence !== "none") {
+      const mode = task.recurrence_mode || "on_date";
+      const rec = task.recurrence; // daily, weekly, biweekly, monthly, quarterly
+      const calcNext = (from) => {
+        const d = new Date(from || new Date());
+        if (rec === "daily") d.setDate(d.getDate() + 1);
+        else if (rec === "weekly") d.setDate(d.getDate() + 7);
+        else if (rec === "biweekly") d.setDate(d.getDate() + 14);
+        else if (rec === "monthly") d.setMonth(d.getMonth() + 1);
+        else if (rec === "quarterly") d.setMonth(d.getMonth() + 3);
+        return d.toISOString().split("T")[0];
+      };
+      const endDate = task.recurrence_end_date;
+      const nextDue = mode === "on_complete" ? calcNext(new Date()) : calcNext(task.due_date || new Date());
+      if (endDate && nextDue > endDate) return; // past end date, don't create
+      const { data: newTask } = await supabase.from("tasks").insert({
+        org_id: task.org_id, project_id: task.project_id, section_id: task.section_id,
+        title: task.title, status: "todo", priority: task.priority,
+        assignee_id: task.assignee_id, due_date: nextDue,
+        start_date: task.start_date ? calcNext(task.start_date) : null,
+        recurrence: task.recurrence, recurrence_mode: task.recurrence_mode,
+        recurrence_end_date: task.recurrence_end_date,
+        recurring_parent_id: task.recurring_parent_id || task.id,
+        sort_order: (task.sort_order || 0) + 1, created_by: user?.id,
+      }).select().single();
+      if (newTask) {
+        setTasks(p => [...p, newTask]);
+        showToast(`Recurring task created for ${new Date(nextDue).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, "success");
+      }
+    }
+  };
   const deleteTask = async (taskId) => { const ok = await showConfirm("Delete Task", "Are you sure?"); if (!ok) return; await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId); setTasks(p => p.filter(t => t.id !== taskId)); if (selectedTask?.id === taskId) setSelectedTask(null); };
   const duplicateTask = async (task) => { const mx = tasks.filter(t => t.section_id === task.section_id && !t.parent_task_id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: task.section_id, title: task.title + " (copy)", status: task.status, priority: task.priority, assignee_id: task.assignee_id, due_date: task.due_date, sort_order: mx + 1, created_by: user.id }).select().single(); if (!error && data) setTasks(p => [...p, data]); };
   const createSection = async () => { if (!newSectionName.trim()) return; const mx = projSections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0); const { data, error } = await supabase.from("sections").insert({ project_id: activeProject, name: newSectionName.trim(), sort_order: mx + 1 }).select().single(); if (!error && data) setSections(p => [...p, data]); setNewSectionName(""); setAddingSection(false); };
@@ -393,7 +428,40 @@ export default function ProjectsView() {
   const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
   const addDependency = async (pre, suc) => { if (pre === suc || dependencies.some(d => d.predecessor_id === pre && d.successor_id === suc)) return; const { data, error } = await supabase.from("task_dependencies").insert({ predecessor_id: pre, successor_id: suc, dependency_type: "finish_to_start" }).select().single(); if (!error && data) setDependencies(p => [...p, data]); };
   const removeDependency = async (depId) => { await supabase.from("task_dependencies").delete().eq("id", depId); setDependencies(p => p.filter(d => d.id !== depId)); };
-  const createCustomField = async () => { const name = await showPrompt("New custom field", "Field name…"); if (!name) return; const mx = customFields.reduce((m, f) => Math.max(m, f.sort_order || 0), 0); const { data, error } = await supabase.from("custom_fields").insert({ project_id: activeProject, name, field_type: "text", sort_order: mx + 1 }).select().single(); if (!error && data) setCustomFields(p => [...p, data]); };
+  const [showCFCreate, setShowCFCreate] = useState(false);
+  const [cfForm, setCfForm] = useState({ name: "", field_type: "text", currency_prefix: "$", options: [] });
+  const FIELD_TYPES = [
+    { key: "text", label: "Text", icon: "Aa" },
+    { key: "number", label: "Number", icon: "#" },
+    { key: "currency", label: "Currency", icon: "$" },
+    { key: "date", label: "Date", icon: "📅" },
+    { key: "select", label: "Dropdown", icon: "▾" },
+    { key: "checkbox", label: "Checkbox", icon: "☑" },
+    { key: "url", label: "URL", icon: "🔗" },
+    { key: "email", label: "Email", icon: "✉" },
+    { key: "percent", label: "Percent", icon: "%" },
+    { key: "rating", label: "Rating", icon: "⭐" },
+  ];
+  const CURRENCY_PREFIXES = ["$", "€", "£", "¥", "₹", "A$", "C$", "CHF", "R$", "₩"];
+  const createCustomField = async () => {
+    if (!cfForm.name.trim()) return;
+    const mx = customFields.reduce((m, f) => Math.max(m, f.sort_order || 0), 0);
+    const opts = {};
+    if (cfForm.field_type === "currency") opts.currency_prefix = cfForm.currency_prefix || "$";
+    if (cfForm.field_type === "select" && cfForm.options.length) opts.choices = cfForm.options;
+    const { data, error } = await supabase.from("custom_fields").insert({
+      project_id: activeProject, name: cfForm.name.trim(), field_type: cfForm.field_type,
+      options: Object.keys(opts).length ? opts : null, sort_order: mx + 1,
+    }).select().single();
+    if (!error && data) setCustomFields(p => [...p, data]);
+    setCfForm({ name: "", field_type: "text", currency_prefix: "$", options: [] });
+    setShowCFCreate(false);
+  };
+  const deleteCustomField = async (cfId) => {
+    await supabase.from("custom_field_values").delete().eq("field_id", cfId);
+    await supabase.from("custom_fields").delete().eq("id", cfId);
+    setCustomFields(p => p.filter(f => f.id !== cfId));
+  };
   const updateCustomFieldValue = async (taskId, fieldId, value) => { setCustomFieldValues(p => ({ ...p, [taskId]: { ...(p[taskId] || {}), [fieldId]: value } })); const ex = await supabase.from("custom_field_values").select("id").eq("task_id", taskId).eq("field_id", fieldId).single(); if (ex.data) { await supabase.from("custom_field_values").update({ value }).eq("id", ex.data.id); } else { await supabase.from("custom_field_values").insert({ task_id: taskId, field_id: fieldId, value }); } };
   const handleBoardDrop = async (taskId, newSec) => { await updateField(taskId, "section_id", newSec); setDragTask(null); setDragOverTarget(null); };
   const { gridTemplate: projGrid, onResizeStart: projResize } = useResizableColumns([280, 110, 90, 110, 100], "projects");
@@ -594,7 +662,7 @@ export default function ProjectsView() {
 
 
 
-  const TaskRow = ({ task, depth = 0 }) => { const subs = getSubtasks(task.id); const hasSubs = subs.length > 0 || addingSubtaskTo === task.id; const exp = expandedTasks[task.id]; const sel = selectedTask?.id === task.id; const isEditingTitle = editingTaskId === task.id; const saveTitle = async () => { if (editingTaskTitle.trim() && editingTaskTitle !== task.title) { await updateField(task.id, "title", editingTaskTitle.trim()); } setEditingTaskId(null); }; const rowRef = useRef(null); return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selectedTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selectedTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input autoFocus value={editingTaskTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{subs.length > 0 && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} /></div><div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSubtaskTo === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
+  const TaskRow = ({ task, depth = 0 }) => { const subs = getSubtasks(task.id); const hasSubs = subs.length > 0 || addingSubtaskTo === task.id; const exp = expandedTasks[task.id]; const sel = selectedTask?.id === task.id; const isEditingTitle = editingTaskId === task.id; const saveTitle = async () => { if (editingTaskTitle.trim() && editingTaskTitle !== task.title) { await updateField(task.id, "title", editingTaskTitle.trim()); } setEditingTaskId(null); }; const rowRef = useRef(null); return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selectedTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selectedTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input autoFocus value={editingTaskTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{subs.length > 0 && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}{task.recurrence && task.recurrence !== "none" && !isEditingTitle && <span title={`Repeats ${task.recurrence}`} style={{ fontSize: 10, color: T.text3, opacity: 0.6 }}>🔄</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} /></div><div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSubtaskTo === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
 
   const ListView = () => { const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
@@ -1069,22 +1137,157 @@ export default function ProjectsView() {
                   style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box", minHeight: 80 }} />
               </div>
 
+              {/* Recurrence */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Recurrence</label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: task.recurrence && task.recurrence !== "none" ? 8 : 0 }}>
+                  {[
+                    { k: "none", l: "None" }, { k: "daily", l: "Daily" }, { k: "weekly", l: "Weekly" },
+                    { k: "biweekly", l: "Bi-weekly" }, { k: "monthly", l: "Monthly" }, { k: "quarterly", l: "Quarterly" },
+                  ].map(r => (
+                    <button key={r.k} onClick={() => updateField(task.id, "recurrence", r.k === "none" ? null : r.k)}
+                      style={{ padding: "3px 10px", borderRadius: 12, border: (task.recurrence || "none") === r.k ? `1.5px solid ${T.accent}` : `1px solid ${T.border}`,
+                        background: (task.recurrence || "none") === r.k ? `${T.accent}15` : "transparent",
+                        color: (task.recurrence || "none") === r.k ? T.accent : T.text3, fontSize: 11, fontWeight: 500, cursor: "pointer" }}>{r.l}</button>
+                  ))}
+                </div>
+                {task.recurrence && task.recurrence !== "none" && (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <label style={{ fontSize: 10, color: T.text3 }}>On:</label>
+                      <div style={{ display: "flex", gap: 3 }}>
+                        {[
+                          { k: "on_date", l: "Next due date", d: "Creates when the due date arrives" },
+                          { k: "on_complete", l: "On completion", d: "Creates immediately when marked done" },
+                        ].map(m => (
+                          <button key={m.k} onClick={() => updateField(task.id, "recurrence_mode", m.k)} title={m.d}
+                            style={{ padding: "2px 8px", borderRadius: 4, border: (task.recurrence_mode || "on_date") === m.k ? `1px solid ${T.accent}40` : `1px solid ${T.border}`,
+                              background: (task.recurrence_mode || "on_date") === m.k ? `${T.accent}10` : "transparent",
+                              color: (task.recurrence_mode || "on_date") === m.k ? T.accent : T.text3, fontSize: 10, cursor: "pointer" }}>{m.l}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <label style={{ fontSize: 10, color: T.text3 }}>Until:</label>
+                      <input type="date" value={task.recurrence_end_date || ""} onChange={e => updateField(task.id, "recurrence_end_date", e.target.value || null)}
+                        style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.text2, fontSize: 11, padding: "2px 6px", outline: "none", cursor: "pointer" }} />
+                    </div>
+                    {task.recurring_parent_id && <span style={{ fontSize: 10, color: T.text3 }}>🔄 Recurring instance</span>}
+                  </div>
+                )}
+              </div>
+
               {/* Custom fields */}
               {customFields.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Custom Fields</label>
-                  {customFields.map(cf => (
-                    <div key={cf.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, color: T.text3, width: 90, flexShrink: 0 }}>{cf.name}</span>
-                      <input defaultValue={tcf[cf.id] || ""} key={task.id + "-cf-" + cf.id}
-                        onBlur={e => updateCustomFieldValue(task.id, cf.id, e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
-                        style={{ flex: 1, padding: "4px 7px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
-                    </div>
-                  ))}
+                  {customFields.map(cf => {
+                    const val = tcf[cf.id] || "";
+                    const prefix = cf.options?.currency_prefix || "$";
+                    const choices = cf.options?.choices || [];
+                    const inp = { flex: 1, padding: "4px 7px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" };
+                    return (
+                      <div key={cf.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, color: T.text3, width: 90, flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}>
+                          {cf.name}
+                          <button onClick={() => deleteCustomField(cf.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 9, opacity: 0.3, padding: 0 }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.3}>×</button>
+                        </span>
+                        {cf.field_type === "currency" ? (
+                          <div style={{ display: "flex", alignItems: "center", flex: 1, gap: 0 }}>
+                            <span style={{ padding: "4px 6px", background: T.surface3, borderRadius: "4px 0 0 4px", border: `1px solid ${T.border}`, borderRight: "none", fontSize: 12, color: T.text3 }}>{prefix}</span>
+                            <input type="number" defaultValue={val} key={task.id + "-cf-" + cf.id} onBlur={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+                              placeholder="0.00" step="0.01" style={{ ...inp, borderRadius: "0 4px 4px 0", flex: 1 }} />
+                          </div>
+                        ) : cf.field_type === "number" ? (
+                          <input type="number" defaultValue={val} key={task.id + "-cf-" + cf.id} onBlur={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }} placeholder="0" style={inp} />
+                        ) : cf.field_type === "percent" ? (
+                          <div style={{ display: "flex", alignItems: "center", flex: 1, gap: 0 }}>
+                            <input type="number" defaultValue={val} key={task.id + "-cf-" + cf.id} onBlur={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+                              placeholder="0" min="0" max="100" style={{ ...inp, borderRadius: "4px 0 0 4px" }} />
+                            <span style={{ padding: "4px 6px", background: T.surface3, borderRadius: "0 4px 4px 0", border: `1px solid ${T.border}`, borderLeft: "none", fontSize: 12, color: T.text3 }}>%</span>
+                          </div>
+                        ) : cf.field_type === "date" ? (
+                          <input type="date" defaultValue={val} key={task.id + "-cf-" + cf.id} onChange={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} style={{ ...inp, cursor: "pointer" }} />
+                        ) : cf.field_type === "select" ? (
+                          <select value={val} onChange={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} style={{ ...inp, cursor: "pointer" }}>
+                            <option value="">Select…</option>
+                            {choices.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        ) : cf.field_type === "checkbox" ? (
+                          <div onClick={() => updateCustomFieldValue(task.id, cf.id, val === "true" ? "false" : "true")}
+                            style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${val === "true" ? T.accent : T.border}`, background: val === "true" ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                            {val === "true" && <span style={{ color: "#fff", fontSize: 11 }}>✓</span>}
+                          </div>
+                        ) : cf.field_type === "url" ? (
+                          <div style={{ display: "flex", alignItems: "center", flex: 1, gap: 4 }}>
+                            <input type="url" defaultValue={val} key={task.id + "-cf-" + cf.id} onBlur={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+                              placeholder="https://..." style={inp} />
+                            {val && <a href={val} target="_blank" rel="noopener" style={{ color: T.accent, fontSize: 11, flexShrink: 0 }}>↗</a>}
+                          </div>
+                        ) : cf.field_type === "email" ? (
+                          <input type="email" defaultValue={val} key={task.id + "-cf-" + cf.id} onBlur={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+                            placeholder="name@example.com" style={inp} />
+                        ) : cf.field_type === "rating" ? (
+                          <div style={{ display: "flex", gap: 2 }}>
+                            {[1,2,3,4,5].map(n => (
+                              <span key={n} onClick={() => updateCustomFieldValue(task.id, cf.id, String(n === Number(val) ? 0 : n))}
+                                style={{ cursor: "pointer", fontSize: 16, opacity: n <= Number(val || 0) ? 1 : 0.2 }}>⭐</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <input defaultValue={val} key={task.id + "-cf-" + cf.id} onBlur={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }} style={inp} />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              <button onClick={createCustomField} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 16 }}>+ Add custom field</button>
+              {/* Add custom field */}
+              {showCFCreate ? (
+                <div style={{ marginBottom: 16, padding: "12px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700 }}>New Custom Field</span>
+                    <button onClick={() => setShowCFCreate(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>
+                  </div>
+                  <input value={cfForm.name} onChange={e => setCfForm(p => ({ ...p, name: e.target.value }))} placeholder="Field name" autoFocus
+                    onKeyDown={e => { if (e.key === "Enter" && cfForm.name.trim()) createCustomField(); }}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box", marginBottom: 8 }} />
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, marginBottom: 8 }}>
+                    {FIELD_TYPES.map(ft => (
+                      <button key={ft.key} onClick={() => setCfForm(p => ({ ...p, field_type: ft.key }))}
+                        style={{ padding: "4px 2px", borderRadius: 4, border: cfForm.field_type === ft.key ? `1.5px solid ${T.accent}` : `1px solid ${T.border}`,
+                          background: cfForm.field_type === ft.key ? `${T.accent}15` : T.surface, color: cfForm.field_type === ft.key ? T.accent : T.text3,
+                          fontSize: 9, fontWeight: 600, cursor: "pointer", textAlign: "center", lineHeight: 1.3 }}>
+                        <div style={{ fontSize: 12 }}>{ft.icon}</div>{ft.label}
+                      </button>
+                    ))}
+                  </div>
+                  {cfForm.field_type === "currency" && (
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ fontSize: 10, color: T.text3, display: "block", marginBottom: 3 }}>Currency</label>
+                      <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                        {CURRENCY_PREFIXES.map(c => (
+                          <button key={c} onClick={() => setCfForm(p => ({ ...p, currency_prefix: c }))}
+                            style={{ padding: "3px 8px", borderRadius: 4, border: cfForm.currency_prefix === c ? `1.5px solid ${T.accent}` : `1px solid ${T.border}`,
+                              background: cfForm.currency_prefix === c ? `${T.accent}15` : "transparent", color: cfForm.currency_prefix === c ? T.accent : T.text3,
+                              fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{c}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {cfForm.field_type === "select" && (
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ fontSize: 10, color: T.text3, display: "block", marginBottom: 3 }}>Options (comma-separated)</label>
+                      <input value={cfForm.options.join(", ")} onChange={e => setCfForm(p => ({ ...p, options: e.target.value.split(",").map(s => s.trim()).filter(Boolean) }))}
+                        placeholder="Option 1, Option 2, Option 3" style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+                    </div>
+                  )}
+                  <button onClick={createCustomField} disabled={!cfForm.name.trim()} style={{ width: "100%", padding: "6px 0", borderRadius: 5, border: "none", background: cfForm.name.trim() ? T.accent : T.surface3, color: cfForm.name.trim() ? "#fff" : T.text3, fontSize: 12, fontWeight: 600, cursor: cfForm.name.trim() ? "pointer" : "default" }}>Add Field</button>
+                </div>
+              ) : (
+                <button onClick={() => setShowCFCreate(true)} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 16 }}>+ Add custom field</button>
+              )}
 
               {/* Dependencies */}
               {(bb.length > 0 || bl.length > 0) && (
