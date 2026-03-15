@@ -90,6 +90,8 @@ export default function DashboardView({ setActive }) {
   const [plmPrograms, setPlmPrograms] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
 
+  const [checkIns, setCheckIns] = useState([]);
+
   useEffect(() => {
     (async () => {
       const yr = new Date().getFullYear();
@@ -123,6 +125,16 @@ export default function DashboardView({ setActive }) {
       setPendingApprovals(approvals || []);
       setPlmPrograms(plm || []);
       setRecentActivity(activity || []);
+
+      // Load recent check-ins for staleness detection
+      if (cycleKRs.length > 0) {
+        const krIds = cycleKRs.map(k => k.id);
+        const { data: ciData } = await supabase.from("okr_check_ins")
+          .select("key_result_id, check_in_date, created_at")
+          .in("key_result_id", krIds)
+          .order("created_at", { ascending: false });
+        setCheckIns(ciData || []);
+      }
 
       if (fmData?.length) {
         setFinMetrics(fmData);
@@ -191,6 +203,21 @@ export default function DashboardView({ setActive }) {
     if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
     return `${Math.floor(diff/86400000)}d ago`;
   };
+
+  // KR check-in staleness
+  const lastCheckInByKR = {};
+  checkIns.forEach(ci => {
+    if (!lastCheckInByKR[ci.key_result_id]) lastCheckInByKR[ci.key_result_id] = ci;
+  });
+  const staleKRs = keyResults.filter(kr => {
+    const last = lastCheckInByKR[kr.id];
+    if (!last) return true;
+    return Math.floor((Date.now() - new Date(last.created_at).getTime()) / 86400000) >= 7;
+  }).slice(0, 5);
+  const checkedInToday = keyResults.filter(kr => {
+    const last = lastCheckInByKR[kr.id];
+    return last && Math.floor((Date.now() - new Date(last.created_at).getTime()) / 86400000) === 0;
+  }).length;
 
   return (
     <div style={{ padding:"28px 32px", overflow:"auto", height:"100%", boxSizing:"border-box" }}>
@@ -419,6 +446,53 @@ export default function DashboardView({ setActive }) {
           )}
         </Card>
       </div>
+
+      {/* ── KR Check-in Needed ── */}
+      {staleKRs.length > 0 && (
+        <div style={{ marginBottom:20 }}>
+          <Card style={{ borderColor: "#eab30840", background: `linear-gradient(135deg, ${T.surface} 0%, #eab30808 100%)` }}>
+            <SectionHeader title="Check-ins Needed" icon="📝" action={
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                {checkedInToday > 0 && <span style={{ fontSize:11, color:"#22c55e", fontWeight:600 }}>✓ {checkedInToday} done today</span>}
+                <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>Go to OKRs →</button>
+              </div>
+            } />
+            <div style={{ fontSize:12, color:T.text3, marginBottom:12 }}>
+              These Key Results haven't been updated in 7+ days. A quick check-in keeps everyone aligned.
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+              {staleKRs.map(kr => {
+                const last = lastCheckInByKR[kr.id];
+                const daysSince = last ? Math.floor((Date.now() - new Date(last.created_at).getTime()) / 86400000) : null;
+                const obj = objectives.find(o => o.id === kr.objective_id);
+                const pct = Math.round(Number(kr.progress || 0));
+                const urgentColor = daysSince === null ? "#ef4444" : daysSince >= 14 ? "#ef4444" : "#eab308";
+                return (
+                  <div key={kr.id} onClick={() => setActive("okrs")} style={{
+                    display:"flex", alignItems:"center", gap:10, padding:"10px 14px",
+                    borderRadius:8, background:T.surface2, cursor:"pointer",
+                    border:`1px solid ${urgentColor}30`,
+                    borderLeft:`3px solid ${urgentColor}`,
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                    onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:T.text }}>{kr.title}</div>
+                      {obj && <div style={{ fontSize:10, color:T.text3, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{obj.title}</div>}
+                    </div>
+                    <div style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
+                      <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:8, background:urgentColor+"20", color:urgentColor }}>
+                        {daysSince === null ? "Never" : `${daysSince}d ago`}
+                      </span>
+                      <div style={{ fontSize:10, color:T.text3 }}>{pct}% progress</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* ── Recent Activity + Approvals ── */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>

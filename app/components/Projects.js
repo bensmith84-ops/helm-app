@@ -108,7 +108,7 @@ export default function ProjectsView() {
         // Load templates and docs
         const [tmplR, docsR] = await Promise.all([
           supabase.from("project_templates").select("*").order("is_builtin desc, name"),
-          supabase.from("docs").select("id,title,updated_at").order("updated_at", { ascending: false }),
+          supabase.from("docs").select("id,title,emoji,updated_at,project_id,status").is("deleted_at", null).order("updated_at", { ascending: false }),
         ]);
         setTemplates(tmplR.data || []);
         setDocs(docsR.data || []);
@@ -1014,59 +1014,177 @@ export default function ProjectsView() {
   };
 
   const DocsView = () => {
+    const [creatingDoc, setCreatingDoc] = useState(false);
+    const [newDocTitle, setNewDocTitle] = useState("");
+    const [newDocEmoji, setNewDocEmoji] = useState("📄");
+    const [docSearch, setDocSearch] = useState("");
+    const [saving, setSaving] = useState(false);
+
     const projDoc = proj?.linked_doc_id ? docs.find(d => d.id === proj.linked_doc_id) : null;
+    // Docs already linked to this project (either via project_id or linked_doc_id)
+    const linkedDocs = docs.filter(d => d.project_id === activeProject || d.id === proj?.linked_doc_id);
+    const otherDocs = docs.filter(d => d.project_id !== activeProject && d.id !== proj?.linked_doc_id);
+    const filteredOther = otherDocs.filter(d => !docSearch || (d.title || "").toLowerCase().includes(docSearch.toLowerCase()));
+
+    const createDoc = async () => {
+      if (!newDocTitle.trim()) return;
+      setSaving(true);
+      const { data, error } = await supabase.from("docs").insert({
+        org_id: profile.org_id,
+        author_id: user?.id,
+        title: newDocTitle.trim(),
+        emoji: newDocEmoji,
+        project_id: activeProject,
+        status: "draft",
+        content: JSON.stringify([{ id: crypto.randomUUID(), type: "text", content: "" }]),
+      }).select().single();
+      if (!error && data) {
+        setDocs(p => [data, ...p]);
+        // Also set as the linked doc if none linked yet
+        if (!proj?.linked_doc_id) {
+          await supabase.from("projects").update({ linked_doc_id: data.id }).eq("id", activeProject);
+          setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: data.id } : pr));
+        }
+        showToast("Doc created", "success");
+      } else {
+        showToast("Failed to create doc");
+      }
+      setNewDocTitle("");
+      setNewDocEmoji("📄");
+      setCreatingDoc(false);
+      setSaving(false);
+    };
+
+    const linkDoc = async (docId) => {
+      await supabase.from("docs").update({ project_id: activeProject }).eq("id", docId);
+      setDocs(p => p.map(d => d.id === docId ? { ...d, project_id: activeProject } : d));
+      if (!proj?.linked_doc_id) {
+        await supabase.from("projects").update({ linked_doc_id: docId }).eq("id", activeProject);
+        setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: docId } : pr));
+      }
+      showToast("Doc linked to project", "success");
+    };
+
+    const setPrimary = async (docId) => {
+      await supabase.from("projects").update({ linked_doc_id: docId }).eq("id", activeProject);
+      setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: docId } : pr));
+    };
+
+    const unlinkDoc = async (docId) => {
+      await supabase.from("docs").update({ project_id: null }).eq("id", docId);
+      setDocs(p => p.map(d => d.id === docId ? { ...d, project_id: null } : d));
+      if (proj?.linked_doc_id === docId) {
+        await supabase.from("projects").update({ linked_doc_id: null }).eq("id", activeProject);
+        setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: null } : pr));
+      }
+      showToast("Doc unlinked", "success");
+    };
+
+    const DOC_EMOJIS = ["📄","📝","📋","📊","📈","🎯","💡","🔬","📣","⚙️","🧪","🗂️","📐","💬","📌"];
+    const fmtDate = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
     return (
-      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Project Docs</h3>
+      <div style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+          <div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Project Docs</h3>
+            <p style={{ fontSize: 13, color: T.text3, margin: "4px 0 0" }}>Briefs, specs, and notes linked to <strong style={{ color: T.text }}>{proj?.name}</strong></p>
+          </div>
+          <button onClick={() => setCreatingDoc(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+            New Doc
+          </button>
         </div>
-        {/* Linked doc */}
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Linked Project Doc</div>
-          {projDoc ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: T.surface, border: `1px solid ${T.accent}40`, borderRadius: 10 }}>
-              <span style={{ fontSize: 24 }}>📄</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{projDoc.title || "Untitled"}</div>
-                <div style={{ fontSize: 11, color: T.text3 }}>Updated {new Date(projDoc.updated_at).toLocaleDateString()}</div>
+
+        {/* Create new doc form */}
+        {creatingDoc && (
+          <div style={{ background: T.surface, border: `1px solid ${T.accent}40`, borderRadius: 12, padding: "18px 20px", marginBottom: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.12)" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 14 }}>New Doc</div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "center" }}>
+              <div style={{ position: "relative" }}>
+                <div style={{ fontSize: 24, cursor: "pointer", padding: "6px 8px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, lineHeight: 1 }}>{newDocEmoji}</div>
               </div>
-              <button onClick={() => { /* navigate to docs */ }} style={{ padding: "6px 14px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Open →</button>
+              <input autoFocus value={newDocTitle} onChange={e => setNewDocTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") createDoc(); if (e.key === "Escape") setCreatingDoc(false); }}
+                placeholder="Doc title…"
+                style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 600, outline: "none" }} />
             </div>
-          ) : (
-            <div style={{ padding: "20px 16px", background: T.surface2, border: `1px dashed ${T.border}`, borderRadius: 10 }}>
-              <div style={{ fontSize: 13, color: T.text3, marginBottom: 10 }}>Link a doc to this project for easy access to briefs, specs, and notes.</div>
-              <select onChange={async e => {
-                const docId = e.target.value;
-                if (!docId) return;
-                await supabase.from("projects").update({ linked_doc_id: docId }).eq("id", activeProject);
-                setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: docId } : pr));
-              }} defaultValue="" style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, cursor: "pointer", outline: "none", width: 280 }}>
-                <option value="">Select a doc to link…</option>
-                {docs.map(d => <option key={d.id} value={d.id}>{d.title || "Untitled"}</option>)}
-              </select>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+              {DOC_EMOJIS.map(e => (
+                <button key={e} onClick={() => setNewDocEmoji(e)} style={{ fontSize: 16, padding: "4px 6px", borderRadius: 6, border: `1.5px solid ${newDocEmoji === e ? T.accent : "transparent"}`, background: newDocEmoji === e ? T.accentDim : T.surface2, cursor: "pointer" }}>{e}</button>
+              ))}
             </div>
-          )}
-        </div>
-        {/* All org docs */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setCreatingDoc(false)} style={{ padding: "7px 14px", borderRadius: 7, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              <button onClick={createDoc} disabled={!newDocTitle.trim() || saving} style={{ padding: "7px 16px", borderRadius: 7, background: newDocTitle.trim() ? T.accent : T.surface3, color: newDocTitle.trim() ? "#fff" : T.text3, border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{saving ? "Creating…" : "Create Doc"}</button>
+            </div>
+          </div>
+        )}
+
+        {/* Project docs */}
+        {linkedDocs.length > 0 && (
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>This Project's Docs ({linkedDocs.length})</div>
+            {linkedDocs.map(d => {
+              const isPrimary = proj?.linked_doc_id === d.id;
+              return (
+                <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", background: T.surface, border: `1px solid ${isPrimary ? T.accent + "60" : T.border}`, borderRadius: 10, marginBottom: 8, transition: "border 0.15s" }}
+                  onMouseEnter={e => !isPrimary && (e.currentTarget.style.borderColor = T.border)}
+                  onMouseLeave={e => !isPrimary && (e.currentTarget.style.borderColor = T.border)}>
+                  <span style={{ fontSize: 24, flexShrink: 0 }}>{d.emoji || "📄"}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title || "Untitled"}</span>
+                      {isPrimary && <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 8, background: T.accentDim, color: T.accent, fontWeight: 700, flexShrink: 0 }}>PRIMARY</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Updated {fmtDate(d.updated_at)}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    {!isPrimary && (
+                      <button onClick={() => setPrimary(d.id)} style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.text3, fontSize: 11, cursor: "pointer" }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}>
+                        Set Primary
+                      </button>
+                    )}
+                    <button onClick={() => unlinkDoc(d.id)} style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.text3, fontSize: 11, cursor: "pointer" }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#ef4444"; e.currentTarget.style.color = "#ef4444"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}>
+                      Unlink
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Link existing docs */}
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>All Docs</div>
-          {docs.length === 0 ? (
-            <div style={{ fontSize: 13, color: T.text3, padding: "20px 0" }}>No docs yet — create one in the Docs module.</div>
-          ) : docs.map(d => (
-            <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 18 }}>📄</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{d.title || "Untitled"}</div>
-                <div style={{ fontSize: 11, color: T.text3 }}>Updated {new Date(d.updated_at).toLocaleDateString()}</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8 }}>All Org Docs</div>
+            <div style={{ position: "relative" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2" style={{ position: "absolute", left: 8, top: 7 }}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              <input value={docSearch} onChange={e => setDocSearch(e.target.value)} placeholder="Search docs…"
+                style={{ padding: "5px 8px 5px 26px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", width: 200 }} />
+            </div>
+          </div>
+          {filteredOther.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "30px 0", color: T.text3 }}>
+              <div style={{ fontSize: 24, marginBottom: 8 }}>📂</div>
+              <div style={{ fontSize: 13 }}>{docSearch ? "No docs match your search" : "No other docs — create a new one above"}</div>
+            </div>
+          ) : filteredOther.map(d => (
+            <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 18 }}>{d.emoji || "📄"}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title || "Untitled"}</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>Updated {fmtDate(d.updated_at)}</div>
               </div>
-              {proj?.linked_doc_id === d.id ? (
-                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.accentDim, color: T.accent, fontWeight: 700 }}>Linked</span>
-              ) : (
-                <button onClick={async () => {
-                  await supabase.from("projects").update({ linked_doc_id: d.id }).eq("id", activeProject);
-                  setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: d.id } : pr));
-                }} style={{ fontSize: 10, padding: "3px 9px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>Link</button>
-              )}
+              <button onClick={() => linkDoc(d.id)} style={{ padding: "4px 12px", borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.accentDim, color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
+                + Link
+              </button>
             </div>
           ))}
         </div>
