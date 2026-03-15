@@ -93,15 +93,23 @@ export default function PeopleView() {
 
   const inviteUser = async () => {
     if (!inviteEmail.trim()) return showToast("Email required");
-    const newId = crypto.randomUUID();
-    const { error: pErr } = await supabase.from("profiles").insert({ id: newId, display_name: inviteName.trim() || inviteEmail.split("@")[0], email: inviteEmail.trim(), org_id: profile.org_id });
-    if (pErr) return showToast("Failed to create user: " + (pErr.message || ""));
-    const { error: omErr } = await supabase.from("org_memberships").insert({ org_id: profile.org_id, user_id: newId, role: inviteRole, is_active: true, module_permissions: {} });
-    if (omErr) return showToast("Failed to create membership");
-    setMembers(p => [...p, { id: newId, display_name: inviteName.trim() || inviteEmail.split("@")[0], email: inviteEmail.trim(), org_id: profile.org_id }]);
-    setMemberships(p => [...p, { org_id: profile.org_id, user_id: newId, role: inviteRole, is_active: true, module_permissions: {} }]);
-    setInviteEmail(""); setInviteName(""); setInviteRole("member"); setShowInvite(false);
-    showToast("User added", "success");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ email: inviteEmail.trim(), display_name: inviteName.trim() || inviteEmail.split("@")[0], role: inviteRole, org_id: profile.org_id }),
+      });
+      const result = await res.json();
+      if (result.error) return showToast("Failed: " + result.error);
+      const userId = result.user_id;
+      setMembers(p => [...p, { id: userId, display_name: inviteName.trim() || inviteEmail.split("@")[0], email: inviteEmail.trim(), org_id: profile.org_id }]);
+      setMemberships(p => [...p, { org_id: profile.org_id, user_id: userId, role: inviteRole, is_active: true }]);
+      setInviteEmail(""); setInviteName(""); setInviteRole("member"); setShowInvite(false);
+      showToast(result.existing ? "User already exists — added to org" : "Invite sent to " + inviteEmail.trim(), "success");
+    } catch (e) {
+      showToast("Failed: " + e.message);
+    }
   };
 
   const updateRole = async (uid, newRole) => { const om = getMembership(uid); if (!om) return; const { error } = await supabase.from("org_memberships").update({ role: newRole }).eq("id", om.id); if (error) return showToast("Failed to update role"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, role: newRole } : m)); showToast("Role updated", "success"); };
