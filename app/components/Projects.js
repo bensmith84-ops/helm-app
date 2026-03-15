@@ -7,7 +7,7 @@ import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
-const TABS = ["List", "Board", "Timeline", "Calendar", "Updates", "Docs"];
+const TABS = ["List", "Board", "Timeline", "Calendar", "Updates", "Docs", "Rules"];
 const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
 
@@ -80,6 +80,11 @@ export default function ProjectsView() {
   const [taskActivity, setTaskActivity] = useState([]);
   // Docs
   const [docs, setDocs] = useState([]);
+  // Rules engine
+  const [rules, setRules] = useState([]);
+  const [showRuleBuilder, setShowRuleBuilder] = useState(false);
+  const [editingRule, setEditingRule] = useState(null);
+  const [ruleForm, setRuleForm] = useState({ name: "", trigger_type: "task_moved_to_section", trigger_config: {}, actions: [] });
 
   const showToast = useCallback((msg, type = "error") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const archiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "archived" }).eq("id", id); if (error) return showToast("Failed to archive"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "archived" } : pr)); if (activeProject === id) setActiveProject(null); showToast("Project archived", "success"); };
@@ -139,8 +144,10 @@ export default function ProjectsView() {
       supabase.from("custom_field_values").select("*"),
       supabase.from("milestones").select("*").eq("project_id", activeProject).order("sort_order"),
       supabase.from("project_status_updates").select("*").eq("project_id", activeProject).order("created_at", { ascending: false }).limit(10),
-    ]).then(([dR, cfR, cvR, msR, suR]) => {
+      supabase.from("project_rules").select("*").eq("project_id", activeProject).order("created_at"),
+    ]).then(([dR, cfR, cvR, msR, suR, ruR]) => {
       setDependencies(dR.data || []); setCustomFields(cfR.data || []); setMilestones(msR.data || []); setStatusUpdates(suR.data || []);
+      setRules(ruR.data || []);
       const cfm = {}; (cvR.data || []).forEach(v => { if (!cfm[v.task_id]) cfm[v.task_id] = {}; cfm[v.task_id][v.field_id] = v.value; }); setCustomFieldValues(cfm);
     });
   }, [activeProject]);
@@ -253,7 +260,7 @@ export default function ProjectsView() {
   const createStandaloneTask = async (title) => { if (!title?.trim() || !profile?.org_id) return; const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, title: title.trim(), status: "todo", priority: "none", assignee_id: user.id, sort_order: 0, created_by: user.id }).select().single(); if (error) return showToast("Failed to create task"); setTasks(p => [...p, data]); showToast("Personal task created", "success"); };
   const createSubtask = async (parentTask) => { if (!newSubtaskTitle.trim()) return; const mx = tasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id, title: newSubtaskTitle.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create subtask"); setTasks(p => [...p, data]); setExpandedTasks(p => ({ ...p, [parentTask.id]: true })); setNewSubtaskTitle(""); setAddingSubtaskTo(null); };
   const startAddSubtask = (task, e) => { e?.stopPropagation(); setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); setExpandedTasks(p => ({ ...p, [task.id]: true })); };
-  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); } };
+  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); return; } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); } executeRules(taskId, field, value, old?.[field]); };
   const toggleDone = async (task, e) => {
     e?.stopPropagation();
     const newStatus = task.status === "done" ? "todo" : "done";
@@ -463,6 +470,155 @@ export default function ProjectsView() {
     setCustomFields(p => p.filter(f => f.id !== cfId));
   };
   const updateCustomFieldValue = async (taskId, fieldId, value) => { setCustomFieldValues(p => ({ ...p, [taskId]: { ...(p[taskId] || {}), [fieldId]: value } })); const ex = await supabase.from("custom_field_values").select("id").eq("task_id", taskId).eq("field_id", fieldId).single(); if (ex.data) { await supabase.from("custom_field_values").update({ value }).eq("id", ex.data.id); } else { await supabase.from("custom_field_values").insert({ task_id: taskId, field_id: fieldId, value }); } };
+  // ═══ Rules Engine ═══
+  const TRIGGER_TYPES = [
+    { key: "task_moved_to_section", label: "Task moved to section", icon: "→", configFields: ["section_id"] },
+    { key: "status_changed", label: "Status changed to", icon: "◉", configFields: ["status"] },
+    { key: "task_completed", label: "Task marked complete", icon: "✓", configFields: [] },
+    { key: "task_assigned", label: "Task assigned to", icon: "👤", configFields: ["assignee_id"] },
+    { key: "priority_changed", label: "Priority set to", icon: "!", configFields: ["priority"] },
+    { key: "due_date_approaching", label: "Due date approaching", icon: "📅", configFields: ["days_before"] },
+    { key: "task_created", label: "Task created", icon: "+", configFields: [] },
+    { key: "custom_field_changed", label: "Custom field changed", icon: "✦", configFields: ["field_id", "value"] },
+  ];
+  const ACTION_TYPES = [
+    { key: "set_status", label: "Set status", icon: "◉", configFields: ["status"] },
+    { key: "move_to_section", label: "Move to section", icon: "→", configFields: ["section_id"] },
+    { key: "set_assignee", label: "Set assignee", icon: "👤", configFields: ["assignee_id"] },
+    { key: "set_priority", label: "Set priority", icon: "!", configFields: ["priority"] },
+    { key: "mark_complete", label: "Mark complete", icon: "✓", configFields: [] },
+    { key: "add_comment", label: "Add comment", icon: "💬", configFields: ["comment"] },
+    { key: "set_due_date_offset", label: "Set due date", icon: "📅", configFields: ["days_offset"] },
+    { key: "set_custom_field", label: "Set custom field", icon: "✦", configFields: ["field_id", "value"] },
+  ];
+
+  const saveRule = async () => {
+    if (!ruleForm.name.trim() || !ruleForm.trigger_type || ruleForm.actions.length === 0) return showToast("Rule needs a name, trigger, and at least one action");
+    const payload = {
+      project_id: activeProject, name: ruleForm.name.trim(), description: ruleForm.description || "",
+      trigger_type: ruleForm.trigger_type, trigger_config: ruleForm.trigger_config || {},
+      actions: ruleForm.actions, is_active: true, created_by: user?.id,
+    };
+    if (editingRule) {
+      const { error } = await supabase.from("project_rules").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", editingRule.id);
+      if (error) return showToast("Failed: " + error.message);
+      setRules(p => p.map(r => r.id === editingRule.id ? { ...r, ...payload } : r));
+    } else {
+      const { data, error } = await supabase.from("project_rules").insert(payload).select().single();
+      if (error) return showToast("Failed: " + error.message);
+      setRules(p => [...p, data]);
+    }
+    setShowRuleBuilder(false); setEditingRule(null);
+    setRuleForm({ name: "", trigger_type: "task_moved_to_section", trigger_config: {}, actions: [] });
+    showToast(editingRule ? "Rule updated" : "Rule created", "success");
+  };
+
+  const deleteRule = async (ruleId) => {
+    if (!window.confirm("Delete this rule?")) return;
+    await supabase.from("project_rules").delete().eq("id", ruleId);
+    setRules(p => p.filter(r => r.id !== ruleId));
+    showToast("Rule deleted", "success");
+  };
+
+  const toggleRule = async (ruleId) => {
+    const rule = rules.find(r => r.id === ruleId);
+    if (!rule) return;
+    const { error } = await supabase.from("project_rules").update({ is_active: !rule.is_active }).eq("id", ruleId);
+    if (!error) setRules(p => p.map(r => r.id === ruleId ? { ...r, is_active: !r.is_active } : r));
+  };
+
+  const executeRules = async (taskId, field, value, oldValue) => {
+    const activeRules = rules.filter(r => r.is_active);
+    if (!activeRules.length) return;
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    for (const rule of activeRules) {
+      let shouldFire = false;
+      const tc = rule.trigger_config || {};
+
+      switch (rule.trigger_type) {
+        case "task_moved_to_section":
+          shouldFire = field === "section_id" && (!tc.section_id || tc.section_id === value);
+          break;
+        case "status_changed":
+          shouldFire = field === "status" && (!tc.status || tc.status === value);
+          break;
+        case "task_completed":
+          shouldFire = field === "status" && value === "done" && oldValue !== "done";
+          break;
+        case "task_assigned":
+          shouldFire = field === "assignee_id" && (!tc.assignee_id || tc.assignee_id === value);
+          break;
+        case "priority_changed":
+          shouldFire = field === "priority" && (!tc.priority || tc.priority === value);
+          break;
+        case "task_created":
+          shouldFire = field === "__created";
+          break;
+        case "custom_field_changed":
+          shouldFire = field === "custom_field" && (!tc.field_id || tc.field_id === oldValue);
+          break;
+      }
+
+      if (!shouldFire) continue;
+
+      // Execute actions
+      const executed = [];
+      for (const action of (rule.actions || [])) {
+        const ac = action.config || {};
+        try {
+          switch (action.type) {
+            case "set_status":
+              if (ac.status) await updateField(taskId, "status", ac.status);
+              break;
+            case "move_to_section":
+              if (ac.section_id) await updateField(taskId, "section_id", ac.section_id);
+              break;
+            case "set_assignee":
+              await updateField(taskId, "assignee_id", ac.assignee_id || null);
+              break;
+            case "set_priority":
+              if (ac.priority) await updateField(taskId, "priority", ac.priority);
+              break;
+            case "mark_complete":
+              await updateField(taskId, "status", "done");
+              break;
+            case "add_comment":
+              if (ac.comment) {
+                await supabase.from("comments").insert({
+                  org_id: profile.org_id, entity_type: "task", entity_id: taskId,
+                  author_id: user.id, content: `🤖 Auto: ${ac.comment}`,
+                });
+              }
+              break;
+            case "set_due_date_offset":
+              if (ac.days_offset != null) {
+                const d = new Date(); d.setDate(d.getDate() + Number(ac.days_offset));
+                await updateField(taskId, "due_date", d.toISOString().split("T")[0]);
+              }
+              break;
+            case "set_custom_field":
+              if (ac.field_id) await updateCustomFieldValue(taskId, ac.field_id, ac.value || "");
+              break;
+          }
+          executed.push({ type: action.type, success: true });
+        } catch (err) {
+          executed.push({ type: action.type, success: false, error: err.message });
+        }
+      }
+
+      // Log execution
+      await supabase.from("rule_executions").insert({
+        rule_id: rule.id, task_id: taskId,
+        trigger_data: { field, value, old_value: oldValue },
+        actions_executed: executed, success: executed.every(e => e.success),
+      });
+      await supabase.from("project_rules").update({ run_count: (rule.run_count || 0) + 1, last_run_at: new Date().toISOString() }).eq("id", rule.id);
+      setRules(p => p.map(r => r.id === rule.id ? { ...r, run_count: (r.run_count || 0) + 1, last_run_at: new Date().toISOString() } : r));
+    }
+  };
+
   const handleBoardDrop = async (taskId, newSec) => { await updateField(taskId, "section_id", newSec); setDragTask(null); setDragOverTarget(null); };
   const { gridTemplate: projGrid, onResizeStart: projResize } = useResizableColumns([280, 110, 90, 110, 100], "projects");
   const ResizeHandle = ({ index, onStart }) => (<div onMouseDown={(e) => onStart(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
@@ -2030,6 +2186,230 @@ export default function ProjectsView() {
               {viewMode === "Calendar" && <CalendarView />}
               {viewMode === "Updates" && <UpdatesView />}
               {viewMode === "Docs" && <DocsView />}
+              {viewMode === "Rules" && (
+                <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                    <div>
+                      <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: T.text }}>Rules</h3>
+                      <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Automate actions when triggers fire on tasks in this project</div>
+                    </div>
+                    <button onClick={() => { setEditingRule(null); setRuleForm({ name: "", trigger_type: "task_moved_to_section", trigger_config: {}, actions: [] }); setShowRuleBuilder(true); }}
+                      style={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 16px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      <span style={{ fontSize: 16 }}>+</span> Add Rule
+                    </button>
+                  </div>
+
+                  {rules.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "60px 0", color: T.text3 }}>
+                      <div style={{ fontSize: 40, marginBottom: 12 }}>⚡</div>
+                      <div style={{ fontSize: 15, fontWeight: 600 }}>No rules yet</div>
+                      <div style={{ fontSize: 13, marginTop: 4 }}>Create rules to automatically update tasks when things happen.</div>
+                      <div style={{ fontSize: 12, marginTop: 16, color: T.text3, lineHeight: 1.8 }}>
+                        Examples:<br/>
+                        When a task moves to "Done" → mark it complete<br/>
+                        When priority is set to "Urgent" → assign to team lead<br/>
+                        When a task is created → set due date to 7 days from now
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {rules.map(rule => {
+                        const trig = TRIGGER_TYPES.find(t => t.key === rule.trigger_type) || { label: rule.trigger_type, icon: "?" };
+                        const trigDesc = (() => {
+                          const tc = rule.trigger_config || {};
+                          if (rule.trigger_type === "task_moved_to_section" && tc.section_id) { const s = projSections.find(s => s.id === tc.section_id); return s ? `"${s.name}"` : "any section"; }
+                          if (rule.trigger_type === "status_changed" && tc.status) return `"${(STATUS[tc.status] || {}).label || tc.status}"`;
+                          if (rule.trigger_type === "priority_changed" && tc.priority) return `"${(PRIORITY[tc.priority] || {}).label || tc.priority}"`;
+                          if (rule.trigger_type === "task_assigned" && tc.assignee_id) return `"${profiles[tc.assignee_id]?.display_name || "someone"}"`;
+                          if (rule.trigger_type === "due_date_approaching" && tc.days_before) return `${tc.days_before} day(s) before`;
+                          return "";
+                        })();
+
+                        return (
+                          <div key={rule.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", borderRadius: 10, border: `1px solid ${rule.is_active ? T.border : T.border + "60"}`, background: rule.is_active ? T.surface : T.surface + "80", opacity: rule.is_active ? 1 : 0.6 }}>
+                            {/* Toggle */}
+                            <div onClick={() => toggleRule(rule.id)} style={{ width: 36, height: 20, borderRadius: 10, background: rule.is_active ? T.accent : T.surface3, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                              <div style={{ width: 16, height: 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: rule.is_active ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                            </div>
+
+                            {/* Rule info */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 4 }}>{rule.name}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: `${T.accent}15`, color: T.accent, fontWeight: 600 }}>
+                                  {trig.icon} {trig.label} {trigDesc}
+                                </span>
+                                <span style={{ color: T.text3, fontSize: 11 }}>→</span>
+                                {(rule.actions || []).map((a, ai) => {
+                                  const act = ACTION_TYPES.find(t => t.key === a.type) || { label: a.type, icon: "?" };
+                                  return (
+                                    <span key={ai} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: T.surface3, color: T.text2, fontWeight: 500 }}>
+                                      {act.icon} {act.label}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                              {rule.run_count > 0 && (
+                                <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>
+                                  Ran {rule.run_count} time{rule.run_count !== 1 ? "s" : ""} · Last: {rule.last_run_at ? new Date(rule.last_run_at).toLocaleDateString() : "never"}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <button onClick={() => { setEditingRule(rule); setRuleForm({ name: rule.name, description: rule.description || "", trigger_type: rule.trigger_type, trigger_config: rule.trigger_config || {}, actions: rule.actions || [] }); setShowRuleBuilder(true); }}
+                                style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 4 }}>✎</button>
+                              <button onClick={() => deleteRule(rule.id)}
+                                style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 4 }}>🗑</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Rule Builder Modal */}
+                  {showRuleBuilder && (
+                    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={() => setShowRuleBuilder(false)} />
+                      <div style={{ position: "relative", width: 560, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", overflow: "auto", zIndex: 201 }}>
+                        <div style={{ padding: "20px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{editingRule ? "Edit Rule" : "Create Rule"}</h3>
+                          <button onClick={() => setShowRuleBuilder(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
+                        </div>
+                        <div style={{ padding: "20px 24px" }}>
+                          {/* Name */}
+                          <div style={{ marginBottom: 16 }}>
+                            <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 4 }}>Rule Name</label>
+                            <input value={ruleForm.name} onChange={e => setRuleForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g., Auto-complete when moved to Done"
+                              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                          </div>
+
+                          {/* Trigger */}
+                          <div style={{ marginBottom: 16 }}>
+                            <label style={{ fontSize: 12, fontWeight: 700, color: T.accent, display: "block", marginBottom: 8 }}>⚡ WHEN...</label>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
+                              {TRIGGER_TYPES.map(t => (
+                                <button key={t.key} onClick={() => setRuleForm(p => ({ ...p, trigger_type: t.key, trigger_config: {} }))}
+                                  style={{ padding: "10px 12px", borderRadius: 8, border: ruleForm.trigger_type === t.key ? `2px solid ${T.accent}` : `1px solid ${T.border}`,
+                                    background: ruleForm.trigger_type === t.key ? `${T.accent}10` : T.surface2, color: ruleForm.trigger_type === t.key ? T.accent : T.text2,
+                                    fontSize: 12, fontWeight: 500, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 14 }}>{t.icon}</span>{t.label}
+                                </button>
+                              ))}
+                            </div>
+                            {/* Trigger config */}
+                            <div style={{ marginTop: 10 }}>
+                              {ruleForm.trigger_type === "task_moved_to_section" && (
+                                <select value={ruleForm.trigger_config.section_id || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, section_id: e.target.value || null } }))}
+                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
+                                  <option value="">Any section</option>
+                                  {projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                              )}
+                              {ruleForm.trigger_type === "status_changed" && (
+                                <select value={ruleForm.trigger_config.status || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, status: e.target.value || null } }))}
+                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
+                                  <option value="">Any status</option>
+                                  {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                </select>
+                              )}
+                              {ruleForm.trigger_type === "priority_changed" && (
+                                <select value={ruleForm.trigger_config.priority || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, priority: e.target.value || null } }))}
+                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
+                                  <option value="">Any priority</option>
+                                  {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                </select>
+                              )}
+                              {ruleForm.trigger_type === "task_assigned" && (
+                                <select value={ruleForm.trigger_config.assignee_id || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, assignee_id: e.target.value || null } }))}
+                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
+                                  <option value="">Anyone</option>
+                                  {allProfiles.map(u => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}
+                                </select>
+                              )}
+                              {ruleForm.trigger_type === "due_date_approaching" && (
+                                <input type="number" value={ruleForm.trigger_config.days_before || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, days_before: Number(e.target.value) || null } }))}
+                                  placeholder="Days before due date" min="1" style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }} />
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div style={{ marginBottom: 16 }}>
+                            <label style={{ fontSize: 12, fontWeight: 700, color: "#22c55e", display: "block", marginBottom: 8 }}>✓ THEN...</label>
+                            {ruleForm.actions.map((action, ai) => {
+                              const act = ACTION_TYPES.find(t => t.key === action.type);
+                              return (
+                                <div key={ai} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, padding: "10px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: T.text2, width: 24, textAlign: "center" }}>{ai + 1}.</span>
+                                  <select value={action.type} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { type: e.target.value, config: {} }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                    style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12 }}>
+                                    {ACTION_TYPES.map(a => <option key={a.key} value={a.key}>{a.icon} {a.label}</option>)}
+                                  </select>
+                                  {/* Action config */}
+                                  {action.type === "set_status" && (
+                                    <select value={action.config?.status || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { status: e.target.value } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                      style={{ width: 120, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
+                                      <option value="">Pick...</option>
+                                      {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                    </select>
+                                  )}
+                                  {action.type === "move_to_section" && (
+                                    <select value={action.config?.section_id || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { section_id: e.target.value } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                      style={{ width: 120, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
+                                      <option value="">Pick...</option>
+                                      {projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select>
+                                  )}
+                                  {action.type === "set_assignee" && (
+                                    <select value={action.config?.assignee_id || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { assignee_id: e.target.value || null } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                      style={{ width: 120, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
+                                      <option value="">Pick...</option>
+                                      {allProfiles.map(u => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}
+                                    </select>
+                                  )}
+                                  {action.type === "set_priority" && (
+                                    <select value={action.config?.priority || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { priority: e.target.value } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                      style={{ width: 120, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
+                                      <option value="">Pick...</option>
+                                      {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                    </select>
+                                  )}
+                                  {action.type === "add_comment" && (
+                                    <input value={action.config?.comment || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { comment: e.target.value } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                      placeholder="Comment text..." style={{ width: 160, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }} />
+                                  )}
+                                  {action.type === "set_due_date_offset" && (
+                                    <input type="number" value={action.config?.days_offset || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { days_offset: Number(e.target.value) } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                      placeholder="Days" style={{ width: 80, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }} />
+                                  )}
+                                  <button onClick={() => setRuleForm(p => ({ ...p, actions: p.actions.filter((_, i) => i !== ai) }))}
+                                    style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 14, padding: "0 4px" }}>×</button>
+                                </div>
+                              );
+                            })}
+                            <button onClick={() => setRuleForm(p => ({ ...p, actions: [...p.actions, { type: "set_status", config: {} }] }))}
+                              style={{ width: "100%", padding: "8px", borderRadius: 8, border: `2px dashed ${T.border}`, background: "transparent", color: T.text3, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+                              + Add Action
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                          <button onClick={() => setShowRuleBuilder(false)} style={{ padding: "8px 16px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                          <button onClick={saveRule} disabled={!ruleForm.name.trim() || ruleForm.actions.length === 0}
+                            style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: ruleForm.name.trim() && ruleForm.actions.length > 0 ? T.accent : T.surface3, color: ruleForm.name.trim() && ruleForm.actions.length > 0 ? "#fff" : T.text3, fontSize: 13, fontWeight: 600, cursor: ruleForm.name.trim() && ruleForm.actions.length > 0 ? "pointer" : "default" }}>
+                            {editingRule ? "Update Rule" : "Create Rule"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <DetailPane />
           </div>
