@@ -340,6 +340,18 @@ export default function OKRsView() {
     await supabase.from("objectives").update({ deleted_at: new Date().toISOString() }).eq("id", objId);
   };
 
+  const archiveObjective = async (objId) => {
+    setObjectives(p => p.filter(o => o.id !== objId));
+    await supabase.from("objectives").update({ visibility: "archived" }).eq("id", objId);
+    showToast("Objective archived", "success");
+  };
+
+  const markObjectiveComplete = async (objId) => {
+    setObjectives(p => p.map(o => o.id === objId ? { ...o, health: "completed", progress: 100 } : o));
+    await supabase.from("objectives").update({ health: "completed", progress: 100 }).eq("id", objId);
+    showToast("🎉 Objective marked complete!", "success");
+  };
+
   const deleteKeyResult = async (krId) => {
     setKeyResults(p => p.filter(k => k.id !== krId));
     await supabase.from("key_results").update({ deleted_at: new Date().toISOString() }).eq("id", krId);
@@ -768,6 +780,8 @@ export default function OKRsView() {
                   {obj.start_date && <span>{obj.start_date} → {obj.end_date || "TBD"}</span>}
                   {obj.start_date && <span>·</span>}
                   <button onClick={e => { e.stopPropagation(); createKeyResult(obj.id); }} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>+ Add KR</button>
+                  <button onClick={e => { e.stopPropagation(); markObjectiveComplete(obj.id); }} style={{ background: "none", border: "none", color: "#22c55e", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>✓ Complete</button>
+                  <button onClick={e => { e.stopPropagation(); archiveObjective(obj.id); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Archive</button>
                   <button onClick={e => { e.stopPropagation(); deleteObjective(obj.id); }} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>Delete</button>
                 </div>
               </div>

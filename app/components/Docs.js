@@ -666,6 +666,31 @@ export default function DocsView({ setActive }) {
             </select>
             {!sidebarCollapsed && <button onClick={() => setSidebarCollapsed(true)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: 4 }}>◀</button>}
             <button onClick={() => duplicateDoc(activeDoc)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11, padding: 4 }} title="Duplicate">⧉</button>
+            <button onClick={() => {
+              // Export to Markdown
+              const md = [
+                `# ${activeDoc.title || "Untitled"}`,
+                "",
+                ...blocks.map(b => {
+                  if (b.type === "h1") return `# ${b.content}`;
+                  if (b.type === "h2") return `## ${b.content}`;
+                  if (b.type === "h3") return `### ${b.content}`;
+                  if (b.type === "bullet") return `- ${b.content}`;
+                  if (b.type === "numbered") return `1. ${b.content}`;
+                  if (b.type === "todo") return `- [${b.checked ? "x" : " "}] ${b.content}`;
+                  if (b.type === "quote") return `> ${b.content}`;
+                  if (b.type === "code") return `\`\`\`\n${b.content}\n\`\`\``;
+                  if (b.type === "divider") return "---";
+                  if (b.type === "callout") return `> **${b.emoji || "💡"}** ${b.content}`;
+                  return b.content || "";
+                })
+              ].join("\n");
+              const blob = new Blob([md], { type: "text/markdown" });
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `${activeDoc.title || "document"}.md`;
+              a.click();
+            }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11, padding: 4 }} title="Export to Markdown">↓</button>
             <button onClick={() => deleteDoc(activeDoc.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: 4 }} title="Delete">🗑️</button>
           </div>
 
