@@ -77,6 +77,7 @@ export default function ReportsView() {
       { data: objectives }, { data: keyResults }, { data: cycles },
       { data: plmPrograms }, { data: plmIssues },
       { data: finMetrics }, { data: scorecardMetrics }, { data: scorecardEntries },
+      { data: data11 },
     ] = await Promise.all([
       supabase.from("projects").select("*").is("deleted_at", null),
       supabase.from("tasks").select("*").is("deleted_at", null),
@@ -89,6 +90,7 @@ export default function ReportsView() {
       supabase.from("okr_financial_metrics").select("*").eq("year",yr),
       supabase.from("scorecard_metrics").select("*").eq("active",true),
       supabase.from("scorecard_entries").select("*").gte("week_start", `${yr}-01-01`),
+      supabase.from("okr_check_ins").select("key_result_id,check_in_date,health_status,value,created_at").order("created_at", { ascending: false }),
     ]);
 
     const profMap = {};
@@ -105,11 +107,13 @@ export default function ReportsView() {
       });
     }
 
+    const checkIns = data11 || [];
     setData({ projects:projects||[], tasks:tasks||[], profiles:profMap,
       objectives:objectives||[], keyResults:keyResults||[], cycles:cycles||[],
       plmPrograms:plmPrograms||[], plmIssues:plmIssues||[],
       finMetrics:finMetrics||[], finMonthly, curMonth, today,
-      scorecardMetrics:scorecardMetrics||[], scorecardEntries:scorecardEntries||[] });
+      scorecardMetrics:scorecardMetrics||[], scorecardEntries:scorecardEntries||[],
+      checkIns });
     setLoading(false);
   };
 
@@ -124,7 +128,7 @@ export default function ReportsView() {
   if (loading) return <div style={{ display:"flex", height:"100%", alignItems:"center", justifyContent:"center", color:T.text3, fontSize:13 }}>Building reports…</div>;
 
   const { projects, tasks, profiles, objectives, keyResults, cycles, plmPrograms, plmIssues,
-    finMetrics, finMonthly, curMonth, today, scorecardMetrics, scorecardEntries } = data;
+    finMetrics, finMonthly, curMonth, today, scorecardMetrics, scorecardEntries, checkIns } = data;
 
   // Derived
   const activeCycle = cycles.find(c=>c.status==="active")||cycles[0];
@@ -298,7 +302,24 @@ export default function ReportsView() {
         )}
 
         {/* ── Projects ── */}
-        {activeTab==="Projects" && (
+        {activeTab==="Projects" && (() => {
+          // Build 8-week task completion velocity
+          const weeks8 = [];
+          for (let i = 7; i >= 0; i--) {
+            const d = new Date(); d.setDate(d.getDate() - i * 7);
+            const ws = new Date(d); ws.setDate(d.getDate() - d.getDay() + 1);
+            weeks8.push(ws.toISOString().split("T")[0]);
+          }
+          const completedByWeek = {};
+          doneTasks.filter(t => t.completed_at).forEach(t => {
+            const d = new Date(t.completed_at);
+            const ws = new Date(d); ws.setDate(d.getDate() - d.getDay() + 1);
+            const wk = ws.toISOString().split("T")[0];
+            completedByWeek[wk] = (completedByWeek[wk] || 0) + 1;
+          });
+          const maxVel = Math.max(...weeks8.map(w => completedByWeek[w] || 0), 1);
+
+          return (
           <div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
               <StatCard icon="◫" label="Total Projects" value={projects.length} />
@@ -307,16 +328,57 @@ export default function ReportsView() {
               <StatCard icon="⚠️" label="Overdue" value={fmtN(overdueTasks.length)} color={overdueTasks.length>0?"#ef4444":T.text3} />
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+              <Card title="Task Completion Velocity (8 weeks)">
+                <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:80, marginBottom:8 }}>
+                  {weeks8.map((w, i) => {
+                    const count = completedByWeek[w] || 0;
+                    const h = Math.max(4, (count / maxVel) * 72);
+                    const d = new Date(w + "T12:00:00");
+                    const isCur = i === weeks8.length - 1;
+                    return (
+                      <div key={w} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                        {count > 0 && <div style={{ fontSize:9, color:T.text3 }}>{count}</div>}
+                        <div style={{ width:"100%", height:`${h}px`, borderRadius:"3px 3px 0 0",
+                          background: isCur ? "#22c55e" : count > 0 ? "#22c55e70" : T.surface3,
+                          transition:"height 0.4s" }} />
+                        <div style={{ fontSize:8, color:isCur?T.accent:T.text3, fontWeight:isCur?700:400 }}>
+                          {d.toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize:11, color:T.text3, textAlign:"center" }}>
+                  {doneTasks.filter(t=>t.completed_at&&Date.now()-new Date(t.completed_at).getTime()<56*86400000).length} completed in last 8 weeks
+                </div>
+              </Card>
               <Card title="Status Distribution">
                 {Object.entries(STATUS_COLORS).map(([k,c])=>(
                   <HorizBar key={k} label={k.replace(/_/g," ")} value={statusDist[k]||0} max={tasks.length} color={c} count={statusDist[k]||0} pct={tasks.length>0?((statusDist[k]||0)/tasks.length)*100:null} />
                 ))}
               </Card>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
               <Card title="Priority Breakdown">
                 {[{k:"urgent",l:"Urgent",c:"#ef4444"},{k:"high",l:"High",c:"#f97316"},{k:"medium",l:"Medium",c:"#eab308"},{k:"low",l:"Low",c:"#22c55e"}].map(p=>{
                   const open = openTasks.filter(t=>t.priority===p.k).length;
                   return <HorizBar key={p.k} label={p.l} value={open} max={openTasks.length} color={p.c} count={open} pct={openTasks.length>0?(open/openTasks.length)*100:null} />;
                 })}
+              </Card>
+              <Card title="Workload by Assignee">
+                {topAssignees.map(([uid,count])=>(
+                  <div key={uid} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                    <div style={{ width:28, height:28, borderRadius:14, background:"#3b82f620", border:"1.5px solid #3b82f650", display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color:"#3b82f6", flexShrink:0 }}>{ini(uid)}</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:11, fontWeight:500, marginBottom:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{uname(uid)}</div>
+                      <div style={{ height:8, borderRadius:8, background:T.surface3, overflow:"hidden" }}>
+                        <div style={{ width:`${(count/maxWork)*100}%`, height:"100%", borderRadius:8, background:count>maxWork*0.8?"#ef4444":T.accent }} />
+                      </div>
+                    </div>
+                    <span style={{ fontSize:12, fontWeight:600, color:T.text2, minWidth:24, textAlign:"right" }}>{count}</span>
+                  </div>
+                ))}
+                {topAssignees.length===0&&<div style={{ fontSize:12, color:T.text3 }}>No assigned tasks</div>}
               </Card>
             </div>
             <Card title="Project Health">
@@ -325,17 +387,18 @@ export default function ReportsView() {
                 const pd = pt.filter(t=>t.status==="done").length;
                 const pct2 = pt.length>0?Math.round((pd/pt.length)*100):0;
                 const od = pt.filter(t=>t.due_date&&t.due_date<today&&t.status!=="done").length;
+                const hColor = od > pt.length * 0.2 ? "#ef4444" : od > 0 ? "#eab308" : "#22c55e";
                 return (
                   <div key={proj.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 0", borderBottom:`1px solid ${T.border}` }}>
-                    <div style={{ width:34, height:34, borderRadius:8, background:proj.color||T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:"#fff", flexShrink:0 }}>{proj.name.charAt(0)}</div>
+                    <div style={{ width:34, height:34, borderRadius:8, background:proj.color||T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:"#fff", flexShrink:0 }}>{(proj.emoji||proj.name.charAt(0))}</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:13, fontWeight:600, marginBottom:5 }}>{proj.name}</div>
                       <div style={{ height:6, borderRadius:6, background:T.surface3, overflow:"hidden" }}>
-                        <div style={{ width:`${pct2}%`, height:"100%", borderRadius:6, background:od>0?"#ef4444":proj.color||T.accent }} />
+                        <div style={{ width:`${pct2}%`, height:"100%", borderRadius:6, background:hColor }} />
                       </div>
                     </div>
-                    <div style={{ textAlign:"right", minWidth:100 }}>
-                      <div style={{ fontSize:18, fontWeight:700, color:pct2>=50?"#22c55e":T.text2 }}>{pct2}%</div>
+                    <div style={{ textAlign:"right", minWidth:110 }}>
+                      <div style={{ fontSize:18, fontWeight:700, color:hColor }}>{pct2}%</div>
                       <div style={{ fontSize:10, color:T.text3 }}>{pd}/{pt.length} · {od>0?<span style={{ color:"#ef4444" }}>{od} late</span>:"all good"}</div>
                     </div>
                   </div>
@@ -343,17 +406,97 @@ export default function ReportsView() {
               })}
             </Card>
           </div>
-        )}
+          );
+        })()}
 
-        {/* ── OKRs ── */}
-        {activeTab==="OKRs" && (
+        {activeTab==="OKRs" && (() => {
+          // Build 8-week check-in activity heatmap
+          const weeks = [];
+          for (let i = 7; i >= 0; i--) {
+            const d = new Date(); d.setDate(d.getDate() - i * 7);
+            const ws = new Date(d); ws.setDate(d.getDate() - d.getDay() + 1);
+            weeks.push(ws.toISOString().split("T")[0]);
+          }
+          const checkInsByWeek = {};
+          (checkIns||[]).forEach(ci => {
+            const d = new Date(ci.created_at);
+            const ws = new Date(d); ws.setDate(d.getDate() - d.getDay() + 1);
+            const wk = ws.toISOString().split("T")[0];
+            checkInsByWeek[wk] = (checkInsByWeek[wk] || 0) + 1;
+          });
+          const maxCI = Math.max(...weeks.map(w => checkInsByWeek[w] || 0), 1);
+
+          // KRs sorted by staleness
+          const krStaleness = cycleObjs.flatMap(obj =>
+            keyResults.filter(k => k.objective_id === obj.id).map(kr => {
+              const lastCI = (checkIns||[]).find(c => c.key_result_id === kr.id);
+              const daysAgo = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : 999;
+              return { ...kr, objTitle: obj.title, daysAgo };
+            })
+          ).sort((a, b) => b.daysAgo - a.daysAgo);
+
+          return (
           <div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
               <StatCard icon="◎" label="Objectives" value={cycleObjs.length} sub={activeCycle?.name} />
               <StatCard icon="✅" label="On Track" value={cycleObjs.filter(o=>o.health==="on_track").length} color="#22c55e" />
               <StatCard icon="⚡" label="At Risk" value={cycleObjs.filter(o=>o.health==="at_risk").length} color="#eab308" />
-              <StatCard icon="🚨" label="Off Track" value={cycleObjs.filter(o=>o.health==="off_track").length} color="#ef4444" />
+              <StatCard icon="📝" label="Check-ins (8wk)" value={(checkIns||[]).filter(ci => {
+                const d = new Date(ci.created_at);
+                return Date.now() - d.getTime() < 56 * 86400000;
+              }).length} color={T.accent} />
             </div>
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+              {/* Check-in activity */}
+              <Card title="Check-in Activity (8 weeks)">
+                <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:80, marginBottom:8 }}>
+                  {weeks.map((w, i) => {
+                    const count = checkInsByWeek[w] || 0;
+                    const h = Math.max(4, (count / maxCI) * 72);
+                    const d = new Date(w + "T12:00:00");
+                    const isCur = i === weeks.length - 1;
+                    return (
+                      <div key={w} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                        {count > 0 && <div style={{ fontSize:9, color:T.text3 }}>{count}</div>}
+                        <div style={{ width:"100%", height:`${h}px`, borderRadius:"3px 3px 0 0",
+                          background: isCur ? T.accent : count > 0 ? T.accent+"70" : T.surface3,
+                          transition:"height 0.4s" }} />
+                        <div style={{ fontSize:8, color:isCur?T.accent:T.text3, fontWeight:isCur?700:400 }}>
+                          {d.toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize:11, color:T.text3, textAlign:"center" }}>
+                  {(checkIns||[]).length} total check-ins · {Object.values(checkInsByWeek).reduce((s,v)=>s+v,0) > 0 ? `avg ${(Object.values(checkInsByWeek).reduce((s,v)=>s+v,0)/8).toFixed(1)}/week` : "no data yet"}
+                </div>
+              </Card>
+
+              {/* KR Staleness */}
+              <Card title="KR Check-in Recency">
+                <div style={{ maxHeight:200, overflow:"auto" }}>
+                  {krStaleness.slice(0, 8).map(kr => {
+                    const color = kr.daysAgo >= 14 ? "#ef4444" : kr.daysAgo >= 7 ? "#eab308" : "#22c55e";
+                    return (
+                      <div key={kr.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0", borderBottom:`1px solid ${T.border}` }}>
+                        <div style={{ width:8, height:8, borderRadius:"50%", background:color, flexShrink:0 }} />
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:12, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{kr.title}</div>
+                          <div style={{ fontSize:10, color:T.text3 }}>{kr.objTitle}</div>
+                        </div>
+                        <span style={{ fontSize:11, fontWeight:700, color, flexShrink:0 }}>
+                          {kr.daysAgo === 999 ? "Never" : `${kr.daysAgo}d ago`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {krStaleness.length === 0 && <div style={{ fontSize:12, color:T.text3, padding:"16px 0", textAlign:"center" }}>No KRs in active cycle</div>}
+                </div>
+              </Card>
+            </div>
+
             <Card title="All Objectives">
               {cycleObjs.map(obj => {
                 const krs = keyResults.filter(k=>k.objective_id===obj.id);
@@ -371,6 +514,8 @@ export default function ReportsView() {
                     </div>
                     {krs.map(kr => {
                       const krPct = kr.target_value>0?Math.min(100,Math.round((Number(kr.current_value||0)/Number(kr.target_value))*100)):0;
+                      const lastCI = (checkIns||[]).find(c=>c.key_result_id===kr.id);
+                      const dAgo = lastCI ? Math.floor((Date.now()-new Date(lastCI.created_at).getTime())/86400000) : null;
                       return (
                         <div key={kr.id} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:5, paddingLeft:20 }}>
                           <div style={{ fontSize:11, color:T.text2, flex:1 }}>{kr.title}</div>
@@ -378,6 +523,9 @@ export default function ReportsView() {
                             <div style={{ width:`${krPct}%`, height:"100%", background:T.accent, borderRadius:4 }} />
                           </div>
                           <span style={{ fontSize:10, color:T.text3, minWidth:30, textAlign:"right" }}>{krPct}%</span>
+                          <span style={{ fontSize:9, padding:"1px 5px", borderRadius:4, background: dAgo===null||dAgo>=7?"#ef444415":T.accentDim, color:dAgo===null||dAgo>=7?"#ef4444":T.accent, fontWeight:600, minWidth:44, textAlign:"center" }}>
+                            {dAgo===null?"never":dAgo===0?"today":`${dAgo}d ago`}
+                          </span>
                         </div>
                       );
                     })}
@@ -387,7 +535,8 @@ export default function ReportsView() {
               {cycleObjs.length===0&&<div style={{ fontSize:12, color:T.text3, padding:"24px 0", textAlign:"center" }}>No objectives in the active cycle</div>}
             </Card>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── Finance ── */}
         {activeTab==="Finance" && (

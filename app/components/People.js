@@ -51,10 +51,13 @@ export default function PeopleView() {
 
   const setView = (v) => { setViewMode(v); try { localStorage.setItem("people_view", v); } catch {} };
 
+  const [keyResults, setKeyResults] = useState([]);
+  const [checkIns, setCheckIns] = useState([]);
+
   useEffect(() => {
     if (!profile?.org_id) return;
     (async () => {
-      const [mR, omR, tR, pR, pmR, tmR, tmrR] = await Promise.all([
+      const [mR, omR, tR, pR, pmR, tmR, tmrR, krR] = await Promise.all([
         supabase.from("profiles").select("*").eq("org_id", profile.org_id),
         supabase.from("org_memberships").select("*").eq("org_id", profile.org_id),
         supabase.from("tasks").select("id, title, status, priority, assignee_id, project_id, due_date").is("deleted_at", null),
@@ -62,8 +65,18 @@ export default function PeopleView() {
         supabase.from("project_members").select("*"),
         supabase.from("teams").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
         supabase.from("team_members").select("*"),
+        supabase.from("key_results").select("id,title,progress,target_value,unit,owner_id").is("deleted_at", null),
       ]);
       setMembers(mR.data || []); setMemberships(omR.data || []); setTasks(tR.data || []); setProjects(pR.data || []); setProjectMembers(pmR.data || []); setTeams(tmR.data || []); setTeamMembers(tmrR.data || []);
+      setKeyResults(krR.data || []);
+      // Load recent check-ins
+      if (krR.data?.length) {
+        const { data: ciData } = await supabase.from("okr_check_ins")
+          .select("key_result_id,created_at,health_status,value")
+          .in("key_result_id", krR.data.map(k => k.id))
+          .order("created_at", { ascending: false });
+        setCheckIns(ciData || []);
+      }
       setLoading(false);
     })();
   }, [profile?.org_id]);
@@ -282,6 +295,38 @@ export default function PeopleView() {
               <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div><div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{proj?.name || "—"}</div></div>
               {t.due_date && <span style={{ fontSize: 10, fontWeight: 600, color: od ? T.red : T.text3, flexShrink: 0 }}>{new Date(t.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
             </div>); })}
+
+          {/* KR Ownership */}
+          {(() => {
+            const memberKRs = keyResults.filter(kr => kr.owner_id === selected.id);
+            if (memberKRs.length === 0) return null;
+            return (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, marginBottom: 8 }}>Key Results Owned</div>
+                {memberKRs.map(kr => {
+                  const pct = Math.round(Number(kr.progress || 0));
+                  const lastCI = checkIns.find(c => c.key_result_id === kr.id);
+                  const dAgo = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
+                  const isStale = dAgo === null || dAgo >= 7;
+                  const pColor = pct >= 70 ? "#22c55e" : pct >= 40 ? "#eab308" : "#ef4444";
+                  return (
+                    <div key={kr.id} style={{ padding: "9px 10px", borderRadius: 6, background: T.surface2, marginBottom: 4, border: `1px solid ${isStale ? "#eab30840" : T.border}` }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.title}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ flex: 1, height: 4, borderRadius: 2, background: T.surface3 }}>
+                          <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", borderRadius: 2, background: pColor }} />
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: pColor, minWidth: 28 }}>{pct}%</span>
+                        <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: isStale ? "#ef444415" : T.accentDim, color: isStale ? "#ef4444" : T.accent, fontWeight: 600 }}>
+                          {dAgo === null ? "no check-in" : dAgo === 0 ? "today" : `${dAgo}d ago`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </>}
         {tab === "permissions" && <>
           <div style={{ marginBottom: 20 }}>
