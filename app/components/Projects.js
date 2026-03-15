@@ -5,6 +5,7 @@ import { useAuth } from "../lib/auth";
 import { useModal } from "../lib/modal";
 import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
+import SearchableMultiSelect from "./SearchableSelect";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
 const TABS = ["Info", "List", "Board", "Timeline", "Calendar", "Updates", "Docs", "Rules"];
@@ -1278,10 +1279,9 @@ export default function ProjectsView() {
                 <input type="date" value={task.start_date || ""} onChange={e => updateField(task.id, "start_date", e.target.value || null)}
                   style={{ background: "none", border: "none", color: task.start_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }} />
                 <span style={FIELD_LABEL}>Section</span>
-                <select value={task.section_id || ""} onChange={e => updateField(task.id, "section_id", e.target.value)}
-                  style={{ padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }}>
-                  {projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <SearchableMultiSelect multi={false} placeholder="Select section"
+                  options={projSections.map(s => ({ value: s.id, label: s.name }))}
+                  selected={task.section_id || ""} onChange={val => updateField(task.id, "section_id", val)} />
               </div>
 
               {/* Effort tracking */}
@@ -1309,15 +1309,9 @@ export default function ProjectsView() {
               {objectives.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Linked OKR</label>
-                  <select value={task.linked_kr_id || ""} onChange={e => updateField(task.id, "linked_kr_id", e.target.value || null)}
-                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: task.linked_kr_id ? T.accent : T.text3, fontSize: 12, outline: "none", cursor: "pointer" }}>
-                    <option value="">No linked KR</option>
-                    {objectives.map(obj => (
-                      <optgroup key={obj.id} label={obj.title}>
-                        {/* We don't have KRs here easily, but show objectives as a start */}
-                      </optgroup>
-                    ))}
-                  </select>
+                  <SearchableMultiSelect multi={false} placeholder="No linked KR"
+                    options={objectives.map(o => ({ value: o.id, label: o.title, icon: "◎" }))}
+                    selected={task.linked_kr_id || ""} onChange={val => updateField(task.id, "linked_kr_id", val || null)} />
                   {task.linked_kr_id && <div style={{ fontSize: 10, color: T.accent, marginTop: 4 }}>✓ Contributes to OKR progress</div>}
                 </div>
               )}
@@ -1403,10 +1397,9 @@ export default function ProjectsView() {
                         ) : cf.field_type === "date" ? (
                           <input type="date" defaultValue={val} key={task.id + "-cf-" + cf.id} onChange={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} style={{ ...inp, cursor: "pointer" }} />
                         ) : cf.field_type === "select" ? (
-                          <select value={val} onChange={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} style={{ ...inp, cursor: "pointer" }}>
-                            <option value="">Select…</option>
-                            {choices.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
+                          <SearchableMultiSelect multi={false} placeholder="Select…"
+                            options={choices.map(c => ({ value: c, label: c }))}
+                            selected={val || ""} onChange={v => updateCustomFieldValue(task.id, cf.id, v)} />
                         ) : cf.field_type === "checkbox" ? (
                           <div onClick={() => updateCustomFieldValue(task.id, cf.id, val === "true" ? "false" : "true")}
                             style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${val === "true" ? T.accent : T.border}`, background: val === "true" ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -1649,11 +1642,11 @@ export default function ProjectsView() {
               <div><label style={lbl}>Target End Date</label><input type="date" value={f.target_end_date} onChange={e => set("target_end_date", e.target.value)} style={inp} /></div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={lbl}>Status</label><select value={f.status} onChange={e => set("status", e.target.value)} style={sel}><option value="active">Active</option><option value="on_hold">On Hold</option><option value="completed">Completed</option><option value="archived">Archived</option></select></div>
-              <div><label style={lbl}>Default View</label><select value={f.default_view} onChange={e => set("default_view", e.target.value)} style={sel}><option value="List">List</option><option value="Board">Board</option><option value="Timeline">Timeline</option><option value="Calendar">Calendar</option></select></div>
+              <div><label style={lbl}>Status</label><SearchableMultiSelect multi={false} placeholder="Status" options={[{value:"active",label:"Active",color:"#22c55e"},{value:"on_hold",label:"On Hold",color:"#eab308"},{value:"completed",label:"Completed",color:"#3b82f6"},{value:"archived",label:"Archived",color:"#6b7280"}]} selected={f.status||"active"} onChange={val => set("status", val)} /></div>
+              <div><label style={lbl}>Default View</label><SearchableMultiSelect multi={false} placeholder="View" options={[{value:"List",label:"List"},{value:"Board",label:"Board"},{value:"Timeline",label:"Timeline"},{value:"Calendar",label:"Calendar"}]} selected={f.default_view||"List"} onChange={val => set("default_view", val)} /></div>
             </div>
             <div style={{ marginBottom: 12 }}><label style={lbl}>Color</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{colors.map(c => <div key={c} onClick={() => set("color", c)} style={{ width: 28, height: 28, borderRadius: 14, background: c, cursor: "pointer", border: f.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: f.color === c ? `0 0 0 2px ${c}` : "none", transition: "all 0.15s" }} />)}</div></div>
-            <div style={{ marginBottom: 12 }}><label style={lbl}>Link to Goal / OKR</label><select value={f.objective_id} onChange={e => set("objective_id", e.target.value)} style={sel}><option value="">None</option>{objectives.map(o => <option key={o.id} value={o.id}>{o.title}</option>)}</select>{f.objective_id && <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: T.accentDim, fontSize: 11, color: T.accent }}>Linked to: {objectives.find(o => o.id === f.objective_id)?.title}</div>}</div>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Link to Goal / OKR</label><SearchableMultiSelect multi={false} placeholder="None" options={objectives.map(o => ({ value: o.id, label: o.title, icon: "◎" }))} selected={f.objective_id||""} onChange={val => set("objective_id", val)} />{f.objective_id && <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: T.accentDim, fontSize: 11, color: T.accent }}>Linked to: {objectives.find(o => o.id === f.objective_id)?.title}</div>}</div>
           </>}
           {formStep === 2 && <>
             {/* Visibility */}
@@ -1667,7 +1660,7 @@ export default function ProjectsView() {
                 </div>))}
             </div>
             {/* Team assignment - show when visibility is team or always as optional */}
-            <div style={{ marginBottom: 16 }}><label style={lbl}>Assign to Team</label><select value={f.team_id} onChange={e => set("team_id", e.target.value)} style={sel}><option value="">No team</option>{teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>{teams.length === 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>No teams created yet</div>}</div>
+            <div style={{ marginBottom: 16 }}><label style={lbl}>Assign to Team</label><SearchableMultiSelect multi={false} placeholder="No team" options={teams.map(t => ({ value: t.id, label: t.name, icon: "👥" }))} selected={f.team_id||""} onChange={val => set("team_id", val)} />{teams.length === 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>No teams created yet</div>}</div>
             {/* Join policy */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ ...lbl, marginBottom: 8 }}>Who can join?</label>
@@ -2680,118 +2673,6 @@ function DateCell({ task, onUpdate }) {
     <input type="date" value={task.due_date || ""} onChange={(e) => onUpdate(task.id, "due_date", e.target.value || null)}
       onClick={(e) => e.stopPropagation()}
       style={{ background: "none", border: "none", color: od ? T.red : task.due_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit" }} />
-  );
-}
-
-function SearchableMultiSelect({ options, selected, onChange, placeholder, multi = true, allByDefault = false }) {
-  // options: [{ value, label, color?, icon? }]
-  // selected: "all" | string | string[] 
-  // When allByDefault=true and selected="all", all items are considered selected
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const isAll = allByDefault && selected === "all";
-  const selArr = multi ? (isAll ? options.map(o => o.value) : Array.isArray(selected) ? selected : selected ? [selected] : []) : [];
-  const selSingle = !multi ? (selected || "") : "";
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
-  }, [open]);
-
-  const filtered = options.filter(o =>
-    o.label.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const toggleItem = (val) => {
-    if (!multi) { onChange(val === selSingle ? "" : val); setOpen(false); return; }
-    const next = selArr.includes(val) ? selArr.filter(v => v !== val) : [...selArr, val];
-    // If all items are now selected again and allByDefault, go back to "all"
-    if (allByDefault && next.length === options.length) { onChange("all"); return; }
-    onChange(next);
-  };
-
-  const displayText = () => {
-    if (!multi) {
-      const opt = options.find(o => o.value === selSingle);
-      return opt ? opt.label : placeholder || "Select...";
-    }
-    if (isAll || selArr.length === options.length) return placeholder || "All";
-    if (selArr.length === 0) return placeholder || "Any";
-    if (selArr.length === 1) { const o = options.find(op => op.value === selArr[0]); return o ? o.label : selArr[0]; }
-    return `${selArr.length} of ${options.length}`;
-  };
-
-  return (
-    <div ref={ref} style={{ position: "relative", width: "100%" }}>
-      <div onClick={() => { setOpen(!open); setSearch(""); }}
-        style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: (multi ? selArr.length > 0 : selSingle) ? T.text : T.text3, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", minHeight: 32 }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1, overflow: "hidden" }}>
-          {multi && selArr.length > 0 && !isAll && selArr.length < options.length ? selArr.map(v => {
-            const o = options.find(op => op.value === v);
-            return (
-              <span key={v} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "1px 6px", borderRadius: 4, background: o?.color ? o.color + "20" : T.surface3, color: o?.color || T.text2, fontSize: 10, fontWeight: 600 }}>
-                {o?.icon && <span style={{ fontSize: 9 }}>{o.icon}</span>}{o?.label || v}
-                <span onClick={(e) => { e.stopPropagation(); toggleItem(v); }} style={{ cursor: "pointer", opacity: 0.6, fontSize: 9 }}>×</span>
-              </span>
-            );
-          }) : <span>{displayText()}</span>}
-        </div>
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
-      </div>
-      {open && (
-        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 60, marginTop: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", maxHeight: 240, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
-            <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..."
-              onClick={e => e.stopPropagation()}
-              style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
-          </div>
-          <div style={{ overflow: "auto", maxHeight: 190 }}>
-            {multi && (
-              <div style={{ display: "flex", gap: 4, padding: "6px 12px", borderBottom: `1px solid ${T.border}08` }}>
-                <span onClick={() => onChange(allByDefault ? "all" : options.map(o => o.value))} style={{ fontSize: 11, color: T.accent, cursor: "pointer", fontWeight: 500 }}
-                  onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>
-                  Select all
-                </span>
-                <span style={{ color: T.text3, fontSize: 11 }}>·</span>
-                <span onClick={() => onChange([])} style={{ fontSize: 11, color: T.text3, cursor: "pointer" }}
-                  onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>
-                  Clear
-                </span>
-              </div>
-            )}
-            {!multi && (
-              <div onClick={() => { onChange(""); setOpen(false); }} style={{ padding: "6px 12px", fontSize: 11, color: T.text3, cursor: "pointer" }}
-                onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                {placeholder || "Any"}
-              </div>
-            )}
-            {filtered.map(o => {
-              const isSelected = multi ? selArr.includes(o.value) : selSingle === o.value;
-              return (
-                <div key={o.value} onClick={() => toggleItem(o.value)}
-                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12, color: T.text, cursor: "pointer" }}
-                  onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  {multi ? (
-                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `1.5px solid ${isSelected ? T.accent : T.border}`, background: isSelected ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {isSelected && <span style={{ color: "#fff", fontSize: 8, fontWeight: 800 }}>✓</span>}
-                    </div>
-                  ) : (
-                    <div style={{ width: 10, height: 10, borderRadius: 5, border: `1.5px solid ${isSelected ? T.accent : T.border}`, background: isSelected ? T.accent : "transparent", flexShrink: 0 }} />
-                  )}
-                  {o.icon && <span style={{ fontSize: 12 }}>{o.icon}</span>}
-                  {o.color && <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color, flexShrink: 0 }} />}
-                  <span style={{ fontWeight: isSelected ? 600 : 400 }}>{o.label}</span>
-                </div>
-              );
-            })}
-            {filtered.length === 0 && <div style={{ padding: "12px", textAlign: "center", color: T.text3, fontSize: 11 }}>No matches</div>}
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
 

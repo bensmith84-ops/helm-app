@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import SearchableMultiSelect from "./SearchableSelect";
 import { useAuth } from "../lib/auth";
 import { notifySlack } from "../lib/slack";
 
@@ -1039,24 +1040,21 @@ export default function DashboardView({ setActive }) {
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
                   <div>
                     <label style={{ fontSize:11, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Project</label>
-                    <select value={newTaskForm.project_id} onChange={e => setNewTaskForm(p => ({...p, project_id: e.target.value, section_id: ""}))}
-                      style={{ width:"100%", padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:12, cursor:"pointer" }}>
-                      <option value="">Personal Task (no project)</option>
-                      {(data?.projects||[]).filter(p => p.status !== "archived").map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
+                    <SearchableMultiSelect multi={false} placeholder="Personal Task (no project)"
+                      options={(data?.projects||[]).filter(p => p.status !== "archived").map(p => ({ value: p.id, label: p.name, color: p.color }))}
+                      selected={newTaskForm.project_id || ""}
+                      onChange={val => setNewTaskForm(p => ({...p, project_id: val, section_id: ""}))} />
                   </div>
                   <div>
                     <label style={{ fontSize:11, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Section</label>
-                    <select value={newTaskForm.section_id} onChange={e => setNewTaskForm(p => ({...p, section_id: e.target.value}))}
-                      disabled={!newTaskForm.project_id}
-                      style={{ width:"100%", padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color: newTaskForm.project_id ? T.text : T.text3, fontSize:12, cursor:"pointer", opacity: newTaskForm.project_id ? 1 : 0.5 }}>
-                      <option value="">Default</option>
-                      {(data?.sections||[]).filter(s => s.project_id === newTaskForm.project_id).map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
+                    {newTaskForm.project_id ? (
+                      <SearchableMultiSelect multi={false} placeholder="Default (first section)"
+                        options={(data?.sections||[]).filter(s => s.project_id === newTaskForm.project_id).map(s => ({ value: s.id, label: s.name }))}
+                        selected={newTaskForm.section_id || ""}
+                        onChange={val => setNewTaskForm(p => ({...p, section_id: val}))} />
+                    ) : (
+                      <div style={{ padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color:T.text3, fontSize:12, opacity:0.5 }}>Select a project first</div>
+                    )}
                   </div>
                 </div>
                 <div style={{ marginBottom:14 }}>
