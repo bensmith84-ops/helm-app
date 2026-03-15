@@ -59,6 +59,30 @@ export default function HelmApp() {
   const [expanded, setExpanded] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [pendingTaskId, setPendingTaskId] = useState(null);
+  const [allowedModules, setAllowedModules] = useState(null); // null = loading, array = loaded
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Load user module permissions
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const { data } = await supabase.from("user_module_permissions").select("*").eq("user_id", user.id).maybeSingle();
+      if (data) {
+        setAllowedModules(data.allowed_modules || []);
+        setIsAdmin(data.is_admin || false);
+      } else {
+        // No permissions set = admin gets everything, others get defaults
+        const isOwner = profile?.role === "admin" || profile?.email?.includes("ben.smith");
+        if (isOwner) {
+          setAllowedModules(null); // null = no restrictions (admin sees all)
+          setIsAdmin(true);
+        } else {
+          setAllowedModules(["dashboard", "scoreboard", "okrs", "scorecard", "projects", "plm"]);
+          setIsAdmin(false);
+        }
+      }
+    })();
+  }, [user?.id, profile?.role]);
 
   // Enhanced setActive that can also pass a task ID to open
   const navigateTo = useCallback((module, taskId) => {
@@ -198,6 +222,14 @@ export default function HelmApp() {
   if (!user) return <AuthPage />;
 
   const renderView = () => {
+    // Check module permissions (settings and dashboard always allowed)
+    if (allowedModules && !isAdmin && active !== "dashboard" && active !== "settings" && !allowedModules.includes(active)) {
+      return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.text3, flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 32 }}>🔒</div>
+        <div style={{ fontSize: 14 }}>You don't have access to this module</div>
+        <div style={{ fontSize: 12 }}>Contact your admin to request access</div>
+      </div>;
+    }
     switch (active) {
       case "dashboard": return <DashboardView setActive={navigateTo} />;
       case "projects": return <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} />;
@@ -237,7 +269,7 @@ export default function HelmApp() {
         button:hover { opacity: 0.85; }
       `}</style>
       <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", background: T.bg }}>
-        <Sidebar active={active} setActive={setActive} expanded={expanded} setExpanded={setExpanded} badges={badges} profile={profile} />
+        <Sidebar active={active} setActive={setActive} expanded={expanded} setExpanded={setExpanded} badges={badges} profile={profile} allowedModules={allowedModules} isAdmin={isAdmin} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ height: 44, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 20px", gap: 12, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

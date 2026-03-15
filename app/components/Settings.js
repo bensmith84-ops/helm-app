@@ -5,8 +5,9 @@ import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { notifySlack } from "../lib/slack";
+import { NAV_ITEMS } from "./Sidebar";
 
-const TABS = ["Profile","Organization","Team","Integrations","Notifications","About"];
+const TABS = ["Profile","Organization","Team","Permissions","Integrations","Notifications","About"];
 const TIMEZONES = ["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Anchorage","Pacific/Honolulu","Europe/London","Europe/Paris","Europe/Berlin","Asia/Tokyo","Asia/Shanghai","Asia/Kolkata","Australia/Sydney","Pacific/Auckland"];
 
 function Section({ title, subtitle, children }) {
@@ -281,6 +282,132 @@ export default function SettingsView() {
             </Section>
           </>
         )}
+
+        {/* ── Permissions ── */}
+        {activeTab === "Permissions" && (() => {
+          const [perms, setPerms] = useState([]);
+          const [allUsers, setAllUsers] = useState([]);
+          const [saving, setSaving] = useState({});
+          const moduleList = NAV_ITEMS.filter(n => n.key && n.type !== "divider" && n.key !== "settings" && !n.adminOnly);
+
+          useEffect(() => {
+            (async () => {
+              const [{ data: users }, { data: permData }] = await Promise.all([
+                supabase.from("profiles").select("id,display_name,email,role").eq("org_id", profile?.org_id).order("display_name"),
+                supabase.from("user_module_permissions").select("*"),
+              ]);
+              setAllUsers(users || []);
+              setPerms(permData || []);
+            })();
+          }, []);
+
+          const getUserPerms = (userId) => {
+            const p = perms.find(p => p.user_id === userId);
+            return p?.allowed_modules || null; // null = no restrictions
+          };
+          const getUserAdmin = (userId) => perms.find(p => p.user_id === userId)?.is_admin || false;
+
+          const toggleModule = async (userId, moduleKey) => {
+            const current = getUserPerms(userId);
+            const currentArr = current || moduleList.map(m => m.key);
+            const newArr = currentArr.includes(moduleKey) 
+              ? currentArr.filter(k => k !== moduleKey)
+              : [...currentArr, moduleKey];
+            setSaving(p => ({ ...p, [userId]: true }));
+            const isAdm = getUserAdmin(userId);
+            await supabase.from("user_module_permissions").upsert({
+              user_id: userId, allowed_modules: newArr, is_admin: isAdm, updated_at: new Date().toISOString(), updated_by: user?.id,
+            }, { onConflict: "user_id" });
+            setPerms(p => {
+              const existing = p.find(x => x.user_id === userId);
+              if (existing) return p.map(x => x.user_id === userId ? { ...x, allowed_modules: newArr } : x);
+              return [...p, { user_id: userId, allowed_modules: newArr, is_admin: isAdm }];
+            });
+            setSaving(p => ({ ...p, [userId]: false }));
+          };
+
+          const toggleAdmin = async (userId) => {
+            const newAdmin = !getUserAdmin(userId);
+            const current = getUserPerms(userId) || moduleList.map(m => m.key);
+            await supabase.from("user_module_permissions").upsert({
+              user_id: userId, allowed_modules: newAdmin ? moduleList.map(m => m.key) : current, is_admin: newAdmin, updated_at: new Date().toISOString(), updated_by: user?.id,
+            }, { onConflict: "user_id" });
+            setPerms(p => {
+              const existing = p.find(x => x.user_id === userId);
+              if (existing) return p.map(x => x.user_id === userId ? { ...x, is_admin: newAdmin, allowed_modules: newAdmin ? moduleList.map(m => m.key) : x.allowed_modules } : x);
+              return [...p, { user_id: userId, is_admin: newAdmin, allowed_modules: moduleList.map(m => m.key) }];
+            });
+          };
+
+          const setPreset = async (userId, preset) => {
+            let modules;
+            if (preset === "all") modules = moduleList.map(m => m.key);
+            else if (preset === "core") modules = ["dashboard", "scoreboard", "okrs", "scorecard", "projects", "plm"];
+            else if (preset === "none") modules = ["dashboard"];
+            setSaving(p => ({ ...p, [userId]: true }));
+            await supabase.from("user_module_permissions").upsert({
+              user_id: userId, allowed_modules: modules, is_admin: getUserAdmin(userId), updated_at: new Date().toISOString(), updated_by: user?.id,
+            }, { onConflict: "user_id" });
+            setPerms(p => {
+              const existing = p.find(x => x.user_id === userId);
+              if (existing) return p.map(x => x.user_id === userId ? { ...x, allowed_modules: modules } : x);
+              return [...p, { user_id: userId, allowed_modules: modules, is_admin: getUserAdmin(userId) }];
+            });
+            setSaving(p => ({ ...p, [userId]: false }));
+          };
+
+          return (
+            <>
+              <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Module Permissions</h1>
+              <div style={{ fontSize: 13, color: T.text3, marginBottom: 20 }}>Control which modules each team member can access. Admins can see everything.</div>
+              {allUsers.map(u => {
+                const isAdm = getUserAdmin(u.id);
+                const userMods = getUserPerms(u.id) || moduleList.map(m => m.key);
+                const isMe = u.id === user?.id;
+                return (
+                  <div key={u.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 20px", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.accent }}>
+                        {u.display_name?.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?"}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{u.display_name || u.email}{isMe ? " (you)" : ""}</div>
+                        <div style={{ fontSize: 11, color: T.text3 }}>{u.email}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <button onClick={() => setPreset(u.id, "core")} style={{ padding: "3px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Core</button>
+                        <button onClick={() => setPreset(u.id, "all")} style={{ padding: "3px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>All</button>
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color: isAdm ? T.accent : T.text3, cursor: "pointer" }}>
+                          <input type="checkbox" checked={isAdm} onChange={() => toggleAdmin(u.id)} style={{ accentColor: T.accent }} />
+                          Admin
+                        </label>
+                      </div>
+                      {saving[u.id] && <span style={{ fontSize: 10, color: T.text3 }}>saving…</span>}
+                    </div>
+                    {!isAdm && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {moduleList.map(mod => {
+                          const on = userMods.includes(mod.key);
+                          return (
+                            <button key={mod.key} onClick={() => toggleModule(u.id, mod.key)}
+                              style={{ padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
+                                background: on ? T.accent + "18" : T.surface3,
+                                color: on ? T.accent : T.text3,
+                                border: `1px solid ${on ? T.accent + "40" : T.border}`,
+                              }}>
+                              {mod.icon} {mod.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {isAdm && <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>Admins have access to all modules</div>}
+                  </div>
+                );
+              })}
+            </>
+          );
+        })()}
 
         {/* ── Integrations ── */}
         {activeTab === "Integrations" && (

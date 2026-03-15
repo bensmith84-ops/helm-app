@@ -27,8 +27,28 @@ export const NAV_ITEMS = [
   { key: "ai-builder", icon: "✦", label: "AI Builder", adminOnly: true },
 ];
 
-export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile }) {
+export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile, allowedModules, isAdmin }) {
   const w = expanded ? 212 : 52;
+  // Filter nav items based on module permissions
+  const visibleItems = NAV_ITEMS.filter(item => {
+    if (item.type === "divider") return true;
+    if (item.adminOnly) return isAdmin || profile?.role === "admin" || profile?.email?.includes("ben.smith");
+    // Settings is always visible
+    if (item.key === "settings") return true;
+    // If allowedModules is null, show all (admin/no restrictions)
+    if (allowedModules === null) return true;
+    // Otherwise only show allowed modules
+    return allowedModules.includes(item.key);
+  });
+  // Remove consecutive dividers or leading/trailing dividers
+  const filteredItems = visibleItems.filter((item, i) => {
+    if (item.type !== "divider") return true;
+    const prev = visibleItems[i - 1];
+    const next = visibleItems[i + 1];
+    if (!prev || !next) return false;
+    if (prev.type === "divider") return false;
+    return true;
+  });
   return (
     <div style={{
       width: w, background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex",
@@ -51,7 +71,7 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
 
       {/* Nav items */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 1, padding: expanded ? "0 8px" : "0 8px" }}>
-        {NAV_ITEMS.filter(item => !item.adminOnly || profile?.role === "admin" || profile?.email?.includes("ben.smith")).map((item, i) =>
+        {filteredItems.map((item, i) =>
           item.type === "divider" ? (
             <div key={i} style={{ height: 1, background: T.border, margin: "5px 0" }} />
           ) : (
