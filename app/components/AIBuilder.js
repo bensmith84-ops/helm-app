@@ -5,93 +5,134 @@ import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4";
+const EDGE_BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
 
-const SYSTEM_PROMPT = `You are Helm AI Builder — an engineering assistant embedded inside Helm, a business operating system built with Next.js + Supabase + Vercel.
+const SYSTEM_PROMPT = `You are Helm AI Builder — an engineering assistant embedded inside Helm, a business operating system (Next.js + Supabase + Vercel).
 
-Your job is to help the admin build features, fix bugs, run SQL, and manage the application. You have access to tools for:
-1. Querying and modifying the Supabase database (SQL)
-2. Understanding the codebase structure
-3. Suggesting code changes (which the admin can review and apply)
+You can BUILD features, FIX bugs, RUN SQL, and AUTO-DEPLOY changes.
 
 INFRASTRUCTURE:
 - Supabase project: upbjdmnykheubxkuknuj
-- Supabase URL: https://upbjdmnykheubxkuknuj.supabase.co
-- Vercel project: helm-app-six.vercel.app
-- Git repo: github.com/bensmith84-ops/helm-app.git
-- Frontend: Next.js, React, all components in app/components/
-- Theme: T.accent, T.text, T.surface etc. via Proxy
-- Deploy: git push to main → Vercel auto-deploys
+- Frontend: Next.js React, all components in app/components/
+- Theme: T.accent, T.text, T.surface etc. via Proxy on tokens.js
+- Deploy: push to GitHub main → Vercel auto-deploys
 
-KEY TABLES: tasks, sections, projects, objectives, key_results, okr_check_ins, okr_cycles, okr_milestones, profiles, notifications, documents, campaigns, calls, automations, activity_log, calendar_events, calendars, event_attendees, dashboard_focus_items, custom_fields, custom_field_values, scorecard_metrics, scorecard_entries, plm_programs
+KEY TABLES: tasks, sections, projects, objectives, key_results, okr_check_ins, okr_cycles, profiles, notifications, documents, campaigns, calls, calendars, calendar_events, event_attendees, dashboard_focus_items, custom_fields, custom_field_values, scorecard_metrics, plm_programs
 
-MODULES: Dashboard, Projects, OKRs, Scorecard, Scoreboard, Messages, Docs, Calendar, Calls, Campaigns, PLM, Finance, Automation, Reports, People, Activity, Settings
+COMPONENTS: Dashboard.js, Projects.js, OKRs.js, Scorecard.js, Scoreboard.js, Messages.js, Docs.js, Calendar.js, Calls.js, Campaigns.js, PLM.js, Finance.js, Automation.js, Reports.js, People.js, Activity.js, Settings.js, Sidebar.js, CommandPalette.js, NotificationBell.js, AIBuilder.js
 
-When asked to build something:
-1. Explain what you'll do
-2. Show any SQL migrations needed
-3. Show the component code changes
-4. The admin will review and approve before deploying
+PATTERNS:
+- import { T } from "../tokens" for theme
+- import { supabase } from "../lib/supabase" for DB
+- import { useAuth } from "../lib/auth" for { user, profile }
+- Use defaultValue + key + onBlur for text inputs (not controlled value)
+- Components that use useState must be at module scope (not inside other components)
+- Always .order("col1").order("col2") — never .order("col1,col2")
 
-Always be concise and action-oriented. Show code, not just descriptions.`;
+WHEN GENERATING CODE TO DEPLOY:
+You MUST format deployable code in special blocks that the UI will parse:
+
+For file changes, use:
+\`\`\`deploy:path/to/file.js
+// full file content here
+\`\`\`
+
+For SQL migrations, use:
+\`\`\`sql:migration_name
+-- SQL here
+\`\`\`
+
+The system will extract these blocks, show them to the admin with Deploy buttons, and push to GitHub + run migrations automatically.
+
+Be thorough — write complete files, not partial diffs. Always include the full file content for any file you modify. Test your logic mentally before outputting.`;
 
 export default function AIBuilderView() {
   const { profile } = useAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [schemaCache, setSchemaCache] = useState(null);
-  const [showSchema, setShowSchema] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [deploying, setDeploying] = useState({});
+  const [deployResults, setDeployResults] = useState({});
+  const [activeTab, setActiveTab] = useState("chat");
   const [sqlInput, setSqlInput] = useState("");
   const [sqlResult, setSqlResult] = useState(null);
   const [sqlLoading, setSqlLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("chat"); // chat | sql | schema
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const abortRef = useRef(null);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streamingText]);
 
-  // Load schema on mount
-  useEffect(() => {
-    loadSchema();
-  }, []);
+  // ── Deploy function ──
+  const deployFiles = async (files, sql, commitMsg, blockId) => {
+    setDeploying(p => ({ ...p, [blockId]: true }));
+    try {
+      const body = {};
+      if (files?.length && sql) {
+        body.action = "deploy_and_migrate";
+        body.files = files;
+        body.sql = sql;
+      } else if (files?.length) {
+        body.action = "deploy";
+        body.files = files;
+      } else if (sql) {
+        body.action = "migrate";
+        body.sql = sql;
+      }
+      body.commit_message = commitMsg || "feat(ai-builder): auto-deploy";
 
-  const loadSchema = async () => {
-    const { data } = await supabase.rpc("get_schema_info").single().catch(() => ({ data: null }));
-    if (data) { setSchemaCache(data); return; }
-    // Fallback: query information_schema
-    const { data: tables } = await supabase.from("information_schema.tables" /* won't work via REST */).select("*").catch(() => ({ data: null }));
-    // We'll load schema info via the AI when needed
+      const res = await fetch(`${EDGE_BASE}/ai-deploy`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      setDeployResults(p => ({ ...p, [blockId]: result }));
+    } catch (err) {
+      setDeployResults(p => ({ ...p, [blockId]: { success: false, error: err.message } }));
+    }
+    setDeploying(p => ({ ...p, [blockId]: false }));
   };
 
-  const abortRef = useRef(null);
-  const [streamingText, setStreamingText] = useState("");
+  // ── Run SQL directly ──
+  const runSQL = async () => {
+    if (!sqlInput.trim()) return;
+    setSqlLoading(true); setSqlResult(null);
+    try {
+      const res = await fetch(`${EDGE_BASE}/ai-deploy`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "migrate", sql: sqlInput, commit_message: "sql-runner" }),
+      });
+      const result = await res.json();
+      setSqlResult(result);
+    } catch (err) {
+      setSqlResult({ success: false, error: err.message });
+    }
+    setSqlLoading(false);
+  };
 
+  // ── Send message with streaming ──
   const sendMessage = async (retryCount = 0) => {
     if ((!input.trim() && retryCount === 0) || loading) return;
-    const userContent = retryCount === 0 ? input.trim() : messages[messages.length - 1]?.role === "user" ? messages[messages.length - 1].content : input.trim();
-    const userMsg = { role: "user", content: userContent };
+    const userContent = retryCount === 0 ? input.trim() : messages.filter(m => m.role === "user").pop()?.content || input.trim();
+
     let newMessages;
     if (retryCount === 0) {
-      newMessages = [...messages, userMsg];
+      newMessages = [...messages, { role: "user", content: userContent }];
       setMessages(newMessages);
       setInput("");
     } else {
-      // Retry: remove last assistant message (the error) and re-send
-      newMessages = messages.filter((_, i) => i < messages.length - (messages[messages.length - 1]?.role === "assistant" ? 1 : 0));
-      if (newMessages[newMessages.length - 1]?.role !== "user") newMessages.push(userMsg);
+      newMessages = [...messages];
+      if (newMessages[newMessages.length - 1]?.role === "assistant") newMessages.pop();
       setMessages(newMessages);
     }
-    setLoading(true);
-    setStreamingText("");
 
-    // Abort controller for cancellation
+    setLoading(true); setStreamingText("");
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const MAX_RETRIES = 3;
     const apiMessages = newMessages.map(m => ({ role: m.role, content: m.content }));
 
     try {
@@ -101,7 +142,7 @@ export default function AIBuilderView() {
         signal: controller.signal,
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 8192,
+          max_tokens: 20000,
           stream: true,
           system: SYSTEM_PROMPT,
           messages: apiMessages,
@@ -109,32 +150,26 @@ export default function AIBuilderView() {
       });
 
       if (!response.ok) {
-        const errBody = await response.text().catch(() => "");
-        // Rate limit or server error — retry
-        if ((response.status === 429 || response.status >= 500) && retryCount < MAX_RETRIES) {
-          const waitMs = Math.min(2000 * Math.pow(2, retryCount), 30000);
-          setStreamingText(`⟳ Rate limited — retrying in ${Math.round(waitMs/1000)}s (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
-          await new Promise(r => setTimeout(r, waitMs));
+        if ((response.status === 429 || response.status >= 500) && retryCount < 3) {
+          const wait = Math.min(2000 * Math.pow(2, retryCount), 30000);
+          setStreamingText(`⟳ Retrying in ${Math.round(wait/1000)}s (attempt ${retryCount+1}/3)...`);
+          await new Promise(r => setTimeout(r, wait));
           setLoading(false);
           return sendMessage(retryCount + 1);
         }
-        throw new Error(`API error ${response.status}: ${errBody.slice(0, 200)}`);
+        throw new Error(`API ${response.status}`);
       }
 
-      // Stream the response
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let fullText = "";
-      let buffer = "";
+      let fullText = "", buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const data = line.slice(6).trim();
@@ -149,130 +184,136 @@ export default function AIBuilderView() {
         }
       }
 
-      const finalText = fullText || "No response received.";
       setStreamingText("");
-      setMessages(prev => [...prev, { role: "assistant", content: finalText }]);
+      setMessages(prev => [...prev, { role: "assistant", content: fullText || "No response." }]);
     } catch (err) {
       setStreamingText("");
       if (err.name === "AbortError") {
-        setMessages(prev => [...prev, { role: "assistant", content: "⏹ Request cancelled." }]);
-      } else if (retryCount < MAX_RETRIES && (err.message.includes("network") || err.message.includes("Failed to fetch"))) {
-        const waitMs = 2000 * Math.pow(2, retryCount);
-        setStreamingText(`⟳ Network error — retrying in ${Math.round(waitMs/1000)}s...`);
-        await new Promise(r => setTimeout(r, waitMs));
+        setMessages(prev => [...prev, { role: "assistant", content: "⏹ Cancelled." }]);
+      } else if (retryCount < 3) {
+        const wait = 2000 * Math.pow(2, retryCount);
+        setStreamingText(`⟳ Network error — retrying in ${Math.round(wait/1000)}s...`);
+        await new Promise(r => setTimeout(r, wait));
         setLoading(false);
         return sendMessage(retryCount + 1);
       } else {
-        setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}\n\nClick "Retry" to try again.`, isError: true }]);
+        setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}`, isError: true }]);
       }
     }
-
     setLoading(false);
     abortRef.current = null;
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
-  const cancelRequest = () => {
-    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
-  };
+  const cancelRequest = () => { abortRef.current?.abort(); abortRef.current = null; };
 
-  const runSQL = async () => {
-    if (!sqlInput.trim()) return;
-    setSqlLoading(true);
-    setSqlResult(null);
-    try {
-      const { data, error } = await supabase.rpc("exec_sql", { query: sqlInput });
-      if (error) {
-        // Try direct query for SELECT statements
-        if (sqlInput.trim().toUpperCase().startsWith("SELECT")) {
-          // Can't run arbitrary SQL via REST, show error
-          setSqlResult({ error: error.message + "\n\nNote: Direct SQL requires the Supabase SQL Editor or a server-side function. Use the AI chat to run queries." });
-        } else {
-          setSqlResult({ error: error.message });
-        }
-      } else {
-        setSqlResult({ data });
-      }
-    } catch (err) {
-      setSqlResult({ error: err.message });
+  // ── Parse deploy blocks from assistant messages ──
+  const parseDeployBlocks = (content) => {
+    const blocks = [];
+    // Match ```deploy:path and ```sql:name blocks
+    const regex = /```(deploy|sql):([^\n]+)\n([\s\S]*?)```/g;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      blocks.push({
+        type: match[1], // "deploy" or "sql"
+        name: match[2].trim(),
+        content: match[3].trim(),
+        id: `${match[1]}-${match[2].trim()}-${match.index}`,
+      });
     }
-    setSqlLoading(false);
+    return blocks;
   };
 
-  // Quick actions
+  // ── Quick actions ──
   const quickActions = [
-    { label: "Show all tables", prompt: "List all tables in the database with their row counts" },
-    { label: "Check for errors", prompt: "What are the most common issues in the current codebase? Check for any broken patterns." },
-    { label: "Schema overview", prompt: "Give me a quick overview of the database schema — key tables and their relationships" },
-    { label: "Recent changes", prompt: "What were the most recent migrations applied to the database?" },
-    { label: "Add a feature", prompt: "I want to add a new feature: " },
-    { label: "Fix a bug", prompt: "I'm seeing a bug: " },
+    { label: "📋 Show tables", prompt: "List all tables with row counts" },
+    { label: "🔍 Schema overview", prompt: "Give me a quick schema overview" },
+    { label: "🔧 Fix a bug", prompt: "I'm seeing a bug: " },
+    { label: "✨ Add feature", prompt: "I want to add: " },
+    { label: "📂 List files", prompt: "Show me all component files in app/components/" },
+    { label: "📖 Read a file", prompt: "Show me the contents of app/components/" },
   ];
 
+  // ── Render message with deploy buttons ──
   const renderMessage = (msg, i) => {
     const isUser = msg.role === "user";
     const content = msg.content;
+    const deployBlocks = isUser ? [] : parseDeployBlocks(content);
 
-    // Parse code blocks
+    // Split content by code blocks
     const parts = content.split(/(```[\s\S]*?```)/g);
 
     return (
-      <div key={i} style={{
-        display: "flex", gap: 12, padding: "16px 20px",
-        background: isUser ? "transparent" : `${T.accent}05`,
-        borderBottom: `1px solid ${T.border}10`,
-      }}>
-        {/* Avatar */}
-        <div style={{
-          width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-          background: isUser ? `${T.accent}20` : "linear-gradient(135deg, #a855f7, #6366f1)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: isUser ? 10 : 12, fontWeight: 800, color: isUser ? T.accent : "#fff",
-        }}>
-          {isUser ? (profile?.display_name?.slice(0, 2).toUpperCase() || "U") : "✦"}
+      <div key={i} style={{ display: "flex", gap: 12, padding: "16px 20px", background: isUser ? "transparent" : `${T.accent}04`, borderBottom: `1px solid ${T.border}08` }}>
+        <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: isUser ? `${T.accent}20` : "linear-gradient(135deg, #a855f7, #6366f1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: isUser ? 10 : 12, fontWeight: 800, color: isUser ? T.accent : "#fff" }}>
+          {isUser ? (profile?.display_name?.slice(0,2).toUpperCase() || "U") : "✦"}
         </div>
-
-        {/* Content */}
         <div style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.6, color: T.text }}>
-          {isUser ? (
-            <div style={{ fontWeight: 500 }}>{content}</div>
-          ) : (
+          {isUser ? <div style={{ fontWeight: 500 }}>{content}</div> : (
             <div>
               {parts.map((part, j) => {
                 if (part.startsWith("```")) {
                   const lines = part.split("\n");
-                  const lang = lines[0].replace("```", "").trim();
+                  const header = lines[0].replace("```", "").trim();
                   const code = lines.slice(1, -1).join("\n");
+                  const isDeployable = header.startsWith("deploy:") || header.startsWith("sql:");
+                  const blockType = header.startsWith("deploy:") ? "deploy" : header.startsWith("sql:") ? "sql" : null;
+                  const blockName = blockType ? header.split(":").slice(1).join(":").trim() : header;
+                  const blockId = `${blockType}-${blockName}-${j}`;
+
                   return (
-                    <div key={j} style={{ margin: "10px 0", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", background: T.surface3, borderBottom: `1px solid ${T.border}` }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{lang || "code"}</span>
-                        <button onClick={() => navigator.clipboard.writeText(code)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 10, fontWeight: 600 }}>Copy</button>
+                    <div key={j} style={{ margin: "10px 0", borderRadius: 8, overflow: "hidden", border: `1px solid ${isDeployable ? T.accent + "40" : T.border}` }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", background: isDeployable ? `${T.accent}10` : T.surface3, borderBottom: `1px solid ${isDeployable ? T.accent + "30" : T.border}` }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: isDeployable ? T.accent : T.text3, textTransform: "uppercase" }}>
+                          {blockType === "deploy" ? `📦 ${blockName}` : blockType === "sql" ? `🗄 ${blockName}` : header || "code"}
+                        </span>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => navigator.clipboard.writeText(code)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, fontWeight: 600 }}>Copy</button>
+                          {isDeployable && !deployResults[blockId] && (
+                            <button
+                              onClick={() => {
+                                if (blockType === "deploy") deployFiles([{ path: blockName, content: code }], null, `feat(ai-builder): ${blockName}`, blockId);
+                                else if (blockType === "sql") deployFiles(null, code, `sql: ${blockName}`, blockId);
+                              }}
+                              disabled={deploying[blockId]}
+                              style={{ padding: "2px 10px", borderRadius: 4, border: "none", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer", opacity: deploying[blockId] ? 0.5 : 1 }}>
+                              {deploying[blockId] ? "Deploying..." : "🚀 Deploy"}
+                            </button>
+                          )}
+                          {deployResults[blockId] && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: deployResults[blockId].success ? "#22c55e" : "#ef4444" }}>
+                              {deployResults[blockId].success ? "✓ Deployed" : "✕ Failed"}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <pre style={{ padding: "12px 14px", margin: 0, background: T.surface2, color: T.text, fontSize: 12, lineHeight: 1.5, overflowX: "auto", fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
+                      <pre style={{ padding: "12px 14px", margin: 0, background: T.surface2, color: T.text, fontSize: 12, lineHeight: 1.5, overflowX: "auto", fontFamily: "'JetBrains Mono', 'Fira Code', monospace", maxHeight: 400, overflow: "auto" }}>
                         <code>{code}</code>
                       </pre>
                     </div>
                   );
                 }
-                // Regular text — handle bold, inline code
-                return (
-                  <span key={j}>
-                    {part.split(/(`[^`]+`)/).map((seg, k) => {
-                      if (seg.startsWith("`") && seg.endsWith("`")) {
-                        return <code key={k} style={{ padding: "1px 5px", borderRadius: 4, background: T.surface3, color: T.accent, fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>{seg.slice(1, -1)}</code>;
-                      }
-                      // Bold
-                      return seg.split(/(\*\*[^*]+\*\*)/).map((s, l) => {
-                        if (s.startsWith("**") && s.endsWith("**")) {
-                          return <strong key={`${k}-${l}`} style={{ fontWeight: 700 }}>{s.slice(2, -2)}</strong>;
-                        }
-                        return <span key={`${k}-${l}`}>{s}</span>;
-                      });
-                    })}
-                  </span>
-                );
+                return <span key={j}>{part.split(/(`[^`]+`)/).map((seg, k) => {
+                  if (seg.startsWith("`") && seg.endsWith("`")) return <code key={k} style={{ padding: "1px 5px", borderRadius: 4, background: T.surface3, color: T.accent, fontSize: 12, fontFamily: "monospace" }}>{seg.slice(1,-1)}</code>;
+                  return seg.split(/(\*\*[^*]+\*\*)/).map((s, l) => s.startsWith("**") && s.endsWith("**") ? <strong key={`${k}-${l}`}>{s.slice(2,-2)}</strong> : <span key={`${k}-${l}`}>{s}</span>);
+                })}</span>;
               })}
+              {/* Deploy All button if there are multiple deployable blocks */}
+              {deployBlocks.length > 1 && !deployBlocks.every(b => deployResults[b.id]) && (
+                <div style={{ marginTop: 12 }}>
+                  <button onClick={() => {
+                    const fileBlocks = deployBlocks.filter(b => b.type === "deploy");
+                    const sqlBlocks = deployBlocks.filter(b => b.type === "sql");
+                    const files = fileBlocks.map(b => ({ path: b.name, content: b.content }));
+                    const sql = sqlBlocks.map(b => b.content).join(";\n");
+                    const allId = "deploy-all-" + i;
+                    deployFiles(files.length ? files : null, sql || null, "feat(ai-builder): deploy all changes", allId);
+                  }} disabled={Object.values(deploying).some(Boolean)}
+                    style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #a855f7, #6366f1)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                    🚀 Deploy All ({deployBlocks.length} changes)
+                  </button>
+                </div>
+              )}
               {msg.isError && (
                 <button onClick={() => sendMessage(1)} style={{ marginTop: 8, padding: "4px 12px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: `${T.accent}10`, color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>↻ Retry</button>
               )}
@@ -286,26 +327,17 @@ export default function AIBuilderView() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: T.bg }}>
       {/* Header */}
-      <div style={{ padding: "16px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+      <div style={{ padding: "14px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-            background: "linear-gradient(135deg, #a855f7, #6366f1)", fontSize: 18, color: "#fff",
-          }}>✦</div>
+          <div style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #a855f7, #6366f1)", fontSize: 17, color: "#fff" }}>✦</div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>AI Builder</div>
-            <div style={{ fontSize: 11, color: T.text3 }}>Build features, fix bugs, manage your platform</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>AI Builder</div>
+            <div style={{ fontSize: 10, color: T.text3 }}>Build, deploy, and manage — auto-deploys to production</div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
           {["chat", "sql"].map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              style={{
-                padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                border: activeTab === tab ? `1px solid ${T.accent}40` : `1px solid ${T.border}`,
-                background: activeTab === tab ? `${T.accent}10` : "transparent",
-                color: activeTab === tab ? T.accent : T.text3,
-              }}>
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", border: activeTab === tab ? `1px solid ${T.accent}40` : `1px solid ${T.border}`, background: activeTab === tab ? `${T.accent}10` : "transparent", color: activeTab === tab ? T.accent : T.text3 }}>
               {tab === "chat" ? "💬 Chat" : "🗄 SQL"}
             </button>
           ))}
@@ -314,31 +346,19 @@ export default function AIBuilderView() {
 
       {activeTab === "chat" ? (
         <>
-          {/* Messages */}
           <div style={{ flex: 1, overflow: "auto" }}>
             {messages.length === 0 ? (
-              <div style={{ padding: "60px 24px", textAlign: "center" }}>
-                <div style={{
-                  width: 64, height: 64, borderRadius: 16, margin: "0 auto 20px",
-                  background: "linear-gradient(135deg, #a855f720, #6366f120)",
-                  border: `1px solid #a855f730`,
-                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
-                }}>✦</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: T.text, marginBottom: 8 }}>What do you want to build?</div>
-                <div style={{ fontSize: 13, color: T.text3, maxWidth: 500, margin: "0 auto 32px", lineHeight: 1.5 }}>
-                  Describe a feature, bug fix, or change in plain English. I'll generate the code, SQL migrations, and deployment steps.
+              <div style={{ padding: "50px 24px", textAlign: "center" }}>
+                <div style={{ width: 56, height: 56, borderRadius: 14, margin: "0 auto 16px", background: "linear-gradient(135deg, #a855f720, #6366f120)", border: "1px solid #a855f730", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>✦</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: T.text, marginBottom: 6 }}>What do you want to build?</div>
+                <div style={{ fontSize: 12, color: T.text3, maxWidth: 440, margin: "0 auto 28px", lineHeight: 1.5 }}>
+                  Describe a feature or bug fix. I'll generate code and SQL, then you can deploy with one click.
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, maxWidth: 600, margin: "0 auto" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, maxWidth: 520, margin: "0 auto" }}>
                   {quickActions.map((qa, i) => (
-                    <button key={i} onClick={() => {
-                      if (qa.prompt.endsWith(": ")) { setInput(qa.prompt); inputRef.current?.focus(); }
-                      else { setInput(qa.prompt); setTimeout(() => sendMessage(), 0); }
-                    }} style={{
-                      padding: "12px 14px", borderRadius: 10, border: `1px solid ${T.border}`,
-                      background: T.surface, color: T.text2, fontSize: 12, fontWeight: 500,
-                      cursor: "pointer", textAlign: "left", lineHeight: 1.4, transition: "all 0.15s",
-                    }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "60"; e.currentTarget.style.background = T.surface2; }}
+                    <button key={i} onClick={() => { if (qa.prompt.endsWith(": ")) { setInput(qa.prompt); inputRef.current?.focus(); } else { setInput(qa.prompt); setTimeout(sendMessage, 0); } }}
+                      style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text2, fontSize: 11, fontWeight: 500, cursor: "pointer", textAlign: "left", lineHeight: 1.4 }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"60"; e.currentTarget.style.background = T.surface2; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface; }}>
                       {qa.label}
                     </button>
@@ -351,12 +371,7 @@ export default function AIBuilderView() {
                 {(loading || streamingText) && (
                   <div style={{ padding: "16px 20px" }}>
                     <div style={{ display: "flex", gap: 12 }}>
-                      <div style={{
-                        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                        background: "linear-gradient(135deg, #a855f7, #6366f1)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 12, color: "#fff", fontWeight: 800,
-                      }}>✦</div>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: "linear-gradient(135deg, #a855f7, #6366f1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff", fontWeight: 800 }}>✦</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         {streamingText ? (
                           <div style={{ fontSize: 13, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{streamingText}<span style={{ display: "inline-block", width: 2, height: 14, background: T.accent, marginLeft: 2, animation: "blink 1s infinite", verticalAlign: "text-bottom" }} /></div>
@@ -368,9 +383,7 @@ export default function AIBuilderView() {
                             <span style={{ marginLeft: 8 }}>Thinking...</span>
                           </div>
                         )}
-                        {loading && (
-                          <button onClick={cancelRequest} style={{ marginTop: 8, padding: "3px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.text3, fontSize: 11, cursor: "pointer" }}>⏹ Cancel</button>
-                        )}
+                        {loading && <button onClick={cancelRequest} style={{ marginTop: 8, padding: "3px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.text3, fontSize: 10, cursor: "pointer" }}>⏹ Cancel</button>}
                       </div>
                     </div>
                   </div>
@@ -381,132 +394,55 @@ export default function AIBuilderView() {
           </div>
 
           {/* Input */}
-          <div style={{ padding: "16px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
             <div style={{ display: "flex", gap: 8, maxWidth: 800, margin: "0 auto" }}>
-              <div style={{
-                flex: 1, display: "flex", alignItems: "flex-end", gap: 8,
-                padding: "10px 14px", borderRadius: 12,
-                border: `1px solid ${T.border}`, background: T.surface2,
-                transition: "border-color 0.15s",
-              }}
-                onFocus={() => {}}
-                onClick={() => inputRef.current?.focus()}>
+              <div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface2 }} onClick={() => inputRef.current?.focus()}>
                 <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                  placeholder="Describe what you want to build or fix..."
-                  rows={1}
-                  style={{
-                    flex: 1, background: "transparent", border: "none", outline: "none",
-                    color: T.text, fontSize: 14, fontFamily: "inherit", resize: "none",
-                    lineHeight: 1.5, maxHeight: 120, overflow: "auto",
-                  }}
-                  onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px"; }}
-                />
-                <button onClick={sendMessage} disabled={!input.trim() || loading}
-                  style={{
-                    width: 32, height: 32, borderRadius: 8, border: "none", flexShrink: 0,
-                    background: input.trim() && !loading ? "linear-gradient(135deg, #a855f7, #6366f1)" : T.surface3,
-                    color: input.trim() && !loading ? "#fff" : T.text3,
-                    cursor: input.trim() && !loading ? "pointer" : "default",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 16, transition: "all 0.15s",
-                  }}>
-                  ↑
-                </button>
+                  placeholder="Describe what you want to build or fix..." rows={1}
+                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontFamily: "inherit", resize: "none", lineHeight: 1.5, maxHeight: 120, overflow: "auto" }}
+                  onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px"; }} />
+                <button onClick={() => sendMessage()} disabled={!input.trim() || loading}
+                  style={{ width: 30, height: 30, borderRadius: 7, border: "none", flexShrink: 0, background: input.trim() && !loading ? "linear-gradient(135deg, #a855f7, #6366f1)" : T.surface3, color: input.trim() && !loading ? "#fff" : T.text3, cursor: input.trim() && !loading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>↑</button>
               </div>
             </div>
-            <div style={{ textAlign: "center", marginTop: 8, fontSize: 10, color: T.text3 }}>
-              Shift+Enter for new line · AI has access to your schema and codebase context
+            <div style={{ textAlign: "center", marginTop: 6, fontSize: 9, color: T.text3 }}>
+              Shift+Enter for new line · Code blocks with deploy: or sql: prefix get 🚀 Deploy buttons
             </div>
           </div>
         </>
       ) : (
-        /* SQL Tab */
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "16px 20px", flexShrink: 0 }}>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <textarea value={sqlInput} onChange={e => setSqlInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); runSQL(); } }}
-                placeholder="SELECT * FROM tasks LIMIT 10;"
-                rows={4}
-                style={{
-                  flex: 1, padding: "12px 14px", borderRadius: 10,
-                  border: `1px solid ${T.border}`, background: T.surface2,
-                  color: T.text, fontSize: 13, fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                  outline: "none", resize: "vertical", lineHeight: 1.5,
-                }} />
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button onClick={runSQL} disabled={sqlLoading || !sqlInput.trim()}
-                style={{
-                  padding: "7px 16px", borderRadius: 7, border: "none",
-                  background: sqlInput.trim() ? T.accent : T.surface3,
-                  color: sqlInput.trim() ? "#fff" : T.text3,
-                  fontSize: 12, fontWeight: 700, cursor: sqlInput.trim() ? "pointer" : "default",
-                }}>
-                {sqlLoading ? "Running..." : "⌘↵ Run Query"}
+          <div style={{ padding: "14px 20px", flexShrink: 0 }}>
+            <textarea value={sqlInput} onChange={e => setSqlInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); runSQL(); } }}
+              placeholder="SELECT * FROM tasks LIMIT 10;" rows={4}
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", outline: "none", resize: "vertical", lineHeight: 1.5, boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button onClick={runSQL} disabled={sqlLoading || !sqlInput.trim()} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: sqlInput.trim() ? T.accent : T.surface3, color: sqlInput.trim() ? "#fff" : T.text3, fontSize: 11, fontWeight: 700, cursor: sqlInput.trim() ? "pointer" : "default" }}>
+                {sqlLoading ? "Running..." : "⌘↵ Run"}
               </button>
-              <span style={{ fontSize: 10, color: T.text3 }}>Note: SQL runs via Supabase RPC. For DDL, use the AI chat.</span>
+              <span style={{ fontSize: 10, color: T.text3, lineHeight: "28px" }}>Runs via edge function with service role access</span>
             </div>
           </div>
-
-          {/* Results */}
           <div style={{ flex: 1, overflow: "auto", padding: "0 20px 20px" }}>
             {sqlResult && (
-              sqlResult.error ? (
-                <div style={{ padding: "14px 16px", borderRadius: 10, background: "#ef444410", border: "1px solid #ef444430", color: "#ef4444", fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
-                  {sqlResult.error}
+              <div style={{ borderRadius: 8, border: `1px solid ${sqlResult.success ? T.border : "#ef444440"}`, overflow: "hidden" }}>
+                <div style={{ padding: "8px 12px", background: sqlResult.success ? T.surface3 : "#ef444410", fontSize: 10, color: sqlResult.success ? T.text3 : "#ef4444", fontWeight: 600 }}>
+                  {sqlResult.success ? "✓ Success" : "✕ Error"}
                 </div>
-              ) : (
-                <div style={{ borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                  <div style={{ padding: "8px 14px", background: T.surface3, fontSize: 11, color: T.text3, fontWeight: 600 }}>
-                    {Array.isArray(sqlResult.data) ? `${sqlResult.data.length} rows` : "Result"}
-                  </div>
-                  {Array.isArray(sqlResult.data) && sqlResult.data.length > 0 ? (
-                    <div style={{ overflow: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                        <thead>
-                          <tr>
-                            {Object.keys(sqlResult.data[0]).map(col => (
-                              <th key={col} style={{ padding: "7px 12px", textAlign: "left", background: T.surface2, borderBottom: `1px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", fontSize: 11 }}>{col}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sqlResult.data.slice(0, 100).map((row, i) => (
-                            <tr key={i}>
-                              {Object.values(row).map((val, j) => (
-                                <td key={j} style={{ padding: "6px 12px", borderBottom: `1px solid ${T.border}10`, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {val === null ? <span style={{ color: T.text3, fontStyle: "italic" }}>null</span> : String(val)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {sqlResult.data.length > 100 && <div style={{ padding: "8px 14px", fontSize: 11, color: T.text3 }}>Showing first 100 of {sqlResult.data.length} rows</div>}
-                    </div>
-                  ) : (
-                    <div style={{ padding: "14px 16px", color: T.text3, fontSize: 12 }}>
-                      {JSON.stringify(sqlResult.data, null, 2)}
-                    </div>
-                  )}
-                </div>
-              )
+                <pre style={{ padding: "10px 12px", margin: 0, background: T.surface2, color: T.text, fontSize: 11, lineHeight: 1.5, overflow: "auto", fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
+                  {JSON.stringify(sqlResult, null, 2)}
+                </pre>
+              </div>
             )}
           </div>
         </div>
       )}
 
       <style>{`
-        @keyframes pulse {
-          0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-          40% { opacity: 1; transform: scale(1.2); }
-        }
-        @keyframes blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0; }
-        }
+        @keyframes pulse { 0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1.2); } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
       `}</style>
     </div>
   );
