@@ -539,19 +539,19 @@ export default function ProjectsView() {
 
       switch (rule.trigger_type) {
         case "task_moved_to_section":
-          shouldFire = field === "section_id" && (!tc.section_id || tc.section_id === value);
+          shouldFire = field === "section_id" && (!tc.section_id && !(tc.section_ids?.length) || tc.section_id === value || (tc.section_ids || []).includes(value));
           break;
         case "status_changed":
-          shouldFire = field === "status" && (!tc.status || tc.status === value);
+          shouldFire = field === "status" && (!tc.status && !(tc.statuses?.length) || tc.status === value || (tc.statuses || []).includes(value));
           break;
         case "task_completed":
           shouldFire = field === "status" && value === "done" && oldValue !== "done";
           break;
         case "task_assigned":
-          shouldFire = field === "assignee_id" && (!tc.assignee_id || tc.assignee_id === value);
+          shouldFire = field === "assignee_id" && (!tc.assignee_id && !(tc.assignee_ids?.length) || tc.assignee_id === value || (tc.assignee_ids || []).includes(value));
           break;
         case "priority_changed":
-          shouldFire = field === "priority" && (!tc.priority || tc.priority === value);
+          shouldFire = field === "priority" && (!tc.priority && !(tc.priorities?.length) || tc.priority === value || (tc.priorities || []).includes(value));
           break;
         case "task_created":
           shouldFire = field === "__created";
@@ -2302,32 +2302,32 @@ export default function ProjectsView() {
                             {/* Trigger config */}
                             <div style={{ marginTop: 10 }}>
                               {ruleForm.trigger_type === "task_moved_to_section" && (
-                                <select value={ruleForm.trigger_config.section_id || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, section_id: e.target.value || null } }))}
-                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
-                                  <option value="">Any section</option>
-                                  {projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
+                                <SearchableMultiSelect
+                                  options={projSections.map(s => ({ value: s.id, label: s.name, color: secColor(projSections.indexOf(s)) }))}
+                                  selected={ruleForm.trigger_config.section_ids || (ruleForm.trigger_config.section_id ? [ruleForm.trigger_config.section_id] : [])}
+                                  onChange={vals => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, section_ids: vals, section_id: vals[0] || null } }))}
+                                  placeholder="Any section" multi={true} />
                               )}
                               {ruleForm.trigger_type === "status_changed" && (
-                                <select value={ruleForm.trigger_config.status || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, status: e.target.value || null } }))}
-                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
-                                  <option value="">Any status</option>
-                                  {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                                </select>
+                                <SearchableMultiSelect
+                                  options={Object.entries(STATUS).map(([k, v]) => ({ value: k, label: v.label, color: v.color }))}
+                                  selected={ruleForm.trigger_config.statuses || (ruleForm.trigger_config.status ? [ruleForm.trigger_config.status] : [])}
+                                  onChange={vals => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, statuses: vals, status: vals[0] || null } }))}
+                                  placeholder="Any status" multi={true} />
                               )}
                               {ruleForm.trigger_type === "priority_changed" && (
-                                <select value={ruleForm.trigger_config.priority || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, priority: e.target.value || null } }))}
-                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
-                                  <option value="">Any priority</option>
-                                  {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                                </select>
+                                <SearchableMultiSelect
+                                  options={Object.entries(PRIORITY).map(([k, v]) => ({ value: k, label: v.label, color: v.dot }))}
+                                  selected={ruleForm.trigger_config.priorities || (ruleForm.trigger_config.priority ? [ruleForm.trigger_config.priority] : [])}
+                                  onChange={vals => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, priorities: vals, priority: vals[0] || null } }))}
+                                  placeholder="Any priority" multi={true} />
                               )}
                               {ruleForm.trigger_type === "task_assigned" && (
-                                <select value={ruleForm.trigger_config.assignee_id || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, assignee_id: e.target.value || null } }))}
-                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
-                                  <option value="">Anyone</option>
-                                  {allProfiles.map(u => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}
-                                </select>
+                                <SearchableMultiSelect
+                                  options={allProfiles.map(u => ({ value: u.id, label: u.display_name || u.email, icon: "👤" }))}
+                                  selected={ruleForm.trigger_config.assignee_ids || (ruleForm.trigger_config.assignee_id ? [ruleForm.trigger_config.assignee_id] : [])}
+                                  onChange={vals => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, assignee_ids: vals, assignee_id: vals[0] || null } }))}
+                                  placeholder="Anyone" multi={true} />
                               )}
                               {ruleForm.trigger_type === "due_date_approaching" && (
                                 <input type="number" value={ruleForm.trigger_config.days_before || ""} onChange={e => setRuleForm(p => ({ ...p, trigger_config: { ...p.trigger_config, days_before: Number(e.target.value) || null } }))}
@@ -2350,32 +2350,40 @@ export default function ProjectsView() {
                                   </select>
                                   {/* Action config */}
                                   {action.type === "set_status" && (
-                                    <select value={action.config?.status || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { status: e.target.value } }; setRuleForm(p => ({ ...p, actions: nw })); }}
-                                      style={{ width: 120, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
-                                      <option value="">Pick...</option>
-                                      {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                                    </select>
+                                    <div style={{ width: 140 }}>
+                                      <SearchableMultiSelect multi={false}
+                                        options={Object.entries(STATUS).map(([k, v]) => ({ value: k, label: v.label, color: v.color }))}
+                                        selected={action.config?.status || ""}
+                                        onChange={val => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { status: val } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                        placeholder="Pick..." />
+                                    </div>
                                   )}
                                   {action.type === "move_to_section" && (
-                                    <select value={action.config?.section_id || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { section_id: e.target.value } }; setRuleForm(p => ({ ...p, actions: nw })); }}
-                                      style={{ width: 120, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
-                                      <option value="">Pick...</option>
-                                      {projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </select>
+                                    <div style={{ width: 140 }}>
+                                      <SearchableMultiSelect multi={false}
+                                        options={projSections.map(s => ({ value: s.id, label: s.name }))}
+                                        selected={action.config?.section_id || ""}
+                                        onChange={val => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { section_id: val } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                        placeholder="Pick..." />
+                                    </div>
                                   )}
                                   {action.type === "set_assignee" && (
-                                    <select value={action.config?.assignee_id || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { assignee_id: e.target.value || null } }; setRuleForm(p => ({ ...p, actions: nw })); }}
-                                      style={{ width: 120, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
-                                      <option value="">Pick...</option>
-                                      {allProfiles.map(u => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}
-                                    </select>
+                                    <div style={{ width: 140 }}>
+                                      <SearchableMultiSelect multi={false}
+                                        options={allProfiles.map(u => ({ value: u.id, label: u.display_name || u.email, icon: "👤" }))}
+                                        selected={action.config?.assignee_id || ""}
+                                        onChange={val => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { assignee_id: val || null } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                        placeholder="Pick..." />
+                                    </div>
                                   )}
                                   {action.type === "set_priority" && (
-                                    <select value={action.config?.priority || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { priority: e.target.value } }; setRuleForm(p => ({ ...p, actions: nw })); }}
-                                      style={{ width: 120, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
-                                      <option value="">Pick...</option>
-                                      {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                                    </select>
+                                    <div style={{ width: 140 }}>
+                                      <SearchableMultiSelect multi={false}
+                                        options={Object.entries(PRIORITY).map(([k, v]) => ({ value: k, label: v.label, color: v.dot }))}
+                                        selected={action.config?.priority || ""}
+                                        onChange={val => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { priority: val } }; setRuleForm(p => ({ ...p, actions: nw })); }}
+                                        placeholder="Pick..." />
+                                    </div>
                                   )}
                                   {action.type === "add_comment" && (
                                     <input value={action.config?.comment || ""} onChange={e => { const nw = [...ruleForm.actions]; nw[ai] = { ...nw[ai], config: { comment: e.target.value } }; setRuleForm(p => ({ ...p, actions: nw })); }}
@@ -2523,6 +2531,107 @@ function DateCell({ task, onUpdate }) {
     <input type="date" value={task.due_date || ""} onChange={(e) => onUpdate(task.id, "due_date", e.target.value || null)}
       onClick={(e) => e.stopPropagation()}
       style={{ background: "none", border: "none", color: od ? T.red : task.due_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit" }} />
+  );
+}
+
+function SearchableMultiSelect({ options, selected, onChange, placeholder, multi = true }) {
+  // options: [{ value, label, color?, icon? }]
+  // selected: string | string[] (value or array of values)
+  // onChange: (newSelected) => void — returns string if !multi, string[] if multi
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef(null);
+  const selArr = multi ? (Array.isArray(selected) ? selected : selected ? [selected] : []) : [];
+  const selSingle = !multi ? (selected || "") : "";
+
+  useEffect(() => {
+    if (!open) return;
+    const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, [open]);
+
+  const filtered = options.filter(o =>
+    o.label.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggleItem = (val) => {
+    if (!multi) { onChange(val === selSingle ? "" : val); setOpen(false); return; }
+    const next = selArr.includes(val) ? selArr.filter(v => v !== val) : [...selArr, val];
+    onChange(next);
+  };
+
+  const displayText = () => {
+    if (!multi) {
+      const opt = options.find(o => o.value === selSingle);
+      return opt ? opt.label : placeholder || "Select...";
+    }
+    if (selArr.length === 0) return placeholder || "Any";
+    if (selArr.length === 1) { const o = options.find(op => op.value === selArr[0]); return o ? o.label : selArr[0]; }
+    return `${selArr.length} selected`;
+  };
+
+  return (
+    <div ref={ref} style={{ position: "relative", width: "100%" }}>
+      <div onClick={() => { setOpen(!open); setSearch(""); }}
+        style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: (multi ? selArr.length > 0 : selSingle) ? T.text : T.text3, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", minHeight: 32 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1, overflow: "hidden" }}>
+          {multi && selArr.length > 0 ? selArr.map(v => {
+            const o = options.find(op => op.value === v);
+            return (
+              <span key={v} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "1px 6px", borderRadius: 4, background: o?.color ? o.color + "20" : T.surface3, color: o?.color || T.text2, fontSize: 10, fontWeight: 600 }}>
+                {o?.icon && <span style={{ fontSize: 9 }}>{o.icon}</span>}{o?.label || v}
+                <span onClick={(e) => { e.stopPropagation(); toggleItem(v); }} style={{ cursor: "pointer", opacity: 0.6, fontSize: 9 }}>×</span>
+              </span>
+            );
+          }) : <span>{displayText()}</span>}
+        </div>
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
+      </div>
+      {open && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 60, marginTop: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", maxHeight: 240, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
+            <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..."
+              onClick={e => e.stopPropagation()}
+              style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ overflow: "auto", maxHeight: 190 }}>
+            {multi && (
+              <div onClick={() => onChange([])} style={{ padding: "6px 12px", fontSize: 11, color: T.text3, cursor: "pointer", borderBottom: `1px solid ${T.border}08` }}
+                onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                Clear all
+              </div>
+            )}
+            {!multi && (
+              <div onClick={() => { onChange(""); setOpen(false); }} style={{ padding: "6px 12px", fontSize: 11, color: T.text3, cursor: "pointer" }}
+                onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                {placeholder || "Any"}
+              </div>
+            )}
+            {filtered.map(o => {
+              const isSelected = multi ? selArr.includes(o.value) : selSingle === o.value;
+              return (
+                <div key={o.value} onClick={() => toggleItem(o.value)}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12, color: T.text, cursor: "pointer" }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  {multi ? (
+                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `1.5px solid ${isSelected ? T.accent : T.border}`, background: isSelected ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {isSelected && <span style={{ color: "#fff", fontSize: 8, fontWeight: 800 }}>✓</span>}
+                    </div>
+                  ) : (
+                    <div style={{ width: 10, height: 10, borderRadius: 5, border: `1.5px solid ${isSelected ? T.accent : T.border}`, background: isSelected ? T.accent : "transparent", flexShrink: 0 }} />
+                  )}
+                  {o.icon && <span style={{ fontSize: 12 }}>{o.icon}</span>}
+                  {o.color && <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color, flexShrink: 0 }} />}
+                  <span style={{ fontWeight: isSelected ? 600 : 400 }}>{o.label}</span>
+                </div>
+              );
+            })}
+            {filtered.length === 0 && <div style={{ padding: "12px", textAlign: "center", color: T.text3, fontSize: 11 }}>No matches</div>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
