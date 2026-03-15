@@ -309,7 +309,7 @@ export default function ScoreboardView() {
       } else if (d1.rows_upserted > 0) {
         setMessages(p => [...p, { role:"assistant", content:`📊 Daily sync complete!\n\nMatched ${d1.matched?.length||0} metrics: ${d1.matched?.join(", ")||"none"}\nRows imported: ${d1.rows_upserted}\nDates parsed: ${d1.dates_parsed}` }]);
       } else {
-        const sample = (d1.first_row_sample||[]).map((s: {header:string,raw_value:string,parsed:number|null}) => `  ${s.header}: raw="${s.raw_value}" parsed=${s.parsed}`).join("\n");
+        const sample = (d1.first_row_sample||[]).map(s => `  ${s.header}: raw="${s.raw_value}" parsed=${s.parsed}`).join("\n");
         setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync: ${d1.rows_upserted||0} rows imported.\n\nDates parsed: ${d1.dates_parsed||0} | First date: ${d1.first_data_date||"none"}\nTotal sheet rows: ${d1.total_rows||0}\n\nFirst data row values (col → raw → parsed):\n${sample||"(none)"}\n\nUnmatched headers: ${d1.unmatched_headers?.join(", ")||"none"}` }]);
       }
       if (d2.success) setMessages(p => [...p, { role:"assistant", content:`✅ Monthly sync: ${d2.rowsUpserted} rows` }]);
