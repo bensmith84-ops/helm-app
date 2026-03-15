@@ -136,9 +136,16 @@ export default function AIBuilderView() {
     const apiMessages = newMessages.map(m => ({ role: m.role, content: m.content }));
 
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      // Load API key from admin_settings or localStorage
+      let apiKey = localStorage.getItem("helm-anthropic-key") || "";
+      if (!apiKey) {
+        const { data: setting } = await supabase.from("admin_settings").select("value").eq("key", "anthropic_api_key").single();
+        if (setting?.value) { apiKey = setting.value; localStorage.setItem("helm-anthropic-key", apiKey); }
+      }
+
+      const response = await fetch(`${EDGE_BASE}/ai-chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
         signal: controller.signal,
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
@@ -146,6 +153,7 @@ export default function AIBuilderView() {
           stream: true,
           system: SYSTEM_PROMPT,
           messages: apiMessages,
+          api_key: apiKey,
         }),
       });
 
@@ -335,7 +343,17 @@ export default function AIBuilderView() {
             <div style={{ fontSize: 10, color: T.text3 }}>Build, deploy, and manage — auto-deploys to production</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <button onClick={() => {
+            const key = prompt("Enter your Anthropic API key:", localStorage.getItem("helm-anthropic-key") || "");
+            if (key !== null) {
+              localStorage.setItem("helm-anthropic-key", key);
+              if (profile?.org_id && key) {
+                supabase.from("admin_settings").upsert({ org_id: profile.org_id, key: "anthropic_api_key", value: key, updated_at: new Date().toISOString() }, { onConflict: "org_id,key" });
+              }
+            }
+          }} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", color: T.text3 }}
+            title="Configure API key">🔑 API Key</button>
           {["chat", "sql"].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", border: activeTab === tab ? `1px solid ${T.accent}40` : `1px solid ${T.border}`, background: activeTab === tab ? `${T.accent}10` : "transparent", color: activeTab === tab ? T.accent : T.text3 }}>
               {tab === "chat" ? "💬 Chat" : "🗄 SQL"}
