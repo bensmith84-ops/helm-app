@@ -51,138 +51,103 @@ function PreviewFrame({ code, lang }) {
     if (!iframeRef.current) return;
     setError(null);
 
-    const isHTML = lang === "html" || code.trim().startsWith("<") || code.includes("<!DOCTYPE");
-    const isReactJSX = lang.includes("jsx") || lang.includes("react") || code.includes("useState") || code.includes("export default function") || code.includes("const App");
+    const isHTML = lang === "html" || (code.trim().startsWith("<") && !code.includes("useState"));
+    const isReactish = code.includes("useState") || code.includes("export default") || code.includes("function App") || code.includes("return (") || lang.includes("jsx") || lang.includes("react");
+    const isSQL = lang.startsWith("sql");
 
-    let htmlContent;
+    if (isSQL) return;
 
-    if (isHTML) {
-      // Pure HTML — render directly
-      htmlContent = code;
-    } else if (isReactJSX || lang === "js" || lang === "javascript" || lang.startsWith("deploy:")) {
-      // React/JSX — wrap in a sandboxed React environment
-      // Extract the component code and try to render it
-      htmlContent = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"><\/script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"><\/script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js"><\/script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #08090b; color: #e6e9f0; padding: 16px; }
-    /* Helm theme tokens as CSS vars */
-    :root {
-      --bg: #08090b; --surface: #0f1117; --surface2: #161922; --surface3: #1c2030;
-      --border: #242a38; --text: #e6e9f0; --text2: #8b93a8; --text3: #5a6380;
-      --accent: #3b82f6; --green: #22c55e; --red: #ef4444; --yellow: #eab308;
-    }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  <div id="error" style="display:none; padding: 12px; background: #ef444420; border: 1px solid #ef4444; border-radius: 8px; color: #ef4444; font-size: 12px; margin-top: 8px; font-family: monospace; white-space: pre-wrap;"></div>
-  <script type="text/babel">
-    // Provide mock T tokens
-    const T = new Proxy({}, { get(_, key) {
-      const tokens = {
-        bg:"#08090b", surface:"#0f1117", surface2:"#161922", surface3:"#1c2030", surface4:"#232838",
-        border:"#242a38", border2:"#2f3748", text:"#e6e9f0", text2:"#8b93a8", text3:"#5a6380",
-        accent:"#3b82f6", accentHover:"#60a5fa", accentDim:"#1d3a6a",
-        green:"#22c55e", greenDim:"#0d3a20", yellow:"#eab308", yellowDim:"#3d3000",
-        red:"#ef4444", redDim:"#3d1111", orange:"#f97316", purple:"#a855f7",
-        cyan:"#06b6d4", pink:"#ec4899",
-      };
-      return tokens[key] || "#888";
-    }});
+    // Escape code for safe embedding in script tag
+    const safeCode = code
+      .replace(/\\/g, "\\\\")
+      .replace(/<\/script>/gi, "<\\/script>");
 
-    // Mock hooks
-    const useAuth = () => ({ user: { id: "u1", email: "admin@helm.io" }, profile: { id: "u1", display_name: "Admin", org_id: "org1" } });
-    const supabase = { from: () => ({ select: () => ({ data: [], error: null }), insert: () => ({ select: () => ({ single: () => ({ data: null, error: null }) }) }), update: () => ({ eq: () => ({ data: null }) }), delete: () => ({ eq: () => ({}) }), order: function() { return this; }, eq: function() { return this; }, is: function() { return this; }, in: function() { return this; }, gte: function() { return this; }, lte: function() { return this; }, limit: function() { return this; }, single: function() { return { data: null, error: null }; } }) };
+    let htmlDoc;
+    if (isHTML && !isReactish) {
+      htmlDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#08090b;color:#e6e9f0;padding:16px}</style>
+</head><body>${safeCode}<script>
+setTimeout(()=>window.parent.postMessage({type:"ph",h:Math.min(Math.max(document.body.scrollHeight,80),600)},"*"),100);
+</script></body></html>`;
+    } else if (isReactish) {
+      htmlDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.development.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#08090b;color:#e6e9f0;padding:16px}
+#err{display:none;padding:10px;margin:8px 0;background:#ef444418;border:1px solid #ef444440;border-radius:8px;color:#ef4444;font-size:12px;font-family:monospace;white-space:pre-wrap}
+</style>
+</head><body><div id="root"></div><div id="err"></div>
+<script type="text/babel" data-type="module">
+const {useState,useEffect,useRef,useCallback,useMemo,Fragment}=React;
+const T=new Proxy({},{get(_,k){return({bg:"#08090b",surface:"#0f1117",surface2:"#161922",surface3:"#1c2030",surface4:"#232838",border:"#242a38",border2:"#2f3748",text:"#e6e9f0",text2:"#8b93a8",text3:"#5a6380",accent:"#3b82f6",accentHover:"#60a5fa",accentDim:"#1d3a6a",green:"#22c55e",greenDim:"#0d3a20",yellow:"#eab308",red:"#ef4444",redDim:"#3d1111",orange:"#f97316",purple:"#a855f7",cyan:"#06b6d4",pink:"#ec4899"})[k]||"#888"}});
+const useAuth=()=>({user:{id:"u1",email:"admin@helm.io"},profile:{id:"u1",display_name:"Admin User",org_id:"org1",email:"admin@helm.io"}});
+const supabase={from:()=>{const ch={select:()=>ch,insert:()=>ch,update:()=>ch,delete:()=>ch,order:()=>ch,eq:()=>ch,is:()=>ch,in:()=>ch,gte:()=>ch,lte:()=>ch,limit:()=>ch,single:()=>({data:null,error:null}),then:cb=>cb({data:[],error:null})};return ch}};
 
-    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+try {
+${safeCode}
 
-    try {
-      ${code.replace(/<\/script>/g, "<\/script>")}
+// Find the default export or last function component
+let _Comp = null;
+try { _Comp = typeof exports !== "undefined" && exports.default ? exports.default : null; } catch {}
+if (!_Comp) {
+  // Scan for component function names
+  const _src = ${JSON.stringify(code)};
+  const _match = _src.match(/(?:export\s+default\s+)?function\s+(\w+)/g) || [];
+  const _names = _match.map(m => m.replace(/export\s+default\s+/,"").replace("function ",""));
+  for (let i = _names.length - 1; i >= 0; i--) {
+    try { _Comp = eval(_names[i]); if (typeof _Comp === "function") break; } catch {}
+  }
+}
 
-      // Try to find and render the default export or last component
-      const componentNames = [];
-      ${code.replace(/<\/script>/g, "<\/script>").split("\n").filter(l => l.match(/^(export default )?function \w+/)).map(l => {
-        const m = l.match(/function (\w+)/);
-        return m ? `componentNames.push("${m[1]}");` : "";
-      }).join("\n")}
+if (_Comp && typeof _Comp === "function") {
+  ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(_Comp, {}));
+} else {
+  document.getElementById("root").innerHTML = '<div style="padding:20px;color:#5a6380;text-align:center;font-size:13px">No renderable component found.<br/>Preview works best with function components.</div>';
+}
 
-      // Try to render the last function component found
-      let CompToRender = null;
-      try { CompToRender = eval(componentNames[componentNames.length - 1] || "null"); } catch {}
-
-      if (CompToRender) {
-        const root = ReactDOM.createRoot(document.getElementById("root"));
-        root.render(React.createElement(CompToRender, {}));
-      } else {
-        document.getElementById("root").innerHTML = '<div style="padding: 20px; color: #8b93a8; text-align: center; font-size: 13px;">No renderable component found. Preview works best with standalone components.</div>';
-      }
-
-      // Report height
-      setTimeout(() => {
-        const h = document.body.scrollHeight;
-        window.parent.postMessage({ type: "preview-height", height: Math.min(Math.max(h, 100), 600) }, "*");
-      }, 200);
-    } catch (err) {
-      document.getElementById("error").style.display = "block";
-      document.getElementById("error").textContent = "Preview Error: " + err.message;
-      window.parent.postMessage({ type: "preview-height", height: 100 }, "*");
-    }
-  <\/script>
-</body>
-</html>`;
+setTimeout(()=>window.parent.postMessage({type:"ph",h:Math.min(Math.max(document.body.scrollHeight,80),600)},"*"),300);
+} catch(e) {
+  document.getElementById("err").style.display = "block";
+  document.getElementById("err").textContent = e.message;
+  window.parent.postMessage({type:"ph",h:120},"*");
+}
+</script></body></html>`;
     } else {
-      // Can't preview this type
       return (
-        <div style={{ padding: "24px 16px", background: T.surface2, textAlign: "center", color: T.text3, fontSize: 12 }}>
-          <div style={{ fontSize: 20, marginBottom: 8 }}>👁</div>
-          Preview not available for {lang || "this"} code.
-          <br />Works with HTML, React/JSX components.
+        <div style={{ padding: "20px 16px", background: T.surface2, textAlign: "center", color: T.text3, fontSize: 12 }}>
+          <div style={{ fontSize: 20, marginBottom: 6 }}>👁</div>
+          Preview not available for {lang || "this"} code type.
         </div>
       );
     }
 
-    // Write to iframe
-    try {
-      const doc = iframeRef.current.contentDocument || iframeRef.current.contentWindow?.document;
-      if (doc) {
-        doc.open();
-        doc.write(htmlContent);
-        doc.close();
-      }
-    } catch (e) {
-      setError("Failed to render preview: " + e.message);
+    // Use srcdoc for clean rendering
+    if (iframeRef.current) {
+      iframeRef.current.srcdoc = htmlDoc;
     }
   }, [code, lang]);
 
-  // Listen for height messages from iframe
   useEffect(() => {
-    const handler = (e) => {
-      if (e.data?.type === "preview-height") setIframeHeight(e.data.height);
-    };
+    const handler = (e) => { if (e.data?.type === "ph") setIframeHeight(e.data.h); };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, []);
 
+  const isSQL = lang?.startsWith("sql");
+  if (isSQL) return (
+    <div style={{ padding: "16px", background: T.surface2, textAlign: "center", color: T.text3, fontSize: 12 }}>
+      SQL migrations don't have a visual preview.
+    </div>
+  );
+
   return (
-    <div style={{ background: "#08090b", position: "relative" }}>
-      {error && (
-        <div style={{ padding: "8px 12px", background: "#ef444415", border: "1px solid #ef444430", color: "#ef4444", fontSize: 11, fontFamily: "monospace" }}>{error}</div>
-      )}
-      <div style={{ position: "absolute", top: 6, right: 8, fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 6px", borderRadius: 4, zIndex: 2 }}>Preview</div>
-      <iframe
-        ref={iframeRef}
-        sandbox="allow-scripts"
-        style={{ width: "100%", height: iframeHeight, border: "none", background: "#08090b", display: "block" }}
-        title="Component Preview"
-      />
+    <div style={{ background: "#08090b", position: "relative", minHeight: 80 }}>
+      {error && <div style={{ padding: "8px 12px", background: "#ef444415", color: "#ef4444", fontSize: 11, fontFamily: "monospace" }}>{error}</div>}
+      <div style={{ position: "absolute", top: 6, right: 8, fontSize: 9, color: "#5a6380", background: "#1c2030", padding: "1px 6px", borderRadius: 4, zIndex: 2, border: "1px solid #242a38" }}>Live Preview</div>
+      <iframe ref={iframeRef} sandbox="allow-scripts" style={{ width: "100%", height: iframeHeight, border: "none", background: "#08090b", display: "block" }} title="Preview" />
     </div>
   );
 }
