@@ -114,24 +114,27 @@ export default function ScorecardView() {
   const [metrics, setMetrics] = useState([]);
   const [entries, setEntries] = useState({}); // { metricId: { weekStart: value } }
   const [profiles, setProfiles] = useState({});
+  const [keyResults, setKeyResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddMetric, setShowAddMetric] = useState(false);
-  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"" });
+  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"" });
   const [saving, setSaving] = useState(false);
   const [orgId, setOrgId] = useState(null);
 
   useEffect(() => {
     (async () => {
-      const [{ data: met }, { data: prof }, { data: mem }] = await Promise.all([
+      const [{ data: met }, { data: prof }, { data: mem }, { data: krs }] = await Promise.all([
         supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order,created_at"),
         supabase.from("profiles").select("id,display_name"),
         supabase.from("org_memberships").select("org_id").eq("user_id", (await supabase.auth.getUser()).data.user?.id).maybeSingle(),
+        supabase.from("key_results").select("id,title,current_value,target_value,unit,progress").is("deleted_at", null).order("sort_order"),
       ]);
       const profMap = {};
       (prof || []).forEach(u => { profMap[u.id] = u; });
       setProfiles(profMap);
       setOrgId(mem?.org_id);
       setMetrics(met || []);
+      setKeyResults(krs || []);
 
       if (met?.length) {
         const { data: ent } = await supabase.from("scorecard_entries")
@@ -169,10 +172,11 @@ export default function ScorecardView() {
       name: newMetric.name, unit: newMetric.unit,
       goal: newMetric.goal ? parseFloat(newMetric.goal) : null,
       frequency: newMetric.frequency, description: newMetric.description,
+      linked_kr_id: newMetric.linked_kr_id || null,
       org_id: orgId, owner_id: user.id, sort_order: metrics.length,
     }).select().single();
     if (data) { setMetrics(p => [...p, data]); setEntries(p => ({...p, [data.id]: {}})); }
-    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"" });
+    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"" });
     setShowAddMetric(false);
     setSaving(false);
   };
@@ -235,7 +239,7 @@ export default function ScorecardView() {
       {/* Add Metric Panel */}
       {showAddMetric && (
         <div style={{ padding:"16px 28px", background:T.surface2, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 2fr auto", gap:10, alignItems:"end" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 2fr 2fr auto", gap:10, alignItems:"end" }}>
             {[
               { label:"Metric Name *", key:"name", placeholder:"e.g. Weekly Revenue" },
               { label:"Unit", key:"unit", type:"select", options:["number","$","%","bool"] },
@@ -257,6 +261,14 @@ export default function ScorecardView() {
                 )}
               </div>
             ))}
+            <div>
+              <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>Link to KR</div>
+              <select value={newMetric.linked_kr_id} onChange={e=>setNewMetric(p=>({...p,linked_kr_id:e.target.value}))}
+                style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"7px 8px", color:T.text, outline:"none" }}>
+                <option value="">None</option>
+                {keyResults.map(kr=><option key={kr.id} value={kr.id}>{kr.title}</option>)}
+              </select>
+            </div>
             <div style={{ display:"flex", gap:6 }}>
               <button onClick={() => setShowAddMetric(false)}
                 style={{ padding:"7px 10px", fontSize:12, background:T.surface3, color:T.text2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer" }}>Cancel</button>
@@ -310,12 +322,25 @@ export default function ScorecardView() {
                     <td style={{ padding:"10px 12px", position:"sticky", left:0, background: idx%2===0?T.bg||"transparent":T.surface2+"60" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                         <RagDot value={m.latest} goal={m.goal} unit={m.unit} />
-                        <div>
+                        <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{m.name}</div>
                           {m.description && <div style={{ fontSize:10, color:T.text3 }}>{m.description}</div>}
+                          {m.linked_kr_id && (() => {
+                            const kr = keyResults.find(k => k.id === m.linked_kr_id);
+                            if (!kr) return null;
+                            const kpct = Math.round(Number(kr.progress || 0));
+                            const kc = kpct>=70?"#22c55e":kpct>=40?"#eab308":"#ef4444";
+                            return (
+                              <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
+                                <span style={{ fontSize:9, padding:"1px 5px", borderRadius:3, background:`${T.accent}20`, color:T.accent, fontWeight:700 }}>KR</span>
+                                <span style={{ fontSize:10, color:T.text3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:130 }}>{kr.title}</span>
+                                <span style={{ fontSize:10, fontWeight:700, color:kc }}>{kpct}%</span>
+                              </div>
+                            );
+                          })()}
                         </div>
                         {m.owner_id && (
-                          <div style={{ marginLeft:"auto", width:22, height:22, borderRadius:11, background:acol(m.owner_id)+"25",
+                          <div style={{ width:22, height:22, borderRadius:11, background:acol(m.owner_id)+"25",
                             border:`1.5px solid ${acol(m.owner_id)}60`, display:"flex", alignItems:"center", justifyContent:"center",
                             fontSize:8, fontWeight:700, color:acol(m.owner_id), flexShrink:0 }}>
                             {ini(m.owner_id)}
