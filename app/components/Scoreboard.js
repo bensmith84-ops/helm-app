@@ -22,7 +22,7 @@ const fmtPct = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixe
 // METRIC_META: display info for all scoreboard metrics
 const METRIC_META = {
   revenue:          { label:"Revenue",                  unit:"$",  group:"Finance",      color:"#22c55e" },
-  comp_yago:        { label:"COMP YAGO",                unit:"$",  group:"Finance",      color:"#22c55e" },
+  comp_yago:        { label:"COMP YAGO",                unit:"%",  group:"Finance",      color:"#22c55e" },
   amazon_revenue:   { label:"Amazon Revenue",           unit:"$",  group:"Finance",      color:"#f97316" },
   net_dollars:      { label:"Net $",                    unit:"$",  group:"Finance",      color:"#22c55e" },
   ad_spend:         { label:"Ad Spend",                 unit:"$",  group:"Finance",      color:"#ef4444" },
@@ -745,9 +745,19 @@ export default function ScoreboardView() {
           const AVG_KEYS = new Set(["blended_cvr","sub_rate","upsell_take_rate","comp_yago","cpa","dtc_cac","x_cac","gwp_cpa","nc_aov","opex_pct_rev","roas"]);
 
           const getMonthVal = (key, month) => {
+            // First try aggregated daily data
             const m = agg[key]?.months[month];
-            if (!m) return null;
-            return AVG_KEYS.has(key) ? m.avg : m.total;
+            if (m) return AVG_KEYS.has(key) ? m.avg : m.total;
+            // Fallback: check okr_financial_monthly data for this key/month
+            const mData = selectedYear === yr ? monthly : monthlyPrev;
+            // Map daily keys to financial metric keys
+            const keyMap = { revenue: "revenue", net_dollars: "net_dollars", ad_spend: "adspend" };
+            const finKey = keyMap[key];
+            if (finKey) {
+              const val = mData[finKey]?.monthly?.find(r => r.month === month)?.actual;
+              if (val != null) return Number(val);
+            }
+            return null;
           };
 
           const thStyle = { padding:"8px 10px", textAlign:"right", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", whiteSpace:"nowrap" };
