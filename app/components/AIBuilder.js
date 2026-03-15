@@ -42,6 +42,151 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 
+function PreviewFrame({ code, lang }) {
+  const iframeRef = useRef(null);
+  const [error, setError] = useState(null);
+  const [iframeHeight, setIframeHeight] = useState(300);
+
+  useEffect(() => {
+    if (!iframeRef.current) return;
+    setError(null);
+
+    const isHTML = lang === "html" || code.trim().startsWith("<") || code.includes("<!DOCTYPE");
+    const isReactJSX = lang.includes("jsx") || lang.includes("react") || code.includes("useState") || code.includes("export default function") || code.includes("const App");
+
+    let htmlContent;
+
+    if (isHTML) {
+      // Pure HTML — render directly
+      htmlContent = code;
+    } else if (isReactJSX || lang === "js" || lang === "javascript" || lang.startsWith("deploy:")) {
+      // React/JSX — wrap in a sandboxed React environment
+      // Extract the component code and try to render it
+      htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"><\/script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"><\/script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js"><\/script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #08090b; color: #e6e9f0; padding: 16px; }
+    /* Helm theme tokens as CSS vars */
+    :root {
+      --bg: #08090b; --surface: #0f1117; --surface2: #161922; --surface3: #1c2030;
+      --border: #242a38; --text: #e6e9f0; --text2: #8b93a8; --text3: #5a6380;
+      --accent: #3b82f6; --green: #22c55e; --red: #ef4444; --yellow: #eab308;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="error" style="display:none; padding: 12px; background: #ef444420; border: 1px solid #ef4444; border-radius: 8px; color: #ef4444; font-size: 12px; margin-top: 8px; font-family: monospace; white-space: pre-wrap;"></div>
+  <script type="text/babel">
+    // Provide mock T tokens
+    const T = new Proxy({}, { get(_, key) {
+      const tokens = {
+        bg:"#08090b", surface:"#0f1117", surface2:"#161922", surface3:"#1c2030", surface4:"#232838",
+        border:"#242a38", border2:"#2f3748", text:"#e6e9f0", text2:"#8b93a8", text3:"#5a6380",
+        accent:"#3b82f6", accentHover:"#60a5fa", accentDim:"#1d3a6a",
+        green:"#22c55e", greenDim:"#0d3a20", yellow:"#eab308", yellowDim:"#3d3000",
+        red:"#ef4444", redDim:"#3d1111", orange:"#f97316", purple:"#a855f7",
+        cyan:"#06b6d4", pink:"#ec4899",
+      };
+      return tokens[key] || "#888";
+    }});
+
+    // Mock hooks
+    const useAuth = () => ({ user: { id: "u1", email: "admin@helm.io" }, profile: { id: "u1", display_name: "Admin", org_id: "org1" } });
+    const supabase = { from: () => ({ select: () => ({ data: [], error: null }), insert: () => ({ select: () => ({ single: () => ({ data: null, error: null }) }) }), update: () => ({ eq: () => ({ data: null }) }), delete: () => ({ eq: () => ({}) }), order: function() { return this; }, eq: function() { return this; }, is: function() { return this; }, in: function() { return this; }, gte: function() { return this; }, lte: function() { return this; }, limit: function() { return this; }, single: function() { return { data: null, error: null }; } }) };
+
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    try {
+      ${code.replace(/<\/script>/g, "<\/script>")}
+
+      // Try to find and render the default export or last component
+      const componentNames = [];
+      ${code.replace(/<\/script>/g, "<\/script>").split("\n").filter(l => l.match(/^(export default )?function \w+/)).map(l => {
+        const m = l.match(/function (\w+)/);
+        return m ? `componentNames.push("${m[1]}");` : "";
+      }).join("\n")}
+
+      // Try to render the last function component found
+      let CompToRender = null;
+      try { CompToRender = eval(componentNames[componentNames.length - 1] || "null"); } catch {}
+
+      if (CompToRender) {
+        const root = ReactDOM.createRoot(document.getElementById("root"));
+        root.render(React.createElement(CompToRender, {}));
+      } else {
+        document.getElementById("root").innerHTML = '<div style="padding: 20px; color: #8b93a8; text-align: center; font-size: 13px;">No renderable component found. Preview works best with standalone components.</div>';
+      }
+
+      // Report height
+      setTimeout(() => {
+        const h = document.body.scrollHeight;
+        window.parent.postMessage({ type: "preview-height", height: Math.min(Math.max(h, 100), 600) }, "*");
+      }, 200);
+    } catch (err) {
+      document.getElementById("error").style.display = "block";
+      document.getElementById("error").textContent = "Preview Error: " + err.message;
+      window.parent.postMessage({ type: "preview-height", height: 100 }, "*");
+    }
+  <\/script>
+</body>
+</html>`;
+    } else {
+      // Can't preview this type
+      return (
+        <div style={{ padding: "24px 16px", background: T.surface2, textAlign: "center", color: T.text3, fontSize: 12 }}>
+          <div style={{ fontSize: 20, marginBottom: 8 }}>👁</div>
+          Preview not available for {lang || "this"} code.
+          <br />Works with HTML, React/JSX components.
+        </div>
+      );
+    }
+
+    // Write to iframe
+    try {
+      const doc = iframeRef.current.contentDocument || iframeRef.current.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(htmlContent);
+        doc.close();
+      }
+    } catch (e) {
+      setError("Failed to render preview: " + e.message);
+    }
+  }, [code, lang]);
+
+  // Listen for height messages from iframe
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === "preview-height") setIframeHeight(e.data.height);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  return (
+    <div style={{ background: "#08090b", position: "relative" }}>
+      {error && (
+        <div style={{ padding: "8px 12px", background: "#ef444415", border: "1px solid #ef444430", color: "#ef4444", fontSize: 11, fontFamily: "monospace" }}>{error}</div>
+      )}
+      <div style={{ position: "absolute", top: 6, right: 8, fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 6px", borderRadius: 4, zIndex: 2 }}>Preview</div>
+      <iframe
+        ref={iframeRef}
+        sandbox="allow-scripts"
+        style={{ width: "100%", height: iframeHeight, border: "none", background: "#08090b", display: "block" }}
+        title="Component Preview"
+      />
+    </div>
+  );
+}
+
 export default function AIBuilderView() {
   const { profile } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -55,6 +200,7 @@ export default function AIBuilderView() {
   const [streamingText, setStreamingText] = useState("");
   const [deploying, setDeploying] = useState({});
   const [deployResults, setDeployResults] = useState({});
+  const [previewOpen, setPreviewOpen] = useState({});
   const [activeTab, setActiveTab] = useState("chat");
   const [sqlInput, setSqlInput] = useState("");
   const [sqlResult, setSqlResult] = useState(null);
@@ -287,19 +433,37 @@ export default function AIBuilderView() {
                   const blockName = blockType ? header.split(":").slice(1).join(":").trim() : header;
                   const blockId = `${blockType}-${blockName}-${j}`;
 
+                  const canPreview = !blockType || (blockType === "deploy" && (blockName.endsWith(".js") || blockName.endsWith(".jsx") || blockName.endsWith(".html")));
+                  const isShowingPreview = previewOpen[`preview-${j}`];
+
                   return (
                     <div key={j} style={{ margin: "10px 0", borderRadius: 8, overflow: "hidden", border: `1px solid ${isDeployable ? T.accent + "40" : T.border}` }}>
+                      {/* Header bar */}
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", background: isDeployable ? `${T.accent}10` : T.surface3, borderBottom: `1px solid ${isDeployable ? T.accent + "30" : T.border}` }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: isDeployable ? T.accent : T.text3, textTransform: "uppercase" }}>
-                          {blockType === "deploy" ? `📦 ${blockName}` : blockType === "sql" ? `🗄 ${blockName}` : header || "code"}
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: isDeployable ? T.accent : T.text3, textTransform: "uppercase" }}>
+                            {blockType === "deploy" ? `📦 ${blockName}` : blockType === "sql" ? `🗄 ${blockName}` : header || "code"}
+                          </span>
+                          {/* Code / Preview toggle */}
+                          {canPreview && (
+                            <div style={{ display: "flex", borderRadius: 4, overflow: "hidden", border: `1px solid ${T.border}` }}>
+                              <button onClick={() => setPreviewOpen(p => ({...p, [`preview-${j}`]: false}))}
+                                style={{ padding: "1px 8px", fontSize: 9, fontWeight: 600, border: "none", cursor: "pointer",
+                                  background: !isShowingPreview ? T.surface3 : "transparent",
+                                  color: !isShowingPreview ? T.text : T.text3 }}>Code</button>
+                              <button onClick={() => setPreviewOpen(p => ({...p, [`preview-${j}`]: true}))}
+                                style={{ padding: "1px 8px", fontSize: 9, fontWeight: 600, border: "none", borderLeft: `1px solid ${T.border}`, cursor: "pointer",
+                                  background: isShowingPreview ? T.surface3 : "transparent",
+                                  color: isShowingPreview ? T.text : T.text3 }}>Preview</button>
+                            </div>
+                          )}
+                        </div>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => navigator.clipboard.writeText(code)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, fontWeight: 600 }}>Copy</button>
                           {isDeployable && !deployResults[blockId] && (
                             <button
                               onClick={async () => {
                                 if (blockType === "deploy") {
-                                  // Safety: warn if deploying to an existing large file
                                   const isLargeFile = blockName.includes("Projects") || blockName.includes("Dashboard") || blockName.includes("OKRs") || blockName.includes("Finance") || blockName.includes("PLM");
                                   if (isLargeFile && code.split("\n").length < 500) {
                                     if (!window.confirm(`⚠️ WARNING: ${blockName} is a large component (1000+ lines). This deploy block only has ${code.split("\n").length} lines — it may be truncated and could break the app. Deploy anyway?`)) return;
@@ -320,9 +484,14 @@ export default function AIBuilderView() {
                           )}
                         </div>
                       </div>
-                      <pre style={{ padding: "12px 14px", margin: 0, background: T.surface2, color: T.text, fontSize: 12, lineHeight: 1.5, overflowX: "auto", fontFamily: "'JetBrains Mono', 'Fira Code', monospace", maxHeight: 400, overflow: "auto" }}>
-                        <code>{code}</code>
-                      </pre>
+                      {/* Code view */}
+                      {!isShowingPreview && (
+                        <pre style={{ padding: "12px 14px", margin: 0, background: T.surface2, color: T.text, fontSize: 12, lineHeight: 1.5, overflowX: "auto", fontFamily: "'JetBrains Mono', 'Fira Code', monospace", maxHeight: 400, overflow: "auto" }}>
+                          <code>{code}</code>
+                        </pre>
+                      )}
+                      {/* Preview view */}
+                      {isShowingPreview && <PreviewFrame code={code} lang={header} />}
                     </div>
                   );
                 }
