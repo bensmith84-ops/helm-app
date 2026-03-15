@@ -275,7 +275,7 @@ export default function ScoreboardView() {
     const yr = new Date().getFullYear();
     const [{ data: mets }, { data: dailyRows }] = await Promise.all([
       supabase.from("okr_financial_metrics").select("*, okr_financial_monthly(month, actual, target)").eq("year", yr).order("sort_order"),
-      supabase.from("scoreboard_daily").select("*").order("date", { ascending:false }).limit(2000),
+      supabase.from("scoreboard_daily").select("*").gte("date", `${yr}-01-01`).order("date", { ascending:false }).limit(10000),
     ]);
 
     // Build monthly map
@@ -303,10 +303,12 @@ export default function ScoreboardView() {
   // Build monthly aggregates from daily data
   const buildMonthlyAgg = (dailyMap) => {
     const agg = {};
+    const yrStr = String(new Date().getFullYear());
     for (const [key, rows] of Object.entries(dailyMap)) {
       const meta = METRIC_META[key] || { label: key, unit: "#", color: T.accent };
       agg[key] = { label: meta.label, unit: meta.unit, color: meta.color, months: {} };
       for (const row of rows) {
+        if (!row.date?.startsWith(yrStr)) continue;
         const m = parseInt(row.date?.slice(5, 7));
         if (!m) continue;
         if (!agg[key].months[m]) agg[key].months[m] = { total: 0, days: 0, min: Infinity, max: -Infinity };
