@@ -51,6 +51,11 @@ export default function AIBuilderView() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [apiKey, setApiKey] = useState(() => {
+    try { return localStorage.getItem("helm-anthropic-key") || ""; } catch { return ""; }
+  });
+  const [showSetup, setShowSetup] = useState(false);
+  const [keyLoading, setKeyLoading] = useState(true);
   const [streamingText, setStreamingText] = useState("");
   const [deploying, setDeploying] = useState({});
   const [deployResults, setDeployResults] = useState({});
@@ -63,6 +68,28 @@ export default function AIBuilderView() {
   const abortRef = useRef(null);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streamingText]);
+
+  // Load API key from DB on mount
+  useEffect(() => {
+    (async () => {
+      let key = localStorage.getItem("helm-anthropic-key") || "";
+      if (!key) {
+        const { data } = await supabase.from("admin_settings").select("value").eq("key", "anthropic_api_key").single();
+        if (data?.value) { key = data.value; localStorage.setItem("helm-anthropic-key", key); setApiKey(key); }
+      }
+      setKeyLoading(false);
+      if (!key) setShowSetup(true);
+    })();
+  }, []);
+
+  const saveApiKey = async (key) => {
+    localStorage.setItem("helm-anthropic-key", key);
+    setApiKey(key);
+    if (profile?.org_id && key) {
+      await supabase.from("admin_settings").upsert({ org_id: profile.org_id, key: "anthropic_api_key", value: key, updated_at: new Date().toISOString() }, { onConflict: "org_id,key" });
+    }
+    setShowSetup(false);
+  };
 
   // ── Deploy function ──
   const deployFiles = async (files, sql, commitMsg, blockId) => {
@@ -136,12 +163,7 @@ export default function AIBuilderView() {
     const apiMessages = newMessages.map(m => ({ role: m.role, content: m.content }));
 
     try {
-      // Load API key from admin_settings or localStorage
-      let apiKey = localStorage.getItem("helm-anthropic-key") || "";
-      if (!apiKey) {
-        const { data: setting } = await supabase.from("admin_settings").select("value").eq("key", "anthropic_api_key").single();
-        if (setting?.value) { apiKey = setting.value; localStorage.setItem("helm-anthropic-key", apiKey); }
-      }
+      if (!apiKey) { setShowSetup(true); setLoading(false); return; }
 
       const response = await fetch(`${EDGE_BASE}/ai-chat`, {
         method: "POST",
@@ -334,6 +356,58 @@ export default function AIBuilderView() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: T.bg }}>
+      {/* API Key Setup Modal */}
+      {showSetup && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} onClick={() => apiKey && setShowSetup(false)} />
+          <div style={{ position: "relative", width: 460, background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, padding: "32px", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", zIndex: 301 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: "linear-gradient(135deg, #a855f7, #6366f1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: "#fff" }}>✦</div>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Connect AI Builder</div>
+                <div style={{ fontSize: 12, color: T.text3 }}>One-time setup to enable the AI assistant</div>
+              </div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.6, marginBottom: 16 }}>
+                The AI Builder uses <strong style={{ color: T.text }}>Claude by Anthropic</strong> to generate code, SQL, and deploy changes. You need an API key to get started.
+              </div>
+              <div style={{ background: T.surface2, borderRadius: 10, padding: "14px 16px", marginBottom: 16, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>How to get your API key:</div>
+                <ol style={{ margin: 0, padding: "0 0 0 18px", fontSize: 12, color: T.text2, lineHeight: 1.8 }}>
+                  <li>Go to <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{ color: T.accent, fontWeight: 600, textDecoration: "none" }}>console.anthropic.com/settings/keys ↗</a></li>
+                  <li>Sign up or sign in (free to create account)</li>
+                  <li>Click <strong style={{ color: T.text }}>"Create Key"</strong>, name it "Helm"</li>
+                  <li>Copy the key and paste it below</li>
+                </ol>
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 14 }}>💡</span>
+                <span>Pay-per-use pricing. A typical feature conversation costs $0.05–$0.50</span>
+              </div>
+            </div>
+            <input
+              type="password"
+              placeholder="sk-ant-api03-..."
+              defaultValue={apiKey}
+              autoFocus
+              onKeyDown={e => { if (e.key === "Enter" && e.target.value.trim()) saveApiKey(e.target.value.trim()); }}
+              id="api-key-input"
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontFamily: "monospace", outline: "none", boxSizing: "border-box", marginBottom: 12 }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              {apiKey && <button onClick={() => setShowSetup(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.text3, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>}
+              <button onClick={() => { const v = document.getElementById("api-key-input")?.value?.trim(); if (v) saveApiKey(v); }}
+                style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #a855f7, #6366f1)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                Save & Connect
+              </button>
+            </div>
+            <div style={{ textAlign: "center", marginTop: 12, fontSize: 10, color: T.text3 }}>
+              Your key is stored securely and only sent server-side to Anthropic.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ padding: "14px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -344,16 +418,8 @@ export default function AIBuilderView() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <button onClick={() => {
-            const key = prompt("Enter your Anthropic API key:", localStorage.getItem("helm-anthropic-key") || "");
-            if (key !== null) {
-              localStorage.setItem("helm-anthropic-key", key);
-              if (profile?.org_id && key) {
-                supabase.from("admin_settings").upsert({ org_id: profile.org_id, key: "anthropic_api_key", value: key, updated_at: new Date().toISOString() }, { onConflict: "org_id,key" });
-              }
-            }
-          }} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", color: T.text3 }}
-            title="Configure API key">🔑 API Key</button>
+          <button onClick={() => setShowSetup(true)} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", border: `1px solid ${apiKey ? "#22c55e40" : T.border}`, background: apiKey ? "#22c55e08" : "transparent", color: apiKey ? "#22c55e" : T.text3 }}
+            title="Configure API key">{apiKey ? "🟢 Connected" : "🔑 Set API Key"}</button>
           {["chat", "sql"].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", border: activeTab === tab ? `1px solid ${T.accent}40` : `1px solid ${T.border}`, background: activeTab === tab ? `${T.accent}10` : "transparent", color: activeTab === tab ? T.accent : T.text3 }}>
               {tab === "chat" ? "💬 Chat" : "🗄 SQL"}
