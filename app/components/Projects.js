@@ -587,14 +587,14 @@ export default function ProjectsView() {
     );
   };
 
-  const StatusPill = ({ task }) => { const st = STATUS[task.status] || STATUS.todo; const [open, setOpen] = useState(false); return (<div style={{ position: "relative" }}><span onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ ...S.pill, background: st.bg, color: st.color }}>{st.label}</span>{open && (<Dropdown onClose={() => setOpen(false)}>{Object.entries(STATUS).map(([k, v]) => (<DropdownItem key={k} onClick={() => { updateField(task.id, "status", k); setOpen(false); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: v.color, display: "inline-block", marginRight: 6 }} />{v.label}</DropdownItem>))}</Dropdown>)}</div>); };
+  // StatusPill, PriorityPill, AssigneeCell, DateCell moved to module scope
 
-  const PriorityPill = ({ task }) => { const pr = PRIORITY[task.priority] || PRIORITY.none; const [open, setOpen] = useState(false); return (<div style={{ position: "relative" }}><span onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ ...S.pill, background: pr.bg, color: pr.color }}>{pr.label}</span>{open && (<Dropdown onClose={() => setOpen(false)}>{Object.entries(PRIORITY).map(([k, v]) => (<DropdownItem key={k} onClick={() => { updateField(task.id, "priority", k); setOpen(false); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: v.dot, display: "inline-block", marginRight: 6 }} />{v.label}</DropdownItem>))}</Dropdown>)}</div>); };
 
-  const AssigneeCell = ({ task }) => { const [open, setOpen] = useState(false); const [aSearch, setASearch] = useState(""); const pl = Object.values(profiles); const filtered = aSearch.trim() ? pl.filter(u => (u.display_name||"").toLowerCase().includes(aSearch.toLowerCase()) || (u.email||"").toLowerCase().includes(aSearch.toLowerCase())) : pl; return (<div style={{ position: "relative" }}><div onClick={(e) => { e.stopPropagation(); setOpen(!open); setASearch(""); }} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", padding: "2px 4px", borderRadius: 4 }}>{task.assignee_id ? (<><div style={{ width: 20, height: 20, borderRadius: 10, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div><span style={{ fontSize: 12, color: T.text2, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{uname(task.assignee_id).split(" ")[0]}</span></>) : (<div style={{ width: 20, height: 20, borderRadius: 10, border: `1.5px dashed ${T.text3}` }} />)}</div>{open && (<Dropdown onClose={() => setOpen(false)} wide><div style={{ padding: "4px 6px" }}><input autoFocus value={aSearch} onChange={e => setASearch(e.target.value)} onClick={e => e.stopPropagation()} placeholder="Search…" style={{ width: "100%", padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} /></div>{profile?.id && task.assignee_id !== profile.id && <DropdownItem onClick={() => { updateField(task.id, "assignee_id", profile.id); setOpen(false); }}><span style={{ color: T.accent, fontWeight: 600, fontSize: 11 }}>→ Assign to me</span></DropdownItem>}<DropdownItem onClick={() => { updateField(task.id, "assignee_id", null); setOpen(false); }}><span style={{ color: T.text3 }}>Unassigned</span></DropdownItem>{filtered.map(u => (<DropdownItem key={u.id} onClick={() => { updateField(task.id, "assignee_id", u.id); setOpen(false); }}><div style={{ width: 18, height: 18, borderRadius: 9, background: acol(u.id) + "30", color: acol(u.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>{ini(u.id)}</div>{u.display_name || u.email}</DropdownItem>))}</Dropdown>)}</div>); };
 
-  const DateCell = ({ task }) => { const od = isOverdue(task.due_date) && task.status !== "done"; return (<input type="date" value={task.due_date || ""} onChange={(e) => updateField(task.id, "due_date", e.target.value || null)} onClick={(e) => e.stopPropagation()} style={{ background: "none", border: "none", color: od ? T.red : task.due_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit" }} />); };
-  const TaskRow = ({ task, depth = 0 }) => { const subs = getSubtasks(task.id); const hasSubs = subs.length > 0 || addingSubtaskTo === task.id; const exp = expandedTasks[task.id]; const sel = selectedTask?.id === task.id; const isEditingTitle = editingTaskId === task.id; const saveTitle = async () => { if (editingTaskTitle.trim() && editingTaskTitle !== task.title) { await updateField(task.id, "title", editingTaskTitle.trim()); } setEditingTaskId(null); }; const rowRef = useRef(null); return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selectedTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onClick={() => { if (!isEditingTitle) setSelectedTask(task); }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selectedTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input autoFocus value={editingTaskTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{task.title}</span>}{subs.length > 0 && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><StatusPill task={task} /><PriorityPill task={task} /><AssigneeCell task={task} /><DateCell task={task} /></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSubtaskTo === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
+
+
+
+  const TaskRow = ({ task, depth = 0 }) => { const subs = getSubtasks(task.id); const hasSubs = subs.length > 0 || addingSubtaskTo === task.id; const exp = expandedTasks[task.id]; const sel = selectedTask?.id === task.id; const isEditingTitle = editingTaskId === task.id; const saveTitle = async () => { if (editingTaskTitle.trim() && editingTaskTitle !== task.title) { await updateField(task.id, "title", editingTaskTitle.trim()); } setEditingTaskId(null); }; const rowRef = useRef(null); return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selectedTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selectedTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input autoFocus value={editingTaskTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{subs.length > 0 && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} /></div><div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSubtaskTo === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
 
   const ListView = () => { const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
@@ -1008,10 +1008,10 @@ export default function ProjectsView() {
             <div>
               {/* Core fields grid */}
               <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "10px 12px", alignItems: "center", marginBottom: 18 }}>
-                <span style={FIELD_LABEL}>Status</span><StatusPill task={task} />
-                <span style={FIELD_LABEL}>Priority</span><PriorityPill task={task} />
-                <span style={FIELD_LABEL}>Assignee</span><AssigneeCell task={task} />
-                <span style={FIELD_LABEL}>Due Date</span><DateCell task={task} />
+                <span style={FIELD_LABEL}>Status</span><StatusPill task={task} onUpdate={updateField} S={S} />
+                <span style={FIELD_LABEL}>Priority</span><PriorityPill task={task} onUpdate={updateField} S={S} />
+                <span style={FIELD_LABEL}>Assignee</span><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} />
+                <span style={FIELD_LABEL}>Due Date</span><DateCell task={task} onUpdate={updateField} />
                 <span style={FIELD_LABEL}>Start Date</span>
                 <input type="date" value={task.start_date || ""} onChange={e => updateField(task.id, "start_date", e.target.value || null)}
                   style={{ background: "none", border: "none", color: task.start_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }} />
@@ -1822,6 +1822,100 @@ export default function ProjectsView() {
       <CopyModal />
       <StatusFormModal />
     </div>
+  );
+}
+
+
+function StatusPill({ task, onUpdate, S }) {
+  const st = STATUS[task.status] || STATUS.todo;
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <span onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", background: st.bg, color: st.color }}>{st.label}</span>
+      {open && (
+        <Dropdown onClose={() => setOpen(false)}>
+          {Object.entries(STATUS).map(([k, v]) => (
+            <DropdownItem key={k} onClick={() => { onUpdate(task.id, "status", k); setOpen(false); }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: v.color, display: "inline-block", marginRight: 6 }} />{v.label}
+            </DropdownItem>
+          ))}
+        </Dropdown>
+      )}
+    </div>
+  );
+}
+
+function PriorityPill({ task, onUpdate, S }) {
+  const pr = PRIORITY[task.priority] || PRIORITY.none;
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <span onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", background: pr.bg, color: pr.color }}>{pr.label}</span>
+      {open && (
+        <Dropdown onClose={() => setOpen(false)}>
+          {Object.entries(PRIORITY).map(([k, v]) => (
+            <DropdownItem key={k} onClick={() => { onUpdate(task.id, "priority", k); setOpen(false); }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: v.dot, display: "inline-block", marginRight: 6 }} />{v.label}
+            </DropdownItem>
+          ))}
+        </Dropdown>
+      )}
+    </div>
+  );
+}
+
+function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname }) {
+  const [open, setOpen] = useState(false);
+  const [aSearch, setASearch] = useState("");
+  const pl = Object.values(profiles);
+  const filtered = aSearch.trim() ? pl.filter(u => (u.display_name||"").toLowerCase().includes(aSearch.toLowerCase()) || (u.email||"").toLowerCase().includes(aSearch.toLowerCase())) : pl;
+  return (
+    <div style={{ position: "relative" }}>
+      <div onClick={(e) => { e.stopPropagation(); setOpen(!open); setASearch(""); }}
+        style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", padding: "2px 4px", borderRadius: 4 }}>
+        {task.assignee_id ? (
+          <>
+            <div style={{ width: 20, height: 20, borderRadius: 10, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div>
+            <span style={{ fontSize: 12, color: T.text2, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{uname(task.assignee_id).split(" ")[0]}</span>
+          </>
+        ) : (
+          <div style={{ width: 20, height: 20, borderRadius: 10, border: `1.5px dashed ${T.text3}` }} />
+        )}
+      </div>
+      {open && (
+        <Dropdown onClose={() => setOpen(false)} wide>
+          <div style={{ padding: "4px 6px" }}>
+            <input autoFocus value={aSearch} onChange={e => setASearch(e.target.value)} onClick={e => e.stopPropagation()} placeholder="Search…"
+              style={{ width: "100%", padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+          </div>
+          {profile?.id && task.assignee_id !== profile.id && (
+            <DropdownItem onClick={() => { onUpdate(task.id, "assignee_id", profile.id); setOpen(false); }}>
+              <span style={{ color: T.accent, fontWeight: 600, fontSize: 11 }}>→ Assign to me</span>
+            </DropdownItem>
+          )}
+          <DropdownItem onClick={() => { onUpdate(task.id, "assignee_id", null); setOpen(false); }}>
+            <span style={{ color: T.text3 }}>Unassigned</span>
+          </DropdownItem>
+          {filtered.map(u => (
+            <DropdownItem key={u.id} onClick={() => { onUpdate(task.id, "assignee_id", u.id); setOpen(false); }}>
+              <div style={{ width: 18, height: 18, borderRadius: 9, background: acol(u.id) + "30", color: acol(u.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>{ini(u.id)}</div>
+              {u.display_name || u.email}
+            </DropdownItem>
+          ))}
+        </Dropdown>
+      )}
+    </div>
+  );
+}
+
+function DateCell({ task, onUpdate }) {
+  const od = isOverdue(task.due_date) && task.status !== "done";
+  return (
+    <input type="date" value={task.due_date || ""} onChange={(e) => onUpdate(task.id, "due_date", e.target.value || null)}
+      onClick={(e) => e.stopPropagation()}
+      style={{ background: "none", border: "none", color: od ? T.red : task.due_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit" }} />
   );
 }
 
