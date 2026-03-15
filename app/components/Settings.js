@@ -7,7 +7,8 @@ import { useTheme } from "../lib/theme";
 import { notifySlack } from "../lib/slack";
 import { NAV_ITEMS } from "./Sidebar";
 
-const TABS = ["Profile","Organization","Team","Permissions","Integrations","Notifications","About"];
+const ALL_TABS = ["Profile","Organization","Team","Permissions","Integrations","Notifications","About"];
+const MEMBER_TABS = ["Profile","Notifications"];
 const TIMEZONES = ["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Anchorage","Pacific/Honolulu","Europe/London","Europe/Paris","Europe/Berlin","Asia/Tokyo","Asia/Shanghai","Asia/Kolkata","Australia/Sydney","Pacific/Auckland"];
 
 function Section({ title, subtitle, children }) {
@@ -38,7 +39,7 @@ const inp = {
   boxSizing:"border-box",
 };
 
-export default function SettingsView() {
+export default function SettingsView({ isAdmin }) {
   const { user, profile, signOut } = useAuth();
   const { mode, toggle, accentKey, setAccent, ACCENT_PRESETS } = useTheme();
   const [activeTab, setActiveTab] = useState("Profile");
@@ -112,7 +113,7 @@ export default function SettingsView() {
       {/* Sidebar */}
       <div style={{ width:200, borderRight:`1px solid ${T.border}`, padding:"20px 12px", flexShrink:0, overflowY:"auto" }}>
         <div style={{ fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:1, marginBottom:10, padding:"0 8px" }}>Settings</div>
-        {TABS.map(tab => (
+        {(isAdmin ? ALL_TABS : MEMBER_TABS).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             width:"100%", textAlign:"left", padding:"8px 12px", borderRadius:7,
             border:"none", cursor:"pointer", fontSize:13, fontWeight:activeTab===tab?600:400,

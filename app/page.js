@@ -242,7 +242,7 @@ export default function HelmApp() {
       case "reports": return <ReportsView />;
       case "people": return <PeopleView />;
       case "activity": return <ActivityView setActive={setActive} />;
-      case "settings": return <SettingsView />;
+      case "settings": return <SettingsView isAdmin={isAdmin} />;
       case "ai-builder": return <AIBuilderView />;
       default: return <DashboardView setActive={setActive} />;
     }
