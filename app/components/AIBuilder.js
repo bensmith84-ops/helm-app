@@ -457,6 +457,8 @@ export default function AIBuilderView() {
       if (type === "patch") {
         // Parse <<<FIND/===/>>> blocks (flexible matching)
         const replacements = [];
+        console.log("[AI Builder] Raw patch content:", raw.slice(0, 200));
+        
         // Try multiple regex patterns to catch various AI output formats
         const patterns = [
           /<<<\s*FIND\s*\n([\s\S]*?)\n\s*===+\s*\n([\s\S]*?)\n\s*>>>/g,
@@ -475,6 +477,26 @@ export default function AIBuilderView() {
           }
           if (replacements.length > 0) break;
         }
+        
+        // Ultimate fallback: split on === if there are exactly 2 parts
+        if (replacements.length === 0 && raw.includes("===")) {
+          console.log("[AI Builder] Trying === split fallback");
+          // Remove <<< and >>> markers if present
+          const cleaned = raw.replace(/^<<<[^\n]*\n/gm, "").replace(/\n>>>\s*$/gm, "").replace(/^>>>\s*$/gm, "");
+          const halves = cleaned.split(/\n\s*===+\s*\n/);
+          if (halves.length === 2) {
+            replacements.push({ find: halves[0].trim(), replace: halves[1].trim() });
+          } else if (halves.length > 2) {
+            // Multiple patches separated by ===, alternate FIND/REPLACE
+            for (let hi = 0; hi < halves.length - 1; hi += 2) {
+              if (halves[hi] && halves[hi + 1] !== undefined) {
+                replacements.push({ find: halves[hi].trim(), replace: halves[hi + 1].trim() });
+              }
+            }
+          }
+        }
+        
+        console.log("[AI Builder] Found", replacements.length, "replacements");
         blocks.push({ type: "patch", name, content: raw, replacements, id: `patch-${name}-${match.index}` });
       } else {
         blocks.push({ type, name, content: raw, id: `${type}-${name}-${match.index}` });
@@ -556,7 +578,7 @@ export default function AIBuilderView() {
                                   if (block?.replacements?.length) {
                                     applyPatch(blockName, block.replacements, `patch(ai-builder): ${blockName}`, blockId);
                                   } else {
-                                    alert("No valid <<<FIND/===/>>> blocks found in this patch.");
+                                    alert("No valid patches found. Raw content starts with:\n\n" + (block?.content || "").slice(0, 300));
                                   }
                                 }
                                 else if (blockType === "deploy") {
