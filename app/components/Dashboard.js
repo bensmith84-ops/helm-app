@@ -838,6 +838,8 @@ export default function DashboardView({ setActive }) {
   const [recentActivity, setRecentActivity] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
   const [focusItems, setFocusItems] = useState([]);
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [newTaskForm, setNewTaskForm] = useState({ title: "", project_id: "", section_id: "", priority: "none" });
   const [calCollapsed, setCalCollapsed] = useState(() => {
     try { return localStorage.getItem("helm-cal-collapsed") === "true"; } catch { return false; }
   });
@@ -852,12 +854,13 @@ export default function DashboardView({ setActive }) {
       const yr = new Date().getFullYear();
       const todayStr = new Date().toISOString().split("T")[0];
       const [
-        { data: projects }, { data: tasks }, { data: profiles },
+        { data: projects }, { data: sections }, { data: tasks }, { data: profiles },
         { data: objectives }, { data: keyResults }, { data: cycles },
         { data: approvals }, { data: fmData }, { data: plm },
         { data: activity }, { data: focus },
       ] = await Promise.all([
         supabase.from("projects").select("*").is("deleted_at", null).order("name"),
+        supabase.from("sections").select("*").order("sort_order"),
         supabase.from("tasks").select("*").is("deleted_at", null),
         supabase.from("profiles").select("id,display_name,avatar_url"),
         supabase.from("objectives").select("*").is("deleted_at", null).order("sort_order"),
@@ -877,7 +880,7 @@ export default function DashboardView({ setActive }) {
       const cycleObjs = activeCycle ? (objectives || []).filter(o => o.cycle_id === activeCycle.id) : (objectives || []);
       const cycleKRs = (keyResults || []).filter(k => cycleObjs.some(o => o.id === k.objective_id));
 
-      setData({ projects: projects||[], tasks: tasks||[], profiles: profMap,
+      setData({ projects: projects||[], sections: sections||[], tasks: tasks||[], profiles: profMap,
         objectives: cycleObjs, keyResults: cycleKRs, cycles: cycles||[], activeCycle });
       setPendingApprovals(approvals || []);
       setPlmPrograms(plm || []);
@@ -998,10 +1001,14 @@ export default function DashboardView({ setActive }) {
         {/* ── Quick Actions ── */}
         <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap", alignItems:"center" }}>
           {[
-            { icon:"☐", label:"New Task", action:() => setActive("projects"), color:"#3b82f6" },
-            { icon:"◎", label:"Check-in KR", action:() => setActive("okrs"), color:"#22c55e" },
-            { icon:"📋", label:"Post Update", action:() => setActive("projects"), color:"#a855f7" },
-            { icon:"📄", label:"New Doc", action:() => setActive("docs"), color:"#06b6d4" },
+            { icon:"☐", label:"New Task", action:() => { setNewTaskForm({ title: "", project_id: "", section_id: "", priority: "none" }); setShowNewTask(true); }, color:"#3b82f6" },
+            { icon:"📄", label:"New Doc", action:async () => {
+              await supabase.from("documents").insert({
+                org_id: profile.org_id, title: "Untitled", emoji: "📄", status: "draft", visibility: "team",
+                created_by: profile.id, content: [{ type: "text", content: "" }], sort_order: 0, depth: 0,
+              });
+              setActive("docs");
+            }, color:"#06b6d4" },
             { icon:"📊", label:"Reports", action:() => setActive("reports"), color:"#f97316" },
           ].map(a => (
             <button key={a.label} onClick={a.action} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:8, border:`1px solid ${a.color}30`, background:`${a.color}10`, color:a.color, fontSize:12, fontWeight:600, cursor:"pointer", transition:"all 0.15s" }}
@@ -1011,6 +1018,91 @@ export default function DashboardView({ setActive }) {
             </button>
           ))}
         </div>
+
+        {/* ── New Task Modal ── */}
+        {showNewTask && (
+          <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.5)" }} onClick={() => setShowNewTask(false)} />
+            <div style={{ position:"relative", width:460, background:T.surface, borderRadius:14, border:`1px solid ${T.border}`, boxShadow:"0 20px 60px rgba(0,0,0,0.4)", zIndex:201, overflow:"hidden" }}>
+              <div style={{ padding:"18px 24px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <h3 style={{ fontSize:16, fontWeight:700, margin:0 }}>New Task</h3>
+                <button onClick={() => setShowNewTask(false)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:18 }}>×</button>
+              </div>
+              <div style={{ padding:"20px 24px" }}>
+                <div style={{ marginBottom:14 }}>
+                  <label style={{ fontSize:12, fontWeight:600, color:T.text2, display:"block", marginBottom:4 }}>Task Title *</label>
+                  <input autoFocus value={newTaskForm.title} onChange={e => setNewTaskForm(p => ({...p, title: e.target.value}))}
+                    onKeyDown={e => { if (e.key === "Enter" && newTaskForm.title.trim()) { document.getElementById("dash-create-task-btn")?.click(); } }}
+                    placeholder="What needs to be done?"
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:14, outline:"none", boxSizing:"border-box" }} />
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Project</label>
+                    <select value={newTaskForm.project_id} onChange={e => setNewTaskForm(p => ({...p, project_id: e.target.value, section_id: ""}))}
+                      style={{ width:"100%", padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:12, cursor:"pointer" }}>
+                      <option value="">Personal Task (no project)</option>
+                      {(data?.projects||[]).filter(p => p.status !== "archived").map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Section</label>
+                    <select value={newTaskForm.section_id} onChange={e => setNewTaskForm(p => ({...p, section_id: e.target.value}))}
+                      disabled={!newTaskForm.project_id}
+                      style={{ width:"100%", padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color: newTaskForm.project_id ? T.text : T.text3, fontSize:12, cursor:"pointer", opacity: newTaskForm.project_id ? 1 : 0.5 }}>
+                      <option value="">Default</option>
+                      {(data?.sections||[]).filter(s => s.project_id === newTaskForm.project_id).map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div style={{ marginBottom:14 }}>
+                  <label style={{ fontSize:11, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Priority</label>
+                  <div style={{ display:"flex", gap:6 }}>
+                    {[{k:"none",l:"None"},{k:"low",l:"Low",c:"#22c55e"},{k:"medium",l:"Medium",c:"#eab308"},{k:"high",l:"High",c:"#f97316"},{k:"urgent",l:"Urgent",c:"#ef4444"}].map(p => (
+                      <button key={p.k} onClick={() => setNewTaskForm(prev => ({...prev, priority: p.k}))}
+                        style={{ padding:"4px 12px", borderRadius:6, border: newTaskForm.priority === p.k ? `1.5px solid ${p.c||T.border}` : `1px solid ${T.border}`,
+                          background: newTaskForm.priority === p.k ? (p.c||T.text3)+"15" : "transparent",
+                          color: newTaskForm.priority === p.k ? (p.c||T.text2) : T.text3, fontSize:11, fontWeight:500, cursor:"pointer" }}>{p.l}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding:"14px 24px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8, justifyContent:"space-between", alignItems:"center" }}>
+                <div style={{ fontSize:11, color:T.text3 }}>{newTaskForm.project_id ? "Will be added to project" : "Personal task — appears in My Tasks"}</div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={() => setShowNewTask(false)} style={{ padding:"8px 16px", borderRadius:8, background:T.surface3, color:T.text2, border:"none", fontSize:13, cursor:"pointer" }}>Cancel</button>
+                  <button id="dash-create-task-btn" onClick={async () => {
+                    if (!newTaskForm.title.trim()) return;
+                    const secs = newTaskForm.project_id && !newTaskForm.section_id
+                      ? (data?.sections||[]).filter(s => s.project_id === newTaskForm.project_id)
+                      : [];
+                    const secId = newTaskForm.section_id || (secs.length > 0 ? secs[0].id : null);
+                    const { data: newTask, error } = await supabase.from("tasks").insert({
+                      org_id: profile.org_id, project_id: newTaskForm.project_id || null,
+                      section_id: secId, title: newTaskForm.title.trim(),
+                      status: "todo", priority: newTaskForm.priority || "none",
+                      assignee_id: profile.id, sort_order: 0, created_by: profile.id,
+                    }).select().single();
+                    if (error) { alert("Failed: " + error.message); return; }
+                    setShowNewTask(false);
+                    setActive("projects");
+                  }}
+                    disabled={!newTaskForm.title.trim()}
+                    style={{ padding:"8px 20px", borderRadius:8, border:"none",
+                      background: newTaskForm.title.trim() ? T.accent : T.surface3,
+                      color: newTaskForm.title.trim() ? "#fff" : T.text3,
+                      fontSize:13, fontWeight:600, cursor: newTaskForm.title.trim() ? "pointer" : "default" }}>
+                    Create Task
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Daily Focus ── */}
         <TodaysFocus tasks={tasks} projects={projects} focusItems={focusItems} setFocusItems={setFocusItems} todayStr={todayStr} setActive={setActive} profile={profile} />
