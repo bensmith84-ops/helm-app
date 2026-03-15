@@ -371,7 +371,29 @@ export default function ProjectsView() {
       <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterPriority ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">Priority</option>{Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
       <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterAssignee ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">Assignee</option>{assignees.map(uid => <option key={uid} value={uid}>{uname(uid) || uid.slice(0, 8)}</option>)}</select>
       {hasF && <button onClick={() => { setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }} style={{ ...S.iconBtn, fontSize: 11, color: T.red }}>✕ Clear</button>}
-      <span style={{ marginLeft: "auto", fontSize: 11, color: T.text3 }}>{filteredTasks.filter(t => !t.parent_task_id).length} tasks</span>
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        {selectedTasks.size > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: T.accentDim, border: `1px solid ${T.accent}40` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>{selectedTasks.size} selected</span>
+            <select onChange={e => { if (e.target.value) { bulkUpdateTasks("status", e.target.value); e.target.value = ""; } }} defaultValue=""
+              style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.accent}40`, background: T.surface, color: T.text, cursor: "pointer", outline: "none" }}>
+              <option value="">Set status…</option>
+              {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+            <select onChange={e => { if (e.target.value) { bulkUpdateTasks("priority", e.target.value); e.target.value = ""; } }} defaultValue=""
+              style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.accent}40`, background: T.surface, color: T.text, cursor: "pointer", outline: "none" }}>
+              <option value="">Set priority…</option>
+              {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+            <button onClick={() => { [...selectedTasks].forEach(id => deleteTask(id)); setSelectedTasks(new Set()); }}
+              style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: `1px solid #ef444440`, background: "#ef444415", color: "#ef4444", cursor: "pointer" }}>
+              Delete
+            </button>
+            <button onClick={() => setSelectedTasks(new Set())} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>✕</button>
+          </div>
+        )}
+        <span style={{ fontSize: 11, color: T.text3 }}>{filteredTasks.filter(t => !t.parent_task_id).length} tasks</span>
+      </div>
     </div>); };
   const Checkbox = ({ task, size = 16 }) => { const dn = task.status === "done"; const st = STATUS[task.status] || STATUS.todo; return (<div onClick={(e) => toggleDone(task, e)} style={{ width: size, height: size, borderRadius: size / 2, border: `2px solid ${dn ? T.green : st.color}`, background: dn ? T.green : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>{dn && <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}</div>); };
 
@@ -382,7 +404,7 @@ export default function ProjectsView() {
   const AssigneeCell = ({ task }) => { const [open, setOpen] = useState(false); const pl = Object.values(profiles); return (<div style={{ position: "relative" }}><div onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", padding: "2px 4px", borderRadius: 4 }}>{task.assignee_id ? (<><div style={{ width: 20, height: 20, borderRadius: 10, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div><span style={{ fontSize: 12, color: T.text2, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{uname(task.assignee_id).split(" ")[0]}</span></>) : (<div style={{ width: 20, height: 20, borderRadius: 10, border: `1.5px dashed ${T.text3}` }} />)}</div>{open && (<Dropdown onClose={() => setOpen(false)} wide><DropdownItem onClick={() => { updateField(task.id, "assignee_id", null); setOpen(false); }}><span style={{ color: T.text3 }}>Unassigned</span></DropdownItem>{pl.map(u => (<DropdownItem key={u.id} onClick={() => { updateField(task.id, "assignee_id", u.id); setOpen(false); }}><div style={{ width: 18, height: 18, borderRadius: 9, background: acol(u.id) + "30", color: acol(u.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>{ini(u.id)}</div>{u.display_name || u.email}</DropdownItem>))}</Dropdown>)}</div>); };
 
   const DateCell = ({ task }) => { const od = isOverdue(task.due_date) && task.status !== "done"; return (<input type="date" value={task.due_date || ""} onChange={(e) => updateField(task.id, "due_date", e.target.value || null)} onClick={(e) => e.stopPropagation()} style={{ background: "none", border: "none", color: od ? T.red : task.due_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit" }} />); };
-  const TaskRow = ({ task, depth = 0 }) => { const subs = getSubtasks(task.id); const hasSubs = subs.length > 0 || addingSubtaskTo === task.id; const exp = expandedTasks[task.id]; const hov = hoveredRow === task.id; const sel = selectedTask?.id === task.id; return (<>{/* row */}<div style={{ ...S.row(hov, sel), paddingLeft: 12 + depth * 24 }} onClick={() => setSelectedTask(task)} onMouseEnter={() => setHoveredRow(task.id)} onMouseLeave={() => setHoveredRow(null)}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} /><span style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{task.title}</span>{subs.length > 0 && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}{hov && <div style={{ display: "flex", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div>}</div><StatusPill task={task} /><PriorityPill task={task} /><AssigneeCell task={task} /><DateCell task={task} /></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSubtaskTo === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
+  const TaskRow = ({ task, depth = 0 }) => { const subs = getSubtasks(task.id); const hasSubs = subs.length > 0 || addingSubtaskTo === task.id; const exp = expandedTasks[task.id]; const hov = hoveredRow === task.id; const sel = selectedTask?.id === task.id; return (<>{/* row */}<div style={{ ...S.row(hov, sel), paddingLeft: 12 + depth * 24, background: selectedTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : hov ? T.surface2 : "transparent" }} onClick={() => setSelectedTask(task)} onMouseEnter={() => setHoveredRow(task.id)} onMouseLeave={() => setHoveredRow(null)}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} /><span style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{task.title}</span>{subs.length > 0 && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}{hov && <div style={{ display: "flex", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div>}</div><StatusPill task={task} /><PriorityPill task={task} /><AssigneeCell task={task} /><DateCell task={task} /></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSubtaskTo === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
 
   const ListView = () => { const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
@@ -449,58 +471,373 @@ export default function ProjectsView() {
           </div>); })}
       </div>
     </div>); };
-  const MyTasksView = () => { const mt = tasks.filter(t => t.assignee_id === user?.id && t.status !== "done").sort((a, b) => { if (a.due_date && !b.due_date) return -1; if (!a.due_date && b.due_date) return 1; if (a.due_date && b.due_date) return new Date(a.due_date) - new Date(b.due_date); return 0; }); return (
-    <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>My Tasks</h2>
-      {!mt.length ? <div style={{ textAlign: "center", padding: 40, color: T.text3 }}><div style={{ fontSize: 14 }}>No tasks assigned to you</div></div> : mt.map(task => { const p = projects.find(pr => pr.id === task.project_id); return (
-        <div key={task.id} onClick={() => { setActiveProject(task.project_id); setShowMyTasks(false); setTimeout(() => setSelectedTask(task), 100); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 6, border: `1px solid ${T.border}`, marginBottom: 6, cursor: "pointer", background: T.surface }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = T.surface}>
-          <Checkbox task={task} />
-          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, color: T.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div><div style={{ fontSize: 11, color: T.text3 }}>{p?.name || ""}</div></div>
-          {task.due_date && <span style={{ fontSize: 11, color: isOverdue(task.due_date) ? T.red : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
-          <PriorityPill task={task} />
-        </div>); })}
-    </div>); };
-  const DetailPane = () => { if (!selectedTask) return null; const task = selectedTask; const subs = getSubtasks(task.id); const bb = getBlockedBy(task.id); const bl = getBlocking(task.id); const tcf = customFieldValues[task.id] || {}; const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : null; return (
-    <div style={{ width: 400, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideIn 0.2s ease" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${T.border}` }}>
-        <Checkbox task={task} size={18} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {parent && <div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Subtask of: {parent.title}</div>}
-          <input value={task.title} onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, title: v })); setTasks(p => p.map(t => t.id === task.id ? { ...t, title: v } : t)); }} onBlur={() => updateField(task.id, "title", task.title)} style={{ fontSize: 16, fontWeight: 700, color: T.text, background: "none", border: "none", outline: "none", width: "100%", padding: 0 }} />
+  const MyTasksView = () => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const weekOut = new Date(today); weekOut.setDate(weekOut.getDate() + 7);
+    const mt = tasks.filter(t => t.assignee_id === user?.id && t.status !== "done" && !t.parent_task_id);
+    const todayTasks = mt.filter(t => t.due_date && new Date(t.due_date) <= today);
+    const upcomingTasks = mt.filter(t => t.due_date && new Date(t.due_date) > today && new Date(t.due_date) <= weekOut);
+    const somedayTasks = mt.filter(t => !t.due_date || new Date(t.due_date) > weekOut);
+    const [myFilter, setMyFilter] = useState("all");
+    const groups = [
+      { key: "overdue", label: "⚠️ Overdue", tasks: todayTasks, color: "#ef4444" },
+      { key: "upcoming", label: "📅 Next 7 Days", tasks: upcomingTasks, color: T.accent },
+      { key: "someday", label: "🗓 Later", tasks: somedayTasks, color: T.text3 },
+    ].filter(g => g.tasks.length > 0);
+    return (
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0 }}>My Tasks</h2>
+          <span style={{ fontSize: 12, color: T.text3 }}>· {mt.length} open</span>
         </div>
-        <button onClick={() => setSelectedTask(null)} style={S.iconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        {!mt.length ? (
+          <div style={{ textAlign: "center", padding: "60px 0", color: T.text3 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>All clear!</div>
+            <div style={{ fontSize: 13, marginTop: 4 }}>No tasks assigned to you.</div>
+          </div>
+        ) : groups.map(group => (
+          <div key={group.key} style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: group.color, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+              {group.label}
+              <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 8, background: group.color + "20", color: group.color }}>{group.tasks.length}</span>
+            </div>
+            {group.tasks.map(task => {
+              const p = projects.find(pr => pr.id === task.project_id);
+              const pr = PRIORITY[task.priority] || PRIORITY.none;
+              return (
+                <div key={task.id} onClick={() => { setActiveProject(task.project_id); setShowMyTasks(false); setTimeout(() => setSelectedTask(task), 100); }}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 5, cursor: "pointer", background: T.surface, borderLeft: `3px solid ${pr.dot}` }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                  onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+                  <Checkbox task={task} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: T.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: p?.color || T.text3, marginRight: 4 }} />
+                      {p?.name || ""}
+                      {task.section_id && <span style={{ color: T.text3 }}> · {sections.find(s => s.id === task.section_id)?.name || ""}</span>}
+                    </div>
+                  </div>
+                  {task.estimated_hours && <span style={{ fontSize: 10, color: T.text3 }}>{task.estimated_hours}h</span>}
+                  {task.due_date && <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 8, background: group.key === "overdue" ? "#ef444420" : T.surface3, color: group.key === "overdue" ? "#ef4444" : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
-      <div style={{ flex: 1, overflow: "auto", padding: "12px 16px" }}>
-        {/* Fields grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: "8px 12px", alignItems: "center", marginBottom: 16 }}>
-          <span style={{ fontSize: 12, color: T.text3 }}>Status</span><StatusPill task={task} />
-          <span style={{ fontSize: 12, color: T.text3 }}>Priority</span><PriorityPill task={task} />
-          <span style={{ fontSize: 12, color: T.text3 }}>Assignee</span><AssigneeCell task={task} />
-          <span style={{ fontSize: 12, color: T.text3 }}>Due date</span><DateCell task={task} />
-          <span style={{ fontSize: 12, color: T.text3 }}>Section</span>
-          <select value={task.section_id || ""} onChange={e => updateField(task.id, "section_id", e.target.value)} style={{ padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }}>{projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+    );
+  };
+  const DetailPane = () => {
+    const [activeDetailTab, setActiveDetailTab] = useState("details");
+    const [activity, setActivity] = useState([]);
+    const [activityLoading, setActivityLoading] = useState(false);
+    if (!selectedTask) return null;
+    const task = selectedTask;
+    const subs = getSubtasks(task.id);
+    const bb = getBlockedBy(task.id);
+    const bl = getBlocking(task.id);
+    const tcf = customFieldValues[task.id] || {};
+    const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : null;
+
+    const DETAIL_TABS = ["Details", "Activity", "Subtasks", "Files"];
+    const LABEL_COLORS = { bug: "#ef4444", feature: "#22c55e", improvement: "#3b82f6", design: "#a855f7", urgent: "#f97316", research: "#06b6d4" };
+    const ALL_LABELS = Object.keys(LABEL_COLORS);
+    const taskLabels = task.labels || [];
+    const toggleLabel = (label) => {
+      const newLabels = taskLabels.includes(label) ? taskLabels.filter(l => l !== label) : [...taskLabels, label];
+      updateField(task.id, "labels", newLabels);
+    };
+    const prBar = task.target_value > 0 ? Math.min(100, Math.round(((task.current_value || 0) / task.target_value) * 100)) : 0;
+
+    // Load activity when tab switches
+    const loadActivity = async () => {
+      if (activity.length && activity[0]?.task_id === task.id) return;
+      setActivityLoading(true);
+      const { data } = await supabase.from("task_activity").select("*").eq("task_id", task.id).order("created_at", { ascending: false }).limit(50);
+      setActivity(data || []);
+      setActivityLoading(false);
+    };
+
+    const pct = subs.length > 0 ? (subs.filter(s => s.status === "done").length / subs.length) * 100 : 0;
+    const FIELD_LABEL = { fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 };
+
+    return (
+      <div style={{ width: 420, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideIn 0.2s ease" }}>
+        {/* Header */}
+        <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+            <Checkbox task={task} size={18} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {parent && <div style={{ fontSize: 10, color: T.text3, marginBottom: 3 }}>↳ {parent.title}</div>}
+              <input value={task.title} onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, title: v })); setTasks(p => p.map(t => t.id === task.id ? { ...t, title: v } : t)); }}
+                onBlur={() => updateField(task.id, "title", task.title)}
+                style={{ fontSize: 15, fontWeight: 700, color: T.text, background: "none", border: "none", outline: "none", width: "100%", padding: 0, lineHeight: 1.3 }} />
+            </div>
+            <button onClick={() => setSelectedTask(null)} style={S.iconBtn}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+          {/* Labels */}
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+            {taskLabels.map(l => (
+              <span key={l} onClick={() => toggleLabel(l)} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, background: (LABEL_COLORS[l] || T.accent) + "20", color: LABEL_COLORS[l] || T.accent, fontWeight: 700, cursor: "pointer" }}>
+                {l} ×
+              </span>
+            ))}
+            <div style={{ position: "relative" }}>
+              <button style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, border: `1px dashed ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}
+                onClick={e => { e.stopPropagation(); const m = e.currentTarget.nextSibling; m.style.display = m.style.display === "none" ? "block" : "none"; }}>
+                + label
+              </button>
+              <div style={{ display: "none", position: "absolute", top: "100%", left: 0, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 6, minWidth: 120, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", marginTop: 4 }}>
+                {ALL_LABELS.map(l => (
+                  <div key={l} onClick={e => { e.stopPropagation(); toggleLabel(l); e.currentTarget.closest("[style*='display: block']").style.display = "none"; }}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11 }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <span style={{ width: 8, height: 8, borderRadius: 4, background: LABEL_COLORS[l] }} />
+                    <span style={{ color: taskLabels.includes(l) ? T.accent : T.text }}>{l}</span>
+                    {taskLabels.includes(l) && <span style={{ marginLeft: "auto", fontSize: 10, color: T.accent }}>✓</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          {/* Tab bar */}
+          <div style={{ display: "flex", gap: 0, marginTop: 4 }}>
+            {DETAIL_TABS.map(tab => (
+              <button key={tab} onClick={() => { setActiveDetailTab(tab.toLowerCase()); if (tab === "Activity") loadActivity(); }}
+                style={{ padding: "5px 12px", fontSize: 12, fontWeight: activeDetailTab === tab.toLowerCase() ? 600 : 400, color: activeDetailTab === tab.toLowerCase() ? T.accent : T.text3, background: "none", border: "none", borderBottom: `2px solid ${activeDetailTab === tab.toLowerCase() ? T.accent : "transparent"}`, cursor: "pointer" }}>
+                {tab}{tab === "Subtasks" && subs.length > 0 ? ` (${subs.length})` : ""}
+              </button>
+            ))}
+          </div>
         </div>
-        {/* Custom fields */}
-        {customFields.length > 0 && <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 6 }}>Custom Fields</div>{customFields.map(cf => <div key={cf.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}><span style={{ fontSize: 12, color: T.text3, width: 100 }}>{cf.name}</span><input value={tcf[cf.id] || ""} onChange={e => updateCustomFieldValue(task.id, cf.id, e.target.value)} style={{ flex: 1, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} /></div>)}</div>}
-        <button onClick={createCustomField} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: "2px 0", marginBottom: 12 }}>+ Add custom field</button>
-        {/* Description */}
-        <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 6 }}>Description</div><textarea value={task.description || ""} rows={3} placeholder="Add a description…" onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, description: v })); setTasks(p => p.map(t => t.id === task.id ? { ...t, description: v } : t)); }} onBlur={() => updateField(task.id, "description", task.description || "")} style={{ width: "100%", padding: 8, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} /></div>
-        {/* Subtasks */}
-        <div style={{ marginBottom: 16 }}><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, fontWeight: 600, color: T.text2 }}>Subtasks</span><button onClick={() => { setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); }} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer" }}>+ Add</button></div>
-          {subs.length > 0 && <div><div style={{ height: 3, borderRadius: 2, background: T.surface3, marginBottom: 6 }}><div style={{ width: `${(subs.filter(s => s.status === "done").length / subs.length) * 100}%`, height: "100%", borderRadius: 2, background: T.green, transition: "width 0.4s" }} /></div>{subs.map(sub => <div key={sub.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", cursor: "pointer" }} onClick={() => setSelectedTask(sub)}><Checkbox task={sub} size={14} /><span style={{ fontSize: 12, color: sub.status === "done" ? T.text3 : T.text, textDecoration: sub.status === "done" ? "line-through" : "none", flex: 1 }}>{sub.title}</span>{sub.assignee_id && <div style={{ width: 16, height: 16, borderRadius: 8, background: acol(sub.assignee_id) + "30", color: acol(sub.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700 }}>{ini(sub.assignee_id)}</div>}</div>)}</div>}
-          {addingSubtaskTo === task.id && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} placeholder="Subtask name…" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} /></div>}
-        </div>
-        {/* Dependencies */}
-        {(bb.length > 0 || bl.length > 0) && <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 6 }}>Dependencies</div>{bb.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12 }}><span style={{ color: T.red, fontSize: 10 }}>blocked by</span><span style={{ color: T.text }}>{d.task.title}</span><button onClick={() => removeDependency(d.id)} style={{ ...S.iconBtn, marginLeft: "auto" }}>✕</button></div>)}{bl.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12 }}><span style={{ color: T.orange, fontSize: 10 }}>blocking</span><span style={{ color: T.text }}>{d.task.title}</span><button onClick={() => removeDependency(d.id)} style={{ ...S.iconBtn, marginLeft: "auto" }}>✕</button></div>)}</div>}
-        {/* Attachments */}
-        <div style={{ marginBottom: 16 }}><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, fontWeight: 600, color: T.text2 }}>Attachments</span><label style={{ fontSize: 11, color: T.accent, cursor: "pointer" }}>+ Upload<input type="file" hidden onChange={e => e.target.files?.[0] && uploadAttachment(e.target.files[0])} /></label></div>{attachments.map(att => <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", fontSize: 12 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><a href={getFileUrl(att.file_path)} target="_blank" rel="noopener" style={{ color: T.accent, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</a><span style={{ color: T.text3, fontSize: 10 }}>{formatFileSize(att.file_size)}</span><button onClick={() => deleteAttachment(att)} style={S.iconBtn}>✕</button></div>)}</div>
-        {/* Comments */}
-        <div><div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 8 }}>Comments</div>{comments.map(c => <div key={c.id} style={{ marginBottom: 10, display: "flex", gap: 8 }}><div style={{ width: 24, height: 24, borderRadius: 12, background: acol(c.author_id) + "30", color: acol(c.author_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>{ini(c.author_id)}</div><div style={{ flex: 1 }}><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}><span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{uname(c.author_id)}</span><span style={{ fontSize: 10, color: T.text3 }}>{timeAgo(c.created_at)}</span></div><div style={{ fontSize: 13, color: T.text2, lineHeight: 1.4 }}>{c.content}</div></div></div>)}
-          <div style={{ display: "flex", gap: 8, marginTop: 4 }}><input value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => e.key === "Enter" && addComment()} placeholder="Write a comment…" style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} /><button onClick={addComment} disabled={!newComment.trim()} style={{ padding: "6px 12px", borderRadius: 6, background: newComment.trim() ? T.accent : T.surface3, color: newComment.trim() ? "#fff" : T.text3, border: "none", fontSize: 12, cursor: "pointer" }}>Send</button></div>
+
+        <div style={{ flex: 1, overflow: "auto", padding: "14px 16px" }}>
+          {/* DETAILS TAB */}
+          {activeDetailTab === "details" && (
+            <div>
+              {/* Core fields grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "10px 12px", alignItems: "center", marginBottom: 18 }}>
+                <span style={FIELD_LABEL}>Status</span><StatusPill task={task} />
+                <span style={FIELD_LABEL}>Priority</span><PriorityPill task={task} />
+                <span style={FIELD_LABEL}>Assignee</span><AssigneeCell task={task} />
+                <span style={FIELD_LABEL}>Due Date</span><DateCell task={task} />
+                <span style={FIELD_LABEL}>Start Date</span>
+                <input type="date" value={task.start_date || ""} onChange={e => updateField(task.id, "start_date", e.target.value || null)}
+                  style={{ background: "none", border: "none", color: task.start_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }} />
+                <span style={FIELD_LABEL}>Section</span>
+                <select value={task.section_id || ""} onChange={e => updateField(task.id, "section_id", e.target.value)}
+                  style={{ padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }}>
+                  {projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
+              {/* Effort tracking */}
+              <div style={{ background: T.surface2, borderRadius: 8, padding: "12px 14px", marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Effort</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 10, color: T.text3, display: "block", marginBottom: 3 }}>Est. Hours</label>
+                    <input type="number" value={task.estimated_hours || ""} onChange={e => updateField(task.id, "estimated_hours", e.target.value ? Number(e.target.value) : null)}
+                      placeholder="0" style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10, color: T.text3, display: "block", marginBottom: 3 }}>Story Points</label>
+                    <input type="number" value={task.story_points || ""} onChange={e => updateField(task.id, "story_points", e.target.value ? Number(e.target.value) : null)}
+                      placeholder="0" style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Link to OKR KR */}
+              {objectives.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Linked OKR</label>
+                  <select value={task.linked_kr_id || ""} onChange={e => updateField(task.id, "linked_kr_id", e.target.value || null)}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: task.linked_kr_id ? T.accent : T.text3, fontSize: 12, outline: "none", cursor: "pointer" }}>
+                    <option value="">No linked KR</option>
+                    {objectives.map(obj => (
+                      <optgroup key={obj.id} label={obj.title}>
+                        {/* We don't have KRs here easily, but show objectives as a start */}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {task.linked_kr_id && <div style={{ fontSize: 10, color: T.accent, marginTop: 4 }}>✓ Contributes to OKR progress</div>}
+                </div>
+              )}
+
+              {/* Description */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Description</label>
+                <textarea value={task.description || ""} rows={3} placeholder="Add context, requirements, or notes…"
+                  onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, description: v })); setTasks(p => p.map(t => t.id === task.id ? { ...t, description: v } : t)); }}
+                  onBlur={() => updateField(task.id, "description", task.description || "")}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box", minHeight: 80 }} />
+              </div>
+
+              {/* Custom fields */}
+              {customFields.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Custom Fields</label>
+                  {customFields.map(cf => (
+                    <div key={cf.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: T.text3, width: 90, flexShrink: 0 }}>{cf.name}</span>
+                      <input value={tcf[cf.id] || ""} onChange={e => updateCustomFieldValue(task.id, cf.id, e.target.value)}
+                        style={{ flex: 1, padding: "4px 7px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button onClick={createCustomField} style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 16 }}>+ Add custom field</button>
+
+              {/* Dependencies */}
+              {(bb.length > 0 || bl.length > 0) && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Dependencies</label>
+                  {bb.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", fontSize: 12 }}>
+                    <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#ef444420", color: "#ef4444", fontWeight: 700 }}>BLOCKED BY</span>
+                    <span style={{ color: T.text2, flex: 1 }}>{d.task.title}</span>
+                    <button onClick={() => removeDependency(d.id)} style={S.iconBtn}>✕</button>
+                  </div>)}
+                  {bl.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", fontSize: 12 }}>
+                    <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#f9731620", color: "#f97316", fontWeight: 700 }}>BLOCKING</span>
+                    <span style={{ color: T.text2, flex: 1 }}>{d.task.title}</span>
+                    <button onClick={() => removeDependency(d.id)} style={S.iconBtn}>✕</button>
+                  </div>)}
+                </div>
+              )}
+
+              {/* Comments */}
+              <div>
+                <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 8 }}>Comments</label>
+                {comments.map(c => (
+                  <div key={c.id} style={{ marginBottom: 10, display: "flex", gap: 8 }}>
+                    <div style={{ width: 24, height: 24, borderRadius: 12, background: acol(c.author_id) + "30", color: acol(c.author_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>{ini(c.author_id)}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{uname(c.author_id)}</span>
+                        <span style={{ fontSize: 10, color: T.text3 }}>{timeAgo(c.created_at)}</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.4 }}>{c.content}</div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: 12, background: acol(user?.id) + "30", color: acol(user?.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{ini(user?.id)}</div>
+                  <input value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => e.key === "Enter" && addComment()}
+                    placeholder="Write a comment…"
+                    style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
+                  <button onClick={addComment} disabled={!newComment.trim()} style={{ padding: "6px 12px", borderRadius: 6, background: newComment.trim() ? T.accent : T.surface3, color: newComment.trim() ? "#fff" : T.text3, border: "none", fontSize: 12, cursor: "pointer" }}>→</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ACTIVITY TAB */}
+          {activeDetailTab === "activity" && (
+            <div>
+              {activityLoading ? (
+                <div style={{ textAlign: "center", padding: 20, color: T.text3, fontSize: 12 }}>Loading activity…</div>
+              ) : activity.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 30, color: T.text3 }}>
+                  <div style={{ fontSize: 24, marginBottom: 8 }}>📋</div>
+                  <div style={{ fontSize: 12 }}>No activity recorded yet.</div>
+                </div>
+              ) : activity.map(a => (
+                <div key={a.id} style={{ display: "flex", gap: 8, marginBottom: 12, fontSize: 12 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: 12, background: acol(a.actor_id) + "30", color: acol(a.actor_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{ini(a.actor_id)}</div>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 600, color: T.text }}>{uname(a.actor_id) || "Someone"}</span>
+                    <span style={{ color: T.text3 }}> {a.action}</span>
+                    {a.field && <span style={{ color: T.text3 }}> {a.field}</span>}
+                    {a.new_value && <span style={{ color: T.text2 }}> → <strong>{a.new_value}</strong></span>}
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{timeAgo(a.created_at)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* SUBTASKS TAB */}
+          {activeDetailTab === "subtasks" && (
+            <div>
+              {subs.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ height: 4, borderRadius: 2, background: T.surface3, marginBottom: 8 }}>
+                    <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: T.green, transition: "width 0.4s" }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: T.text3, textAlign: "right" }}>{subs.filter(s => s.status === "done").length}/{subs.length} complete</div>
+                </div>
+              )}
+              {subs.map(sub => (
+                <div key={sub.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, marginBottom: 6, cursor: "pointer", background: T.surface2 }}
+                  onClick={() => setSelectedTask(sub)}>
+                  <Checkbox task={sub} size={14} />
+                  <span style={{ fontSize: 13, color: sub.status === "done" ? T.text3 : T.text, textDecoration: sub.status === "done" ? "line-through" : "none", flex: 1 }}>{sub.title}</span>
+                  {sub.assignee_id && <div style={{ width: 18, height: 18, borderRadius: 9, background: acol(sub.assignee_id) + "30", color: acol(sub.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700 }}>{ini(sub.assignee_id)}</div>}
+                  {sub.due_date && <span style={{ fontSize: 10, color: isOverdue(sub.due_date) && sub.status !== "done" ? T.red : T.text3 }}>{toDateStr(sub.due_date)}</span>}
+                </div>
+              ))}
+              {addingSubtaskTo === task.id ? (
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <input autoFocus value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }}
+                    onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }}
+                    placeholder="Subtask name…"
+                    style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.accent}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none" }} />
+                </div>
+              ) : (
+                <button onClick={() => { setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); }}
+                  style={{ width: "100%", padding: "8px 0", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, fontSize: 12, cursor: "pointer", marginTop: 4 }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}>
+                  + Add subtask
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* FILES TAB */}
+          {activeDetailTab === "files" && (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <label style={{ ...FIELD_LABEL }}>Attachments</label>
+                <label style={{ fontSize: 11, color: T.accent, cursor: "pointer", padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: T.accentDim }}>
+                  ↑ Upload
+                  <input type="file" hidden onChange={e => e.target.files?.[0] && uploadAttachment(e.target.files[0])} />
+                </label>
+              </div>
+              {attachments.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "30px 0", color: T.text3 }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
+                  <div style={{ fontSize: 12 }}>No files attached yet.</div>
+                  <label style={{ fontSize: 12, color: T.accent, cursor: "pointer", display: "block", marginTop: 8 }}>
+                    Upload a file
+                    <input type="file" hidden onChange={e => e.target.files?.[0] && uploadAttachment(e.target.files[0])} />
+                  </label>
+                </div>
+              ) : attachments.map(att => (
+                <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 6, background: T.surface2 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <a href={getFileUrl(att.file_path)} target="_blank" rel="noopener" style={{ fontSize: 13, color: T.accent, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</a>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{formatFileSize(att.file_size)}</div>
+                  </div>
+                  <button onClick={() => deleteAttachment(att)} style={{ ...S.iconBtn, color: T.red }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
-    </div>); };
-  const projectFormModalEl = (() => { if (!showProjectForm) return null; const isNew = showProjectForm === "new"; const colors = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"]; const f = projectForm; const set = (k, v) => setProjectForm(p => ({ ...p, [k]: v })); const toggleMember = (uid) => set("members", f.members.includes(uid) ? f.members.filter(id => id !== uid) : [...f.members, uid]); const lbl = { fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }; const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }; const sel = { ...inp, cursor: "pointer" }; const stepNames = ["Details", "Access & Privacy", "People"]; return (
+    );
+  };
+
+    const projectFormModalEl = (() => { if (!showProjectForm) return null; const isNew = showProjectForm === "new"; const colors = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"]; const f = projectForm; const set = (k, v) => setProjectForm(p => ({ ...p, [k]: v })); const toggleMember = (uid) => set("members", f.members.includes(uid) ? f.members.filter(id => id !== uid) : [...f.members, uid]); const lbl = { fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }; const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }; const sel = { ...inp, cursor: "pointer" }; const stepNames = ["Details", "Access & Privacy", "People"]; return (
     <div onClick={() => setShowProjectForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Header */}
