@@ -39,8 +39,8 @@ function SearchableMultiSelect({ options, selected, onChange, placeholder, multi
     }
     if (isAll || selArr.length === options.length) return placeholder || "All";
     if (selArr.length === 0) return placeholder || "Any";
-    if (selArr.length === 1) { const o = options.find(op => op.value === selArr[0]); return o ? o.label : selArr[0]; }
-    return `${selArr.length} of ${options.length}`;
+    if (selArr.length === 1) { const o = options.find(op => op.value === selArr[0]); return o ? `${placeholder ? placeholder + ": " : ""}${o.label}` : selArr[0]; }
+    return `${placeholder ? placeholder + ": " : ""}${selArr.length} of ${options.length}`;
   };
 
   return (
