@@ -73,6 +73,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
   const [customTitle, setCustomTitle] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState([]);
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("helm-focus-collapsed") === "1"; } catch { return false; } });
   const inputRef = useRef(null);
 
   // Auto-pulled focus tasks (urgent/high/due today)
@@ -141,9 +142,10 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
   const totalItems = autoNotDuped.length + focusItems.length;
 
   return (
-    <div style={{ marginBottom:20, padding:"16px 20px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, borderLeft:`4px solid ${T.accent}` }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+    <div style={{ marginBottom:20, padding: collapsed ? "10px 20px" : "16px 20px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, borderLeft:`4px solid ${T.accent}`, transition:"padding 0.15s" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: collapsed ? 0 : 12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }} onClick={() => { const next = !collapsed; setCollapsed(next); try { localStorage.setItem("helm-focus-collapsed", next ? "1" : "0"); } catch {} }}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: collapsed ? "rotate(-90deg)" : "rotate(0)", transition:"transform 0.15s", flexShrink:0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
           <span style={{ fontSize:16 }}>🎯</span>
           <span style={{ fontSize:14, fontWeight:700 }}>Daily Focus</span>
           {totalItems > 0 && <span style={{ fontSize:11, color:T.text3, background:T.surface2, padding:"1px 8px", borderRadius:8 }}>{totalItems} items</span>}
@@ -153,7 +155,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
         </div>
       </div>
 
-      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+      {!collapsed && <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
         {/* Auto-pulled focus tasks */}
         {autoNotDuped.map(t => {
           const proj = projects.find(p => p.id === t.project_id);
@@ -267,9 +269,9 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
             )}
           </div>
         )}
-      </div>
+      </div>}
 
-      {totalItems === 0 && addMode === null && (
+      {totalItems === 0 && addMode === null && !collapsed && (
         <div style={{ textAlign:"center", padding:"12px 0", color:T.text3, fontSize:12 }}>
           No focus items yet — add something to keep your day on track
         </div>

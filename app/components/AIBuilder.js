@@ -337,6 +337,72 @@ export default function AIBuilderView() {
         }
       }
 
+      // Check if AI requested to read a file
+      const readMatch = fullText.match(/\[READ_FILE:([^\]]+)\]/);
+      if (readMatch) {
+        const filePath = readMatch[1].trim();
+        setStreamingText("📂 Reading " + filePath + "...");
+        const fileContent = await readFile(filePath);
+        setStreamingText("");
+        if (fileContent) {
+          // Add the AI message + file content as user context, then auto-continue
+          const truncated = fileContent.length > 60000 ? fileContent.slice(0, 60000) + "\n// ... truncated ..." : fileContent;
+          setMessages(prev => [
+            ...prev,
+            { role: "assistant", content: fullText },
+            { role: "user", content: "Here is the current content of " + filePath + " (" + fileContent.split("\n").length + " lines):\n```\n" + truncated + "\n```\nNow suggest the specific, targeted changes needed. Show the exact code to find and replace." },
+          ]);
+          // Auto-send the follow-up
+          setLoading(false);
+          abortRef.current = null;
+          // Trigger a new sendMessage with the file context already in messages
+          setTimeout(() => {
+            const fakeInput = "Continue — the file is loaded above. Give me the targeted patch.";
+            setMessages(prev => [...prev, { role: "user", content: fakeInput }]);
+            setLoading(true);
+            setStreamingText("");
+            const ctrl = new AbortController();
+            abortRef.current = ctrl;
+            const allMsgs = [...messages,
+              { role: "assistant", content: fullText },
+              { role: "user", content: "Here is the current content of " + filePath + " (" + fileContent.split("\n").length + " lines):\n```\n" + truncated + "\n```\nNow suggest the specific, targeted changes needed. Show the exact code to find and replace." },
+              { role: "user", content: fakeInput },
+            ];
+            fetch(`${EDGE_BASE}/ai-chat`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+              signal: ctrl.signal,
+              body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 20000, stream: true, system: SYSTEM_PROMPT, messages: allMsgs.map(m => ({ role: m.role, content: m.content })), api_key: apiKey }),
+            }).then(async (resp) => {
+              if (!resp.ok) { setMessages(p => [...p, { role: "assistant", content: "Error reading response: " + resp.status }]); setLoading(false); return; }
+              const rdr = resp.body.getReader();
+              const dec = new TextDecoder();
+              let ft = "", buf = "";
+              while (true) {
+                const { done, value } = await rdr.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lns = buf.split("\n");
+                buf = lns.pop() || "";
+                for (const ln of lns) {
+                  if (!ln.startsWith("data: ")) continue;
+                  const d = ln.slice(6).trim();
+                  if (d === "[DONE]") continue;
+                  try { const p = JSON.parse(d); if (p.type === "content_block_delta" && p.delta?.text) { ft += p.delta.text; setStreamingText(ft); } } catch {}
+                }
+              }
+              setStreamingText("");
+              setMessages(p => [...p, { role: "assistant", content: ft || "No response." }]);
+              setLoading(false);
+              abortRef.current = null;
+            }).catch(() => { setLoading(false); });
+          }, 100);
+          return;
+        } else {
+          fullText += "\n\n⚠️ Could not read file: " + filePath;
+        }
+      }
+
       setStreamingText("");
       setMessages(prev => [...prev, { role: "assistant", content: fullText || "No response." }]);
     } catch (err) {
