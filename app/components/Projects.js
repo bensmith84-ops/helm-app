@@ -26,7 +26,8 @@ export default function ProjectsView() {
   const [addingTo, setAddingTo] = useState(null);
   const [newTitle, setNewTitle] = useState("");
   const [search, setSearch] = useState("");
-  const [collapsed, setCollapsed] = useState({});
+  const [sectionCtxMenu, setSectionCtxMenu] = useState(null); // { secId, x, y }
+  const [wipLimitInput, setWipLimitInput] = useState("");
   const [hoveredRow, setHoveredRow] = useState(null);
   const [editingSectionId, setEditingSectionId] = useState(null);
   const [editingSectionName, setEditingSectionName] = useState("");
@@ -497,11 +498,16 @@ export default function ProjectsView() {
         <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle index={3} onStart={projResize} /></div>
         <div style={S.colHdr} onClick={() => toggleSort("due_date")}>Due date{arrow("due_date")}</div>
       </div>
-      {projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id); const roots = sortedTasks(rootTasks(st)); const isColl = collapsed[sec.id]; const sd = st.filter(t => t.status === "done").length; const color = secColor(si); return (
+      {projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id); const roots = sortedTasks(rootTasks(st)); const isColl = collapsed[sec.id]; const sd = st.filter(t => t.status === "done").length; const color = secColor(si);
+        const wipBreached = sec.wip_limit && st.filter(t => t.status !== "done").length > sec.wip_limit;
+        return (
         <div key={sec.id}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer", userSelect: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer", userSelect: "none", position: "relative" }}
+            onContextMenu={e => { e.preventDefault(); setSectionCtxMenu({ secId: sec.id, x: e.clientX, y: e.clientY }); }}>
             <svg onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !isColl }))} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: isColl ? "rotate(-90deg)" : "rotate(0)", transition: "transform 0.15s" }}><path d="M3 4.5l3 3 3-3" stroke={color} strokeWidth="1.5" strokeLinecap="round" /></svg>
             {editingSectionId === sec.id ? <input autoFocus value={editingSectionName} onChange={e => setEditingSectionName(e.target.value)} onBlur={() => renameSection(sec.id)} onKeyDown={e => e.key === "Enter" && renameSection(sec.id)} style={{ fontSize: 13, fontWeight: 700, color, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 6px", outline: "none" }} /> : <span onDoubleClick={() => { setEditingSectionId(sec.id); setEditingSectionName(sec.name); }} style={{ fontSize: 13, fontWeight: 700, color, flex: 1 }}>{sec.name}</span>}
+            {sec.is_complete_column && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#22c55e20", color: "#22c55e", fontWeight: 700 }}>DONE</span>}
+            {sec.wip_limit && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: wipBreached ? "#ef444420" : T.surface3, color: wipBreached ? "#ef4444" : T.text3, fontWeight: 700 }}>WIP {st.filter(t => t.status !== "done").length}/{sec.wip_limit}</span>}
             <span style={{ fontSize: 11, color: T.text3, fontWeight: 500 }}>{sd}/{st.length}</span>
             <button onClick={() => deleteSection(sec.id)} style={{ ...S.iconBtn, opacity: 0.4 }} title="Delete section"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
           </div>
@@ -1589,6 +1595,68 @@ export default function ProjectsView() {
     <div onClick={() => ctxProject && setCtxProject(null)} style={{ display: "flex", height: "100%", background: T.bg, overflow: "hidden" }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
       {toast && <div style={{ position: "fixed", top: 16, right: 16, zIndex: 200, padding: "10px 16px", borderRadius: 8, background: toast.type === "success" ? T.greenDim : T.redDim, color: toast.type === "success" ? T.green : T.red, fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", animation: "slideIn 0.2s ease" }}>{toast.msg}</div>}
+
+      {/* Section context menu */}
+      {sectionCtxMenu && (() => {
+        const sec = projSections.find(s => s.id === sectionCtxMenu.secId);
+        if (!sec) return null;
+        return (
+          <div onClick={() => setSectionCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 300 }}>
+            <div onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(sectionCtxMenu.x, window.innerWidth - 220), top: Math.min(sectionCtxMenu.y, window.innerHeight - 280), width: 210, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, boxShadow: "0 12px 40px rgba(0,0,0,0.4)", padding: 6, zIndex: 301 }}>
+              <div style={{ padding: "6px 10px 4px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8 }}>{sec.name}</div>
+
+              {/* WIP limit */}
+              <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, color: T.text2, fontWeight: 600, marginBottom: 6 }}>WIP Limit</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input type="number" placeholder="None" defaultValue={sec.wip_limit || ""} min="0"
+                    onChange={e => setWipLimitInput(e.target.value)}
+                    style={{ flex: 1, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
+                  <button onClick={async () => {
+                    const val = wipLimitInput === "" ? null : parseInt(wipLimitInput, 10) || null;
+                    await supabase.from("sections").update({ wip_limit: val }).eq("id", sec.id);
+                    setProjSections(p => p.map(s => s.id === sec.id ? { ...s, wip_limit: val } : s));
+                    setSectionCtxMenu(null);
+                  }} style={{ padding: "4px 10px", borderRadius: 5, background: T.accent, color: "#fff", border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>Set</button>
+                </div>
+                {sec.wip_limit && <button onClick={async () => {
+                  await supabase.from("sections").update({ wip_limit: null }).eq("id", sec.id);
+                  setProjSections(p => p.map(s => s.id === sec.id ? { ...s, wip_limit: null } : s));
+                  setSectionCtxMenu(null);
+                }} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer", marginTop: 4 }}>Clear limit</button>}
+              </div>
+
+              {/* Toggle done column */}
+              {[
+                { label: sec.is_complete_column ? "✓ Mark as NOT done column" : "Mark as done column", action: async () => {
+                  const val = !sec.is_complete_column;
+                  await supabase.from("sections").update({ is_complete_column: val }).eq("id", sec.id);
+                  setProjSections(p => p.map(s => s.id === sec.id ? { ...s, is_complete_column: val } : s));
+                  setSectionCtxMenu(null);
+                }},
+                { label: "Collapse all sections", action: () => {
+                  const all = {};
+                  projSections.forEach(s => { all[s.id] = true; });
+                  setCollapsed(all);
+                  setSectionCtxMenu(null);
+                }},
+                { label: "Expand all sections", action: () => {
+                  setCollapsed({});
+                  setSectionCtxMenu(null);
+                }},
+                { label: "Delete section", action: () => { deleteSection(sec.id); setSectionCtxMenu(null); }, danger: true },
+              ].map((item, i) => (
+                <div key={i} onClick={item.action}
+                  style={{ padding: "8px 10px", fontSize: 12, color: item.danger ? T.red : T.text2, borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  {item.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
       <ProjectSidebar />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {showMyTasks ? <MyTasksView /> : proj ? (<>

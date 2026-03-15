@@ -123,14 +123,37 @@ export default function HelmApp() {
     (async () => {
       try {
         const now = new Date().toISOString().split("T")[0];
-        const [{ count: overdue }, { count: notifCount }] = await Promise.all([
-          supabase.from("tasks").select("id", { count: "exact", head: true }).is("deleted_at", null).lt("due_date", now).neq("status", "done"),
-          supabase.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("is_read", false),
+        const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+        const [
+          { count: overdue },
+          { count: unreadMsgs },
+          { data: myKRs },
+          { count: pendingNotifs },
+        ] = await Promise.all([
+          supabase.from("tasks").select("id", { count: "exact", head: true })
+            .is("deleted_at", null).lt("due_date", now).neq("status", "done"),
+          supabase.from("messages").select("id", { count: "exact", head: true })
+            .eq("is_read", false).neq("sender_id", user.id),
+          supabase.from("key_results").select("id").eq("owner_id", user.id).is("deleted_at", null),
+          supabase.from("notifications").select("id", { count: "exact", head: true })
+            .eq("user_id", user.id).eq("is_read", false),
         ]);
-        setBadges(b => ({
-          ...b,
+
+        // Count stale KRs (no check-in in 7+ days)
+        let staleKRs = 0;
+        if (myKRs?.length) {
+          const { data: recentCIs } = await supabase.from("okr_check_ins")
+            .select("key_result_id").in("key_result_id", myKRs.map(k => k.id)).gte("created_at", weekAgo);
+          const checkedIds = new Set((recentCIs || []).map(c => c.key_result_id));
+          staleKRs = myKRs.filter(k => !checkedIds.has(k.id)).length;
+        }
+
+        setBadges({
           projects: overdue > 0 ? overdue : null,
-        }));
+          messages: unreadMsgs > 0 ? unreadMsgs : null,
+          okrs: staleKRs > 0 ? staleKRs : null,
+          activity: pendingNotifs > 0 ? pendingNotifs : null,
+        });
       } catch (e) { console.warn("Badge count fetch failed:", e); }
     })();
   }, [user?.id, active]);
