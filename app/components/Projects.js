@@ -456,29 +456,60 @@ export default function ProjectsView() {
       {hasF && <button onClick={() => { setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }} style={{ ...S.iconBtn, fontSize: 11, color: T.red }}>✕ Clear</button>}
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
         {selectedTasks.size > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: T.accentDim, border: `1px solid ${T.accent}40` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", borderRadius: 8, background: T.accentDim, border: `1px solid ${T.accent}40` }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>{selectedTasks.size} selected</span>
+            <div style={{ width: 1, height: 14, background: T.accent + "40", margin: "0 2px" }} />
             <select onChange={e => { if (e.target.value) { bulkUpdateTasks("status", e.target.value); e.target.value = ""; } }} defaultValue=""
               style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.accent}40`, background: T.surface, color: T.text, cursor: "pointer", outline: "none" }}>
-              <option value="">Set status…</option>
+              <option value="">Status…</option>
               {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
             <select onChange={e => { if (e.target.value) { bulkUpdateTasks("priority", e.target.value); e.target.value = ""; } }} defaultValue=""
               style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.accent}40`, background: T.surface, color: T.text, cursor: "pointer", outline: "none" }}>
-              <option value="">Set priority…</option>
+              <option value="">Priority…</option>
               {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
+            <select onChange={e => { if (e.target.value) { bulkUpdateTasks("section_id", e.target.value); e.target.value = ""; } }} defaultValue=""
+              style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.accent}40`, background: T.surface, color: T.text, cursor: "pointer", outline: "none" }}>
+              <option value="">Move to…</option>
+              {projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <select onChange={e => { if (e.target.value !== "__clear__") { bulkUpdateTasks("assignee_id", e.target.value === "__none__" ? null : e.target.value); } e.target.value = ""; }} defaultValue=""
+              style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.accent}40`, background: T.surface, color: T.text, cursor: "pointer", outline: "none" }}>
+              <option value="">Assign…</option>
+              <option value="__none__">Unassign</option>
+              {Object.values(profiles).map(u => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}
+            </select>
             <button onClick={() => { [...selectedTasks].forEach(id => deleteTask(id)); setSelectedTasks(new Set()); }}
-              style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: `1px solid #ef444440`, background: "#ef444415", color: "#ef4444", cursor: "pointer" }}>
+              style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: `1px solid #ef444440`, background: "#ef444415", color: "#ef4444", cursor: "pointer", fontWeight: 600 }}>
               Delete
             </button>
-            <button onClick={() => setSelectedTasks(new Set())} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>✕</button>
+            <button onClick={() => setSelectedTasks(new Set())} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}>✕</button>
           </div>
         )}
         <span style={{ fontSize: 11, color: T.text3 }}>{filteredTasks.filter(t => !t.parent_task_id).length} tasks</span>
       </div>
     </div>); };
-  const Checkbox = ({ task, size = 16 }) => { const dn = task.status === "done"; const st = STATUS[task.status] || STATUS.todo; return (<div onClick={(e) => toggleDone(task, e)} style={{ width: size, height: size, borderRadius: size / 2, border: `2px solid ${dn ? T.green : st.color}`, background: dn ? T.green : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>{dn && <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}</div>); };
+  const Checkbox = ({ task, size = 16 }) => {
+    const dn = task.status === "done";
+    const st = STATUS[task.status] || STATUS.todo;
+    const isMultiSel = selectedTasks.has(task.id);
+    return (
+      <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+        {/* Multi-select checkbox (shown on hover or when any tasks selected) */}
+        {(selectedTasks.size > 0 || isMultiSel) ? (
+          <div onClick={e => { e.stopPropagation(); setSelectedTasks(p => { const n = new Set(p); n.has(task.id) ? n.delete(task.id) : n.add(task.id); return n; }); }}
+            style={{ width: size, height: size, borderRadius: 4, border: `2px solid ${isMultiSel ? T.accent : T.border}`, background: isMultiSel ? T.accent : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            {isMultiSel && <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+          </div>
+        ) : (
+          <div onClick={e => toggleDone(task, e)} style={{ width: size, height: size, borderRadius: size / 2, border: `2px solid ${dn ? T.green : st.color}`, background: dn ? T.green : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            {dn && <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const StatusPill = ({ task }) => { const st = STATUS[task.status] || STATUS.todo; const [open, setOpen] = useState(false); return (<div style={{ position: "relative" }}><span onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ ...S.pill, background: st.bg, color: st.color }}>{st.label}</span>{open && (<Dropdown onClose={() => setOpen(false)}>{Object.entries(STATUS).map(([k, v]) => (<DropdownItem key={k} onClick={() => { updateField(task.id, "status", k); setOpen(false); }}><span style={{ width: 8, height: 8, borderRadius: 4, background: v.color, display: "inline-block", marginRight: 6 }} />{v.label}</DropdownItem>))}</Dropdown>)}</div>); };
 

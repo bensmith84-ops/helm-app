@@ -659,6 +659,12 @@ export default function OKRsView() {
                                 <div style={{ width: 6, height: 6, borderRadius: 6, background: krH.color, flexShrink: 0, position: "relative", zIndex: 1, marginRight: 5 }} />
                                 <span style={{ fontSize: 9, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", position: "relative", zIndex: 1 }}>{kr.title}</span>
                                 <span style={{ fontSize: 8, fontWeight: 700, color: krH.color, marginLeft: "auto", paddingLeft: 6, position: "relative", zIndex: 1, flexShrink: 0 }}>{krPct}%</span>
+                                {/* Quick check-in button */}
+                                <div onClick={e => { e.stopPropagation(); setCheckInModal({ kr, objective: objectives.find(o => o.id === kr.objective_id) }); }}
+                                  title="Check in"
+                                  style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: T.accent + "25", color: T.accent, fontWeight: 700, cursor: "pointer", position: "relative", zIndex: 2, marginLeft: 4, flexShrink: 0, border: `1px solid ${T.accent}40` }}>
+                                  ✎
+                                </div>
                               </div>
                             </div>}
                             {/* Milestone segments — single row since they're sequential */}

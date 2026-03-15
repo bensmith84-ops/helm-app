@@ -568,21 +568,31 @@ export default function DashboardView({ setActive }) {
             <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"24px 0" }}>No recent activity</div>
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-              {recentActivity.slice(0,8).map((act, i) => {
+              {recentActivity.slice(0,10).map((act, i) => {
                 const c = acol(act.user_id);
+                const entityIcons = { task:"☐", project:"◼", doc:"📄", objective:"🎯", key_result:"◎", campaign:"📢", product:"⬢", call:"📞" };
+                const actionColors = { created:"#22c55e", completed:"#22c55e", updated:"#3b82f6", deleted:"#ef4444", assigned:"#a855f7", commented:"#06b6d4" };
+                const actionColor = actionColors[act.action] || T.text3;
+                const eIcon = entityIcons[act.entity_type] || "◔";
                 return (
-                  <div key={act.id} style={{ display:"flex", gap:10, padding:"8px 0", borderBottom: i<7?`1px solid ${T.border}`:"none" }}>
+                  <div key={act.id} onClick={() => {
+                    const modMap = { task:"projects", project:"projects", doc:"docs", objective:"okrs", key_result:"okrs", campaign:"campaigns", product:"plm" };
+                    if (modMap[act.entity_type]) setActive(modMap[act.entity_type]);
+                  }} style={{ display:"flex", gap:10, padding:"8px 6px", borderBottom: i<9?`1px solid ${T.border}20`:"none", cursor:"pointer", borderRadius:6, transition:"background 0.1s" }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <div style={{ width:28, height:28, borderRadius:14, background:c+"20", border:`1.5px solid ${c}50`,
                       display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:c, flexShrink:0 }}>
                       {ini(act.user_id)}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:12, lineHeight:1.4 }}>
-                        <span style={{ fontWeight:600 }}>{uname(act.user_id)}</span>{" "}
-                        <span style={{ color:T.text2 }}>{act.action}</span>{" "}
-                        <span style={{ color:T.text }}>{act.entity_name || act.entity_type}</span>
+                      <div style={{ fontSize:12, lineHeight:1.4, display:"flex", alignItems:"center", gap:4, flexWrap:"wrap" }}>
+                        <span style={{ fontWeight:600 }}>{uname(act.user_id)}</span>
+                        <span style={{ color:actionColor, fontWeight:600, fontSize:11 }}>{act.action}</span>
+                        <span style={{ fontSize:12 }}>{eIcon}</span>
+                        <span style={{ color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:140 }}>{act.entity_name || act.entity_type}</span>
                       </div>
-                      <div style={{ fontSize:10, color:T.text3 }}>{relTime(act.created_at)}</div>
+                      <div style={{ fontSize:10, color:T.text3, marginTop:1 }}>{relTime(act.created_at)}</div>
                     </div>
                   </div>
                 );
