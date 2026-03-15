@@ -49,8 +49,8 @@ export default function ProjectsView() {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  const [filterStatus, setFilterStatus] = useState([]);
-  const [filterPriority, setFilterPriority] = useState([]);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterPriority, setFilterPriority] = useState("all");
   const [filterAssignee, setFilterAssignee] = useState([]);
   const [sortCol, setSortCol] = useState("sort_order");
   const [sortDir, setSortDir] = useState("asc");
@@ -157,8 +157,8 @@ export default function ProjectsView() {
   const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
   const filteredTasks = useMemo(() => projTasks.filter(t => {
     if (search) { const s = search.toLowerCase(); const nameMatch = t.assignee_id && profiles[t.assignee_id]?.display_name?.toLowerCase().includes(s); if (!t.title?.toLowerCase().includes(s) && !nameMatch) return false; }
-    if (filterStatus.length && !filterStatus.includes(t.status)) return false;
-    if (filterPriority.length && !filterPriority.includes(t.priority)) return false;
+    if (filterStatus !== "all" && filterStatus.length && !filterStatus.includes(t.status)) return false;
+    if (filterPriority !== "all" && filterPriority.length && !filterPriority.includes(t.priority)) return false;
     if (filterAssignee.length && !filterAssignee.includes(t.assignee_id)) return false;
     return true;
   }), [projTasks, search, filterStatus, filterPriority, filterAssignee]);
@@ -653,7 +653,7 @@ export default function ProjectsView() {
           const pOverdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < pToday).length;
           const pHealth = pOverdue > pt.length * 0.2 ? "#ef4444" : pOverdue > 0 ? "#eab308" : "#22c55e";
           return (
-          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus([]); setFilterPriority([]); setFilterAssignee([]); }}
+          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus("all"); setFilterPriority("all"); setFilterAssignee([]); }}
             onContextMenu={e => { e.preventDefault(); setCtxProject(ctxProject === p.id ? null : p.id); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
             <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
@@ -745,7 +745,7 @@ export default function ProjectsView() {
       </div>
     </div>); };
   const filterAssignees = [...new Set(projTasks.map(t => t.assignee_id).filter(Boolean))];
-  const hasFilters = filterStatus.length > 0 || filterPriority.length > 0 || filterAssignee.length > 0;
+  const hasFilters = filterStatus !== "all" || filterPriority !== "all" || filterAssignee.length > 0;
   const filterBarEl = (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 20px", flexWrap: "wrap" }}>
       <div style={{ position: "relative", flex: "0 0 220px" }}>
@@ -753,12 +753,12 @@ export default function ProjectsView() {
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks…" style={{ width: "100%", padding: "5px 8px 5px 28px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
       </div>
       <div style={{ width: 130 }}>
-        <SearchableMultiSelect multi={true} placeholder="Status"
+        <SearchableMultiSelect multi={true} placeholder="Status" allByDefault={true}
           options={Object.entries(STATUS).map(([k, v]) => ({ value: k, label: v.label, color: v.color }))}
           selected={filterStatus} onChange={setFilterStatus} />
       </div>
       <div style={{ width: 130 }}>
-        <SearchableMultiSelect multi={true} placeholder="Priority"
+        <SearchableMultiSelect multi={true} placeholder="Priority" allByDefault={true}
           options={Object.entries(PRIORITY).map(([k, v]) => ({ value: k, label: v.label, color: v.dot }))}
           selected={filterPriority} onChange={setFilterPriority} />
       </div>
@@ -767,7 +767,7 @@ export default function ProjectsView() {
           options={filterAssignees.map(uid => ({ value: uid, label: uname(uid) || uid.slice(0, 8), icon: "👤" }))}
           selected={filterAssignee} onChange={setFilterAssignee} />
       </div>
-      {hasFilters && <button onClick={() => { setFilterStatus([]); setFilterPriority([]); setFilterAssignee([]); }} style={{ ...S.iconBtn, fontSize: 11, color: T.red }}>✕ Clear</button>}
+      {hasFilters && <button onClick={() => { setFilterStatus("all"); setFilterPriority("all"); setFilterAssignee([]); }} style={{ ...S.iconBtn, fontSize: 11, color: T.red }}>✕ Clear</button>}
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
         {selectedTasks.size > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", borderRadius: 8, background: T.accentDim, border: `1px solid ${T.accent}40` }}>
@@ -2548,15 +2548,16 @@ function DateCell({ task, onUpdate }) {
   );
 }
 
-function SearchableMultiSelect({ options, selected, onChange, placeholder, multi = true }) {
+function SearchableMultiSelect({ options, selected, onChange, placeholder, multi = true, allByDefault = false }) {
   // options: [{ value, label, color?, icon? }]
-  // selected: string | string[] (value or array of values)
-  // onChange: (newSelected) => void — returns string if !multi, string[] if multi
+  // selected: "all" | string | string[] 
+  // When allByDefault=true and selected="all", all items are considered selected
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const ref = useRef(null);
-  const selArr = multi ? (Array.isArray(selected) ? selected : selected ? [selected] : []) : [];
+  const isAll = allByDefault && selected === "all";
+  const selArr = multi ? (isAll ? options.map(o => o.value) : Array.isArray(selected) ? selected : selected ? [selected] : []) : [];
   const selSingle = !multi ? (selected || "") : "";
+  const ref = useRef(null);
 
   useEffect(() => {
     if (!open) return;
@@ -2572,6 +2573,8 @@ function SearchableMultiSelect({ options, selected, onChange, placeholder, multi
   const toggleItem = (val) => {
     if (!multi) { onChange(val === selSingle ? "" : val); setOpen(false); return; }
     const next = selArr.includes(val) ? selArr.filter(v => v !== val) : [...selArr, val];
+    // If all items are now selected again and allByDefault, go back to "all"
+    if (allByDefault && next.length === options.length) { onChange("all"); return; }
     onChange(next);
   };
 
@@ -2580,9 +2583,10 @@ function SearchableMultiSelect({ options, selected, onChange, placeholder, multi
       const opt = options.find(o => o.value === selSingle);
       return opt ? opt.label : placeholder || "Select...";
     }
+    if (isAll || selArr.length === options.length) return placeholder || "All";
     if (selArr.length === 0) return placeholder || "Any";
     if (selArr.length === 1) { const o = options.find(op => op.value === selArr[0]); return o ? o.label : selArr[0]; }
-    return `${selArr.length} selected`;
+    return `${selArr.length} of ${options.length}`;
   };
 
   return (
@@ -2590,7 +2594,7 @@ function SearchableMultiSelect({ options, selected, onChange, placeholder, multi
       <div onClick={() => { setOpen(!open); setSearch(""); }}
         style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: (multi ? selArr.length > 0 : selSingle) ? T.text : T.text3, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", minHeight: 32 }}>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1, overflow: "hidden" }}>
-          {multi && selArr.length > 0 ? selArr.map(v => {
+          {multi && selArr.length > 0 && !isAll && selArr.length < options.length ? selArr.map(v => {
             const o = options.find(op => op.value === v);
             return (
               <span key={v} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "1px 6px", borderRadius: 4, background: o?.color ? o.color + "20" : T.surface3, color: o?.color || T.text2, fontSize: 10, fontWeight: 600 }}>
@@ -2611,9 +2615,16 @@ function SearchableMultiSelect({ options, selected, onChange, placeholder, multi
           </div>
           <div style={{ overflow: "auto", maxHeight: 190 }}>
             {multi && (
-              <div onClick={() => onChange([])} style={{ padding: "6px 12px", fontSize: 11, color: T.text3, cursor: "pointer", borderBottom: `1px solid ${T.border}08` }}
-                onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                Clear all
+              <div style={{ display: "flex", gap: 4, padding: "6px 12px", borderBottom: `1px solid ${T.border}08` }}>
+                <span onClick={() => onChange(allByDefault ? "all" : options.map(o => o.value))} style={{ fontSize: 11, color: T.accent, cursor: "pointer", fontWeight: 500 }}
+                  onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>
+                  Select all
+                </span>
+                <span style={{ color: T.text3, fontSize: 11 }}>·</span>
+                <span onClick={() => onChange([])} style={{ fontSize: 11, color: T.text3, cursor: "pointer" }}
+                  onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>
+                  Clear
+                </span>
               </div>
             )}
             {!multi && (
