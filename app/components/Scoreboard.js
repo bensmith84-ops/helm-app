@@ -315,6 +315,9 @@ export default function ScoreboardView() {
       if (!dMap[r.metric_key]) dMap[r.metric_key] = [];
       dMap[r.metric_key].push({ date:r.date, value:Number(r.value), label:r.date?.slice(5) });
     }
+    console.log("[Scoreboard] Total daily rows loaded:", dailyRows.length, "| Pages:", page + 1);
+    console.log("[Scoreboard] Jan 2026 revenue rows:", dailyRows.filter(r => r.metric_key === "revenue" && r.date?.startsWith("2026-01")).length);
+    console.log("[Scoreboard] Date range:", dailyRows[dailyRows.length-1]?.date, "to", dailyRows[0]?.date);
     setDaily(dMap);
     if (Object.keys(dMap).length) {
       setSelectedMetric(Object.keys(dMap)[0]);
@@ -342,6 +345,7 @@ export default function ScoreboardView() {
         if (row.value > agg[key].months[m].max) agg[key].months[m].max = row.value;
       }
     }
+    console.log("[Scoreboard] buildMonthlyAgg for year", filterYear, "| keys:", Object.keys(agg).length, "| revenue months:", Object.keys(agg["revenue"]?.months || {}));
     return agg;
   };
 
@@ -726,7 +730,22 @@ export default function ScoreboardView() {
         {activeTab === "monthly" && (() => {
           const isCurrentYear = selectedYear === new Date().getFullYear();
           const agg = buildMonthlyAgg(daily, selectedYear);
-          const months = isCurrentYear ? Array.from({length: curMonth}, (_, i) => i + 1) : Array.from({length: 12}, (_, i) => i + 1);
+          // For current year: show 1..curMonth. For past years: show all 12.
+          const allMonths = isCurrentYear ? Array.from({length: curMonth}, (_, i) => i + 1) : Array.from({length: 12}, (_, i) => i + 1);
+          // Filter to only months that have ANY data (daily agg or financial monthly)
+          const mData = selectedYear === yr ? monthly : monthlyPrev;
+          const monthsWithData = new Set();
+          for (const m of allMonths) {
+            // Check daily agg
+            for (const key of Object.keys(agg)) {
+              if (agg[key]?.months[m]) { monthsWithData.add(m); break; }
+            }
+            // Check financial monthly
+            for (const finKey of Object.keys(mData)) {
+              if (mData[finKey]?.monthly?.some(r => r.month === m && r.actual != null)) { monthsWithData.add(m); break; }
+            }
+          }
+          const months = allMonths; // Show all months, empty ones will show "—"
           const hasDailyData = Object.keys(daily).length > 0;
 
           // Available years from daily data
