@@ -282,12 +282,15 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
    TODAY'S CALENDAR SIDEBAR — Collapsible right panel
    ═══════════════════════════════════════════════════════ */
 function TodaysCalendar({ profile, collapsed, setCollapsed }) {
+  const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4";
+  const EDGE_BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
+
   const [events, setEvents] = useState([]);
-  const [icalEvents, setIcalEvents] = useState([]);
   const [calendars, setCalendars] = useState([]);
   const [enabledCals, setEnabledCals] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState("");
   const [showCalPicker, setShowCalPicker] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
   const [showAddEvent, setShowAddEvent] = useState(false);
@@ -295,98 +298,63 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   const [icalName, setIcalName] = useState("");
   const [icalError, setIcalError] = useState("");
   const [newEvt, setNewEvt] = useState({ title:"", start:"", end:"", video_link:"", location:"" });
-  const [dayOffset, setDayOffset] = useState(0); // 0=today, -1=yesterday, +1=tomorrow
+  const [dayOffset, setDayOffset] = useState(0);
   const [timezones, setTimezones] = useState(() => {
-    try { const s = localStorage.getItem("helm-cal-timezones"); return s ? JSON.parse(s) : []; } catch { return []; }
+    try { return JSON.parse(localStorage.getItem("helm-cal-timezones")||"[]"); } catch { return []; }
   });
   const [showTzAdd, setShowTzAdd] = useState(false);
   const [tzSearch, setTzSearch] = useState("");
   const [tzLabel, setTzLabel] = useState("");
   const [nowTick, setNowTick] = useState(Date.now());
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [eventAttendees, setEventAttendees] = useState([]);
+  const [attendeeSearch, setAttendeeSearch] = useState("");
+  const [attendeeEmail, setAttendeeEmail] = useState("");
+  const [allProfiles, setAllProfiles] = useState([]);
+  const [editingEvent, setEditingEvent] = useState(null);
   const calPickerRef = useRef(null);
   const timelineRef = useRef(null);
 
-  // Tick every minute for the now-line
-  useEffect(() => {
-    const iv = setInterval(() => setNowTick(Date.now()), 60000);
-    return () => clearInterval(iv);
-  }, []);
+  useEffect(() => { const iv = setInterval(() => setNowTick(Date.now()), 60000); return () => clearInterval(iv); }, []);
 
-  // Scroll to current time on mount
   useEffect(() => {
-    if (timelineRef.current && dayOffset === 0) {
-      const h = new Date().getHours();
-      const scrollTo = Math.max(0, (h - 1) * 56);
+    if (timelineRef.current && dayOffset === 0 && !selectedEvent) {
+      const scrollTo = Math.max(0, (new Date().getHours() - 1) * 56);
       setTimeout(() => timelineRef.current?.scrollTo({ top: scrollTo, behavior: "smooth" }), 300);
     }
-  }, [loading, dayOffset, collapsed]);
+  }, [loading, dayOffset, collapsed, selectedEvent]);
 
   useEffect(() => {
     const fn = (e) => { if (calPickerRef.current && !calPickerRef.current.contains(e.target)) setShowCalPicker(false); };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
+    document.addEventListener("mousedown", fn); return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  // iCal parser
-  const parseIcal = (text) => {
-    const evts = [];
-    const blocks = text.split("BEGIN:VEVENT");
-    for (let i = 1; i < blocks.length; i++) {
-      const block = blocks[i].split("END:VEVENT")[0].replace(/\r?\n[ \t]/g, "");
-      const get = (key) => {
-        const regex = new RegExp("^" + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "[;:](.*)$", "m");
-        const m = block.match(regex);
-        return m ? m[1].replace(/\\n/g, "\n").replace(/\\,/g, ",").trim() : null;
-      };
-      const parseDate = (val) => {
-        if (!val) return null;
-        const clean = val.includes(":") ? val.split(":").pop() : val;
-        if (clean.length === 8) return new Date(clean.slice(0,4)+"-"+clean.slice(4,6)+"-"+clean.slice(6,8)+"T00:00:00");
-        const y=clean.slice(0,4), mo=clean.slice(4,6), d=clean.slice(6,8);
-        const h=clean.slice(9,11)||"00", mi=clean.slice(11,13)||"00", s=clean.slice(13,15)||"00";
-        return new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}${clean.endsWith("Z")?"Z":""}`);
-      };
-      const summary = get("SUMMARY"), dtStart = get("DTSTART"), dtEnd = get("DTEND");
-      const location = get("LOCATION"), description = get("DESCRIPTION"), uid = get("UID");
-      if (!summary || !dtStart) continue;
-      const start = parseDate(dtStart), end = dtEnd ? parseDate(dtEnd) : null;
-      if (!start || isNaN(start.getTime())) continue;
-      const urlP = /(https?:\/\/[^\s<>"]+(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com)[^\s<>"]*)/i;
-      const vl = (description||"").match(urlP)?.[1] || (location||"").match(urlP)?.[1] || null;
-      evts.push({ uid, title: summary, start, end, location, description, video_link: vl, all_day: !dtStart.includes("T") });
-    }
-    return evts;
-  };
+  // Load profiles for attendee search
+  useEffect(() => {
+    supabase.from("profiles").select("id,display_name,email,avatar_url").then(({ data }) => setAllProfiles(data || []));
+  }, []);
 
+  // Server-side iCal sync
   const syncIcalFeeds = async (cals) => {
     const icalCals = (cals || calendars).filter(c => c.calendar_type === "ical" && c.external_calendar_id);
-    if (icalCals.length === 0) return;
-    setSyncing(true);
+    if (!icalCals.length) return;
+    setSyncing(true); setSyncError("");
+    for (const cal of icalCals) {
+      try {
+        const res = await fetch(`${EDGE_BASE}/ical-proxy?mode=sync&url=${encodeURIComponent(cal.external_calendar_id)}&calendar_id=${cal.id}&org_id=${profile?.org_id}&user_id=${profile?.id}`, {
+          headers: { "Authorization": `Bearer ${ANON_KEY}` }
+        });
+        const json = await res.json();
+        if (!res.ok) setSyncError(json.error || `Sync failed for ${cal.name}`);
+      } catch (err) { setSyncError(`Network error syncing ${cal.name}`); }
+    }
+    setSyncing(false);
+    // Reload events from DB after sync
     const viewDate = new Date(); viewDate.setDate(viewDate.getDate() + dayOffset);
     const dayStart = new Date(viewDate); dayStart.setHours(0,0,0,0);
     const dayEnd = new Date(viewDate); dayEnd.setHours(23,59,59,999);
-    const allParsed = [];
-    for (const cal of icalCals) {
-      try {
-        let text = null;
-        try {
-          const res = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/ical-proxy?url=${encodeURIComponent(cal.external_calendar_id)}`, {
-            headers: { "Authorization": `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4` }
-          });
-          if (res.ok) text = await res.text();
-        } catch {}
-        if (!text) { try { const r2 = await fetch(cal.external_calendar_id); if (r2.ok) text = await r2.text(); } catch {} }
-        if (!text || !text.includes("BEGIN:VCALENDAR")) continue;
-        parseIcal(text).filter(e => e.start >= dayStart && e.start <= dayEnd).forEach(e => {
-          allParsed.push({ id:`ical-${cal.id}-${e.uid||e.title}`, calendar_id:cal.id, title:e.title,
-            start_at:e.start.toISOString(), end_at:e.end?.toISOString()||null, location:e.location,
-            video_link:e.video_link, has_video_call:!!e.video_link, all_day:e.all_day, color:cal.color, source:"ical" });
-        });
-        await supabase.from("calendars").update({ last_synced_at: new Date().toISOString() }).eq("id", cal.id);
-      } catch (err) { console.warn("iCal sync error:", cal.name, err); }
-    }
-    setIcalEvents(allParsed);
-    setSyncing(false);
+    const { data: evts } = await supabase.from("calendar_events").select("*").gte("start_at", dayStart.toISOString()).lte("start_at", dayEnd.toISOString()).is("deleted_at", null).order("start_at");
+    setEvents(evts || []);
   };
 
   const loadEvents = useCallback(async () => {
@@ -399,8 +367,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
       supabase.from("calendars").select("*").eq("owner_id", profile.id).is("deleted_at", null).order("name"),
       supabase.from("calendar_events").select("*").gte("start_at", dayStart.toISOString()).lte("start_at", dayEnd.toISOString()).is("deleted_at", null).order("start_at"),
     ]);
-    setCalendars(cals || []);
-    setEvents(evts || []);
+    setCalendars(cals || []); setEvents(evts || []);
     const saved = localStorage.getItem("helm-enabled-cals");
     if (saved) { try { setEnabledCals(new Set(JSON.parse(saved))); } catch { setEnabledCals(new Set((cals||[]).map(c=>c.id))); } }
     else setEnabledCals(new Set((cals||[]).map(c=>c.id)));
@@ -411,24 +378,21 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   useEffect(() => { loadEvents(); }, [loadEvents]);
 
   const toggleCalendar = (calId) => {
-    setEnabledCals(prev => {
-      const next = new Set(prev); if (next.has(calId)) next.delete(calId); else next.add(calId);
-      localStorage.setItem("helm-enabled-cals", JSON.stringify([...next])); return next;
-    });
+    setEnabledCals(prev => { const next = new Set(prev); if (next.has(calId)) next.delete(calId); else next.add(calId); localStorage.setItem("helm-enabled-cals", JSON.stringify([...next])); return next; });
   };
 
-  const allEvents = [...events, ...icalEvents].filter(e => !e.calendar_id || enabledCals.has(e.calendar_id)).sort((a,b) => new Date(a.start_at) - new Date(b.start_at));
+  const allEvents = events.filter(e => !e.calendar_id || enabledCals.has(e.calendar_id)).sort((a,b) => new Date(a.start_at) - new Date(b.start_at));
 
   const addIcalFeed = async () => {
     if (!icalUrl.trim() || !profile?.org_id) return;
     setIcalError("");
-    try { new URL(icalUrl.trim()); } catch { setIcalError("Please enter a valid URL"); return; }
+    try { new URL(icalUrl.trim()); } catch { setIcalError("Invalid URL"); return; }
     const { data, error } = await supabase.from("calendars").insert({
       org_id: profile.org_id, owner_id: profile.id, name: icalName.trim() || "External Calendar",
       calendar_type: "ical", external_provider: "ical", external_calendar_id: icalUrl.trim(), sync_enabled: true,
       color: ["#3b82f6","#a855f7","#22c55e","#f97316","#ec4899","#06b6d4"][calendars.length % 6],
     }).select().single();
-    if (error) { setIcalError("Failed: " + (error.message || "Unknown")); return; }
+    if (error) { setIcalError(error.message); return; }
     if (data) { setCalendars(prev => [...prev, data]); setEnabledCals(prev => new Set([...prev, data.id])); syncIcalFeeds([...calendars, data]); }
     setIcalUrl(""); setIcalName(""); setShowConnect(false);
   };
@@ -436,297 +400,415 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   const removeCalendar = async (calId) => {
     await supabase.from("calendars").update({ deleted_at: new Date().toISOString() }).eq("id", calId);
     setCalendars(prev => prev.filter(c => c.id !== calId));
-    setIcalEvents(prev => prev.filter(e => e.calendar_id !== calId));
   };
 
   const addManualEvent = async () => {
     if (!newEvt.title.trim() || !newEvt.start || !profile?.org_id) return;
-    const { data, error } = await supabase.from("calendar_events").insert({
+    const { data } = await supabase.from("calendar_events").insert({
       org_id: profile.org_id, organizer_id: profile.id, title: newEvt.title.trim(),
       start_at: new Date(newEvt.start).toISOString(), end_at: newEvt.end ? new Date(newEvt.end).toISOString() : null,
       video_link: newEvt.video_link || null, has_video_call: !!newEvt.video_link, location: newEvt.location || null, status: "confirmed",
     }).select().single();
-    if (!error && data) setEvents(prev => [...prev, data].sort((a,b) => new Date(a.start_at) - new Date(b.start_at)));
+    if (data) setEvents(prev => [...prev, data].sort((a,b) => new Date(a.start_at) - new Date(b.start_at)));
     setNewEvt({ title:"", start:"", end:"", video_link:"", location:"" }); setShowAddEvent(false);
   };
 
-  const saveTz = (tz) => {
-    const next = [...timezones, tz];
-    setTimezones(next);
-    localStorage.setItem("helm-cal-timezones", JSON.stringify(next));
-  };
-  const removeTz = (idx) => {
-    const next = timezones.filter((_,i) => i !== idx);
-    setTimezones(next);
-    localStorage.setItem("helm-cal-timezones", JSON.stringify(next));
+  // Event detail: load attendees
+  const openEventDetail = async (evt) => {
+    setSelectedEvent(evt);
+    setEditingEvent({ title: evt.title, description: evt.description||"", location: evt.location||"", video_link: evt.video_link||"",
+      start_at: evt.start_at ? new Date(evt.start_at).toISOString().slice(0,16) : "", end_at: evt.end_at ? new Date(evt.end_at).toISOString().slice(0,16) : "" });
+    const { data } = await supabase.from("event_attendees").select("*").eq("event_id", evt.id);
+    setEventAttendees(data || []);
   };
 
-  // Common timezone list for picker
-  const TZ_LIST = [
-    "America/New_York","America/Chicago","America/Denver","America/Los_Angeles",
-    "America/Anchorage","Pacific/Honolulu","America/Phoenix",
-    "America/Toronto","America/Vancouver","America/Mexico_City","America/Sao_Paulo",
-    "Europe/London","Europe/Paris","Europe/Berlin","Europe/Moscow",
-    "Asia/Dubai","Asia/Kolkata","Asia/Shanghai","Asia/Tokyo","Asia/Seoul","Asia/Singapore",
-    "Australia/Sydney","Australia/Perth","Pacific/Auckland",
-    "Africa/Cairo","Africa/Lagos","Africa/Johannesburg",
-  ];
-  const filteredTzList = tzSearch.trim() ? TZ_LIST.filter(tz => tz.toLowerCase().includes(tzSearch.toLowerCase()) || (tzLabel && tzLabel.toLowerCase().includes(tzSearch.toLowerCase()))) : TZ_LIST;
-
-  const fmtHourInTz = (hour, tz) => {
-    try {
-      const d = new Date(); d.setDate(d.getDate() + dayOffset); d.setHours(hour, 0, 0, 0);
-      return d.toLocaleTimeString("en-US", { hour: "numeric", hour12: true, timeZone: tz });
-    } catch { return `${hour}`; }
+  const saveEventChanges = async () => {
+    if (!selectedEvent || !editingEvent) return;
+    const updates = {
+      title: editingEvent.title, description: editingEvent.description || null,
+      location: editingEvent.location || null, video_link: editingEvent.video_link || null,
+      has_video_call: !!editingEvent.video_link,
+      start_at: editingEvent.start_at ? new Date(editingEvent.start_at).toISOString() : selectedEvent.start_at,
+      end_at: editingEvent.end_at ? new Date(editingEvent.end_at).toISOString() : null,
+    };
+    await supabase.from("calendar_events").update(updates).eq("id", selectedEvent.id);
+    setEvents(prev => prev.map(e => e.id === selectedEvent.id ? { ...e, ...updates } : e));
+    setSelectedEvent(prev => ({ ...prev, ...updates }));
   };
 
-  const getTzAbbr = (tz) => {
-    try {
-      const d = new Date();
-      const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(d);
-      return parts.find(p => p.type === "timeZoneName")?.value || tz.split("/").pop();
-    } catch { return tz.split("/").pop(); }
+  const addAttendee = async (email, name, userId) => {
+    if (!selectedEvent || !email) return;
+    const { data } = await supabase.from("event_attendees").insert({
+      event_id: selectedEvent.id, email, display_name: name || email.split("@")[0],
+      user_id: userId || null, rsvp_status: "pending", attendee_role: "attendee",
+    }).select().single();
+    if (data) setEventAttendees(prev => [...prev, data]);
+    setAttendeeSearch(""); setAttendeeEmail("");
+    // Trigger invite via edge function
+    fetch(`${EDGE_BASE}/send-invite`, {
+      method: "POST", headers: { "Authorization": `Bearer ${ANON_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ event_id: selectedEvent.id, attendees: [{ email, name, user_id: userId }] }),
+    }).catch(() => {});
   };
 
-  const HOUR_H = 56; // px per hour slot
+  const removeAttendee = async (attId) => {
+    await supabase.from("event_attendees").delete().eq("id", attId);
+    setEventAttendees(prev => prev.filter(a => a.id !== attId));
+  };
+
+  const deleteEvent = async (id) => {
+    await supabase.from("calendar_events").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    setEvents(prev => prev.filter(e => e.id !== id));
+    setSelectedEvent(null);
+  };
+
+  const saveTz = (tz) => { const next = [...timezones, tz]; setTimezones(next); localStorage.setItem("helm-cal-timezones", JSON.stringify(next)); };
+  const removeTz = (idx) => { const next = timezones.filter((_,i)=>i!==idx); setTimezones(next); localStorage.setItem("helm-cal-timezones", JSON.stringify(next)); };
+
+  const TZ_LIST = ["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Anchorage","Pacific/Honolulu","America/Toronto","America/Sao_Paulo","Europe/London","Europe/Paris","Europe/Berlin","Europe/Moscow","Asia/Dubai","Asia/Kolkata","Asia/Shanghai","Asia/Tokyo","Asia/Seoul","Asia/Singapore","Australia/Sydney","Pacific/Auckland","Africa/Cairo","Africa/Johannesburg"];
+  const filteredTzList = tzSearch.trim() ? TZ_LIST.filter(tz => tz.toLowerCase().includes(tzSearch.toLowerCase())) : TZ_LIST;
+  const fmtHourInTz = (hour, tz) => { try { const d = new Date(); d.setDate(d.getDate() + dayOffset); d.setHours(hour,0,0,0); return d.toLocaleTimeString("en-US",{hour:"numeric",hour12:true,timeZone:tz}); } catch { return ""; } };
+  const getTzAbbr = (tz) => { try { return new Intl.DateTimeFormat("en-US",{timeZone:tz,timeZoneName:"short"}).formatToParts(new Date()).find(p=>p.type==="timeZoneName")?.value||tz.split("/").pop(); } catch { return tz.split("/").pop(); } };
+
+  const HOUR_H = 56;
   const viewDate = new Date(); viewDate.setDate(viewDate.getDate() + dayOffset);
   const isToday = dayOffset === 0;
-  const nowD = new Date(nowTick);
-  const nowFrac = nowD.getHours() + nowD.getMinutes() / 60; // 0-24 fractional hour
-  const dateLabel = viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-
-  // Events positioned on timeline
-  const positionedEvents = allEvents.filter(e => !e.all_day).map(e => {
-    const s = new Date(e.start_at);
-    const en = e.end_at ? new Date(e.end_at) : new Date(s.getTime() + 3600000);
-    const startH = s.getHours() + s.getMinutes() / 60;
-    const durH = Math.max(0.5, (en - s) / 3600000);
-    return { ...e, startH, durH };
+  const nowFrac = new Date(nowTick).getHours() + new Date(nowTick).getMinutes() / 60;
+  const dateLabel = viewDate.toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric" });
+  const positionedEvents = allEvents.filter(e=>!e.all_day).map(e => {
+    const s = new Date(e.start_at), en = e.end_at ? new Date(e.end_at) : new Date(s.getTime()+3600000);
+    return { ...e, startH: s.getHours()+s.getMinutes()/60, durH: Math.max(0.5,(en-s)/3600000) };
   });
   const allDayEvents = allEvents.filter(e => e.all_day);
 
+  // Profile search for attendees
+  const matchedProfiles = attendeeSearch.trim() ? allProfiles.filter(p =>
+    (p.display_name||"").toLowerCase().includes(attendeeSearch.toLowerCase()) ||
+    (p.email||"").toLowerCase().includes(attendeeSearch.toLowerCase())
+  ).filter(p => !eventAttendees.some(a => a.user_id === p.id || a.email === p.email)).slice(0,5) : [];
+
+  const _inp = { padding:"6px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit", width:"100%", boxSizing:"border-box" };
+  const _lbl = { fontSize:10, fontWeight:600, color:T.text3, display:"block", marginBottom:3 };
+
   if (collapsed) {
     return (
-      <div onClick={() => setCollapsed(false)} style={{ width:36, flexShrink:0, background:T.surface, borderLeft:`1px solid ${T.border}`, display:"flex", flexDirection:"column", alignItems:"center", paddingTop:16, cursor:"pointer", transition:"all 0.2s" }}
-        onMouseEnter={e => e.currentTarget.style.background = T.surface2}
-        onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+      <div onClick={() => setCollapsed(false)} style={{ width:36, flexShrink:0, background:T.surface, borderLeft:`1px solid ${T.border}`, display:"flex", flexDirection:"column", alignItems:"center", paddingTop:16, cursor:"pointer" }}
+        onMouseEnter={e=>e.currentTarget.style.background=T.surface2} onMouseLeave={e=>e.currentTarget.style.background=T.surface}>
         <span style={{ fontSize:16, marginBottom:6 }}>📅</span>
-        <span style={{ writingMode:"vertical-rl", fontSize:11, fontWeight:600, color:T.text3, letterSpacing:0.5 }}>Calendar</span>
+        <span style={{ writingMode:"vertical-rl", fontSize:11, fontWeight:600, color:T.text3 }}>Calendar</span>
         {allEvents.length > 0 && <div style={{ width:18, height:18, borderRadius:9, background:T.accent, color:"#fff", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", marginTop:8 }}>{allEvents.length}</div>}
       </div>
     );
   }
 
+  // ── EVENT DETAIL PANEL ──
+  if (selectedEvent) {
+    const evt = selectedEvent;
+    const cal = evt.calendar_id ? calendars.find(c=>c.id===evt.calendar_id) : null;
+    const evtColor = evt.color || cal?.color || T.accent;
+    const isOwner = evt.organizer_id === profile?.id || !evt.organizer_id;
+    return (
+      <div style={{ width:320, flexShrink:0, background:T.surface, borderLeft:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        {/* Header */}
+        <div style={{ padding:"12px 14px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+          <button onClick={() => setSelectedEvent(null)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:16, padding:0 }}>←</button>
+          <span style={{ fontSize:12, fontWeight:700, flex:1, textAlign:"center" }}>Event Details</span>
+          <div style={{ display:"flex", gap:4 }}>
+            {isOwner && <button onClick={() => deleteEvent(evt.id)} style={{ background:"none", border:"none", color:"#ef4444", cursor:"pointer", fontSize:11, fontWeight:600 }}>Delete</button>}
+            <button onClick={() => setCollapsed(true)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:13 }}>»</button>
+          </div>
+        </div>
+
+        <div style={{ flex:1, overflowY:"auto", padding:"14px" }}>
+          {/* Color + Title */}
+          <div style={{ borderLeft:`4px solid ${evtColor}`, paddingLeft:12, marginBottom:16 }}>
+            {isOwner ? (
+              <input value={editingEvent?.title||""} onChange={e => setEditingEvent(p=>({...p,title:e.target.value}))} onBlur={saveEventChanges}
+                style={{ fontSize:16, fontWeight:700, color:T.text, background:"transparent", border:"none", outline:"none", width:"100%", fontFamily:"inherit", padding:0 }} />
+            ) : (
+              <div style={{ fontSize:16, fontWeight:700, color:T.text }}>{evt.title}</div>
+            )}
+            {cal && <div style={{ fontSize:10, color:T.text3, marginTop:3 }}>{cal.name}</div>}
+          </div>
+
+          {/* Date/Time */}
+          <div style={{ marginBottom:14 }}>
+            <label style={_lbl}>When</label>
+            {isOwner ? (
+              <div style={{ display:"flex", gap:4 }}>
+                <input type="datetime-local" value={editingEvent?.start_at||""} onChange={e => setEditingEvent(p=>({...p,start_at:e.target.value}))} onBlur={saveEventChanges} style={{..._inp, flex:1}} />
+                <input type="datetime-local" value={editingEvent?.end_at||""} onChange={e => setEditingEvent(p=>({...p,end_at:e.target.value}))} onBlur={saveEventChanges} style={{..._inp, flex:1}} />
+              </div>
+            ) : (
+              <div style={{ fontSize:12, color:T.text }}>
+                {new Date(evt.start_at).toLocaleString("en-US", { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}
+                {evt.end_at && ` – ${new Date(evt.end_at).toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit" })}`}
+              </div>
+            )}
+          </div>
+
+          {/* Location */}
+          <div style={{ marginBottom:14 }}>
+            <label style={_lbl}>Location</label>
+            {isOwner ? (
+              <input value={editingEvent?.location||""} onChange={e => setEditingEvent(p=>({...p,location:e.target.value}))} onBlur={saveEventChanges} placeholder="Add location" style={_inp} />
+            ) : evt.location ? (
+              <div style={{ fontSize:12, color:T.text }}>📍 {evt.location}</div>
+            ) : <div style={{ fontSize:11, color:T.text3 }}>No location</div>}
+          </div>
+
+          {/* Video link */}
+          <div style={{ marginBottom:14 }}>
+            <label style={_lbl}>Video Call</label>
+            {isOwner ? (
+              <input value={editingEvent?.video_link||""} onChange={e => setEditingEvent(p=>({...p,video_link:e.target.value}))} onBlur={saveEventChanges} placeholder="Zoom/Meet/Teams link" style={_inp} />
+            ) : null}
+            {(evt.video_link || editingEvent?.video_link) && (
+              <button onClick={() => window.open(editingEvent?.video_link || evt.video_link, "_blank")}
+                style={{ marginTop:6, display:"flex", alignItems:"center", gap:5, padding:"6px 12px", borderRadius:6, border:`1px solid ${evtColor}40`, background:`${evtColor}10`, color:evtColor, fontSize:11, fontWeight:600, cursor:"pointer", width:"100%" }}>
+                📹 Join Meeting
+              </button>
+            )}
+          </div>
+
+          {/* Description */}
+          <div style={{ marginBottom:16 }}>
+            <label style={_lbl}>Notes</label>
+            {isOwner ? (
+              <textarea value={editingEvent?.description||""} onChange={e => setEditingEvent(p=>({...p,description:e.target.value}))} onBlur={saveEventChanges} placeholder="Add notes…" rows={3}
+                style={{..._inp, resize:"vertical", minHeight:50}} />
+            ) : evt.description ? (
+              <div style={{ fontSize:12, color:T.text2, whiteSpace:"pre-wrap", lineHeight:1.5 }}>{evt.description}</div>
+            ) : <div style={{ fontSize:11, color:T.text3 }}>No notes</div>}
+          </div>
+
+          {/* ── ATTENDEES ── */}
+          <div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+              <label style={{..._lbl, marginBottom:0}}>Attendees ({eventAttendees.length})</label>
+            </div>
+
+            {/* Existing attendees */}
+            {eventAttendees.map(att => (
+              <div key={att.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:`1px solid ${T.border}15` }}>
+                <div style={{ width:24, height:24, borderRadius:12, background:`${T.accent}20`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color:T.accent, flexShrink:0 }}>
+                  {(att.display_name||att.email||"?").slice(0,2).toUpperCase()}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:11, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{att.display_name || att.email}</div>
+                  {att.email && <div style={{ fontSize:9, color:T.text3 }}>{att.email}</div>}
+                </div>
+                <span style={{ fontSize:9, padding:"1px 5px", borderRadius:3,
+                  background: att.rsvp_status === "accepted" ? "#22c55e20" : att.rsvp_status === "declined" ? "#ef444420" : `${T.accent}15`,
+                  color: att.rsvp_status === "accepted" ? "#22c55e" : att.rsvp_status === "declined" ? "#ef4444" : T.text3,
+                  fontWeight:600 }}>{(att.rsvp_status||"pending")}</span>
+                {isOwner && <button onClick={() => removeAttendee(att.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:10, opacity:0.4 }}
+                  onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4}>×</button>}
+              </div>
+            ))}
+
+            {/* Add attendee */}
+            {isOwner && (
+              <div style={{ marginTop:8 }}>
+                <div style={{ position:"relative" }}>
+                  <input value={attendeeSearch} onChange={e => { setAttendeeSearch(e.target.value); setAttendeeEmail(e.target.value); }}
+                    onKeyDown={e => { if (e.key === "Enter" && attendeeEmail.includes("@")) { addAttendee(attendeeEmail, "", null); } }}
+                    placeholder="Search users or type email…" style={_inp} />
+                  {matchedProfiles.length > 0 && (
+                    <div style={{ position:"absolute", top:"100%", left:0, right:0, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, boxShadow:"0 8px 24px #00000040", zIndex:50, maxHeight:150, overflowY:"auto", marginTop:2 }}>
+                      {matchedProfiles.map(p => (
+                        <div key={p.id} onClick={() => addAttendee(p.email, p.display_name, p.id)}
+                          style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", cursor:"pointer", fontSize:11 }}
+                          onMouseEnter={e=>e.currentTarget.style.background=T.surface2} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                          <div style={{ width:22, height:22, borderRadius:11, background:`${T.accent}20`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:8, fontWeight:700, color:T.accent }}>
+                            {(p.display_name||p.email||"?").slice(0,2).toUpperCase()}
+                          </div>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontWeight:500 }}>{p.display_name}</div>
+                            <div style={{ fontSize:9, color:T.text3 }}>{p.email}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {attendeeEmail.includes("@") && matchedProfiles.length === 0 && attendeeSearch.trim() && (
+                  <button onClick={() => addAttendee(attendeeEmail, "", null)}
+                    style={{ marginTop:4, width:"100%", padding:"5px 0", borderRadius:5, border:`1px dashed ${T.border2}`, background:"transparent", color:T.accent, fontSize:10, fontWeight:600, cursor:"pointer" }}>
+                    Invite {attendeeEmail}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MAIN CALENDAR VIEW ──
   return (
     <div style={{ width:320, flexShrink:0, background:T.surface, borderLeft:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-      {/* Header with day nav */}
+      {/* Header */}
       <div style={{ padding:"10px 14px", borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: timezones.length > 0 || !isToday ? 6 : 0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <button onClick={() => setDayOffset(d => d - 1)} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", color:T.text3, fontSize:12, display:"flex", alignItems:"center", justifyContent:"center" }}>‹</button>
-            <button onClick={() => setDayOffset(0)} style={{ padding:"2px 8px", borderRadius:5, border: isToday ? `1px solid ${T.accent}40` : `1px solid ${T.border}`, background: isToday ? `${T.accent}10` : "transparent", color: isToday ? T.accent : T.text, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+            <button onClick={() => setDayOffset(d=>d-1)} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", color:T.text3, fontSize:12, display:"flex", alignItems:"center", justifyContent:"center" }}>‹</button>
+            <button onClick={() => setDayOffset(0)} style={{ padding:"2px 8px", borderRadius:5, border:isToday?`1px solid ${T.accent}40`:`1px solid ${T.border}`, background:isToday?`${T.accent}10`:"transparent", color:isToday?T.accent:T.text, fontSize:12, fontWeight:600, cursor:"pointer" }}>
               {isToday ? "Today" : dateLabel}
             </button>
-            <button onClick={() => setDayOffset(d => d + 1)} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", color:T.text3, fontSize:12, display:"flex", alignItems:"center", justifyContent:"center" }}>›</button>
+            <button onClick={() => setDayOffset(d=>d+1)} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", color:T.text3, fontSize:12, display:"flex", alignItems:"center", justifyContent:"center" }}>›</button>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:4 }}>
             <div style={{ position:"relative" }} ref={calPickerRef}>
-              <button onClick={() => setShowCalPicker(!showCalPicker)} title="Calendar settings" style={{ width:26, height:26, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:T.text3 }}>⚙</button>
+              <button onClick={() => setShowCalPicker(!showCalPicker)} style={{ width:26, height:26, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", fontSize:12, color:T.text3, display:"flex", alignItems:"center", justifyContent:"center" }}>⚙</button>
               {showCalPicker && (
-                <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, width:260, background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, boxShadow:"0 12px 40px #00000050", zIndex:100, overflow:"hidden" }}>
-                  <div style={{ padding:"10px 14px", borderBottom:`1px solid ${T.border}`, fontSize:12, fontWeight:700, color:T.text2 }}>Calendars</div>
-                  <div style={{ maxHeight:180, overflowY:"auto" }}>
-                    {calendars.length === 0 && <div style={{ padding:"14px", fontSize:11, color:T.text3, textAlign:"center" }}>No calendars</div>}
+                <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, width:250, background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, boxShadow:"0 12px 40px #00000050", zIndex:100 }}>
+                  <div style={{ padding:"8px 12px", borderBottom:`1px solid ${T.border}`, fontSize:11, fontWeight:700 }}>Calendars</div>
+                  <div style={{ maxHeight:160, overflowY:"auto" }}>
                     {calendars.map(cal => (
-                      <div key={cal.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", borderBottom:`1px solid ${T.border}15` }}
-                        onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div key={cal.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 12px" }} onMouseEnter={e=>e.currentTarget.style.background=T.surface2} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                         <div onClick={() => toggleCalendar(cal.id)} style={{ width:14, height:14, borderRadius:3, border:`2px solid ${cal.color||T.accent}`, background:enabledCals.has(cal.id)?(cal.color||T.accent):"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                           {enabledCals.has(cal.id) && <span style={{ color:"#fff", fontSize:8 }}>✓</span>}
                         </div>
-                        <div onClick={() => toggleCalendar(cal.id)} style={{ flex:1, minWidth:0, cursor:"pointer" }}>
-                          <div style={{ fontSize:11, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cal.name}</div>
-                        </div>
-                        <button onClick={() => removeCalendar(cal.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:11, opacity:0.3 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.3}>×</button>
+                        <span onClick={() => toggleCalendar(cal.id)} style={{ flex:1, fontSize:10, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cal.name}</span>
+                        <button onClick={() => removeCalendar(cal.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:10, opacity:0.3 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.3}>×</button>
                       </div>
                     ))}
+                    {calendars.length === 0 && <div style={{ padding:"12px", fontSize:10, color:T.text3, textAlign:"center" }}>No calendars</div>}
                   </div>
-                  <div style={{ padding:"8px 14px", borderTop:`1px solid ${T.border}` }}>
-                    <button onClick={() => setShowConnect(!showConnect)} style={{ width:"100%", padding:"6px 0", borderRadius:5, border:`1px dashed ${T.border2}`, background:"transparent", color:T.accent, fontSize:11, fontWeight:600, cursor:"pointer" }}>+ Connect calendar</button>
+                  <div style={{ padding:"8px 12px", borderTop:`1px solid ${T.border}` }}>
+                    <button onClick={() => setShowConnect(!showConnect)} style={{ width:"100%", padding:"5px 0", borderRadius:5, border:`1px dashed ${T.border2}`, background:"transparent", color:T.accent, fontSize:10, fontWeight:600, cursor:"pointer" }}>+ Connect calendar</button>
                     {showConnect && (
-                      <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:5 }}>
-                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5 }}>
-                          {[{ p:"google", l:"Google", i:"G", c:"#4285f4" },{ p:"outlook", l:"Outlook", i:"O", c:"#0078d4" }].map(p => (
-                            <button key={p.p} onClick={() => alert(`${p.l} Calendar OAuth coming soon! Use iCal URL.`)} style={{ display:"flex", alignItems:"center", gap:5, padding:"6px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface2, cursor:"pointer", color:T.text, fontSize:10, fontWeight:600 }}>
-                              <span style={{ width:16, height:16, borderRadius:3, background:p.c, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800 }}>{p.i}</span>{p.l}
-                            </button>
+                      <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:4 }}>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:4 }}>
+                          {[{p:"google",l:"Google",c:"#4285f4"},{p:"outlook",l:"Outlook",c:"#0078d4"}].map(p => (
+                            <button key={p.p} onClick={() => alert(`${p.l} OAuth coming soon`)} style={{ padding:"5px 6px", borderRadius:4, border:`1px solid ${T.border}`, background:T.surface2, cursor:"pointer", color:T.text, fontSize:9, fontWeight:600 }}>{p.l}</button>
                           ))}
                         </div>
-                        <div style={{ fontSize:9, color:T.text3, textAlign:"center" }}>— or paste iCal URL —</div>
-                        <input value={icalName} onChange={e => setIcalName(e.target.value)} placeholder="Calendar name" style={{ padding:"5px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:10, outline:"none", fontFamily:"inherit" }} />
-                        <input value={icalUrl} onChange={e => { setIcalUrl(e.target.value); setIcalError(""); }} placeholder="https://…/basic.ics" style={{ padding:"5px 8px", borderRadius:5, border:`1px solid ${icalError?"#ef4444":T.border}`, background:T.surface2, color:T.text, fontSize:10, outline:"none", fontFamily:"inherit" }} />
+                        <input value={icalName} onChange={e => setIcalName(e.target.value)} placeholder="Name" style={{..._inp, fontSize:10}} />
+                        <input value={icalUrl} onChange={e => { setIcalUrl(e.target.value); setIcalError(""); }} placeholder="iCal URL" style={{..._inp, fontSize:10, borderColor:icalError?"#ef4444":T.border}} />
                         {icalError && <div style={{ fontSize:9, color:"#ef4444" }}>{icalError}</div>}
-                        <button onClick={addIcalFeed} disabled={!icalUrl.trim()} style={{ padding:"5px 0", borderRadius:5, border:"none", background:T.accent, color:"#fff", fontSize:10, fontWeight:600, cursor:"pointer", opacity:icalUrl.trim()?1:0.4 }}>Add Calendar</button>
+                        <button onClick={addIcalFeed} disabled={!icalUrl.trim()} style={{ padding:"5px 0", borderRadius:5, border:"none", background:T.accent, color:"#fff", fontSize:10, fontWeight:600, cursor:"pointer", opacity:icalUrl.trim()?1:0.4 }}>Add</button>
                       </div>
                     )}
                   </div>
                 </div>
               )}
             </div>
-            <button onClick={() => setCollapsed(true)} title="Collapse" style={{ width:26, height:26, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:T.text3 }}>»</button>
+            <button onClick={() => setCollapsed(true)} style={{ width:26, height:26, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", fontSize:13, color:T.text3, display:"flex", alignItems:"center", justifyContent:"center" }}>»</button>
           </div>
         </div>
-        {!isToday && <div style={{ fontSize:11, color:T.text3, textAlign:"center" }}>{viewDate.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" })}</div>}
-        {/* Timezone labels row */}
+        {!isToday && <div style={{ fontSize:10, color:T.text3, textAlign:"center" }}>{viewDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</div>}
         {timezones.length > 0 && (
-          <div style={{ display:"flex", gap:4, marginTop:6, flexWrap:"wrap" }}>
-            {timezones.map((tz, i) => (
-              <span key={i} style={{ display:"inline-flex", alignItems:"center", gap:3, padding:"2px 6px", borderRadius:4, background:T.surface2, fontSize:9, color:T.text2, border:`1px solid ${T.border}` }}>
-                {tz.label || getTzAbbr(tz.zone)}
-                <button onClick={() => removeTz(i)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:9, padding:0, lineHeight:1 }}>×</button>
+          <div style={{ display:"flex", gap:3, marginTop:4, flexWrap:"wrap" }}>
+            {timezones.map((tz,i) => (
+              <span key={i} style={{ display:"inline-flex", alignItems:"center", gap:2, padding:"1px 5px", borderRadius:3, background:T.surface2, fontSize:8, color:T.text2, border:`1px solid ${T.border}` }}>
+                {tz.label||getTzAbbr(tz.zone)} <button onClick={()=>removeTz(i)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:8, padding:0 }}>×</button>
               </span>
             ))}
           </div>
         )}
+        {syncError && <div style={{ fontSize:9, color:"#ef4444", marginTop:4, padding:"3px 6px", borderRadius:4, background:"#ef444410" }}>{syncError}</div>}
       </div>
 
-      {/* All-day events */}
+      {/* All-day */}
       {allDayEvents.length > 0 && (
-        <div style={{ padding:"6px 14px", borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+        <div style={{ padding:"4px 14px", borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
           {allDayEvents.map(e => {
-            const cal = e.calendar_id ? calendars.find(c => c.id === e.calendar_id) : null;
-            const c = e.color || cal?.color || T.accent;
-            return <div key={e.id} style={{ padding:"4px 8px", borderRadius:4, background:`${c}15`, borderLeft:`3px solid ${c}`, fontSize:11, fontWeight:500, marginBottom:2, color:T.text }}>{e.title}</div>;
+            const c = e.color || T.accent;
+            return <div key={e.id} onClick={() => openEventDetail(e)} style={{ padding:"3px 8px", borderRadius:4, background:`${c}15`, borderLeft:`3px solid ${c}`, fontSize:10, fontWeight:500, marginBottom:2, cursor:"pointer" }}>{e.title}</div>;
           })}
         </div>
       )}
 
-      {/* Timeline grid */}
-      <div ref={timelineRef} style={{ flex:1, overflowY:"auto", overflowX:"hidden", position:"relative" }}>
-        {loading ? (
-          <div style={{ textAlign:"center", padding:"24px 0", color:T.text3, fontSize:12 }}>Loading…</div>
-        ) : (
-          <div style={{ position:"relative", height: 24 * HOUR_H }}>
-            {/* Hour rows */}
-            {Array.from({ length: 24 }, (_, h) => (
-              <div key={h} style={{ position:"absolute", top: h * HOUR_H, left:0, right:0, height:HOUR_H, borderBottom:`1px solid ${T.border}15`, display:"flex", alignItems:"flex-start" }}>
-                {/* Local time */}
-                <div style={{ width: timezones.length > 0 ? 46 : 56, flexShrink:0, textAlign:"right", paddingRight:6, paddingTop:2, fontSize:10, color:T.text3, fontWeight:400 }}>
-                  {h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h-12} PM`}
+      {/* Timeline */}
+      <div ref={timelineRef} style={{ flex:1, overflowY:"auto", position:"relative" }}>
+        {loading ? <div style={{ textAlign:"center", padding:"24px 0", color:T.text3, fontSize:12 }}>Loading…</div> : (
+          <div style={{ position:"relative", height:24*HOUR_H }}>
+            {Array.from({length:24},(_,h) => (
+              <div key={h} style={{ position:"absolute", top:h*HOUR_H, left:0, right:0, height:HOUR_H, borderBottom:`1px solid ${T.border}12`, display:"flex" }}>
+                <div style={{ width:timezones.length>0?44:52, flexShrink:0, textAlign:"right", paddingRight:5, paddingTop:2, fontSize:10, color:T.text3 }}>
+                  {h===0?"12 AM":h<12?`${h} AM`:h===12?"12 PM":`${h-12} PM`}
                 </div>
-                {/* Extra timezone columns */}
-                {timezones.map((tz, i) => (
-                  <div key={i} style={{ width:42, flexShrink:0, textAlign:"right", paddingRight:4, paddingTop:2, fontSize:10, color:T.text3, opacity:0.7 }}>
-                    {fmtHourInTz(h, tz.zone)}
-                  </div>
+                {timezones.map((tz,i) => (
+                  <div key={i} style={{ width:38, flexShrink:0, textAlign:"right", paddingRight:3, paddingTop:2, fontSize:9, color:T.text3, opacity:0.6 }}>{fmtHourInTz(h,tz.zone)}</div>
                 ))}
-                {/* Grid line extends into event area */}
-                <div style={{ flex:1 }} />
               </div>
             ))}
-
-            {/* Now line */}
             {isToday && (
-              <div style={{ position:"absolute", top: nowFrac * HOUR_H, left:0, right:0, zIndex:10, pointerEvents:"none", display:"flex", alignItems:"center" }}>
-                <div style={{ width: (timezones.length > 0 ? 46 : 56) + timezones.length * 42 - 4, display:"flex", justifyContent:"flex-end" }}>
-                  <div style={{ width:8, height:8, borderRadius:4, background:"#ef4444" }} />
-                </div>
+              <div style={{ position:"absolute", top:nowFrac*HOUR_H, left:0, right:0, zIndex:10, pointerEvents:"none", display:"flex", alignItems:"center" }}>
+                <div style={{ width:(timezones.length>0?44:52)+timezones.length*38-4, display:"flex", justifyContent:"flex-end" }}><div style={{ width:8, height:8, borderRadius:4, background:"#ef4444" }} /></div>
                 <div style={{ flex:1, height:2, background:"#ef4444" }} />
               </div>
             )}
-
-            {/* Events */}
             {positionedEvents.map(evt => {
-              const cal = evt.calendar_id ? calendars.find(c => c.id === evt.calendar_id) : null;
+              const cal = evt.calendar_id ? calendars.find(c=>c.id===evt.calendar_id) : null;
               const c = evt.color || cal?.color || T.accent;
-              const leftOffset = (timezones.length > 0 ? 46 : 56) + timezones.length * 42 + 4;
+              const leftOff = (timezones.length>0?44:52)+timezones.length*38+4;
               const hasVideo = evt.has_video_call || evt.video_link;
-              const startD = new Date(evt.start_at);
-              const endD = evt.end_at ? new Date(evt.end_at) : null;
-              const isNow = isToday && startD.getTime() <= nowTick && endD && endD.getTime() > nowTick;
+              const isNow = isToday && new Date(evt.start_at).getTime() <= nowTick && evt.end_at && new Date(evt.end_at).getTime() > nowTick;
               return (
-                <div key={evt.id} style={{
-                  position:"absolute", top: evt.startH * HOUR_H + 1, left: leftOffset, right:8,
-                  height: Math.max(24, evt.durH * HOUR_H - 2), borderRadius:6,
-                  background:`${c}18`, borderLeft:`3px solid ${c}`,
-                  padding:"4px 8px", overflow:"hidden", cursor:"pointer",
-                  border: isNow ? `1px solid ${c}50` : "none",
-                  zIndex:5, transition:"all 0.15s",
-                }} onMouseEnter={e => e.currentTarget.style.background = `${c}28`}
-                   onMouseLeave={e => e.currentTarget.style.background = `${c}18`}>
-                  <div style={{ fontSize:11, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.2 }}>{evt.title}</div>
-                  <div style={{ fontSize:9, color:T.text3, marginTop:1 }}>
-                    {startD.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true})}
-                    {endD && ` – ${endD.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true})}`}
-                  </div>
-                  {evt.location && evt.durH >= 1.5 && <div style={{ fontSize:9, color:T.text3, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📍 {evt.location}</div>}
-                  {hasVideo && evt.durH >= 1 && (
-                    <button onClick={(e) => { e.stopPropagation(); if (evt.video_link) window.open(evt.video_link, "_blank"); }}
-                      style={{ marginTop:3, display:"inline-flex", alignItems:"center", gap:3, padding:"2px 7px", borderRadius:4, border:`1px solid ${c}40`, background:`${c}15`, color:c, fontSize:9, fontWeight:600, cursor:"pointer" }}>
-                      📹 Join
-                    </button>
-                  )}
+                <div key={evt.id} onClick={() => openEventDetail(evt)} style={{
+                  position:"absolute", top:evt.startH*HOUR_H+1, left:leftOff, right:8,
+                  height:Math.max(24, evt.durH*HOUR_H-2), borderRadius:6,
+                  background:`${c}18`, borderLeft:`3px solid ${c}`, padding:"3px 8px", cursor:"pointer",
+                  border:isNow?`1px solid ${c}50`:"none", zIndex:5,
+                }} onMouseEnter={e=>e.currentTarget.style.background=`${c}28`} onMouseLeave={e=>e.currentTarget.style.background=`${c}18`}>
+                  <div style={{ fontSize:11, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{evt.title}</div>
+                  <div style={{ fontSize:9, color:T.text3 }}>{new Date(evt.start_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true})}</div>
+                  {hasVideo && evt.durH >= 1 && <div style={{ fontSize:8, color:c, marginTop:1, fontWeight:600 }}>📹 Video</div>}
                 </div>
               );
             })}
-
             {syncing && <div style={{ position:"absolute", top:4, right:8, fontSize:9, color:T.accent, zIndex:20 }}>⟳ Syncing…</div>}
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div style={{ padding:"8px 14px", borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-          <button onClick={() => setShowTzAdd(!showTzAdd)} style={{ background:"none", border:"none", color:T.accent, fontSize:9, cursor:"pointer", fontWeight:600 }}>+ Timezone</button>
+      <div style={{ padding:"7px 14px", borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+        <div style={{ display:"flex", gap:6 }}>
+          <button onClick={() => setShowTzAdd(!showTzAdd)} style={{ background:"none", border:"none", color:T.accent, fontSize:9, cursor:"pointer", fontWeight:600 }}>+ TZ</button>
           <button onClick={() => setShowAddEvent(!showAddEvent)} style={{ background:"none", border:"none", color:T.accent, fontSize:9, cursor:"pointer", fontWeight:600 }}>+ Event</button>
         </div>
-        <span style={{ fontSize:9, color:T.text3 }}>{allEvents.length} event{allEvents.length !== 1 ? "s" : ""}</span>
+        <span style={{ fontSize:9, color:T.text3 }}>{allEvents.length} event{allEvents.length!==1?"s":""}</span>
       </div>
 
-      {/* Add timezone picker */}
       {showTzAdd && (
-        <div style={{ padding:"10px 14px", borderTop:`1px solid ${T.border}`, background:T.surface2, flexShrink:0 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-            <span style={{ fontSize:11, fontWeight:700 }}>Add Timezone</span>
-            <button onClick={() => { setShowTzAdd(false); setTzSearch(""); setTzLabel(""); }} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:13 }}>×</button>
-          </div>
-          <input value={tzLabel} onChange={e => setTzLabel(e.target.value)} placeholder="Label (e.g. London Office)" style={{ width:"100%", padding:"5px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit", marginBottom:4, boxSizing:"border-box" }} />
-          <input value={tzSearch} onChange={e => setTzSearch(e.target.value)} placeholder="Search timezone…" style={{ width:"100%", padding:"5px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit", boxSizing:"border-box" }} />
-          <div style={{ maxHeight:120, overflowY:"auto", marginTop:4 }}>
+        <div style={{ padding:"8px 14px", borderTop:`1px solid ${T.border}`, background:T.surface2, flexShrink:0 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ fontSize:10, fontWeight:700 }}>Add Timezone</span><button onClick={()=>{setShowTzAdd(false);setTzSearch("");setTzLabel("");}} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:12 }}>×</button></div>
+          <input value={tzLabel} onChange={e=>setTzLabel(e.target.value)} placeholder="Label (optional)" style={{..._inp, fontSize:10, marginBottom:3}} />
+          <input value={tzSearch} onChange={e=>setTzSearch(e.target.value)} placeholder="Search…" style={{..._inp, fontSize:10}} />
+          <div style={{ maxHeight:100, overflowY:"auto", marginTop:3 }}>
             {filteredTzList.map(tz => (
-              <div key={tz} onClick={() => { saveTz({ zone: tz, label: tzLabel.trim() || "" }); setShowTzAdd(false); setTzSearch(""); setTzLabel(""); }}
-                style={{ padding:"5px 8px", fontSize:10, cursor:"pointer", borderRadius:4, display:"flex", justifyContent:"space-between" }}
-                onMouseEnter={e => e.currentTarget.style.background = T.surface3}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ color:T.text }}>{tz.replace(/_/g," ")}</span>
-                <span style={{ color:T.text3 }}>{getTzAbbr(tz)}</span>
+              <div key={tz} onClick={()=>{saveTz({zone:tz,label:tzLabel.trim()||""});setShowTzAdd(false);setTzSearch("");setTzLabel("");}} style={{ padding:"4px 6px", fontSize:9, cursor:"pointer", borderRadius:3, display:"flex", justifyContent:"space-between" }}
+                onMouseEnter={e=>e.currentTarget.style.background=T.surface3} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <span>{tz.replace(/_/g," ")}</span><span style={{ color:T.text3 }}>{getTzAbbr(tz)}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Add Event Form */}
       {showAddEvent && (
-        <div style={{ padding:"10px 14px", borderTop:`1px solid ${T.border}`, background:T.surface2, flexShrink:0 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-            <span style={{ fontSize:11, fontWeight:700 }}>New Event</span>
-            <button onClick={() => setShowAddEvent(false)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:13 }}>×</button>
-          </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-            <input value={newEvt.title} onChange={e => setNewEvt(p=>({...p, title:e.target.value}))} placeholder="Event title" style={{ padding:"6px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
-            <div style={{ display:"flex", gap:4 }}>
-              <input type="datetime-local" value={newEvt.start} onChange={e => setNewEvt(p=>({...p, start:e.target.value}))} style={{ flex:1, padding:"5px 6px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:10, outline:"none", fontFamily:"inherit" }} />
-              <input type="datetime-local" value={newEvt.end} onChange={e => setNewEvt(p=>({...p, end:e.target.value}))} style={{ flex:1, padding:"5px 6px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:10, outline:"none", fontFamily:"inherit" }} />
+        <div style={{ padding:"8px 14px", borderTop:`1px solid ${T.border}`, background:T.surface2, flexShrink:0 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ fontSize:10, fontWeight:700 }}>New Event</span><button onClick={()=>setShowAddEvent(false)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:12 }}>×</button></div>
+          <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+            <input value={newEvt.title} onChange={e=>setNewEvt(p=>({...p,title:e.target.value}))} placeholder="Title" style={{..._inp, fontSize:10}} />
+            <div style={{ display:"flex", gap:3 }}>
+              <input type="datetime-local" value={newEvt.start} onChange={e=>setNewEvt(p=>({...p,start:e.target.value}))} style={{..._inp, flex:1, fontSize:9}} />
+              <input type="datetime-local" value={newEvt.end} onChange={e=>setNewEvt(p=>({...p,end:e.target.value}))} style={{..._inp, flex:1, fontSize:9}} />
             </div>
-            <input value={newEvt.video_link} onChange={e => setNewEvt(p=>({...p, video_link:e.target.value}))} placeholder="Video link (Zoom/Meet)" style={{ padding:"6px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
-            <button onClick={addManualEvent} disabled={!newEvt.title.trim()||!newEvt.start} style={{ padding:"6px 0", borderRadius:5, border:"none", background:T.accent, color:"#fff", fontSize:11, fontWeight:600, cursor:"pointer", opacity:newEvt.title.trim()&&newEvt.start?1:0.4 }}>Add Event</button>
+            <input value={newEvt.video_link} onChange={e=>setNewEvt(p=>({...p,video_link:e.target.value}))} placeholder="Video link" style={{..._inp, fontSize:10}} />
+            <button onClick={addManualEvent} disabled={!newEvt.title.trim()||!newEvt.start} style={{ padding:"5px 0", borderRadius:5, border:"none", background:T.accent, color:"#fff", fontSize:10, fontWeight:600, cursor:"pointer", opacity:newEvt.title.trim()&&newEvt.start?1:0.4 }}>Add</button>
           </div>
         </div>
       )}
     </div>
   );
 }
+
 
 
 /* ═══════════════════════════════════════════════════════
