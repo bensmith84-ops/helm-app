@@ -447,7 +447,53 @@ export default function DashboardView({ setActive }) {
         </Card>
       </div>
 
-      {/* ── KR Check-in Needed ── */}
+      {/* ── Projects Health Summary ── */}
+      {projects.filter(p => p.status !== "archived").length > 0 && (() => {
+        const activeProjs = projects.filter(p => p.status !== "archived").map(p => {
+          const pt = tasks.filter(t => t.project_id === p.id && !t.parent_task_id);
+          const done = pt.filter(t => t.status === "done").length;
+          const overdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < todayStr).length;
+          const pct = pt.length ? Math.round((done / pt.length) * 100) : 0;
+          const health = overdue > pt.length * 0.2 ? "off_track" : overdue > 0 ? "at_risk" : "on_track";
+          return { ...p, pct, overdue, taskCount: pt.length, health };
+        });
+        const atRiskProjs = activeProjs.filter(p => p.health !== "on_track");
+        if (atRiskProjs.length === 0) return null;
+        return (
+          <div style={{ marginBottom:20 }}>
+            <Card>
+              <SectionHeader title="Projects Needing Attention" icon="📁" action={
+                <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>All projects →</button>
+              } />
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px,1fr))", gap:10 }}>
+                {atRiskProjs.slice(0,6).map(p => {
+                  const hc = p.health === "off_track" ? "#ef4444" : "#eab308";
+                  return (
+                    <div key={p.id} onClick={() => setActive("projects")} style={{ padding:"12px 14px", borderRadius:10, background:T.surface2, border:`1px solid ${hc}40`, cursor:"pointer", borderLeft:`3px solid ${hc}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                      onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
+                        <div style={{ width:8, height:8, borderRadius:4, background:p.color||T.accent, flexShrink:0 }} />
+                        <span style={{ fontSize:12, fontWeight:600, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</span>
+                        <span style={{ fontSize:9, fontWeight:700, padding:"1px 6px", borderRadius:8, background:hc+"20", color:hc }}>
+                          {p.health === "off_track" ? "Off Track" : "At Risk"}
+                        </span>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <div style={{ flex:1, height:3, borderRadius:2, background:T.surface3 }}>
+                          <div style={{ width:`${p.pct}%`, height:"100%", borderRadius:2, background:p.color||T.accent }} />
+                        </div>
+                        <span style={{ fontSize:11, color:T.text3, fontWeight:600, minWidth:28 }}>{p.pct}%</span>
+                      </div>
+                      {p.overdue > 0 && <div style={{ fontSize:10, color:hc, marginTop:5 }}>⚠ {p.overdue} overdue task{p.overdue!==1?"s":""}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
       {staleKRs.length > 0 && (
         <div style={{ marginBottom:20 }}>
           <Card style={{ borderColor: "#eab30840", background: `linear-gradient(135deg, ${T.surface} 0%, #eab30808 100%)` }}>

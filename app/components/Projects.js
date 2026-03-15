@@ -343,16 +343,28 @@ export default function ProjectsView() {
         My Tasks
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "4px 8px" }}>
-        {projects.filter(p => p.status !== "archived").map(p => { const pt = tasks.filter(t => t.project_id === p.id); const pd = pt.filter(t => t.status === "done").length; const pp = pt.length ? Math.round((pd / pt.length) * 100) : 0; const act = activeProject === p.id && !showMyTasks; return (
+        {projects.filter(p => p.status !== "archived").map(p => {
+          const pt = tasks.filter(t => t.project_id === p.id && !t.parent_task_id);
+          const pd = pt.filter(t => t.status === "done").length;
+          const pp = pt.length ? Math.round((pd / pt.length) * 100) : 0;
+          const act = activeProject === p.id && !showMyTasks;
+          const pToday = new Date().toISOString().split("T")[0];
+          const pOverdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < pToday).length;
+          const pHealth = pOverdue > pt.length * 0.2 ? "#ef4444" : pOverdue > 0 ? "#eab308" : "#22c55e";
+          return (
           <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }}
             onContextMenu={e => { e.preventDefault(); setCtxProject(ctxProject === p.id ? null : p.id); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
             <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{pt.length} tasks · {pp}%</div>
+              <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.emoji || ""} {p.name}</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: pHealth, display: "inline-block" }} />
+                {pt.length} tasks · {pp}%
+                {pOverdue > 0 && <span style={{ color: "#ef4444" }}>· {pOverdue} late</span>}
+              </div>
             </div>
-            <div style={{ width: 32, height: 3, borderRadius: 2, background: T.surface3, flexShrink: 0 }}><div style={{ width: `${pp}%`, height: "100%", borderRadius: 2, background: p.color || T.accent, transition: "width 0.4s" }} /></div>
+            <div style={{ width: 28, height: 3, borderRadius: 2, background: T.surface3, flexShrink: 0 }}><div style={{ width: `${pp}%`, height: "100%", borderRadius: 2, background: p.color || T.accent, transition: "width 0.4s" }} /></div>
             {ctxProject === p.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 4, top: "100%", zIndex: 50, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 4, minWidth: 140, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
               <div onClick={() => { setCopyingProject(p); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Copy

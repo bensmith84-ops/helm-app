@@ -10,81 +10,51 @@ export default function CommandPalette({ open, onClose, setActive }) {
   const [selected, setSelected] = useState(0);
   const inputRef = useRef(null);
 
+  const navResults = () => [
+    ...NAV_ITEMS.slice(0, 6).map(n => ({ type: "nav", id: n.key, title: n.label, sub: "Navigate", icon: n.icon || "→" })),
+    { type: "action", id: "new-project", title: "New Project", sub: "Jump to Projects", icon: "＋", action: "projects" },
+    { type: "action", id: "new-okr", title: "New Objective", sub: "Jump to OKRs", icon: "＋", action: "okrs" },
+    { type: "action", id: "new-doc", title: "New Document", sub: "Jump to Docs", icon: "＋", action: "docs" },
+  ];
+
   useEffect(() => {
-    if (open) { setQuery(""); setResults([]); setSelected(0); setTimeout(() => inputRef.current?.focus(), 50); }
+    if (open) { setQuery(""); setResults(navResults()); setSelected(0); setTimeout(() => inputRef.current?.focus(), 50); }
   }, [open]);
 
   useEffect(() => {
     if (!query.trim()) { setResults(navResults()); return; }
     const timer = setTimeout(async () => {
-      const q = query.toLowerCase();
-      // Search nav items
-      const nav = NAV_ITEMS.filter(n => n.label.toLowerCase().includes(q)).map(n => ({
-        type: "nav", id: n.key, title: n.label, sub: "Navigate", icon: "→",
-      }));
-      // Search tasks
-      const { data: tasks } = await supabase.from("tasks").select("id, title, status, project_id")
-        .is("deleted_at", null).ilike("title", `%${query}%`).limit(8);
-      const taskResults = (tasks || []).map(t => ({
-        type: "task", id: t.id, title: t.title, sub: t.status, icon: "☐",
-      }));
-      // Search projects
-      const { data: projects } = await supabase.from("projects").select("id, name, color")
-        .is("deleted_at", null).ilike("name", `%${query}%`).limit(5);
-      const projResults = (projects || []).map(p => ({
-        type: "project", id: p.id, title: p.name, sub: "Project", icon: "◼",
-        color: p.color,
-      }));
-      // Search docs
-      const { data: docs } = await supabase.from("docs").select("id, title, status")
-        .is("deleted_at", null).ilike("title", `%${query}%`).limit(4);
-      const docResults = (docs || []).map(d => ({
-        type: "doc", id: d.id, title: d.title, sub: d.status || "Doc", icon: "📄",
-      }));
-      // Search campaigns
-      const { data: camps } = await supabase.from("campaigns").select("id, name, status")
-        .is("deleted_at", null).ilike("name", `%${query}%`).limit(3);
-      const campResults = (camps || []).map(c => ({
-        type: "campaign", id: c.id, title: c.name, sub: c.status || "Campaign", icon: "📢",
-      }));
-      // Search objectives
-      const { data: objs } = await supabase.from("objectives").select("id, title, health")
-        .is("deleted_at", null).ilike("title", `%${query}%`).limit(3);
-      const objResults = (objs || []).map(o => ({
-        type: "okr", id: o.id, title: o.title, sub: o.health || "Objective", icon: "🎯",
-      }));
-      // Search messages
-      const { data: msgs } = await supabase.from("messages").select("id, content, channel_id")
-        .is("deleted_at", null).ilike("content", `%${query}%`).limit(3);
-      const msgResults = (msgs || []).map(m => ({
-        type: "message", id: m.id, title: m.content?.slice(0, 60) + (m.content?.length > 60 ? "…" : ""),
-        sub: "Message", icon: "💬",
-      }));
-      // Search PLM products
-      const { data: plm } = await supabase.from("plm_products").select("id, name, stage")
-        .is("deleted_at", null).ilike("name", `%${query}%`).limit(3);
-      const plmResults = (plm || []).map(p => ({
-        type: "plm", id: p.id, title: p.name, sub: p.stage || "Product", icon: "⬢",
-      }));
-      setResults([...nav, ...projResults, ...taskResults, ...docResults, ...campResults, ...objResults, ...msgResults, ...plmResults]);
+      const [
+        { data: tasks }, { data: projects }, { data: docs },
+        { data: krs }, { data: objs }, { data: plm },
+      ] = await Promise.all([
+        supabase.from("tasks").select("id,title,status").is("deleted_at", null).ilike("title", `%${query}%`).limit(5),
+        supabase.from("projects").select("id,name,color,emoji").is("deleted_at", null).ilike("name", `%${query}%`).limit(4),
+        supabase.from("documents").select("id,title,status,emoji").is("deleted_at", null).ilike("title", `%${query}%`).limit(4),
+        supabase.from("key_results").select("id,title,progress").is("deleted_at", null).ilike("title", `%${query}%`).limit(4),
+        supabase.from("objectives").select("id,title,health").is("deleted_at", null).ilike("title", `%${query}%`).limit(3),
+        supabase.from("plm_programs").select("id,name,current_stage").is("deleted_at", null).ilike("name", `%${query}%`).limit(3),
+      ]);
+      const nav = NAV_ITEMS.filter(n => n.label.toLowerCase().includes(query.toLowerCase()))
+        .map(n => ({ type: "nav", id: n.key, title: n.label, sub: "Navigate", icon: n.icon || "→" }));
+      setResults([
+        ...nav,
+        ...(projects||[]).map(p => ({ type: "project", id: p.id, title: `${p.emoji||""} ${p.name}`.trim(), sub: "Project", icon: "◼", color: p.color })),
+        ...(tasks||[]).map(t => ({ type: "task", id: t.id, title: t.title, sub: `Task · ${t.status}`, icon: "☐" })),
+        ...(krs||[]).map(k => ({ type: "kr", id: k.id, title: k.title, sub: `Key Result · ${Math.round(k.progress||0)}%`, icon: "◎" })),
+        ...(objs||[]).map(o => ({ type: "okr", id: o.id, title: o.title, sub: `Objective · ${(o.health||"").replace("_"," ")}`, icon: "🎯" })),
+        ...(docs||[]).map(d => ({ type: "doc", id: d.id, title: d.title||"Untitled", sub: d.status||"Doc", icon: d.emoji||"📄" })),
+        ...(plm||[]).map(p => ({ type: "plm", id: p.id, title: p.name, sub: `PLM · ${p.current_stage||""}`, icon: "⬢" })),
+      ]);
       setSelected(0);
-    }, 150);
+    }, 120);
     return () => clearTimeout(timer);
   }, [query]);
 
-  const navResults = () => NAV_ITEMS.slice(0, 6).map(n => ({
-    type: "nav", id: n.key, title: n.label, sub: "Navigate", icon: "→",
-  }));
-
   const handleSelect = (item) => {
-    if (item.type === "nav") { setActive(item.id); onClose(); }
-    else if (item.type === "project") { setActive("projects"); onClose(); }
-    else if (item.type === "task") { setActive("projects"); onClose(); }
-    else if (item.type === "doc") { setActive("docs"); onClose(); }
-    else if (item.type === "campaign") { setActive("campaigns"); onClose(); }
-    else if (item.type === "okr") { setActive("okrs"); onClose(); }
-    else if (item.type === "message") { setActive("messages"); onClose(); }
-    else if (item.type === "plm") { setActive("plm"); onClose(); }
+    const map = { nav: item.id, action: item.action, project: "projects", task: "projects", doc: "docs", okr: "okrs", kr: "okrs", plm: "plm" };
+    setActive(map[item.type] || "dashboard");
+    onClose();
   };
 
   const handleKey = (e) => {
@@ -94,52 +64,59 @@ export default function CommandPalette({ open, onClose, setActive }) {
     else if (e.key === "Escape") { onClose(); }
   };
 
+  const typeGroup = (t) => ({ nav: "Navigate", action: "Quick Actions", project: "Projects", task: "Tasks", kr: "OKRs", okr: "OKRs", doc: "Docs", plm: "PLM" }[t] || "Other");
+
+  const grouped = results.reduce((acc, item, i) => {
+    const g = typeGroup(item.type);
+    if (!acc[g]) acc[g] = [];
+    acc[g].push({ ...item, _idx: i });
+    return acc;
+  }, {});
+
   if (!open) return null;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 80 }}
-      onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 80 }} onClick={onClose}>
       <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-      <div onClick={e => e.stopPropagation()} style={{
-        position: "relative", width: 520, maxHeight: "60vh", background: T.surface,
-        borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden",
-        boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-      }}>
-        {/* Search input */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill={T.text3}><circle cx="7" cy="7" r="5.5" fill="none" stroke={T.text3} strokeWidth="2"/><line x1="11" y1="11" x2="15" y2="15" stroke={T.text3} strokeWidth="2" strokeLinecap="round"/></svg>
+      <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 560, maxHeight: "68vh", background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 20px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.5" stroke={T.text3} strokeWidth="2"/><line x1="11" y1="11" x2="15" y2="15" stroke={T.text3} strokeWidth="2" strokeLinecap="round"/></svg>
           <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={handleKey}
-            placeholder="Search tasks, projects, or navigate…"
+            placeholder="Search tasks, projects, OKRs, docs…"
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 15, fontFamily: "inherit" }} />
-          <kbd style={{ padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.border}`, fontSize: 10, color: T.text3, fontFamily: "monospace" }}>ESC</kbd>
+          {query && <button onClick={() => setQuery("")} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>}
+          <kbd style={{ padding: "2px 7px", borderRadius: 5, border: `1px solid ${T.border}`, fontSize: 11, color: T.text3, fontFamily: "monospace", flexShrink: 0 }}>ESC</kbd>
         </div>
-        {/* Results */}
-        <div style={{ maxHeight: 360, overflow: "auto", padding: "6px 0" }}>
+        <div style={{ overflow: "auto", flex: 1 }}>
           {results.length === 0 && query.trim() && (
-            <div style={{ padding: "20px 18px", textAlign: "center", color: T.text3, fontSize: 13 }}>No results found</div>
+            <div style={{ padding: "32px 20px", textAlign: "center", color: T.text3 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No results</div>
+              <div style={{ fontSize: 12 }}>Try a different search term</div>
+            </div>
           )}
-          {results.map((item, i) => (
-            <div key={`${item.type}-${item.id}`}
-              onClick={() => handleSelect(item)}
-              onMouseEnter={() => setSelected(i)}
-              style={{
-                display: "flex", alignItems: "center", gap: 12, padding: "10px 18px", cursor: "pointer",
-                background: i === selected ? `${T.accent}15` : "transparent",
-                transition: "background 0.1s",
-              }}>
-              <span style={{
-                width: 28, height: 28, borderRadius: 6, flexShrink: 0,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: item.color ? `${item.color}20` : T.surface2, fontSize: 13,
-                color: item.color || T.text3, fontWeight: 700,
-              }}>{item.icon}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
-                <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{item.sub}</div>
-              </div>
-              {i === selected && <span style={{ fontSize: 10, color: T.text3 }}>↵ Enter</span>}
+          {Object.entries(grouped).map(([group, items]) => (
+            <div key={group}>
+              <div style={{ padding: "10px 20px 4px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1 }}>{group}</div>
+              {items.map(item => {
+                const isSel = item._idx === selected;
+                return (
+                  <div key={`${item.type}-${item.id}`} onClick={() => handleSelect(item)} onMouseEnter={() => setSelected(item._idx)}
+                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 20px", cursor: "pointer", background: isSel ? `${T.accent}18` : "transparent", transition: "background 0.08s", borderLeft: isSel ? `3px solid ${T.accent}` : "3px solid transparent" }}>
+                    <span style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: item.color ? `${item.color}20` : T.surface2, fontSize: 14, color: item.color || (isSel ? T.accent : T.text3), fontWeight: 700 }}>{item.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: isSel ? 600 : 500, color: isSel ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{item.sub}</div>
+                    </div>
+                    {isSel && <kbd style={{ padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.border}`, fontSize: 10, color: T.text3, fontFamily: "monospace", flexShrink: 0 }}>↵</kbd>}
+                  </div>
+                );
+              })}
             </div>
           ))}
+        </div>
+        <div style={{ padding: "8px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 16, fontSize: 10, color: T.text3, flexShrink: 0, background: T.surface2 }}>
+          <span>↑↓ navigate</span><span>↵ open</span><span>ESC close</span><span style={{ marginLeft: "auto" }}>⌘K to reopen</span>
         </div>
       </div>
     </div>
