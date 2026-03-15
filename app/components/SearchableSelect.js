@@ -46,18 +46,8 @@ function SearchableMultiSelect({ options, selected, onChange, placeholder, multi
   return (
     <div ref={ref} style={{ position: "relative", width: "100%" }}>
       <div onClick={() => { setOpen(!open); setSearch(""); }}
-        style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: (multi ? selArr.length > 0 : selSingle) ? T.text : T.text3, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", minHeight: 32 }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1, overflow: "hidden" }}>
-          {multi && selArr.length > 0 && !isAll && selArr.length < options.length ? selArr.map(v => {
-            const o = options.find(op => op.value === v);
-            return (
-              <span key={v} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "1px 6px", borderRadius: 4, background: o?.color ? o.color + "20" : T.surface3, color: o?.color || T.text2, fontSize: 10, fontWeight: 600 }}>
-                {o?.icon && <span style={{ fontSize: 9 }}>{o.icon}</span>}{o?.label || v}
-                <span onClick={(e) => { e.stopPropagation(); toggleItem(v); }} style={{ cursor: "pointer", opacity: 0.6, fontSize: 9 }}>×</span>
-              </span>
-            );
-          }) : <span>{displayText()}</span>}
-        </div>
+        style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${(multi ? (selArr.length > 0 && selArr.length < options.length) : selSingle) ? T.accent : T.border}`, background: T.surface2, color: (multi ? (selArr.length > 0 && selArr.length < options.length) : selSingle) ? T.accent : T.text3, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", minHeight: 32, fontWeight: (multi ? (selArr.length > 0 && selArr.length < options.length) : selSingle) ? 600 : 400 }}>
+        <span>{displayText()}</span>
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round"/></svg>
       </div>
       {open && (
