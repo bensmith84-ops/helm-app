@@ -658,7 +658,10 @@ export default function ProjectsView() {
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
             <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.emoji || ""} {p.name}</div>
+              <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.emoji || ""} {p.name}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 10, background: act ? T.accent : T.surface3, color: act ? "#fff" : T.text2, flexShrink: 0 }}>{tasks.filter(t => t.project_id === p.id && t.status !== "done" && !t.parent_task_id).length}</span>
+              </div>
               <div style={{ fontSize: 11, color: T.text3, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: pHealth, display: "inline-block" }} />
                 {pt.length} tasks · {pp}%
