@@ -300,6 +300,54 @@ export default function ScoreboardView() {
     setLoading(false);
   };
 
+  // Build monthly aggregates from daily data
+  const buildMonthlyAgg = (dailyMap) => {
+    const agg = {};
+    for (const [key, rows] of Object.entries(dailyMap)) {
+      const meta = METRIC_META[key] || { label: key, unit: "#", color: T.accent };
+      agg[key] = { label: meta.label, unit: meta.unit, color: meta.color, months: {} };
+      for (const row of rows) {
+        const m = parseInt(row.date?.slice(5, 7));
+        if (!m) continue;
+        if (!agg[key].months[m]) agg[key].months[m] = { total: 0, days: 0, min: Infinity, max: -Infinity };
+        agg[key].months[m].total += row.value;
+        agg[key].months[m].days++;
+        agg[key].months[m].avg = agg[key].months[m].total / agg[key].months[m].days;
+        if (row.value < agg[key].months[m].min) agg[key].months[m].min = row.value;
+        if (row.value > agg[key].months[m].max) agg[key].months[m].max = row.value;
+      }
+    }
+    return agg;
+  };
+
+  const fetchAiSummary = async (dailyMap) => {
+    setAiSummaryLoading(true);
+    const dates = [...new Set(Object.values(dailyMap).flat().map(r => r.date))].sort().reverse();
+    const yesterday = dates[1] || dates[0];
+    if (!yesterday) { setAiSummaryLoading(false); return; }
+    const snap = {};
+    for (const [key, rows] of Object.entries(dailyMap)) {
+      const row = rows.find(r => r.date === yesterday);
+      if (row) snap[key] = row.value;
+    }
+    const lines = Object.entries(snap).map(([k, v]) => {
+      const meta = METRIC_META[k];
+      return `${meta?.label || k}: ${fmtVal(v, meta?.unit || "#", false)}`;
+    }).join(", ");
+    try {
+      const res = await fetch(`${BASE}/scoreboard-chat`, {
+        method: "POST", headers: HEADERS,
+        body: JSON.stringify({
+          question: `Give me a sharp 3-4 sentence executive summary of yesterday's performance (${yesterday}). Here are all the metrics: ${lines}. Focus on revenue vs spend, subscription health (net subs, cancels), and one key trend or concern. Be direct and specific with numbers. No bullet points — flowing prose only.`,
+          messages: [],
+        }),
+      });
+      const data = await res.json();
+      if (data.text) setAiSummary({ text: data.text, date: yesterday });
+    } catch(e) { console.warn("AI summary failed:", e); }
+    setAiSummaryLoading(false);
+  };
+
   const syncSheet = async () => {
     setSyncing(true);
     setActiveTab("chat");
