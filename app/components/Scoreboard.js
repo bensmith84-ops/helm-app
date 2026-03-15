@@ -275,11 +275,24 @@ export default function ScoreboardView() {
 
   const loadData = async () => {
     const yr = new Date().getFullYear();
-    const [{ data: mets }, { data: metsPrev }, { data: dailyRows }] = await Promise.all([
+    const [{ data: mets }, { data: metsPrev }] = await Promise.all([
       supabase.from("okr_financial_metrics").select("*, okr_financial_monthly(month, actual, target)").eq("year", yr).order("sort_order"),
       supabase.from("okr_financial_metrics").select("*, okr_financial_monthly(month, actual, target)").eq("year", yr - 1).order("sort_order"),
-      supabase.from("scoreboard_daily").select("*").order("date", { ascending:false }).limit(20000),
     ]);
+
+    // Paginate daily data fetch (Supabase default max is 1000 per request)
+    let dailyRows = [];
+    let page = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data: batch } = await supabase.from("scoreboard_daily").select("*")
+        .order("date", { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      if (!batch?.length) break;
+      dailyRows = dailyRows.concat(batch);
+      if (batch.length < pageSize) break;
+      page++;
+    }
 
     // Build monthly map
     const mMap = {};
