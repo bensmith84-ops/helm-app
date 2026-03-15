@@ -49,9 +49,9 @@ export default function ProjectsView() {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterPriority, setFilterPriority] = useState("");
-  const [filterAssignee, setFilterAssignee] = useState("");
+  const [filterStatus, setFilterStatus] = useState([]);
+  const [filterPriority, setFilterPriority] = useState([]);
+  const [filterAssignee, setFilterAssignee] = useState([]);
   const [sortCol, setSortCol] = useState("sort_order");
   const [sortDir, setSortDir] = useState("asc");
   const [comments, setComments] = useState([]);
@@ -157,9 +157,9 @@ export default function ProjectsView() {
   const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
   const filteredTasks = useMemo(() => projTasks.filter(t => {
     if (search) { const s = search.toLowerCase(); const nameMatch = t.assignee_id && profiles[t.assignee_id]?.display_name?.toLowerCase().includes(s); if (!t.title?.toLowerCase().includes(s) && !nameMatch) return false; }
-    if (filterStatus && t.status !== filterStatus) return false;
-    if (filterPriority && t.priority !== filterPriority) return false;
-    if (filterAssignee && t.assignee_id !== filterAssignee) return false;
+    if (filterStatus.length && !filterStatus.includes(t.status)) return false;
+    if (filterPriority.length && !filterPriority.includes(t.priority)) return false;
+    if (filterAssignee.length && !filterAssignee.includes(t.assignee_id)) return false;
     return true;
   }), [projTasks, search, filterStatus, filterPriority, filterAssignee]);
 
@@ -653,7 +653,7 @@ export default function ProjectsView() {
           const pOverdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < pToday).length;
           const pHealth = pOverdue > pt.length * 0.2 ? "#ef4444" : pOverdue > 0 ? "#eab308" : "#22c55e";
           return (
-          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }}
+          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus([]); setFilterPriority([]); setFilterAssignee([]); }}
             onContextMenu={e => { e.preventDefault(); setCtxProject(ctxProject === p.id ? null : p.id); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
             <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
@@ -744,16 +744,30 @@ export default function ProjectsView() {
         </div>
       </div>
     </div>); };
-  const FilterBar = () => { const assignees = [...new Set(projTasks.map(t => t.assignee_id).filter(Boolean))]; const hasF = filterStatus || filterPriority || filterAssignee; return (
+  const filterAssignees = [...new Set(projTasks.map(t => t.assignee_id).filter(Boolean))];
+  const hasFilters = filterStatus.length > 0 || filterPriority.length > 0 || filterAssignee.length > 0;
+  const filterBarEl = (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 20px", flexWrap: "wrap" }}>
       <div style={{ position: "relative", flex: "0 0 220px" }}>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2" style={{ position: "absolute", left: 8, top: 7 }}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks…" style={{ width: "100%", padding: "5px 8px 5px 28px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
       </div>
-      <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterStatus ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">Status</option>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-      <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterPriority ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">Priority</option>{Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-      <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterAssignee ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">Assignee</option>{assignees.map(uid => <option key={uid} value={uid}>{uname(uid) || uid.slice(0, 8)}</option>)}</select>
-      {hasF && <button onClick={() => { setFilterStatus(""); setFilterPriority(""); setFilterAssignee(""); }} style={{ ...S.iconBtn, fontSize: 11, color: T.red }}>✕ Clear</button>}
+      <div style={{ width: 130 }}>
+        <SearchableMultiSelect multi={true} placeholder="Status"
+          options={Object.entries(STATUS).map(([k, v]) => ({ value: k, label: v.label, color: v.color }))}
+          selected={filterStatus} onChange={setFilterStatus} />
+      </div>
+      <div style={{ width: 130 }}>
+        <SearchableMultiSelect multi={true} placeholder="Priority"
+          options={Object.entries(PRIORITY).map(([k, v]) => ({ value: k, label: v.label, color: v.dot }))}
+          selected={filterPriority} onChange={setFilterPriority} />
+      </div>
+      <div style={{ width: 140 }}>
+        <SearchableMultiSelect multi={true} placeholder="Assignee"
+          options={filterAssignees.map(uid => ({ value: uid, label: uname(uid) || uid.slice(0, 8), icon: "👤" }))}
+          selected={filterAssignee} onChange={setFilterAssignee} />
+      </div>
+      {hasFilters && <button onClick={() => { setFilterStatus([]); setFilterPriority([]); setFilterAssignee([]); }} style={{ ...S.iconBtn, fontSize: 11, color: T.red }}>✕ Clear</button>}
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
         {selectedTasks.size > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", borderRadius: 8, background: T.accentDim, border: `1px solid ${T.accent}40` }}>
@@ -789,7 +803,7 @@ export default function ProjectsView() {
         )}
         <span style={{ fontSize: 11, color: T.text3 }}>{filteredTasks.filter(t => !t.parent_task_id).length} tasks</span>
       </div>
-    </div>); };
+    </div>);
   const Checkbox = ({ task, size = 16 }) => {
     const dn = task.status === "done";
     const st = STATUS[task.status] || STATUS.todo;
@@ -2177,7 +2191,7 @@ export default function ProjectsView() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {showMyTasks ? <MyTasksView /> : proj ? (<>
           <ProjectHeader />
-          <FilterBar />
+          {filterBarEl}
           <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               {viewMode === "List" && <ListView />}
