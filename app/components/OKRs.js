@@ -1447,7 +1447,10 @@ export default function OKRsView() {
     });
     if (!checkInModal) return null;
     const { kr, objective } = checkInModal;
-    const krCIs = checkIns.filter(c => c.key_result_id === kr.id).slice(0, 5);
+    const krCIs = checkIns.filter(c => c.key_result_id === kr.id).slice(0, 8);
+    // Build sparkline from check-in history (most recent 8, oldest first for chart)
+    const sparkData = [...krCIs].reverse();
+    const sparkMax = Math.max(Number(kr.target_value) || 100, ...sparkData.map(c => Number(c.value || 0)));
     const SENTIMENTS = [
       { key: "great", label: "🚀 Great", color: "#22c55e" },
       { key: "good", label: "👍 Good", color: "#4f7fff" },
@@ -1457,18 +1460,47 @@ export default function OKRsView() {
     ];
     const confPct = Math.round((form.confidence || 0) * 100);
     const confColor = confPct >= 70 ? "#22c55e" : confPct >= 40 ? "#eab308" : "#ef4444";
+    const currentPct = kr.target_value > 0 ? Math.round((Number(kr.current_value || 0) / Number(kr.target_value)) * 100) : 0;
 
     return (
       <div onClick={() => setCheckInModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div onClick={e => e.stopPropagation()} style={{ width: 540, maxHeight: "88vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {/* Header */}
+        <div onClick={e => e.stopPropagation()} style={{ width: 560, maxHeight: "90vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* Header with sparkline */}
           <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, background: `${T.accent}08` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: 1 }}>Weekly Check-In</div>
               <button onClick={() => setCheckInModal(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
             </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{kr.title}</div>
-            <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Under: {objective.title}</div>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{kr.title}</div>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Under: {objective.title}</div>
+                {/* Progress mini bar */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                  <div style={{ flex: 1, height: 4, borderRadius: 2, background: T.surface3 }}>
+                    <div style={{ width: `${Math.min(currentPct, 100)}%`, height: "100%", borderRadius: 2, background: T.accent, transition: "width 0.3s" }} />
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>{currentPct}%</span>
+                  <span style={{ fontSize: 11, color: T.text3 }}>{kr.current_value}/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                </div>
+              </div>
+              {/* Sparkline */}
+              {sparkData.length >= 2 && (
+                <div style={{ flexShrink: 0, textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: T.text3, marginBottom: 3 }}>Progress trend</div>
+                  <svg width="80" height="32" viewBox="0 0 80 32">
+                    <polyline
+                      points={sparkData.map((c, i) => `${(i / (sparkData.length - 1)) * 76 + 2},${30 - ((Number(c.value || 0) / sparkMax) * 26)}`).join(" ")}
+                      fill="none" stroke={T.accent} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"
+                    />
+                    {sparkData.map((c, i) => (
+                      <circle key={i} cx={(i / (sparkData.length - 1)) * 76 + 2} cy={30 - ((Number(c.value || 0) / sparkMax) * 26)} r="2.5" fill={T.accent} />
+                    ))}
+                  </svg>
+                  <div style={{ fontSize: 9, color: T.text3 }}>{sparkData.length} check-ins</div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>

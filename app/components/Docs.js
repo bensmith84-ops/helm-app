@@ -651,6 +651,16 @@ export default function DocsView({ setActive }) {
               );
             })()}
             <span style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>{saving ? "Saving..." : lastSaved ? "Saved" : ""}</span>
+            {(() => {
+              const text = blocks.map(b => b.content || "").join(" ").trim();
+              const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
+              const readMins = Math.max(1, Math.round(words / 200));
+              return words > 0 ? (
+                <span style={{ fontSize: 10, color: T.text3, padding: "2px 7px", borderRadius: 4, background: T.surface3 }}>
+                  {words} words · {readMins} min read
+                </span>
+              ) : null;
+            })()}
             <select value={activeDoc.status || "draft"} onChange={e => updateMeta(activeDoc.id, { status: e.target.value })} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2 || T.bg, color: T.text, fontFamily: "inherit", cursor: "pointer" }}>
               <option value="draft">Draft</option><option value="published">Published</option><option value="review">In Review</option><option value="archived">Archived</option>
             </select>

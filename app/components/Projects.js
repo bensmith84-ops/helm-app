@@ -577,16 +577,151 @@ export default function ProjectsView() {
       })}
     </div>
   );
-  const TimelineView = () => { const tw = filteredTasks.filter(t => t.due_date && !t.parent_task_id); if (!tw.length) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}><div style={{ fontSize: 14 }}>No tasks with due dates</div><div style={{ fontSize: 12, marginTop: 4 }}>Add due dates to see the timeline</div></div>; const dw = 28; const dates = tw.map(t => new Date(t.due_date)); const starts = tw.map(t => t.start_date ? new Date(t.start_date) : new Date(new Date(t.due_date).getTime() - 3 * 86400000)); const minD = new Date(Math.min(...starts, ...dates) - 7 * 86400000); const maxD = new Date(Math.max(...dates) + 14 * 86400000); const totalD = Math.ceil((maxD - minD) / 86400000); const getX = (d) => Math.round(((new Date(d) - minD) / 86400000) * dw); const todayX = getX(new Date()); const markers = []; for (let i = 0; i < totalD; i++) { const d = new Date(minD.getTime() + i * 86400000); if (d.getDate() === 1 || i === 0) markers.push({ x: i * dw, label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }), isM: d.getDate() === 1 }); } return (
-    <div style={{ flex: 1, overflow: "auto", padding: "8px 0" }}><div style={{ position: "relative", minWidth: totalD * dw + 200, minHeight: tw.length * 36 + 60 }}>
-      <div style={{ height: 28, position: "sticky", top: 0, zIndex: 3, background: T.bg, borderBottom: `1px solid ${T.border}` }}>{markers.map((m, i) => <span key={i} style={{ position: "absolute", left: m.x + 180, fontSize: 10, color: T.text3, fontWeight: m.isM ? 700 : 400, top: 8 }}>{m.label}</span>)}</div>
-      <div style={{ position: "absolute", left: todayX + 180, top: 28, bottom: 0, width: 2, background: T.red + "60", zIndex: 2 }}><div style={{ position: "absolute", top: -2, left: -3, width: 8, height: 8, borderRadius: 4, background: T.red }} /></div>
-      {tw.map((task, i) => { const st = STATUS[task.status] || STATUS.todo; const sx = getX(task.start_date || new Date(new Date(task.due_date).getTime() - 3 * 86400000)); const ex = getX(task.due_date); const bw = Math.max(ex - sx, 20); return (
-        <div key={task.id} style={{ position: "absolute", top: 32 + i * 36, left: 0, right: 0, height: 32, display: "flex", alignItems: "center" }}>
-          <div style={{ width: 176, paddingLeft: 12, fontSize: 12, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>{task.title}</div>
-          <div onClick={() => setSelectedTask(task)} style={{ position: "absolute", left: sx + 180, width: bw, height: 22, borderRadius: 4, background: st.bg, border: `1px solid ${st.color}40`, cursor: "pointer", display: "flex", alignItems: "center", paddingLeft: 6 }}><span style={{ fontSize: 10, color: st.color, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.label}</span></div>
-        </div>); })}
-    </div></div>); };
+  const TimelineView = () => {
+    const tw = filteredTasks.filter(t => !t.parent_task_id && (t.start_date || t.due_date));
+    if (!tw.length) return (
+      <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No tasks with dates</div>
+        <div style={{ fontSize: 12 }}>Add start dates and due dates to your tasks to see the Gantt chart</div>
+      </div>
+    );
+    const DAY_W = 30;
+    const ROW_H = 36;
+    const LABEL_W = 220;
+    const today = new Date().toISOString().split("T")[0];
+
+    // Date range
+    const allDates = tw.flatMap(t => [t.start_date, t.due_date].filter(Boolean).map(d => new Date(d)));
+    const minD = new Date(Math.min(...allDates.map(d => d.getTime())) - 7 * 86400000);
+    const maxD = new Date(Math.max(...allDates.map(d => d.getTime())) + 21 * 86400000);
+    const totalDays = Math.ceil((maxD - minD) / 86400000);
+
+    const getX = (dateStr) => Math.round(((new Date(dateStr) - minD) / 86400000) * DAY_W);
+    const todayX = getX(today);
+
+    // Build month markers
+    const months = [];
+    const d = new Date(minD); d.setDate(1);
+    while (d <= maxD) {
+      const mStart = Math.max(0, Math.round(((new Date(d) - minD) / 86400000) * DAY_W));
+      const nextM = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      const mEnd = Math.round(((Math.min(nextM, maxD) - minD) / 86400000) * DAY_W);
+      months.push({ label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }), x: mStart, width: mEnd - mStart });
+      d.setMonth(d.getMonth() + 1);
+    }
+
+    // Group tasks by section
+    const bySection = projSections.map(sec => ({
+      sec,
+      tasks: tw.filter(t => t.section_id === sec.id),
+    })).filter(g => g.tasks.length > 0);
+
+    let rowIndex = 0;
+    const rows = bySection.flatMap(({ sec, tasks }) => {
+      const secRow = { type: "section", sec, rowIndex: rowIndex++ };
+      const taskRows = tasks.map(task => ({ type: "task", task, rowIndex: rowIndex++ }));
+      return [secRow, ...taskRows];
+    });
+
+    const totalHeight = rows.length * ROW_H + 60;
+
+    return (
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <div style={{ display: "flex", minWidth: LABEL_W + totalDays * DAY_W }}>
+          {/* Sticky label column */}
+          <div style={{ width: LABEL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 4, background: T.bg }}>
+            {/* Header */}
+            <div style={{ height: 52, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "flex-end", padding: "0 12px 6px" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8 }}>Task</span>
+            </div>
+            {/* Rows */}
+            {rows.map(row => (
+              <div key={row.type === "section" ? `sec-${row.sec.id}` : `task-${row.task.id}`}
+                style={{ height: ROW_H, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: row.type === "section" ? "0 12px" : "0 12px 0 24px", background: row.type === "section" ? T.surface2 : "transparent" }}>
+                {row.type === "section" ? (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: SECTION_COLORS[projSections.indexOf(row.sec) % SECTION_COLORS.length] || T.accent, textTransform: "uppercase", letterSpacing: 0.5 }}>{row.sec.name}</span>
+                ) : (
+                  <div onClick={() => setSelectedTask(row.task)} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: 1, minWidth: 0 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 5, border: `2px solid ${row.task.status === "done" ? "#22c55e" : T.border}`, background: row.task.status === "done" ? "#22c55e" : "transparent", flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: row.task.status === "done" ? T.text3 : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: row.task.status === "done" ? "line-through" : "none" }}>{row.task.title}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Timeline area */}
+          <div style={{ flex: 1, position: "relative" }}>
+            {/* Month header row */}
+            <div style={{ height: 26, position: "sticky", top: 0, zIndex: 3, background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex" }}>
+              {months.map((m, i) => (
+                <div key={i} style={{ width: m.width, flexShrink: 0, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.text3 }}>{m.label}</div>
+              ))}
+            </div>
+            {/* Day header row */}
+            <div style={{ height: 26, position: "sticky", top: 26, zIndex: 3, background: T.surface, borderBottom: `1px solid ${T.border}`, position: "relative" }}>
+              {/* Week markers */}
+              {Array.from({ length: Math.ceil(totalDays / 7) }, (_, i) => {
+                const d2 = new Date(minD.getTime() + i * 7 * 86400000);
+                return (
+                  <div key={i} style={{ position: "absolute", left: i * 7 * DAY_W, top: 0, bottom: 0, display: "flex", alignItems: "center", paddingLeft: 3 }}>
+                    <div style={{ width: 1, height: "60%", background: `${T.border}` }} />
+                    <span style={{ fontSize: 9, color: T.text3, marginLeft: 3 }}>{d2.toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Grid + bars */}
+            <div style={{ position: "relative", height: rows.length * ROW_H }}>
+              {/* Vertical grid lines (weeks) */}
+              {Array.from({ length: Math.ceil(totalDays / 7) }, (_, i) => (
+                <div key={i} style={{ position: "absolute", left: i * 7 * DAY_W, top: 0, bottom: 0, width: 1, background: `${T.border}40` }} />
+              ))}
+              {/* Today line */}
+              {todayX >= 0 && todayX <= totalDays * DAY_W && (
+                <div style={{ position: "absolute", left: todayX, top: 0, bottom: 0, width: 2, background: "#ef444470", zIndex: 2 }}>
+                  <div style={{ position: "absolute", top: -4, left: -4, width: 10, height: 10, borderRadius: 5, background: "#ef4444" }} />
+                </div>
+              )}
+              {/* Row backgrounds */}
+              {rows.map((row, i) => (
+                <div key={i} style={{ position: "absolute", left: 0, right: 0, top: i * ROW_H, height: ROW_H, background: row.type === "section" ? T.surface2 : i % 2 === 0 ? "transparent" : `${T.surface}40`, borderBottom: `1px solid ${T.border}20` }} />
+              ))}
+              {/* Task bars */}
+              {rows.filter(r => r.type === "task").map(row => {
+                const t = row.task;
+                const startStr = t.start_date || t.due_date;
+                const endStr = t.due_date || t.start_date;
+                const sx = getX(startStr);
+                const ex = getX(endStr) + DAY_W;
+                const bw = Math.max(ex - sx, DAY_W);
+                const st = STATUS[t.status] || STATUS.todo;
+                const isOverdueTask = t.due_date && t.due_date < today && t.status !== "done";
+                const pr = PRIORITY[t.priority] || PRIORITY.none;
+                const pct = t.status === "done" ? 100 : 0;
+                return (
+                  <div key={t.id} style={{ position: "absolute", top: row.rowIndex * ROW_H + 7, left: sx, width: bw, height: ROW_H - 14 }}>
+                    <div onClick={() => setSelectedTask(t)} style={{ position: "relative", height: "100%", borderRadius: 5, background: isOverdueTask ? "#ef444420" : t.status === "done" ? "#22c55e18" : `${proj?.color || T.accent}20`, border: `1.5px solid ${isOverdueTask ? "#ef4444" : t.status === "done" ? "#22c55e" : proj?.color || T.accent}60`, cursor: "pointer", overflow: "hidden", display: "flex", alignItems: "center", paddingLeft: 6, paddingRight: 4, gap: 4 }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
+                      onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                      {/* Fill bar */}
+                      {pct > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "#22c55e20", borderRadius: 4 }} />}
+                      {/* Priority dot */}
+                      {t.priority && t.priority !== "none" && <div style={{ width: 5, height: 5, borderRadius: 3, background: pr.dot, flexShrink: 0, position: "relative" }} />}
+                      <span style={{ fontSize: 10, fontWeight: 600, color: isOverdueTask ? "#ef4444" : t.status === "done" ? "#22c55e" : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, position: "relative" }}>{t.title}</span>
+                      {t.assignee_id && <div style={{ width: 16, height: 16, borderRadius: 8, background: acol(t.assignee_id) + "40", color: acol(t.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, flexShrink: 0, position: "relative" }}>{ini(t.assignee_id)}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
   const CalendarView = () => { const yr = calMonth.getFullYear(); const mo = calMonth.getMonth(); const fd = new Date(yr, mo, 1).getDay(); const dim = new Date(yr, mo + 1, 0).getDate(); const today = new Date(); const cells = []; for (let i = 0; i < fd; i++) cells.push(null); for (let d = 1; d <= dim; d++) cells.push(d); const gtd = (day) => { const ds = `${yr}-${String(mo + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; return filteredTasks.filter(t => t.due_date === ds); }; return (
     <div style={{ flex: 1, overflow: "auto", padding: "12px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>

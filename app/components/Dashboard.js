@@ -222,7 +222,7 @@ export default function DashboardView({ setActive }) {
   return (
     <div style={{ padding:"28px 32px", overflow:"auto", height:"100%", boxSizing:"border-box" }}>
       {/* ── Header ── */}
-      <div style={{ marginBottom:28, display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
+      <div style={{ marginBottom:20, display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
         <div>
           <h1 style={{ fontSize:26, fontWeight:800, marginBottom:4, lineHeight:1.2 }}>
             {greet}, {profile?.display_name?.split(" ")[0] || "there"} 👋
@@ -241,6 +241,23 @@ export default function DashboardView({ setActive }) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Quick Actions ── */}
+      <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap" }}>
+        {[
+          { icon:"☐", label:"New Task", action:() => setActive("projects"), color:"#3b82f6" },
+          { icon:"◎", label:"Check-in KR", action:() => setActive("okrs"), color:"#22c55e" },
+          { icon:"📋", label:"Post Update", action:() => setActive("projects"), color:"#a855f7" },
+          { icon:"📄", label:"New Doc", action:() => setActive("docs"), color:"#06b6d4" },
+          { icon:"📊", label:"Reports", action:() => setActive("reports"), color:"#f97316" },
+        ].map(a => (
+          <button key={a.label} onClick={a.action} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:8, border:`1px solid ${a.color}30`, background:`${a.color}10`, color:a.color, fontSize:12, fontWeight:600, cursor:"pointer", transition:"all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = `${a.color}20`; e.currentTarget.style.transform = "translateY(-1px)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = `${a.color}10`; e.currentTarget.style.transform = "none"; }}>
+            <span style={{ fontSize:14 }}>{a.icon}</span>{a.label}
+          </button>
+        ))}
       </div>
 
       {/* ── KPI Row ── */}
