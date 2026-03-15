@@ -249,7 +249,55 @@ export default function SettingsView({ isAdmin }) {
         )}
 
         {/* ── Team ── */}
-        {activeTab === "Team" && (
+        {activeTab === "Team" && (() => {
+          const [selectedMembers, setSelectedMembers] = useState(new Set());
+          const allIds = members.map(m => m.user_id);
+          const allSelected = selectedMembers.size > 0 && selectedMembers.size === members.length;
+          const someSelected = selectedMembers.size > 0;
+
+          const toggleMember = (id) => {
+            setSelectedMembers(p => {
+              const n = new Set(p);
+              n.has(id) ? n.delete(id) : n.add(id);
+              return n;
+            });
+          };
+          const toggleAll = () => {
+            setSelectedMembers(allSelected ? new Set() : new Set(allIds));
+          };
+
+          const bulkDelete = async () => {
+            if (!selectedMembers.size) return;
+            const count = selectedMembers.size;
+            if (!window.confirm(`Remove ${count} member${count !== 1 ? "s" : ""} from the organization? This cannot be undone.`)) return;
+            for (const uid of selectedMembers) {
+              await supabase.from("org_memberships").delete().eq("user_id", uid);
+            }
+            setMembers(p => p.filter(m => !selectedMembers.has(m.user_id)));
+            setSelectedMembers(new Set());
+          };
+
+          const bulkDeactivate = async () => {
+            if (!selectedMembers.size) return;
+            const count = selectedMembers.size;
+            if (!window.confirm(`Deactivate ${count} member${count !== 1 ? "s" : ""}? They will lose access but can be reactivated later.`)) return;
+            for (const uid of selectedMembers) {
+              await supabase.from("org_memberships").update({ role: "deactivated" }).eq("user_id", uid);
+            }
+            setMembers(p => p.map(m => selectedMembers.has(m.user_id) ? { ...m, role: "deactivated" } : m));
+            setSelectedMembers(new Set());
+          };
+
+          const bulkActivate = async () => {
+            if (!selectedMembers.size) return;
+            for (const uid of selectedMembers) {
+              await supabase.from("org_memberships").update({ role: "member" }).eq("user_id", uid);
+            }
+            setMembers(p => p.map(m => selectedMembers.has(m.user_id) ? { ...m, role: "member" } : m));
+            setSelectedMembers(new Set());
+          };
+
+          return (
           <>
             <h1 style={{ fontSize:20, fontWeight:800, marginBottom:20 }}>Team</h1>
             <Section title="Team Members" subtitle={`${members.length} member${members.length!==1?"s":""} in your organization`}>
@@ -260,29 +308,69 @@ export default function SettingsView({ isAdmin }) {
                   Invite
                 </button>
               </div>
+
+              {/* Bulk action toolbar */}
+              {someSelected && (
+                <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", marginBottom:12, borderRadius:8, background:T.accentDim, border:`1px solid ${T.accent}30` }}>
+                  <span style={{ fontSize:12, fontWeight:600, color:T.accent }}>{selectedMembers.size} selected</span>
+                  <div style={{ flex:1 }} />
+                  <button onClick={bulkActivate} style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:"#22c55e", fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                    ✓ Activate
+                  </button>
+                  <button onClick={bulkDeactivate} style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:"#eab308", fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                    ⊘ Deactivate
+                  </button>
+                  <button onClick={bulkDelete} style={{ padding:"5px 12px", borderRadius:6, border:`1px solid #ef444440`, background:"#ef444410", color:"#ef4444", fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                    ✕ Remove
+                  </button>
+                </div>
+              )}
+
+              {/* Header row with select all */}
+              <div style={{ display:"flex", alignItems:"center", gap:12, padding:"8px 0", borderBottom:`2px solid ${T.border}`, marginBottom:4 }}>
+                <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                  style={{ width:16, height:16, accentColor:T.accent, cursor:"pointer" }} />
+                <span style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:"0.05em", flex:1 }}>Name</span>
+                <span style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:"0.05em", width:120, textAlign:"center" }}>Role</span>
+                <span style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:"0.05em", width:80, textAlign:"center" }}>Status</span>
+              </div>
+
               {members.map((m, i) => {
                 const name = m.profiles?.display_name || "Unknown";
                 const email = m.profiles?.email || "";
                 const c = acol(m.user_id);
+                const checked = selectedMembers.has(m.user_id);
+                const deactivated = m.role === "deactivated";
                 return (
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:`1px solid ${T.border}` }}>
-                    <div style={{ width:38, height:38, borderRadius:19, background:c+"25", border:`1.5px solid ${c}60`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, color:c }}>
+                  <div key={i} onClick={() => toggleMember(m.user_id)}
+                    style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer", opacity: deactivated ? 0.5 : 1 }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleMember(m.user_id)}
+                      onClick={e => e.stopPropagation()}
+                      style={{ width:16, height:16, accentColor:T.accent, cursor:"pointer" }} />
+                    <div style={{ width:34, height:34, borderRadius:17, background:c+"25", border:`1.5px solid ${c}60`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:c, flexShrink:0 }}>
                       {ini(name)}
                     </div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:13, fontWeight:600 }}>{name}</div>
-                      {email && <div style={{ fontSize:11, color:T.text3 }}>{email}</div>}
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color: deactivated ? T.text3 : T.text }}>{name}</div>
+                      {email && <div style={{ fontSize:11, color:T.text3, overflow:"hidden", textOverflow:"ellipsis" }}>{email}</div>}
                     </div>
-                    <span style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:6, background:m.role==="admin"?T.accentDim:T.surface2, color:m.role==="admin"?T.accent:T.text3 }}>
-                      {m.role||"member"}
-                    </span>
+                    <div style={{ width:120, textAlign:"center" }}>
+                      <span style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:6, background:m.role==="admin"?T.accentDim:T.surface2, color:m.role==="admin"?T.accent:T.text3 }}>
+                        {m.role||"member"}
+                      </span>
+                    </div>
+                    <div style={{ width:80, textAlign:"center" }}>
+                      <span style={{ width:8, height:8, borderRadius:4, display:"inline-block", background: deactivated ? "#ef4444" : "#22c55e" }} />
+                    </div>
                   </div>
                 );
               })}
               {members.length===0 && <div style={{ fontSize:12, color:T.text3, padding:"12px 0" }}>No team members found</div>}
             </Section>
-          </>
-        )}
+          </>);
+        })()}
 
         {/* ── Permissions ── */}
         {activeTab === "Permissions" && (() => {
