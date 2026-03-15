@@ -1327,16 +1327,71 @@ export default function OKRsView() {
     );
   };
 
+  const [showCycleForm, setShowCycleForm] = useState(false);
+  const [cycleForm, setCycleForm] = useState({ name: "", start_date: "", end_date: "", status: "active" });
+
+  const createCycle = async () => {
+    if (!cycleForm.name.trim() || !cycleForm.start_date || !cycleForm.end_date) return;
+    const { data, error } = await supabase.from("okr_cycles").insert({
+      org_id: profile?.org_id, name: cycleForm.name.trim(),
+      start_date: cycleForm.start_date, end_date: cycleForm.end_date,
+      status: cycleForm.status,
+    }).select().single();
+    if (error) { console.error(error); return; }
+    setCycles(p => [data, ...p]);
+    if (cycleForm.status === "active") setActiveCycle(data.id);
+    setShowCycleForm(false);
+    setCycleForm({ name: "", start_date: "", end_date: "", status: "active" });
+  };
+
   const header = (
     <div style={{ padding: "24px 28px 0", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+      {/* Cycle creation form */}
+      {showCycleForm && (
+        <div style={{ marginBottom: 16, padding: "16px 18px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>New OKR Cycle</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>Name *</div>
+              <input value={cycleForm.name} onChange={e => setCycleForm(p => ({ ...p, name: e.target.value }))} autoFocus
+                placeholder="e.g. Q2 2026" style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", width: 160 }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>Start Date *</div>
+              <input type="date" value={cycleForm.start_date} onChange={e => setCycleForm(p => ({ ...p, start_date: e.target.value }))}
+                style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>End Date *</div>
+              <input type="date" value={cycleForm.end_date} onChange={e => setCycleForm(p => ({ ...p, end_date: e.target.value }))}
+                style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>Status</div>
+              <select value={cycleForm.status} onChange={e => setCycleForm(p => ({ ...p, status: e.target.value }))}
+                style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, cursor: "pointer", outline: "none" }}>
+                <option value="active">Active</option>
+                <option value="planning">Planning</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+            <button onClick={createCycle} disabled={!cycleForm.name.trim() || !cycleForm.start_date || !cycleForm.end_date}
+              style={{ padding: "7px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Create</button>
+            <button onClick={() => setShowCycleForm(false)}
+              style={{ padding: "7px 12px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Objectives &amp; Key Results</h2>
           <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12 }}>
             <select value={activeCycle || ""} onChange={e => setActiveCycle(e.target.value)} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: "4px 8px", fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }}>
-              {cycles.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {cycles.length === 0 && <option value="">No cycles yet</option>}
+              {cycles.map(c => <option key={c.id} value={c.id}>{c.name} {c.status !== "active" ? `(${c.status})` : ""}</option>)}
             </select>
             {cycle && <span style={{ color: T.text3 }}>{daysLeft} days remaining</span>}
+            <button onClick={() => setShowCycleForm(v => !v)} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: showCycleForm ? T.accentDim : "transparent", color: showCycleForm ? T.accent : T.text3, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>+ Cycle</button>
             <button onClick={createObjective} style={{ padding: "4px 12px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: `${T.accent}10`, color: T.accent, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>+ Objective</button>
           </div>
         </div>
