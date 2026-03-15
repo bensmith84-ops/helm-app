@@ -28,6 +28,7 @@ const ReportsView = lazy(() => import("./components/Reports"));
 const SettingsView = lazy(() => import("./components/Settings"));
 const PeopleView = lazy(() => import("./components/People"));
 const ActivityView = lazy(() => import("./components/Activity"));
+const AIBuilderView = lazy(() => import("./components/AIBuilder"));
 
 const LazyFallback = () => (
   <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading…</div>
@@ -186,6 +187,7 @@ export default function HelmApp() {
       case "people": return <PeopleView />;
       case "activity": return <ActivityView setActive={setActive} />;
       case "settings": return <SettingsView />;
+      case "ai-builder": return <AIBuilderView />;
       default: return <DashboardView setActive={setActive} />;
     }
   };

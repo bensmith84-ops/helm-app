@@ -23,6 +23,8 @@ export const NAV_ITEMS = [
   { key: "people", icon: "👥", label: "Team" },
   { key: "activity", icon: "◔", label: "Activity" },
   { key: "settings", icon: "⚙", label: "Settings" },
+  { type: "divider" },
+  { key: "ai-builder", icon: "✦", label: "AI Builder", adminOnly: true },
 ];
 
 export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile }) {
@@ -49,7 +51,7 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
 
       {/* Nav items */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 1, padding: expanded ? "0 8px" : "0 8px" }}>
-        {NAV_ITEMS.map((item, i) =>
+        {NAV_ITEMS.filter(item => !item.adminOnly || profile?.role === "admin" || profile?.email?.includes("ben.smith")).map((item, i) =>
           item.type === "divider" ? (
             <div key={i} style={{ height: 1, background: T.border, margin: "5px 0" }} />
           ) : (
