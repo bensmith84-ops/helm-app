@@ -102,6 +102,9 @@ export default function OKRsView() {
   const [showOkrStatusForm, setShowOkrStatusForm] = useState(null); // objective or null for all
   const [okrStatusForm, setOkrStatusForm] = useState({ objective_id: "", health_status: "on_track", summary: "", wins: "", blockers: "", next_steps: "" });
 
+  const [showCycleForm, setShowCycleForm] = useState(false);
+  const [cycleForm, setCycleForm] = useState({ name: "", start_date: "", end_date: "", status: "active" });
+
   const setView = (v) => { setViewMode(v); try { localStorage.setItem("okr_view", v); } catch {} };
 
   useEffect(() => {
@@ -1332,9 +1335,6 @@ export default function OKRsView() {
       </div>
     );
   };
-
-  const [showCycleForm, setShowCycleForm] = useState(false);
-  const [cycleForm, setCycleForm] = useState({ name: "", start_date: "", end_date: "", status: "active" });
 
   const createCycle = async () => {
     if (!cycleForm.name.trim() || !cycleForm.start_date || !cycleForm.end_date) return;

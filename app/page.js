@@ -133,7 +133,7 @@ export default function HelmApp() {
           supabase.from("tasks").select("id", { count: "exact", head: true })
             .is("deleted_at", null).lt("due_date", now).neq("status", "done"),
           supabase.from("messages").select("id", { count: "exact", head: true })
-            .eq("is_read", false).neq("sender_id", user.id),
+            .neq("author_id", user.id).gte("created_at", new Date(Date.now() - 24 * 86400000).toISOString()),
           supabase.from("key_results").select("id").eq("owner_id", user.id).is("deleted_at", null),
           supabase.from("notifications").select("id", { count: "exact", head: true })
             .eq("user_id", user.id).eq("is_read", false),

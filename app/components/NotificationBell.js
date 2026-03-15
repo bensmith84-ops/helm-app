@@ -84,14 +84,14 @@ export default function NotificationBell({ setActive }) {
       const daysLate = Math.ceil((new Date() - new Date(task.due_date)) / 86400000);
       const { data: existing } = await supabase.from("notifications")
         .select("id").eq("user_id", user.id).eq("type", "task_overdue")
-        .eq("link_id", task.id).gte("created_at", new Date(Date.now() - 86400000).toISOString())
+        .eq("entity_id", task.id).gte("created_at", new Date(Date.now() - 86400000).toISOString())
         .maybeSingle();
       if (!existing) {
         await supabase.from("notifications").insert({
           user_id: user.id, type:"task_overdue",
           title: `Task overdue: ${task.title}`,
           body: `${daysLate} day${daysLate!==1?"s":""} late`,
-          link_module: "projects", link_id: task.id,
+          entity_type: "task", entity_id: task.id, link: "projects",
         });
         notifySlack({
           type: "task", title: `Task overdue: ${task.title}`,
@@ -118,14 +118,14 @@ export default function NotificationBell({ setActive }) {
           // Check if we already sent this nudge recently
           const { data: existing } = await supabase.from("notifications")
             .select("id").eq("user_id", user.id).eq("type", "okr_deadline")
-            .eq("link_id", kr.id).gte("created_at", new Date(Date.now() - 86400000 * 3).toISOString())
+            .eq("entity_id", kr.id).gte("created_at", new Date(Date.now() - 86400000 * 3).toISOString())
             .maybeSingle();
           if (!existing) {
             await supabase.from("notifications").insert({
               user_id: user.id, type: "okr_deadline",
               title: `Check-in needed: ${kr.title}`,
               body: `No update in 7+ days — team needs visibility on this KR`,
-              link_module: "okrs", link_id: kr.id,
+              entity_type: "key_result", entity_id: kr.id, link: "okrs",
             });
           }
         }
@@ -197,7 +197,7 @@ export default function NotificationBell({ setActive }) {
             {notifications.map(n => {
               const cfg = TYPE_CONFIG[n.type] || TYPE_CONFIG.system;
               return (
-                <div key={n.id} onClick={() => { markRead(n.id); if(n.link_module) setActive(n.link_module); setOpen(false); }}
+                <div key={n.id} onClick={() => { markRead(n.id); if(n.link) setActive(n.link); setOpen(false); }}
                   style={{
                     padding:"12px 16px", borderBottom:`1px solid ${T.border}`, cursor:"pointer",
                     background: n.is_read ? "transparent" : T.accentDim+"30",
