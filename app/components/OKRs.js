@@ -1181,6 +1181,7 @@ export default function OKRsView() {
       blockers: formData.blockers || null,
       next_steps: formData.next_steps || null,
       health_status: formData.health || "on_track",
+      celebration: formData.celebration || null,
     };
     const { data, error } = await supabase.from("okr_check_ins").insert(payload).select().single();
     if (error) { console.error("Check-in error:", error); return; }
@@ -1484,12 +1485,22 @@ export default function OKRsView() {
             </div>
 
             {/* Next steps */}
-            <div style={{ marginBottom: 20 }}>
+            <div style={{ marginBottom: form.health === "on_track" || form.sentiment === "great" ? 12 : 20 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>Next week focus <span style={{ color: T.text3, fontWeight: 400 }}>(optional)</span></label>
               <textarea value={form.next_steps} onChange={e => setForm(p => ({ ...p, next_steps: e.target.value }))}
                 placeholder="What will you do next week?"
                 rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
             </div>
+
+            {/* Celebration — show when on track */}
+            {(form.health === "on_track" && form.sentiment !== "blocked" && form.sentiment !== "concerned") && (
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#22c55e", display: "block", marginBottom: 6 }}>🎉 Any wins to celebrate? <span style={{ color: T.text3, fontWeight: 400 }}>(optional)</span></label>
+                <textarea value={form.celebration || ""} onChange={e => setForm(p => ({ ...p, celebration: e.target.value }))}
+                  placeholder="Share a win — even small ones matter!"
+                  rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #22c55e40", background: "#22c55e08", color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+              </div>
+            )}
 
             {/* Recent check-in history */}
             {krCIs.length > 0 && (
@@ -1510,6 +1521,7 @@ export default function OKRsView() {
                       </div>
                       {ci.note && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.4 }}>{ci.note}</div>}
                       {ci.blockers && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 3 }}>⚠️ {ci.blockers}</div>}
+                      {ci.celebration && <div style={{ fontSize: 11, color: "#22c55e", marginTop: 3 }}>🎉 {ci.celebration}</div>}
                     </div>
                   );
                 })}
@@ -1564,8 +1576,61 @@ export default function OKRsView() {
     const doSave = async () => { setSaving(true); await saveOkrStatusUpdate(localForm, setShowForm, setLocalForm); setSaving(false); };
     const _lbl = { fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 };
     const _inp = { width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" };
+
+    // Stale KRs that need check-in
+    const staleKRs = keyResults.filter(kr => {
+      const last = checkIns.find(c => c.key_result_id === kr.id);
+      if (!last) return true;
+      return Math.floor((Date.now() - new Date(last.created_at).getTime()) / 86400000) >= 7;
+    });
+
     return (
       <div style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
+        {/* Stale KR nudge strip */}
+        {staleKRs.length > 0 && (
+          <div style={{ marginBottom: 20, padding: "14px 18px", background: "#eab30810", border: "1px solid #eab30840", borderRadius: 12, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 200 }}>
+              <span style={{ fontSize: 20 }}>📝</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#eab308" }}>{staleKRs.length} KR{staleKRs.length !== 1 ? "s" : ""} need a check-in</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>No update in 7+ days</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {staleKRs.slice(0, 4).map(kr => (
+                <button key={kr.id} onClick={() => setCheckInModal({ kr, objective: objectives.find(o => o.id === kr.objective_id) })}
+                  style={{ padding: "5px 12px", borderRadius: 16, border: "1px solid #eab30860", background: "#eab30815", color: "#eab308", fontSize: 11, fontWeight: 600, cursor: "pointer", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  ✎ {kr.title}
+                </button>
+              ))}
+              {staleKRs.length > 4 && <span style={{ fontSize: 11, color: T.text3, padding: "5px 0" }}>+{staleKRs.length - 4} more</span>}
+            </div>
+          </div>
+        )}
+
+        {/* Cycle progress summary */}
+        {objectives.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10, marginBottom: 24 }}>
+            {objectives.map(obj => {
+              const pct = Math.round(Number(obj.progress || 0));
+              const h = HEALTH[obj.health] || HEALTH.on_track;
+              return (
+                <div key={obj.id} onClick={() => setView("list")} style={{ padding: "12px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", borderLeft: `3px solid ${h.color}` }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                  onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 8 }}>{obj.title}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, height: 4, borderRadius: 2, background: T.surface3 }}>
+                      <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", borderRadius: 2, background: h.color, transition: "width 0.4s" }} />
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: h.color, minWidth: 28 }}>{pct}%</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{keyResults.filter(k => k.objective_id === obj.id).length} KRs</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
             <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>OKR Updates</h3>

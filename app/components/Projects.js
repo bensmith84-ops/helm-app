@@ -172,7 +172,10 @@ export default function ProjectsView() {
     const total = taskList.filter(t => t.project_id === pid && !t.parent_task_id).length;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     await supabase.from("projects").update({ progress: pct }).eq("id", pid);
-  }, []);
+    if (pct === 100 && total > 0) {
+      showToast("🎉 Project complete! All tasks done.", "success");
+    }
+  }, [showToast]);
   const getBlockedBy = (tid) => dependencies.filter(d => d.successor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.predecessor_id) })).filter(d => d.task);
   const getBlocking = (tid) => dependencies.filter(d => d.predecessor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.successor_id) })).filter(d => d.task);
   const createTask = async (sid) => { if (!newTitle.trim()) return; const st = tasks.filter(t => t.section_id === sid && !t.parent_task_id); const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: sid, title: newTitle.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create task"); setTasks(p => [...p, data]); setNewTitle(""); showToast("Task created", "success"); };
@@ -506,23 +509,74 @@ export default function ProjectsView() {
         </div>); })}
       {addingSection ? <div style={{ padding: "8px 12px", display: "flex", gap: 8 }}><input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") setAddingSection(false); }} placeholder="Section name…" style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none" }} /><button onClick={createSection} style={{ padding: "4px 12px", borderRadius: 4, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer" }}>Add</button></div> : <div onClick={() => setAddingSection(true)} style={{ ...S.addRow, opacity: 0.5, paddingLeft: 12 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add section…</div>}
     </div>); };
-  const BoardView = () => (<div style={{ flex: 1, display: "flex", gap: 16, padding: "16px 20px", overflow: "auto" }}>{projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id && !t.parent_task_id); const color = secColor(si); const isOver = dragOverTarget === sec.id; return (<div key={sec.id} onDragOver={(e) => { e.preventDefault(); setDragOverTarget(sec.id); }} onDragLeave={() => setDragOverTarget(null)} onDrop={() => { if (dragTask) handleBoardDrop(dragTask, sec.id); }} style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", borderRadius: 8, background: isOver ? T.accentDim : T.surface, border: `1px solid ${isOver ? T.accent : T.border}`, transition: "border 0.15s" }}>
-    <div style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center", gap: 8, borderBottom: `2px solid ${color}` }}><span style={{ fontSize: 13, fontWeight: 700, color, flex: 1 }}>{sec.name}</span><span style={{ fontSize: 11, color: T.text3, background: T.surface3, padding: "1px 6px", borderRadius: 8, fontWeight: 600 }}>{st.length}</span></div>
-    <div style={{ flex: 1, padding: 8, display: "flex", flexDirection: "column", gap: 6, overflow: "auto" }}>
-      {st.map(task => { const subs = getSubtasks(task.id); const pr = PRIORITY[task.priority] || PRIORITY.none; return (
-        <div key={task.id} draggable onDragStart={() => setDragTask(task.id)} onDragEnd={() => { setDragTask(null); setDragOverTarget(null); }} onClick={() => setSelectedTask(task)} style={{ padding: "10px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, cursor: "pointer", opacity: dragTask === task.id ? 0.5 : 1 }} onMouseEnter={e => e.currentTarget.style.boxShadow = `0 2px 8px ${T.bg}`} onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
-          {task.priority && task.priority !== "none" && <div style={{ width: "100%", height: 2, borderRadius: 1, background: pr.dot, marginBottom: 6 }} />}
-          <div style={{ fontSize: 13, fontWeight: 500, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", marginBottom: 8, lineHeight: 1.4 }}>{task.title}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {task.due_date && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: isOverdue(task.due_date) && task.status !== "done" ? T.redDim : T.surface3, color: isOverdue(task.due_date) && task.status !== "done" ? T.red : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
-            {subs.length > 0 && <span style={{ fontSize: 10, color: T.text3 }}>✓ {subs.filter(s => s.status === "done").length}/{subs.length}</span>}
-            <div style={{ flex: 1 }} />
-            {task.assignee_id && <div style={{ width: 22, height: 22, borderRadius: 11, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div>}
+  const BoardView = () => (
+    <div style={{ flex: 1, display: "flex", gap: 16, padding: "16px 20px", overflow: "auto" }}>
+      {projSections.map((sec, si) => {
+        const st = filteredTasks.filter(t => t.section_id === sec.id && !t.parent_task_id);
+        const color = secColor(si);
+        const isOver = dragOverTarget === sec.id;
+        const wipLimit = sec.wip_limit;
+        const isWipBreached = wipLimit && st.length > wipLimit;
+        const isDoneCol = sec.is_complete_column || sec.name.toLowerCase() === "done";
+        const borderColor = isOver ? T.accent : isWipBreached ? "#ef4444" : T.border;
+        return (
+          <div key={sec.id}
+            onDragOver={(e) => { e.preventDefault(); setDragOverTarget(sec.id); }}
+            onDragLeave={() => setDragOverTarget(null)}
+            onDrop={() => { if (dragTask) handleBoardDrop(dragTask, sec.id); }}
+            style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", borderRadius: 10, background: isOver ? T.accentDim : T.surface, border: `1px solid ${borderColor}`, transition: "border 0.15s" }}>
+            <div style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center", gap: 8, borderBottom: `2px solid ${isDoneCol ? "#22c55e" : color}` }}>
+              {isDoneCol ? <span style={{ fontSize: 14 }}>✅</span> : null}
+              <span style={{ fontSize: 13, fontWeight: 700, color: isDoneCol ? "#22c55e" : color, flex: 1 }}>{sec.name}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 8,
+                background: isWipBreached ? "#ef444420" : T.surface3,
+                color: isWipBreached ? "#ef4444" : T.text3 }}>
+                {st.length}{wipLimit ? `/${wipLimit}` : ""}
+              </span>
+              {isWipBreached && <span title="WIP limit exceeded!" style={{ fontSize: 12 }}>⚠️</span>}
+            </div>
+            <div style={{ flex: 1, padding: 8, display: "flex", flexDirection: "column", gap: 6, overflow: "auto" }}>
+              {st.map(task => {
+                const subs = getSubtasks(task.id);
+                const pr = PRIORITY[task.priority] || PRIORITY.none;
+                const isDone = task.status === "done";
+                return (
+                  <div key={task.id} draggable
+                    onDragStart={() => setDragTask(task.id)}
+                    onDragEnd={() => { setDragTask(null); setDragOverTarget(null); }}
+                    onClick={() => setSelectedTask(task)}
+                    style={{ padding: "10px 12px", borderRadius: 8, background: isDone ? T.surface3 : T.surface2, border: `1px solid ${T.border}`, cursor: "pointer", opacity: dragTask === task.id ? 0.5 : 1, transition: "all 0.1s" }}
+                    onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 3px 12px rgba(0,0,0,0.15)`; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
+                    {task.priority && task.priority !== "none" && <div style={{ width: "100%", height: 2, borderRadius: 1, background: pr.dot, marginBottom: 6 }} />}
+                    <div style={{ fontSize: 13, fontWeight: 500, color: isDone ? T.text3 : T.text, textDecoration: isDone ? "line-through" : "none", marginBottom: 8, lineHeight: 1.4 }}>{task.title}</div>
+                    {task.labels?.length > 0 && (
+                      <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginBottom: 6 }}>
+                        {task.labels.slice(0, 3).map(l => {
+                          const lc = { bug: "#ef4444", feature: "#22c55e", improvement: "#3b82f6", design: "#a855f7", urgent: "#f97316", research: "#06b6d4" }[l] || T.accent;
+                          return <span key={l} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: lc+"20", color: lc, fontWeight: 700 }}>{l}</span>;
+                        })}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      {task.due_date && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: isOverdue(task.due_date) && !isDone ? T.redDim : T.surface3, color: isOverdue(task.due_date) && !isDone ? T.red : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
+                      {subs.length > 0 && <span style={{ fontSize: 10, color: T.text3 }}>✓ {subs.filter(s => s.status === "done").length}/{subs.length}</span>}
+                      {task.story_points && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: T.surface3, color: T.text3, fontWeight: 700 }}>{task.story_points}sp</span>}
+                      <div style={{ flex: 1 }} />
+                      {task.assignee_id && <div style={{ width: 22, height: 22, borderRadius: 11, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+              {addingTo === sec.id
+                ? <div style={{ padding: 8 }}><input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createTask(sec.id); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }} onBlur={() => { if (newTitle.trim()) createTask(sec.id); else { setAddingTo(null); setNewTitle(""); } }} placeholder="Task name…" style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} /></div>
+                : <div onClick={() => { setAddingTo(sec.id); setNewTitle(""); }} style={{ padding: "6px 8px", color: T.text3, fontSize: 12, cursor: "pointer", borderRadius: 6, display: "flex", alignItems: "center", gap: 4, opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add task</div>}
+            </div>
           </div>
-        </div>); })}
-      {addingTo === sec.id ? <div style={{ padding: 8 }}><input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createTask(sec.id); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }} onBlur={() => { if (newTitle.trim()) createTask(sec.id); else { setAddingTo(null); setNewTitle(""); } }} placeholder="Task name…" style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} /></div> : <div onClick={() => { setAddingTo(sec.id); setNewTitle(""); }} style={{ padding: "6px 8px", color: T.text3, fontSize: 12, cursor: "pointer", borderRadius: 6, display: "flex", alignItems: "center", gap: 4, opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add task</div>}
+        );
+      })}
     </div>
-  </div>); })}</div>);
+  );
   const TimelineView = () => { const tw = filteredTasks.filter(t => t.due_date && !t.parent_task_id); if (!tw.length) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}><div style={{ fontSize: 14 }}>No tasks with due dates</div><div style={{ fontSize: 12, marginTop: 4 }}>Add due dates to see the timeline</div></div>; const dw = 28; const dates = tw.map(t => new Date(t.due_date)); const starts = tw.map(t => t.start_date ? new Date(t.start_date) : new Date(new Date(t.due_date).getTime() - 3 * 86400000)); const minD = new Date(Math.min(...starts, ...dates) - 7 * 86400000); const maxD = new Date(Math.max(...dates) + 14 * 86400000); const totalD = Math.ceil((maxD - minD) / 86400000); const getX = (d) => Math.round(((new Date(d) - minD) / 86400000) * dw); const todayX = getX(new Date()); const markers = []; for (let i = 0; i < totalD; i++) { const d = new Date(minD.getTime() + i * 86400000); if (d.getDate() === 1 || i === 0) markers.push({ x: i * dw, label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }), isM: d.getDate() === 1 }); } return (
     <div style={{ flex: 1, overflow: "auto", padding: "8px 0" }}><div style={{ position: "relative", minWidth: totalD * dw + 200, minHeight: tw.length * 36 + 60 }}>
       <div style={{ height: 28, position: "sticky", top: 0, zIndex: 3, background: T.bg, borderBottom: `1px solid ${T.border}` }}>{markers.map((m, i) => <span key={i} style={{ position: "absolute", left: m.x + 180, fontSize: 10, color: T.text3, fontWeight: m.isM ? 700 : 400, top: 8 }}>{m.label}</span>)}</div>

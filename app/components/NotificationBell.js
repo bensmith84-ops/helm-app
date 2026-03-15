@@ -72,6 +72,8 @@ export default function NotificationBell({ setActive }) {
 
   const generateNotifications = async () => {
     const today = new Date().toISOString().split("T")[0];
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+
     // Check for overdue tasks assigned to me
     const { data: overdueTasks } = await supabase.from("tasks")
       .select("id,title,due_date").eq("assignee_id", user.id)
@@ -80,7 +82,6 @@ export default function NotificationBell({ setActive }) {
 
     for (const task of (overdueTasks || [])) {
       const daysLate = Math.ceil((new Date() - new Date(task.due_date)) / 86400000);
-      // Check if we already sent this notification recently
       const { data: existing } = await supabase.from("notifications")
         .select("id").eq("user_id", user.id).eq("type", "task_overdue")
         .eq("link_id", task.id).gte("created_at", new Date(Date.now() - 86400000).toISOString())
@@ -92,16 +93,45 @@ export default function NotificationBell({ setActive }) {
           body: `${daysLate} day${daysLate!==1?"s":""} late`,
           link_module: "projects", link_id: task.id,
         });
-        // Also push to Slack
         notifySlack({
-          type: "task",
-          title: `Task overdue: ${task.title}`,
+          type: "task", title: `Task overdue: ${task.title}`,
           message: `${daysLate} day${daysLate!==1?"s":""} late`,
           channel: "ben", url: "https://helm-app-six.vercel.app",
           fields: [{ label: "Days Late", value: String(daysLate) }],
         });
       }
     }
+
+    // Check for KRs I own that haven't been checked in for 7+ days
+    const { data: myKRs } = await supabase.from("key_results")
+      .select("id,title,progress").eq("owner_id", user.id).is("deleted_at", null);
+
+    if (myKRs?.length) {
+      const { data: recentCIs } = await supabase.from("okr_check_ins")
+        .select("key_result_id,created_at")
+        .in("key_result_id", myKRs.map(k => k.id))
+        .gte("created_at", weekAgo);
+      const recentKRIds = new Set((recentCIs || []).map(c => c.key_result_id));
+
+      for (const kr of myKRs) {
+        if (!recentKRIds.has(kr.id)) {
+          // Check if we already sent this nudge recently
+          const { data: existing } = await supabase.from("notifications")
+            .select("id").eq("user_id", user.id).eq("type", "okr_deadline")
+            .eq("link_id", kr.id).gte("created_at", new Date(Date.now() - 86400000 * 3).toISOString())
+            .maybeSingle();
+          if (!existing) {
+            await supabase.from("notifications").insert({
+              user_id: user.id, type: "okr_deadline",
+              title: `Check-in needed: ${kr.title}`,
+              body: `No update in 7+ days — team needs visibility on this KR`,
+              link_module: "okrs", link_id: kr.id,
+            });
+          }
+        }
+      }
+    }
+
     loadNotifications();
   };
 

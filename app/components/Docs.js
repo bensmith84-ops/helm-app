@@ -113,6 +113,7 @@ export default function DocsView({ setActive }) {
   const [coverPicker, setCoverPicker] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [calloutEmojiPicker, setCalloutEmojiPicker] = useState(null); // blockId
+  const [showTemplateGallery, setShowTemplateGallery] = useState(false);
   const blockRefs = useRef({});
   const blockContents = useRef({}); // Store content in ref to avoid re-renders
   const saveTimer = useRef(null);
@@ -493,9 +494,104 @@ export default function DocsView({ setActive }) {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, fontFamily: "inherit" }} />
           </div>
         </div>
-        <div style={{ padding: "0 10px 8px" }}>
-          <button onClick={() => createDoc()} style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ New Page</button>
+        <div style={{ padding: "0 10px 8px", display: "flex", gap: 6 }}>
+          <button onClick={() => createDoc()} style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ New Page</button>
+          <button onClick={() => setShowTemplateGallery(v => !v)} title="Templates" style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: showTemplateGallery ? T.accentDim : "transparent", color: showTemplateGallery ? T.accent : T.text3, fontSize: 12, cursor: "pointer" }}>⊞</button>
         </div>
+        {showTemplateGallery && (
+          <div style={{ margin: "0 10px 8px", padding: 10, background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>Templates</div>
+            {[
+              { emoji: "📋", name: "Project Brief", content: [
+                { id: "1", type: "h1", content: "Project Brief" },
+                { id: "2", type: "h2", content: "Overview" },
+                { id: "3", type: "text", content: "Describe what this project is and why it matters." },
+                { id: "4", type: "h2", content: "Goals" },
+                { id: "5", type: "bullet", content: "Goal 1" },
+                { id: "6", type: "bullet", content: "Goal 2" },
+                { id: "7", type: "h2", content: "Scope" },
+                { id: "8", type: "text", content: "What is in scope and out of scope." },
+                { id: "9", type: "h2", content: "Success Metrics" },
+                { id: "10", type: "bullet", content: "Metric 1" },
+                { id: "11", type: "h2", content: "Timeline" },
+                { id: "12", type: "text", content: "Key milestones and dates." },
+              ]},
+              { emoji: "📝", name: "Meeting Notes", content: [
+                { id: "1", type: "h1", content: "Meeting Notes" },
+                { id: "2", type: "text", content: `Date: ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}` },
+                { id: "3", type: "h2", content: "Attendees" },
+                { id: "4", type: "bullet", content: "Name" },
+                { id: "5", type: "h2", content: "Agenda" },
+                { id: "6", type: "numbered", content: "Topic 1" },
+                { id: "7", type: "numbered", content: "Topic 2" },
+                { id: "8", type: "h2", content: "Notes" },
+                { id: "9", type: "text", content: "" },
+                { id: "10", type: "h2", content: "Action Items" },
+                { id: "11", type: "todo", content: "Action item", checked: false },
+              ]},
+              { emoji: "🎯", name: "OKR Plan", content: [
+                { id: "1", type: "h1", content: "OKR Plan" },
+                { id: "2", type: "h2", content: "Objective" },
+                { id: "3", type: "text", content: "State the objective clearly." },
+                { id: "4", type: "h2", content: "Key Results" },
+                { id: "5", type: "numbered", content: "KR1: [Metric] from [baseline] to [target] by [date]" },
+                { id: "6", type: "numbered", content: "KR2: [Metric] from [baseline] to [target] by [date]" },
+                { id: "7", type: "h2", content: "Initiatives" },
+                { id: "8", type: "bullet", content: "Initiative 1" },
+                { id: "9", type: "h2", content: "Risks & Dependencies" },
+                { id: "10", type: "text", content: "" },
+              ]},
+              { emoji: "🔬", name: "Product Spec", content: [
+                { id: "1", type: "h1", content: "Product Spec" },
+                { id: "2", type: "h2", content: "Problem Statement" },
+                { id: "3", type: "text", content: "What problem are we solving?" },
+                { id: "4", type: "h2", content: "Proposed Solution" },
+                { id: "5", type: "text", content: "How are we solving it?" },
+                { id: "6", type: "h2", content: "User Stories" },
+                { id: "7", type: "bullet", content: "As a [user], I want [feature] so that [benefit]" },
+                { id: "8", type: "h2", content: "Requirements" },
+                { id: "9", type: "h3", content: "Must Have" },
+                { id: "10", type: "todo", content: "Requirement", checked: false },
+                { id: "11", type: "h3", content: "Nice to Have" },
+                { id: "12", type: "todo", content: "Requirement", checked: false },
+                { id: "13", type: "h2", content: "Out of Scope" },
+                { id: "14", type: "text", content: "" },
+              ]},
+              { emoji: "📊", name: "Weekly Update", content: [
+                { id: "1", type: "h1", content: "Weekly Update" },
+                { id: "2", type: "text", content: `Week of ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` },
+                { id: "3", type: "h2", content: "✅ What got done" },
+                { id: "4", type: "bullet", content: "" },
+                { id: "5", type: "h2", content: "🔄 In progress" },
+                { id: "6", type: "bullet", content: "" },
+                { id: "7", type: "h2", content: "⚠️ Blockers" },
+                { id: "8", type: "bullet", content: "" },
+                { id: "9", type: "h2", content: "📅 Next week" },
+                { id: "10", type: "bullet", content: "" },
+              ]},
+            ].map(t => (
+              <button key={t.name} onClick={async () => {
+                const blocksWithIds = t.content.map(b => ({ ...b, id: crypto.randomUUID() }));
+                const { data, error } = await supabase.from("documents").insert({
+                  org_id: orgId, created_by: user?.id,
+                  title: t.name, emoji: t.emoji, status: "draft", visibility: "team",
+                  content: blocksWithIds, sort_order: docs.length,
+                }).select().single();
+                if (!error && data) {
+                  setDocs(p => [...p, data]);
+                  setBlocks(blocksWithIds);
+                  setActiveDoc(data);
+                  setShowTemplateGallery(false);
+                }
+              }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 8px", borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", marginBottom: 2 }}
+                onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ fontSize: 14 }}>{t.emoji}</span>
+                <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{t.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{ flex: 1, overflow: "auto", padding: "0 6px" }}>
           {(search ? docs.filter(d => d.title?.toLowerCase().includes(search.toLowerCase())).map(d => ({ ...d, children: [] })) : tree).map(n => <TreeItem key={n.id} node={n} />)}
           {docs.length === 0 && <div style={{ padding: "20px 10px", textAlign: "center", color: T.text3, fontSize: 12 }}>No documents yet</div>}
