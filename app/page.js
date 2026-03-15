@@ -221,7 +221,7 @@ export default function HelmApp() {
               <button onClick={signOut} title="Sign out" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, fontSize: 11, padding: "5px 10px", fontWeight: 600 }}>Sign out</button>
             </div>
           </div>
-          <div style={{ flex: 1, overflow: "auto" }}>
+          <div style={{ flex: 1, overflow: active === "dashboard" ? "hidden" : "auto" }}>
             <ChunkErrorBoundary>
               <Suspense fallback={<LazyFallback />}>
                 {renderView()}

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
@@ -17,7 +17,6 @@ const fmt$ = (v) => {
   if (abs >= 1_000)     return s + "$" + (abs/1_000).toFixed(0)     + "K";
   return s + "$" + abs.toFixed(0);
 };
-const fmtPct = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 
 function Ring({ pct, size=80, stroke=6, color }) {
   const r = (size - stroke) / 2;
@@ -49,27 +48,13 @@ function KPICard({ label, value, sub, color, icon, onClick }) {
   );
 }
 
-function MiniSparkline({ values, color }) {
-  if (!values || values.length < 2) return null;
-  const min = Math.min(...values), max = Math.max(...values);
-  const range = max - min || 1;
-  const w = 80, h = 32;
-  const pts = values.map((v, i) => `${(i/(values.length-1))*w},${h-((v-min)/range)*(h-4)-2}`).join(" ");
-  return (
-    <svg width={w} height={h} style={{ overflow:"visible" }}>
-      <polyline points={pts} fill="none" stroke={color||T.accent} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-      {/* Last point dot */}
-      <circle cx={(w)} cy={h-((values[values.length-1]-min)/range)*(h-4)-2} r={3} fill={color||T.accent} />
-    </svg>
-  );
-}
-
-function SectionHeader({ title, action, icon }) {
+function SectionHeader({ title, action, icon, count }) {
   return (
     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {icon && <span style={{ fontSize:14 }}>{icon}</span>}
         <span style={{ fontSize:15, fontWeight:700 }}>{title}</span>
+        {count != null && <span style={{ fontSize:11, color:T.text3, background:T.surface2, padding:"1px 8px", borderRadius:8 }}>{count}</span>}
       </div>
       {action}
     </div>
@@ -80,6 +65,469 @@ function Card({ children, style={} }) {
   return <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:20, ...style }}>{children}</div>;
 }
 
+/* ═══════════════════════════════════════════════════════
+   TODAY'S FOCUS — Enhanced with + Add Focus Item
+   ═══════════════════════════════════════════════════════ */
+function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, setActive, profile }) {
+  const [addMode, setAddMode] = useState(null); // null | "custom" | "task"
+  const [customTitle, setCustomTitle] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const inputRef = useRef(null);
+
+  // Auto-pulled focus tasks (urgent/high/due today)
+  const autoPulled = tasks.filter(t =>
+    t.status !== "done" && t.status !== "cancelled" && !t.parent_task_id &&
+    (t.due_date === todayStr || t.priority === "urgent" || (t.priority === "high" && t.due_date && t.due_date <= todayStr))
+  ).sort((a, b) => {
+    const pOrder = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
+    return (pOrder[a.priority] || 4) - (pOrder[b.priority] || 4);
+  }).slice(0, 6);
+
+  // Combined: auto-pulled + user custom focus items (deduplicated)
+  const focusTaskIds = new Set(focusItems.filter(f => f.task_id).map(f => f.task_id));
+  const autoNotDuped = autoPulled.filter(t => !focusTaskIds.has(t.id));
+
+  useEffect(() => {
+    if (addMode && inputRef.current) inputRef.current.focus();
+  }, [addMode]);
+
+  // Search tasks for "select existing" mode
+  useEffect(() => {
+    if (addMode !== "task" || !searchTerm.trim()) { setSearchResults([]); return; }
+    const term = searchTerm.toLowerCase();
+    const results = tasks.filter(t =>
+      t.status !== "done" && t.status !== "cancelled" && !t.parent_task_id &&
+      t.title?.toLowerCase().includes(term) &&
+      !focusTaskIds.has(t.id) &&
+      !autoPulled.some(ap => ap.id === t.id)
+    ).slice(0, 8);
+    setSearchResults(results);
+  }, [searchTerm, addMode]);
+
+  const addCustomItem = async () => {
+    if (!customTitle.trim() || !profile?.org_id) return;
+    const { data, error } = await supabase.from("dashboard_focus_items").insert({
+      org_id: profile.org_id, user_id: profile.id, title: customTitle.trim(),
+      focus_date: todayStr, sort_order: focusItems.length,
+    }).select().single();
+    if (!error && data) setFocusItems(prev => [...prev, data]);
+    setCustomTitle(""); setAddMode(null);
+  };
+
+  const addTaskItem = async (task) => {
+    if (!profile?.org_id) return;
+    const proj = projects.find(p => p.id === task.project_id);
+    const { data, error } = await supabase.from("dashboard_focus_items").insert({
+      org_id: profile.org_id, user_id: profile.id, title: task.title,
+      task_id: task.id, project_id: task.project_id,
+      focus_date: todayStr, sort_order: focusItems.length,
+    }).select().single();
+    if (!error && data) setFocusItems(prev => [...prev, data]);
+    setSearchTerm(""); setSearchResults([]); setAddMode(null);
+  };
+
+  const toggleComplete = async (item) => {
+    const next = !item.is_completed;
+    await supabase.from("dashboard_focus_items").update({ is_completed: next }).eq("id", item.id);
+    setFocusItems(prev => prev.map(f => f.id === item.id ? { ...f, is_completed: next } : f));
+  };
+
+  const removeItem = async (id) => {
+    await supabase.from("dashboard_focus_items").delete().eq("id", id);
+    setFocusItems(prev => prev.filter(f => f.id !== id));
+  };
+
+  const totalItems = autoNotDuped.length + focusItems.length;
+
+  return (
+    <div style={{ marginBottom:20, padding:"16px 20px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, borderLeft:`4px solid ${T.accent}` }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <span style={{ fontSize:16 }}>🎯</span>
+          <span style={{ fontSize:14, fontWeight:700 }}>Daily Focus</span>
+          {totalItems > 0 && <span style={{ fontSize:11, color:T.text3, background:T.surface2, padding:"1px 8px", borderRadius:8 }}>{totalItems} items</span>}
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
+        </div>
+      </div>
+
+      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+        {/* Auto-pulled focus tasks */}
+        {autoNotDuped.map(t => {
+          const proj = projects.find(p => p.id === t.project_id);
+          const priColors = { urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" };
+          const priColor = priColors[t.priority] || T.text3;
+          const isDueToday = t.due_date === todayStr;
+          const isOverdue = t.due_date && t.due_date < todayStr;
+          return (
+            <div key={`auto-${t.id}`} onClick={() => setActive("projects")} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${priColor}` }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+              onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
+              <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${T.border2}`, flexShrink:0 }} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
+                <div style={{ fontSize:10, color:T.text3, marginTop:2, display:"flex", gap:6 }}>
+                  {proj && <span style={{ display:"flex", alignItems:"center", gap:3 }}><span style={{ width:5, height:5, borderRadius:3, background:proj.color||T.accent }} />{proj.name}</span>}
+                  {isDueToday && <span style={{ color:T.accent, fontWeight:600 }}>Due today</span>}
+                  {isOverdue && <span style={{ color:"#ef4444", fontWeight:600 }}>Overdue</span>}
+                </div>
+              </div>
+              <span style={{ fontSize:9, padding:"1px 6px", borderRadius:4, background:priColor+"20", color:priColor, fontWeight:700, flexShrink:0 }}>{t.priority}</span>
+            </div>
+          );
+        })}
+
+        {/* User-added focus items */}
+        {focusItems.map(item => {
+          const proj = item.project_id ? projects.find(p => p.id === item.project_id) : null;
+          const linkedTask = item.task_id ? tasks.find(t => t.id === item.task_id) : null;
+          const priColor = linkedTask ? ({ urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" }[linkedTask.priority] || T.text3) : T.accent;
+          return (
+            <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, borderLeft:`3px solid ${item.is_completed ? "#22c55e" : priColor}`, opacity: item.is_completed ? 0.6 : 1, transition:"opacity 0.2s" }}>
+              <div onClick={(e) => { e.stopPropagation(); toggleComplete(item); }}
+                style={{ width:16, height:16, borderRadius:4, border:`2px solid ${item.is_completed ? "#22c55e" : T.border2}`, background: item.is_completed ? "#22c55e" : "transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
+                {item.is_completed && <span style={{ color:"#fff", fontSize:10, lineHeight:1 }}>✓</span>}
+              </div>
+              <div onClick={() => linkedTask && setActive("projects")} style={{ flex:1, minWidth:0, cursor: linkedTask ? "pointer" : "default" }}>
+                <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textDecoration: item.is_completed ? "line-through" : "none" }}>{item.title}</div>
+                <div style={{ fontSize:10, color:T.text3, marginTop:2, display:"flex", gap:6 }}>
+                  {proj && <span style={{ display:"flex", alignItems:"center", gap:3 }}><span style={{ width:5, height:5, borderRadius:3, background:proj.color||T.accent }} />{proj.name}</span>}
+                  {linkedTask && <span style={{ color:T.text3 }}>Task</span>}
+                  {!linkedTask && <span style={{ color:T.accent }}>Custom</span>}
+                </div>
+              </div>
+              <button onClick={() => removeItem(item.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:14, padding:"0 2px", opacity:0.5, transition:"opacity 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>×</button>
+            </div>
+          );
+        })}
+
+        {/* Add Focus Item UI */}
+        {addMode === null && (
+          <div style={{ display:"flex", gap:6, marginTop:4 }}>
+            <button onClick={() => setAddMode("custom")} style={{ display:"flex", alignItems:"center", gap:5, padding:"7px 12px", borderRadius:8, border:`1px dashed ${T.border2}`, background:"transparent", color:T.text3, fontSize:12, cursor:"pointer", transition:"all 0.15s", flex:1 }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border2; e.currentTarget.style.color = T.text3; }}>
+              <span style={{ fontSize:14, lineHeight:1 }}>+</span> Write your own
+            </button>
+            <button onClick={() => setAddMode("task")} style={{ display:"flex", alignItems:"center", gap:5, padding:"7px 12px", borderRadius:8, border:`1px dashed ${T.border2}`, background:"transparent", color:T.text3, fontSize:12, cursor:"pointer", transition:"all 0.15s", flex:1 }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border2; e.currentTarget.style.color = T.text3; }}>
+              <span style={{ fontSize:14, lineHeight:1 }}>◫</span> Pick a task
+            </button>
+          </div>
+        )}
+
+        {/* Custom write mode */}
+        {addMode === "custom" && (
+          <div style={{ display:"flex", gap:6, marginTop:4 }}>
+            <input ref={inputRef} value={customTitle} onChange={e => setCustomTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") addCustomItem(); if (e.key === "Escape") { setAddMode(null); setCustomTitle(""); } }}
+              placeholder="What do you want to focus on today?"
+              style={{ flex:1, padding:"8px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:13, outline:"none", fontFamily:"inherit" }} />
+            <button onClick={addCustomItem} disabled={!customTitle.trim()} style={{ padding:"8px 14px", borderRadius:8, border:"none", background:T.accent, color:"#fff", fontSize:12, fontWeight:600, cursor:"pointer", opacity:customTitle.trim()?1:0.4 }}>Add</button>
+            <button onClick={() => { setAddMode(null); setCustomTitle(""); }} style={{ padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:"transparent", color:T.text3, fontSize:12, cursor:"pointer" }}>✕</button>
+          </div>
+        )}
+
+        {/* Task search mode */}
+        {addMode === "task" && (
+          <div style={{ marginTop:4, position:"relative" }}>
+            <div style={{ display:"flex", gap:6 }}>
+              <input ref={inputRef} value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                onKeyDown={e => { if (e.key === "Escape") { setAddMode(null); setSearchTerm(""); } }}
+                placeholder="Search tasks…"
+                style={{ flex:1, padding:"8px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:13, outline:"none", fontFamily:"inherit" }} />
+              <button onClick={() => { setAddMode(null); setSearchTerm(""); }} style={{ padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:"transparent", color:T.text3, fontSize:12, cursor:"pointer" }}>✕</button>
+            </div>
+            {searchResults.length > 0 && (
+              <div style={{ marginTop:6, borderRadius:8, border:`1px solid ${T.border}`, background:T.surface, overflow:"hidden", maxHeight:220, overflowY:"auto" }}>
+                {searchResults.map(t => {
+                  const proj = projects.find(p => p.id === t.project_id);
+                  return (
+                    <div key={t.id} onClick={() => addTaskItem(t)} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", cursor:"pointer", borderBottom:`1px solid ${T.border}20`, transition:"background 0.1s" }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <span style={{ fontSize:12, color:T.text3 }}>☐</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
+                        {proj && <div style={{ fontSize:10, color:T.text3 }}>{proj.name}</div>}
+                      </div>
+                      <span style={{ fontSize:10, color:T.accent, fontWeight:600 }}>+ Add</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {searchTerm.trim() && searchResults.length === 0 && (
+              <div style={{ marginTop:6, padding:"12px 16px", borderRadius:8, background:T.surface2, fontSize:12, color:T.text3, textAlign:"center" }}>No tasks found for "{searchTerm}"</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {totalItems === 0 && addMode === null && (
+        <div style={{ textAlign:"center", padding:"12px 0", color:T.text3, fontSize:12 }}>
+          No focus items yet — add something to keep your day on track
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   TODAY'S CALENDAR SIDEBAR — Collapsible right panel
+   ═══════════════════════════════════════════════════════ */
+function TodaysCalendar({ profile, collapsed, setCollapsed }) {
+  const [events, setEvents] = useState([]);
+  const [calendars, setCalendars] = useState([]);
+  const [enabledCals, setEnabledCals] = useState(new Set());
+  const [loading, setLoading] = useState(true);
+  const [showCalPicker, setShowCalPicker] = useState(false);
+  const [showConnect, setShowConnect] = useState(false);
+  const [icalUrl, setIcalUrl] = useState("");
+  const [icalName, setIcalName] = useState("");
+  const calPickerRef = useRef(null);
+
+  // Close calendar picker on outside click
+  useEffect(() => {
+    const fn = (e) => { if (calPickerRef.current && !calPickerRef.current.contains(e.target)) setShowCalPicker(false); };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, []);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    (async () => {
+      setLoading(true);
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
+
+      const [{ data: cals }, { data: evts }] = await Promise.all([
+        supabase.from("calendars").select("*").eq("owner_id", profile.id).is("deleted_at", null).order("name"),
+        supabase.from("calendar_events").select("*").gte("start_at", todayStart.toISOString()).lte("start_at", todayEnd.toISOString()).is("deleted_at", null).order("start_at"),
+      ]);
+      setCalendars(cals || []);
+      setEvents(evts || []);
+
+      // Default: enable all calendars
+      const saved = localStorage.getItem("helm-enabled-cals");
+      if (saved) {
+        try { setEnabledCals(new Set(JSON.parse(saved))); } catch { setEnabledCals(new Set((cals||[]).map(c=>c.id))); }
+      } else {
+        setEnabledCals(new Set((cals||[]).map(c=>c.id)));
+      }
+      setLoading(false);
+    })();
+  }, [profile?.id]);
+
+  const toggleCalendar = (calId) => {
+    setEnabledCals(prev => {
+      const next = new Set(prev);
+      if (next.has(calId)) next.delete(calId); else next.add(calId);
+      localStorage.setItem("helm-enabled-cals", JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const filteredEvents = events.filter(e => !e.calendar_id || enabledCals.has(e.calendar_id));
+
+  const addIcalFeed = async () => {
+    if (!icalUrl.trim() || !profile?.org_id) return;
+    const { data, error } = await supabase.from("calendars").insert({
+      org_id: profile.org_id, owner_id: profile.id,
+      name: icalName.trim() || "External Calendar",
+      calendar_type: "ical", external_provider: "ical",
+      external_calendar_id: icalUrl.trim(), sync_enabled: true,
+      color: ["#3b82f6","#a855f7","#22c55e","#f97316","#ec4899","#06b6d4"][calendars.length % 6],
+    }).select().single();
+    if (!error && data) {
+      setCalendars(prev => [...prev, data]);
+      setEnabledCals(prev => new Set([...prev, data.id]));
+    }
+    setIcalUrl(""); setIcalName(""); setShowConnect(false);
+  };
+
+  const fmtTime = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit", hour12:true });
+  };
+
+  const getEventDuration = (start, end) => {
+    if (!end) return "";
+    const mins = Math.round((new Date(end) - new Date(start)) / 60000);
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  };
+
+  const nowHour = new Date().getHours();
+  const nowMin = new Date().getMinutes();
+
+  // If collapsed, show just a thin tab to expand
+  if (collapsed) {
+    return (
+      <div onClick={() => setCollapsed(false)} style={{ width:36, flexShrink:0, background:T.surface, borderLeft:`1px solid ${T.border}`, display:"flex", flexDirection:"column", alignItems:"center", paddingTop:16, cursor:"pointer", transition:"all 0.2s" }}
+        onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+        onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+        <span style={{ fontSize:16, marginBottom:6 }}>📅</span>
+        <span style={{ writingMode:"vertical-rl", fontSize:11, fontWeight:600, color:T.text3, letterSpacing:0.5 }}>Calendar</span>
+        {filteredEvents.length > 0 && (
+          <div style={{ width:18, height:18, borderRadius:9, background:T.accent, color:"#fff", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", marginTop:8 }}>
+            {filteredEvents.length}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width:300, flexShrink:0, background:T.surface, borderLeft:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden", transition:"width 0.2s" }}>
+      {/* Header */}
+      <div style={{ padding:"14px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <span style={{ fontSize:14 }}>📅</span>
+          <span style={{ fontSize:14, fontWeight:700 }}>Today</span>
+          <span style={{ fontSize:11, color:T.text3 }}>{new Date().toLocaleDateString("en-US", { month:"short", day:"numeric" })}</span>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+          <div style={{ position:"relative" }} ref={calPickerRef}>
+            <button onClick={() => setShowCalPicker(!showCalPicker)} title="Calendar settings"
+              style={{ width:28, height:28, borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:T.text3, transition:"all 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>⚙</button>
+            {showCalPicker && (
+              <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, width:260, background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, boxShadow:"0 12px 40px #00000050", zIndex:100, overflow:"hidden" }}>
+                <div style={{ padding:"12px 14px", borderBottom:`1px solid ${T.border}`, fontSize:12, fontWeight:700, color:T.text2 }}>Calendars</div>
+                <div style={{ maxHeight:200, overflowY:"auto" }}>
+                  {calendars.length === 0 && (
+                    <div style={{ padding:"16px 14px", fontSize:12, color:T.text3, textAlign:"center" }}>No calendars connected</div>
+                  )}
+                  {calendars.map(cal => (
+                    <div key={cal.id} onClick={() => toggleCalendar(cal.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 14px", cursor:"pointer", borderBottom:`1px solid ${T.border}20`, transition:"background 0.1s" }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${cal.color || T.accent}`, background: enabledCals.has(cal.id) ? (cal.color || T.accent) : "transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.15s" }}>
+                        {enabledCals.has(cal.id) && <span style={{ color:"#fff", fontSize:9 }}>✓</span>}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cal.name}</div>
+                        {cal.external_provider && <div style={{ fontSize:10, color:T.text3, textTransform:"capitalize" }}>{cal.external_provider}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding:"10px 14px", borderTop:`1px solid ${T.border}` }}>
+                  <button onClick={() => { setShowConnect(!showConnect); }} style={{ width:"100%", padding:"7px 0", borderRadius:6, border:`1px dashed ${T.border2}`, background:"transparent", color:T.accent, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                    + Connect calendar
+                  </button>
+                  {showConnect && (
+                    <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:6 }}>
+                      {/* Provider buttons */}
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                        {[
+                          { provider:"google", label:"Google", icon:"G", color:"#4285f4" },
+                          { provider:"outlook", label:"Outlook", icon:"O", color:"#0078d4" },
+                        ].map(p => (
+                          <button key={p.provider} onClick={() => {
+                            // Would trigger OAuth flow — show coming soon for now
+                            alert(`${p.label} Calendar OAuth integration coming soon! Use iCal URL for now.`);
+                          }} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, cursor:"pointer", color:T.text, fontSize:11, fontWeight:600 }}>
+                            <span style={{ width:18, height:18, borderRadius:4, background:p.color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800 }}>{p.icon}</span>
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ fontSize:10, color:T.text3, textAlign:"center", margin:"4px 0" }}>— or paste iCal URL —</div>
+                      <input value={icalName} onChange={e => setIcalName(e.target.value)} placeholder="Calendar name" style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
+                      <input value={icalUrl} onChange={e => setIcalUrl(e.target.value)} placeholder="https://calendar.google.com/…/basic.ics" style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
+                      <button onClick={addIcalFeed} disabled={!icalUrl.trim()} style={{ padding:"6px 0", borderRadius:6, border:"none", background:T.accent, color:"#fff", fontSize:11, fontWeight:600, cursor:"pointer", opacity:icalUrl.trim()?1:0.4 }}>Add Calendar</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          <button onClick={() => setCollapsed(true)} title="Collapse calendar"
+            style={{ width:28, height:28, borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:T.text3, transition:"all 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
+            onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>»</button>
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div style={{ flex:1, overflowY:"auto", padding:"12px 16px" }}>
+        {loading ? (
+          <div style={{ textAlign:"center", padding:"24px 0", color:T.text3, fontSize:12 }}>Loading…</div>
+        ) : filteredEvents.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"32px 0" }}>
+            <div style={{ fontSize:28, marginBottom:8 }}>☀️</div>
+            <div style={{ fontSize:13, fontWeight:600, color:T.text2, marginBottom:4 }}>Clear day ahead</div>
+            <div style={{ fontSize:11, color:T.text3, marginBottom:12 }}>No meetings scheduled</div>
+            {calendars.length === 0 && (
+              <button onClick={() => setShowCalPicker(true)} style={{ padding:"6px 14px", borderRadius:6, border:`1px solid ${T.accent}40`, background:`${T.accent}10`, color:T.accent, fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                Connect a calendar
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+            {filteredEvents.map((evt, i) => {
+              const startD = new Date(evt.start_at);
+              const endD = evt.end_at ? new Date(evt.end_at) : null;
+              const isNow = startD.getHours() <= nowHour && (!endD || endD.getHours() > nowHour || (endD.getHours() === nowHour && endD.getMinutes() > nowMin));
+              const isPast = endD ? endD < new Date() : startD.getHours() < nowHour;
+              const cal = evt.calendar_id ? calendars.find(c => c.id === evt.calendar_id) : null;
+              const evtColor = evt.color || cal?.color || T.accent;
+              const hasVideo = evt.has_video_call || evt.video_link;
+
+              return (
+                <div key={evt.id} style={{ display:"flex", gap:10, padding:"10px 12px", borderRadius:10, background: isNow ? `${evtColor}10` : "transparent", border: isNow ? `1px solid ${evtColor}30` : "1px solid transparent", opacity: isPast ? 0.5 : 1, transition:"all 0.15s" }}>
+                  {/* Time column */}
+                  <div style={{ width:52, flexShrink:0, textAlign:"right" }}>
+                    <div style={{ fontSize:12, fontWeight:isNow?700:500, color:isNow?evtColor:T.text }}>{evt.all_day ? "All day" : fmtTime(evt.start_at)}</div>
+                    {!evt.all_day && endD && <div style={{ fontSize:10, color:T.text3 }}>{getEventDuration(evt.start_at, evt.end_at)}</div>}
+                  </div>
+                  {/* Color bar */}
+                  <div style={{ width:3, borderRadius:3, background:evtColor, flexShrink:0, alignSelf:"stretch" }} />
+                  {/* Content */}
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:isNow?700:500, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>{evt.title}</div>
+                    {evt.location && <div style={{ fontSize:10, color:T.text3, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📍 {evt.location}</div>}
+                    {isNow && <div style={{ fontSize:9, fontWeight:700, color:evtColor, marginTop:3, textTransform:"uppercase", letterSpacing:0.5 }}>● Happening now</div>}
+                    {hasVideo && (
+                      <button onClick={(e) => { e.stopPropagation(); if (evt.video_link) window.open(evt.video_link, "_blank"); }}
+                        style={{ marginTop:6, display:"flex", alignItems:"center", gap:5, padding:"4px 10px", borderRadius:6, border:`1px solid ${evtColor}40`, background:`${evtColor}10`, color:evtColor, fontSize:11, fontWeight:600, cursor:"pointer", transition:"all 0.15s" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = `${evtColor}25`; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = `${evtColor}10`; }}>
+                        <span style={{ fontSize:12 }}>📹</span>
+                        Join meeting
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Footer with calendar count */}
+      <div style={{ padding:"10px 16px", borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+        <span style={{ fontSize:10, color:T.text3 }}>{calendars.length} calendar{calendars.length !== 1 ? "s" : ""} · {enabledCals.size} shown</span>
+        <span style={{ fontSize:10, color:T.text3 }}>{filteredEvents.length} event{filteredEvents.length !== 1 ? "s" : ""}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   MAIN DASHBOARD
+   ═══════════════════════════════════════════════════════ */
 export default function DashboardView({ setActive }) {
   const { profile } = useAuth();
   const [data, setData] = useState(null);
@@ -89,17 +537,26 @@ export default function DashboardView({ setActive }) {
   const [finMonthly, setFinMonthly] = useState({});
   const [plmPrograms, setPlmPrograms] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
-
   const [checkIns, setCheckIns] = useState([]);
+  const [focusItems, setFocusItems] = useState([]);
+  const [calCollapsed, setCalCollapsed] = useState(() => {
+    try { return localStorage.getItem("helm-cal-collapsed") === "true"; } catch { return false; }
+  });
+
+  const toggleCalCollapsed = useCallback((v) => {
+    setCalCollapsed(v);
+    try { localStorage.setItem("helm-cal-collapsed", String(v)); } catch {}
+  }, []);
 
   useEffect(() => {
     (async () => {
       const yr = new Date().getFullYear();
+      const todayStr = new Date().toISOString().split("T")[0];
       const [
         { data: projects }, { data: tasks }, { data: profiles },
         { data: objectives }, { data: keyResults }, { data: cycles },
         { data: approvals }, { data: fmData }, { data: plm },
-        { data: activity },
+        { data: activity }, { data: focus },
       ] = await Promise.all([
         supabase.from("projects").select("*").is("deleted_at", null).order("name"),
         supabase.from("tasks").select("*").is("deleted_at", null),
@@ -111,6 +568,7 @@ export default function DashboardView({ setActive }) {
         supabase.from("okr_financial_metrics").select("*").eq("year", yr).order("sort_order"),
         supabase.from("plm_programs").select("*").is("deleted_at", null).order("created_at", { ascending: false }).limit(10),
         supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(20),
+        supabase.from("dashboard_focus_items").select("*").eq("focus_date", todayStr).order("sort_order"),
       ]);
 
       const profMap = {};
@@ -125,8 +583,8 @@ export default function DashboardView({ setActive }) {
       setPendingApprovals(approvals || []);
       setPlmPrograms(plm || []);
       setRecentActivity(activity || []);
+      setFocusItems(focus || []);
 
-      // Load recent check-ins for staleness detection
       if (cycleKRs.length > 0) {
         const krIds = cycleKRs.map(k => k.id);
         const { data: ciData } = await supabase.from("okr_check_ins")
@@ -166,7 +624,6 @@ export default function DashboardView({ setActive }) {
   const greet = now.getHours() < 12 ? "Good morning" : now.getHours() < 17 ? "Good afternoon" : "Good evening";
   const dateStr = now.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" });
 
-  // OKR stats
   const overallProgress = objectives.length > 0
     ? Math.round(objectives.reduce((s,o) => s + Number(o.progress||0), 0) / objectives.length) : 0;
   const onTrackCount = objectives.filter(o => o.health === "on_track").length;
@@ -174,13 +631,11 @@ export default function DashboardView({ setActive }) {
   const offTrackCount= objectives.filter(o => o.health === "off_track").length;
   const daysLeft = activeCycle ? Math.max(0, Math.ceil((new Date(activeCycle.end_date) - now) / 86400000)) : 0;
 
-  // Task stats
   const openTasks    = tasks.filter(t => t.status !== "done" && t.status !== "cancelled");
   const overdueTasks = openTasks.filter(t => t.due_date && t.due_date < todayStr);
   const myTasks      = openTasks.filter(t => t.assignee_id === profile?.id && !t.parent_task_id)
     .sort((a,b) => { if(!a.due_date&&!b.due_date) return 0; if(!a.due_date) return 1; if(!b.due_date) return -1; return a.due_date.localeCompare(b.due_date); }).slice(0, 6);
 
-  // Financial KPIs from sheet sync
   const revMetric = finMetrics.find(m => m.metric_key === "revenue");
   const netMetric = finMetrics.find(m => m.metric_key === "net_dollars");
   const ytdRev = revMetric ? Object.entries(finMonthly[revMetric.id]||{})
@@ -189,7 +644,6 @@ export default function DashboardView({ setActive }) {
     .filter(([m]) => Number(m) <= curMonth).reduce((s,[,r]) => s+(r.actual||0), 0) : null;
   const revSparkline = revMetric ? Array.from({length:curMonth},(_,i)=>i+1).map(m=>finMonthly[revMetric.id]?.[m]?.actual||0) : [];
 
-  // PLM stats
   const inDev = plmPrograms.filter(p => ["development","optimization","validation","scale_up"].includes(p.current_stage)).length;
   const launchReady = plmPrograms.filter(p => p.current_stage === "launch_ready").length;
 
@@ -204,11 +658,8 @@ export default function DashboardView({ setActive }) {
     return `${Math.floor(diff/86400000)}d ago`;
   };
 
-  // KR check-in staleness
   const lastCheckInByKR = {};
-  checkIns.forEach(ci => {
-    if (!lastCheckInByKR[ci.key_result_id]) lastCheckInByKR[ci.key_result_id] = ci;
-  });
+  checkIns.forEach(ci => { if (!lastCheckInByKR[ci.key_result_id]) lastCheckInByKR[ci.key_result_id] = ci; });
   const staleKRs = keyResults.filter(kr => {
     const last = lastCheckInByKR[kr.id];
     if (!last) return true;
@@ -220,495 +671,439 @@ export default function DashboardView({ setActive }) {
   }).length;
 
   return (
-    <div style={{ padding:"28px 32px", overflow:"auto", height:"100%", boxSizing:"border-box" }}>
-      {/* ── Header ── */}
-      <div style={{ marginBottom:20, display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
-        <div>
-          <h1 style={{ fontSize:26, fontWeight:800, marginBottom:4, lineHeight:1.2 }}>
-            {greet}, {profile?.display_name?.split(" ")[0] || "there"} 👋
-          </h1>
-          <p style={{ color:T.text3, fontSize:13 }}>
-            {dateStr}{activeCycle ? ` · ${activeCycle.name} — ${daysLeft} days left` : ""}
-          </p>
+    <div style={{ display:"flex", height:"100%", overflow:"hidden" }}>
+      {/* Main content */}
+      <div style={{ flex:1, overflow:"auto", padding:"28px 32px", boxSizing:"border-box" }}>
+        {/* ── Header ── */}
+        <div style={{ marginBottom:20, display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
+          <div>
+            <h1 style={{ fontSize:26, fontWeight:800, marginBottom:4, lineHeight:1.2 }}>
+              {greet}, {profile?.display_name?.split(" ")[0] || "there"} 👋
+            </h1>
+            <p style={{ color:T.text3, fontSize:13 }}>
+              {dateStr}{activeCycle ? ` · ${activeCycle.name} — ${daysLeft} days left` : ""}
+            </p>
+          </div>
+          {pendingApprovals.length > 0 && (
+            <div style={{ background:"#f9731618", border:"1px solid #f9731640", borderRadius:10, padding:"10px 16px", display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}
+              onClick={() => setActive("finance")}>
+              <span style={{ fontSize:18 }}>⏳</span>
+              <div>
+                <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{pendingApprovals.length} Pending Approval{pendingApprovals.length!==1?"s":""}</div>
+                <div style={{ fontSize:11, color:T.text3 }}>Awaiting your review</div>
+              </div>
+            </div>
+          )}
         </div>
-        {pendingApprovals.length > 0 && (
-          <div style={{ background:"#f97316"+"18", border:`1px solid ${"#f97316"}40`, borderRadius:10, padding:"10px 16px", display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}
-            onClick={() => setActive("finance")}>
-            <span style={{ fontSize:18 }}>⏳</span>
-            <div>
-              <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{pendingApprovals.length} Pending Approval{pendingApprovals.length!==1?"s":""}</div>
-              <div style={{ fontSize:11, color:T.text3 }}>Awaiting your review</div>
-            </div>
-          </div>
-        )}
-      </div>
 
-      {/* ── Quick Actions ── */}
-      <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap", alignItems:"center" }}>
-        {[
-          { icon:"☐", label:"New Task", action:() => setActive("projects"), color:"#3b82f6" },
-          { icon:"◎", label:"Check-in KR", action:() => setActive("okrs"), color:"#22c55e" },
-          { icon:"📋", label:"Post Update", action:() => setActive("projects"), color:"#a855f7" },
-          { icon:"📄", label:"New Doc", action:() => setActive("docs"), color:"#06b6d4" },
-          { icon:"📊", label:"Reports", action:() => setActive("reports"), color:"#f97316" },
-        ].map(a => (
-          <button key={a.label} onClick={a.action} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:8, border:`1px solid ${a.color}30`, background:`${a.color}10`, color:a.color, fontSize:12, fontWeight:600, cursor:"pointer", transition:"all 0.15s" }}
-            onMouseEnter={e => { e.currentTarget.style.background = `${a.color}20`; e.currentTarget.style.transform = "translateY(-1px)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = `${a.color}10`; e.currentTarget.style.transform = "none"; }}>
-            <span style={{ fontSize:14 }}>{a.icon}</span>{a.label}
-          </button>
-        ))}
-      </div>
+        {/* ── Quick Actions ── */}
+        <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap", alignItems:"center" }}>
+          {[
+            { icon:"☐", label:"New Task", action:() => setActive("projects"), color:"#3b82f6" },
+            { icon:"◎", label:"Check-in KR", action:() => setActive("okrs"), color:"#22c55e" },
+            { icon:"📋", label:"Post Update", action:() => setActive("projects"), color:"#a855f7" },
+            { icon:"📄", label:"New Doc", action:() => setActive("docs"), color:"#06b6d4" },
+            { icon:"📊", label:"Reports", action:() => setActive("reports"), color:"#f97316" },
+          ].map(a => (
+            <button key={a.label} onClick={a.action} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:8, border:`1px solid ${a.color}30`, background:`${a.color}10`, color:a.color, fontSize:12, fontWeight:600, cursor:"pointer", transition:"all 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.background = `${a.color}20`; e.currentTarget.style.transform = "translateY(-1px)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = `${a.color}10`; e.currentTarget.style.transform = "none"; }}>
+              <span style={{ fontSize:14 }}>{a.icon}</span>{a.label}
+            </button>
+          ))}
+        </div>
 
-      {/* ── Today's Focus ── */}
-      {(() => {
-        const focusTasks = tasks.filter(t =>
-          t.status !== "done" && t.status !== "cancelled" && !t.parent_task_id &&
-          (t.due_date === todayStr || t.priority === "urgent" || (t.priority === "high" && t.due_date && t.due_date <= todayStr))
-        ).sort((a, b) => {
-          const pOrder = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
-          return (pOrder[a.priority] || 4) - (pOrder[b.priority] || 4);
-        }).slice(0, 6);
+        {/* ── Daily Focus ── */}
+        <TodaysFocus tasks={tasks} projects={projects} focusItems={focusItems} setFocusItems={setFocusItems} todayStr={todayStr} setActive={setActive} profile={profile} />
 
-        if (focusTasks.length === 0) return null;
-        return (
-          <div style={{ marginBottom:20, padding:"16px 20px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, borderLeft:`4px solid ${T.accent}` }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <span style={{ fontSize:16 }}>🎯</span>
-                <span style={{ fontSize:14, fontWeight:700 }}>Today's Focus</span>
-                <span style={{ fontSize:11, color:T.text3, background:T.surface2, padding:"1px 8px", borderRadius:8 }}>{focusTasks.length} items</span>
-              </div>
-              <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(240px, 1fr))", gap:8 }}>
-              {focusTasks.map(t => {
-                const proj = projects.find(p => p.id === t.project_id);
-                const priColors = { urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" };
-                const priColor = priColors[t.priority] || T.text3;
-                const isDueToday = t.due_date === todayStr;
-                const isOverdue = t.due_date && t.due_date < todayStr;
-                return (
-                  <div key={t.id} onClick={() => setActive("projects")} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${priColor}` }}
-                    onMouseEnter={e => e.currentTarget.style.background = T.surface3}
-                    onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
-                      <div style={{ fontSize:10, color:T.text3, marginTop:2, display:"flex", gap:6 }}>
-                        {proj && <span style={{ display:"flex", alignItems:"center", gap:3 }}><span style={{ width:5, height:5, borderRadius:3, background:proj.color||T.accent }} />{proj.name}</span>}
-                        {isDueToday && <span style={{ color:T.accent, fontWeight:600 }}>Due today</span>}
-                        {isOverdue && <span style={{ color:"#ef4444", fontWeight:600 }}>Overdue</span>}
-                      </div>
-                    </div>
-                    <span style={{ fontSize:9, padding:"1px 6px", borderRadius:4, background:priColor+"20", color:priColor, fontWeight:700, flexShrink:0 }}>{t.priority}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
+        {/* ── KPI Row ── */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>
+          <KPICard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"—"}
+            sub={revMetric?.target_annual ? `Target: ${fmt$(revMetric.target_annual)}` : "Sync from Sheet for data"}
+            color="#22c55e" onClick={() => setActive("okrs")} />
+          <KPICard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"—"}
+            sub={ytdRev&&ytdNet ? `${((ytdNet/ytdRev)*100).toFixed(1)}% margin` : ""}
+            color={ytdNet!=null&&ytdNet>=0?"#22c55e":"#ef4444"} onClick={() => setActive("okrs")} />
+          <KPICard icon="◎" label="OKR Progress" value={`${overallProgress}%`}
+            sub={`${onTrackCount} on track · ${atRiskCount} at risk`}
+            color={overallProgress>=60?"#22c55e":overallProgress>=30?"#eab308":"#ef4444"} onClick={() => setActive("okrs")} />
+          <KPICard icon="☐" label="Open Tasks" value={openTasks.length}
+            sub={overdueTasks.length>0?`${overdueTasks.length} overdue`:`${myTasks.length} assigned to me`}
+            color={overdueTasks.length>0?"#ef4444":T.text} onClick={() => setActive("projects")} />
+          <KPICard icon="⬢" label="PLM Programs" value={plmPrograms.length}
+            sub={`${inDev} in development · ${launchReady} launch ready`}
+            color={T.accent} onClick={() => setActive("plm")} />
+        </div>
 
-      {/* ── KPI Row ── */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>
-        <KPICard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"—"}
-          sub={revMetric?.target_annual ? `Target: ${fmt$(revMetric.target_annual)}` : "Sync from Sheet for data"}
-          color="#22c55e" onClick={() => setActive("okrs")} />
-        <KPICard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"—"}
-          sub={ytdRev&&ytdNet ? `${((ytdNet/ytdRev)*100).toFixed(1)}% margin` : ""}
-          color={ytdNet!=null&&ytdNet>=0?"#22c55e":"#ef4444"} onClick={() => setActive("okrs")} />
-        <KPICard icon="◎" label="OKR Progress" value={`${overallProgress}%`}
-          sub={`${onTrackCount} on track · ${atRiskCount} at risk`}
-          color={overallProgress>=60?"#22c55e":overallProgress>=30?"#eab308":"#ef4444"} onClick={() => setActive("okrs")} />
-        <KPICard icon="☐" label="Open Tasks" value={openTasks.length}
-          sub={overdueTasks.length>0?`${overdueTasks.length} overdue`:`${myTasks.length} assigned to me`}
-          color={overdueTasks.length>0?"#ef4444":T.text} onClick={() => setActive("projects")} />
-        <KPICard icon="⬢" label="PLM Programs" value={plmPrograms.length}
-          sub={`${inDev} in development · ${launchReady} launch ready`}
-          color={T.accent} onClick={() => setActive("plm")} />
-      </div>
-
-      {/* ── Revenue trend + OKRs ── */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
-        {/* Revenue sparkline card */}
-        <Card>
-          <SectionHeader title="Revenue This Year" icon="📊" action={
-            <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View metrics →</button>
-          } />
-          {revSparkline.some(v=>v>0) ? (
-            <div>
-              <div style={{ display:"flex", gap:24, marginBottom:16 }}>
-                <div><div style={{ fontSize:24, fontWeight:800, color:"#22c55e" }}>{fmt$(ytdRev)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Revenue</div></div>
-                {ytdNet!=null&&<div><div style={{ fontSize:24, fontWeight:800, color:ytdNet>=0?"#22c55e":"#ef4444" }}>{fmt$(ytdNet)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Net $</div></div>}
-              </div>
-              {/* Monthly bar chart */}
-              <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:80 }}>
-                {revSparkline.map((v, i) => {
-                  const maxV = Math.max(...revSparkline, 1);
-                  const h = Math.max(4, (v/maxV)*76);
-                  const months = ["J","F","M","A","M","J","J","A","S","O","N","D"];
-                  const isCur = i+1 === curMonth;
-                  return (
-                    <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-                      <div style={{ fontSize:9, color:T.text3, fontWeight:600 }}>{v>0?fmt$(v):""}</div>
-                      <div style={{ width:"100%", height:`${h}px`, borderRadius:"3px 3px 0 0",
-                        background: isCur ? T.accent : v>0 ? T.accent+"70" : T.surface3,
-                        transition:"height 0.4s" }} />
-                      <div style={{ fontSize:9, color:isCur?T.accent:T.text3, fontWeight:isCur?700:400 }}>{months[i]}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div style={{ textAlign:"center", padding:"24px 0", color:T.text3 }}>
-              <div style={{ fontSize:32, marginBottom:8 }}>📊</div>
-              <div style={{ fontSize:13, marginBottom:4 }}>No financial data yet</div>
-              <div style={{ fontSize:11, marginBottom:12 }}>Go to OKRs and click "Sync from Sheet"</div>
-              <button onClick={() => setActive("okrs")} style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer" }}>
-                Go to OKRs →
-              </button>
-            </div>
-          )}
-        </Card>
-
-        {/* OKR Summary */}
-        <Card>
-          <SectionHeader title={activeCycle?.name || "OKRs"} icon="◎" action={
-            <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
-          } />
-          <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:16 }}>
-            <div style={{ position:"relative", flexShrink:0 }}>
-              <Ring pct={overallProgress} size={72} stroke={6} color={overallProgress>=60?"#22c55e":overallProgress>=30?"#eab308":"#ef4444"} />
-              <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
-                <span style={{ fontSize:18, fontWeight:800, color:T.text }}>{overallProgress}%</span>
-              </div>
-            </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:6, flex:1 }}>
-              {[["#22c55e","On Track",onTrackCount],["#eab308","At Risk",atRiskCount],["#ef4444","Off Track",offTrackCount]].map(([c,l,v])=>(
-                <div key={l} style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <div style={{ width:8, height:8, borderRadius:"50%", background:c, flexShrink:0 }} />
-                  <span style={{ fontSize:12, color:T.text2, flex:1 }}>{l}</span>
-                  <span style={{ fontSize:13, fontWeight:700, color:c }}>{v}</span>
+        {/* ── Revenue trend + OKRs ── */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+          <Card>
+            <SectionHeader title="Revenue This Year" icon="📊" action={
+              <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View metrics →</button>
+            } />
+            {revSparkline.some(v=>v>0) ? (
+              <div>
+                <div style={{ display:"flex", gap:24, marginBottom:16 }}>
+                  <div><div style={{ fontSize:24, fontWeight:800, color:"#22c55e" }}>{fmt$(ytdRev)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Revenue</div></div>
+                  {ytdNet!=null&&<div><div style={{ fontSize:24, fontWeight:800, color:ytdNet>=0?"#22c55e":"#ef4444" }}>{fmt$(ytdNet)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Net $</div></div>}
                 </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {objectives.slice(0,4).map(obj => {
-              const pct = Math.round(Number(obj.progress||0));
-              const h = HEALTH[obj.health] || HEALTH.on_track;
-              return (
-                <div key={obj.id} onClick={()=>setActive("okrs")} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, background:T.surface2, cursor:"pointer" }}>
-                  <div style={{ width:6, height:6, borderRadius:"50%", background:h.color, flexShrink:0 }} />
-                  <div style={{ fontSize:12, fontWeight:500, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{obj.title}</div>
-                  <div style={{ width:60, flexShrink:0 }}>
-                    <div style={{ height:4, borderRadius:4, background:T.surface3, overflow:"hidden" }}>
-                      <div style={{ width:`${pct}%`, height:"100%", background:h.color, borderRadius:4 }} />
-                    </div>
-                  </div>
-                  <span style={{ fontSize:11, fontWeight:700, color:h.color, minWidth:28, textAlign:"right" }}>{pct}%</span>
-                </div>
-              );
-            })}
-            {objectives.length === 0 && <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"16px 0" }}>No objectives in this cycle</div>}
-          </div>
-        </Card>
-      </div>
-
-      {/* ── My Tasks + PLM Pipeline ── */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
-        {/* My Tasks */}
-        <Card>
-          <SectionHeader title="My Tasks" icon="👤" action={
-            <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
-          } />
-          {myTasks.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"24px 0", color:T.text3, fontSize:13 }}>No open tasks assigned to you 🎉</div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-              {myTasks.map(t => {
-                const proj = projects.find(p => p.id === t.project_id);
-                const isOverdue = t.due_date && t.due_date < todayStr;
-                const isToday = t.due_date === todayStr;
-                const priColor = {urgent:"#ef4444",high:"#f97316",medium:"#eab308",low:"#22c55e"}[t.priority]||T.text3;
-                return (
-                  <div key={t.id} onClick={() => setActive("projects")} style={{
-                    display:"flex", alignItems:"center", gap:10, padding:"9px 12px",
-                    borderRadius:8, background:T.surface2, cursor:"pointer",
-                    borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}`,
-                  }}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
-                      <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{proj?.name||"—"}</div>
-                    </div>
-                    {t.due_date && (
-                      <span style={{ fontSize:10, fontWeight:600, padding:"2px 7px", borderRadius:4, flexShrink:0,
-                        background: isOverdue?"#ef444420":isToday?T.accent+"20":T.surface3,
-                        color: isOverdue?"#ef4444":isToday?T.accent:T.text3 }}>
-                        {isToday?"Today":isOverdue?`${Math.ceil((now-new Date(t.due_date))/86400000)}d late`:
-                          new Date(t.due_date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {overdueTasks.length > 0 && (
-            <div style={{ marginTop:10, padding:"8px 12px", borderRadius:8, background:"#ef444408", border:"1px solid #ef444430" }}>
-              <span style={{ fontSize:11, color:"#ef4444", fontWeight:600 }}>⚠️ {overdueTasks.length} overdue task{overdueTasks.length!==1?"s":""} across all projects</span>
-            </div>
-          )}
-        </Card>
-
-        {/* PLM Pipeline */}
-        <Card>
-          <SectionHeader title="PLM Pipeline" icon="⬢" action={
-            <button onClick={() => setActive("plm")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
-          } />
-          {plmPrograms.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"24px 0", color:T.text3 }}>
-              <div style={{ fontSize:32, marginBottom:8 }}>⬢</div>
-              <div style={{ fontSize:13 }}>No programs yet</div>
-            </div>
-          ) : (
-            <div>
-              {/* Stage summary bars */}
-              {[
-                {key:"ideation",label:"Ideation",color:"#8b5cf6"},
-                {key:"development",label:"Development",color:"#0ea5e9"},
-                {key:"validation",label:"Validation",color:"#10b981"},
-                {key:"launch_ready",label:"Launch Ready",color:"#f97316"},
-                {key:"launched",label:"Launched",color:"#22c55e"},
-              ].map(stage => {
-                const count = plmPrograms.filter(p => p.current_stage === stage.key || (stage.key==="development"&&["development","optimization","scale_up","regulatory","feasibility","concept"].includes(p.current_stage))).length;
-                const pct = plmPrograms.length > 0 ? (count/plmPrograms.length)*100 : 0;
-                if (count === 0) return null;
-                return (
-                  <div key={stage.key} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-                    <div style={{ fontSize:11, color:T.text2, width:80, textAlign:"right" }}>{stage.label}</div>
-                    <div style={{ flex:1, height:16, background:T.surface3, borderRadius:8, overflow:"hidden" }}>
-                      <div style={{ width:`${pct}%`, height:"100%", background:stage.color, borderRadius:8, display:"flex", alignItems:"center", paddingLeft:6, minWidth:24 }}>
-                        {count>0&&<span style={{ fontSize:9, fontWeight:700, color:"#fff" }}>{count}</span>}
+                <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:80 }}>
+                  {revSparkline.map((v, i) => {
+                    const maxV = Math.max(...revSparkline, 1);
+                    const h = Math.max(4, (v/maxV)*76);
+                    const months = ["J","F","M","A","M","J","J","A","S","O","N","D"];
+                    const isCur = i+1 === curMonth;
+                    return (
+                      <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                        <div style={{ fontSize:9, color:T.text3, fontWeight:600 }}>{v>0?fmt$(v):""}</div>
+                        <div style={{ width:"100%", height:`${h}px`, borderRadius:"3px 3px 0 0", background: isCur ? T.accent : v>0 ? T.accent+"70" : T.surface3, transition:"height 0.4s" }} />
+                        <div style={{ fontSize:9, color:isCur?T.accent:T.text3, fontWeight:isCur?700:400 }}>{months[i]}</div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
-              <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:5 }}>
-                {plmPrograms.slice(0,3).map(p => (
-                  <div key={p.id} onClick={()=>setActive("plm")} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", borderRadius:7, background:T.surface2, cursor:"pointer" }}>
-                    <div style={{ fontSize:11, flex:1, fontWeight:500 }}>{p.name}</div>
-                    <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:4,
-                      background: p.priority==="critical"?"#ef444420":p.priority==="high"?"#f9731620":"#22c55e15",
-                      color: p.priority==="critical"?"#ef4444":p.priority==="high"?"#f97316":"#22c55e" }}>
-                      {(p.current_stage||"").replace(/_/g," ").toUpperCase()}
-                    </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign:"center", padding:"24px 0", color:T.text3 }}>
+                <div style={{ fontSize:32, marginBottom:8 }}>📊</div>
+                <div style={{ fontSize:13, marginBottom:4 }}>No financial data yet</div>
+                <div style={{ fontSize:11, marginBottom:12 }}>Go to OKRs and click "Sync from Sheet"</div>
+                <button onClick={() => setActive("okrs")} style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer" }}>Go to OKRs →</button>
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <SectionHeader title={activeCycle?.name || "OKRs"} icon="◎" action={
+              <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
+            } />
+            <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:16 }}>
+              <div style={{ position:"relative", flexShrink:0 }}>
+                <Ring pct={overallProgress} size={72} stroke={6} color={overallProgress>=60?"#22c55e":overallProgress>=30?"#eab308":"#ef4444"} />
+                <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+                  <span style={{ fontSize:18, fontWeight:800, color:T.text }}>{overallProgress}%</span>
+                </div>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, flex:1 }}>
+                {[["#22c55e","On Track",onTrackCount],["#eab308","At Risk",atRiskCount],["#ef4444","Off Track",offTrackCount]].map(([c,l,v])=>(
+                  <div key={l} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ width:8, height:8, borderRadius:"50%", background:c, flexShrink:0 }} />
+                    <span style={{ fontSize:12, color:T.text2, flex:1 }}>{l}</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:c }}>{v}</span>
                   </div>
                 ))}
               </div>
             </div>
-          )}
-        </Card>
-      </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {objectives.slice(0,4).map(obj => {
+                const pct = Math.round(Number(obj.progress||0));
+                const h = HEALTH[obj.health] || HEALTH.on_track;
+                return (
+                  <div key={obj.id} onClick={()=>setActive("okrs")} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, background:T.surface2, cursor:"pointer" }}>
+                    <div style={{ width:6, height:6, borderRadius:"50%", background:h.color, flexShrink:0 }} />
+                    <div style={{ fontSize:12, fontWeight:500, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{obj.title}</div>
+                    <div style={{ width:60, flexShrink:0 }}>
+                      <div style={{ height:4, borderRadius:4, background:T.surface3, overflow:"hidden" }}>
+                        <div style={{ width:`${pct}%`, height:"100%", background:h.color, borderRadius:4 }} />
+                      </div>
+                    </div>
+                    <span style={{ fontSize:11, fontWeight:700, color:h.color, minWidth:28, textAlign:"right" }}>{pct}%</span>
+                  </div>
+                );
+              })}
+              {objectives.length === 0 && <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"16px 0" }}>No objectives in this cycle</div>}
+            </div>
+          </Card>
+        </div>
 
-      {/* ── Projects Health Summary ── */}
-      {projects.filter(p => p.status !== "archived").length > 0 && (() => {
-        const activeProjs = projects.filter(p => p.status !== "archived").map(p => {
-          const pt = tasks.filter(t => t.project_id === p.id && !t.parent_task_id);
-          const done = pt.filter(t => t.status === "done").length;
-          const overdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < todayStr).length;
-          const pct = pt.length ? Math.round((done / pt.length) * 100) : 0;
-          const health = overdue > pt.length * 0.2 ? "off_track" : overdue > 0 ? "at_risk" : "on_track";
-          return { ...p, pct, overdue, taskCount: pt.length, health };
-        });
-        const atRiskProjs = activeProjs.filter(p => p.health !== "on_track");
-        if (atRiskProjs.length === 0) return null;
-        return (
-          <div style={{ marginBottom:20 }}>
-            <Card>
-              <SectionHeader title="Projects Needing Attention" icon="📁" action={
-                <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>All projects →</button>
-              } />
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px,1fr))", gap:10 }}>
-                {atRiskProjs.slice(0,6).map(p => {
-                  const hc = p.health === "off_track" ? "#ef4444" : "#eab308";
+        {/* ── My Tasks + PLM Pipeline ── */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+          <Card>
+            <SectionHeader title="My Tasks" icon="👤" action={
+              <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
+            } />
+            {myTasks.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"24px 0", color:T.text3, fontSize:13 }}>No open tasks assigned to you 🎉</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {myTasks.map(t => {
+                  const proj = projects.find(p => p.id === t.project_id);
+                  const isOverdue = t.due_date && t.due_date < todayStr;
+                  const isDueToday = t.due_date === todayStr;
+                  const priColors = { urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" };
+                  const priColor = priColors[t.priority] || T.text3;
                   return (
-                    <div key={p.id} onClick={() => setActive("projects")} style={{ padding:"12px 14px", borderRadius:10, background:T.surface2, border:`1px solid ${hc}40`, cursor:"pointer", borderLeft:`3px solid ${hc}` }}
+                    <div key={t.id} onClick={() => setActive("projects")} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}` }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
+                        <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{proj?.name || "—"}</div>
+                      </div>
+                      {t.due_date && (
+                        <span style={{ fontSize:10, fontWeight:600, padding:"2px 7px", borderRadius:4, flexShrink:0,
+                          background: isOverdue ? "#ef444420" : isDueToday ? T.accent+"20" : T.surface3,
+                          color: isOverdue ? "#ef4444" : isDueToday ? T.accent : T.text3 }}>
+                          {isDueToday ? "Today" : isOverdue ? `${Math.ceil((now - new Date(t.due_date))/86400000)}d late` : new Date(t.due_date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {overdueTasks.length > 0 && (
+              <div style={{ marginTop:10, padding:"8px 12px", borderRadius:8, background:"#ef444408", border:"1px solid #ef444430" }}>
+                <span style={{ fontSize:11, color:"#ef4444", fontWeight:600 }}>⚠️ {overdueTasks.length} overdue task{overdueTasks.length!==1?"s":""} across all projects</span>
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <SectionHeader title="PLM Pipeline" icon="⬢" action={
+              <button onClick={() => setActive("plm")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
+            } />
+            {plmPrograms.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"24px 0", color:T.text3 }}>
+                <div style={{ fontSize:32, marginBottom:8 }}>⬢</div>
+                <div style={{ fontSize:13 }}>No programs yet</div>
+              </div>
+            ) : (
+              <div>
+                {[
+                  {key:"ideation",label:"Ideation",color:"#8b5cf6"},
+                  {key:"development",label:"Development",color:"#0ea5e9"},
+                  {key:"validation",label:"Validation",color:"#10b981"},
+                  {key:"launch_ready",label:"Launch Ready",color:"#f97316"},
+                  {key:"launched",label:"Launched",color:"#22c55e"},
+                ].map(stage => {
+                  const count = plmPrograms.filter(p => p.current_stage === stage.key || (stage.key==="development"&&["development","optimization","scale_up","regulatory","feasibility","concept"].includes(p.current_stage))).length;
+                  const pct = plmPrograms.length > 0 ? (count/plmPrograms.length)*100 : 0;
+                  if (count === 0) return null;
+                  return (
+                    <div key={stage.key} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                      <div style={{ fontSize:11, color:T.text2, width:80, textAlign:"right" }}>{stage.label}</div>
+                      <div style={{ flex:1, height:16, background:T.surface3, borderRadius:8, overflow:"hidden" }}>
+                        <div style={{ width:`${pct}%`, height:"100%", background:stage.color, borderRadius:8, display:"flex", alignItems:"center", paddingLeft:6, minWidth:24 }}>
+                          {count>0&&<span style={{ fontSize:9, fontWeight:700, color:"#fff" }}>{count}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:5 }}>
+                  {plmPrograms.slice(0,3).map(p => (
+                    <div key={p.id} onClick={()=>setActive("plm")} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", borderRadius:7, background:T.surface2, cursor:"pointer" }}>
+                      <div style={{ fontSize:11, flex:1, fontWeight:500 }}>{p.name}</div>
+                      <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:4,
+                        background: p.priority==="critical"?"#ef444420":p.priority==="high"?"#f9731620":"#22c55e15",
+                        color: p.priority==="critical"?"#ef4444":p.priority==="high"?"#f97316":"#22c55e" }}>
+                        {(p.current_stage||"").replace(/_/g," ").toUpperCase()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* ── Projects Health Summary ── */}
+        {projects.filter(p => p.status !== "archived").length > 0 && (() => {
+          const activeProjs = projects.filter(p => p.status !== "archived").map(p => {
+            const pt = tasks.filter(t => t.project_id === p.id && !t.parent_task_id);
+            const done = pt.filter(t => t.status === "done").length;
+            const overdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < todayStr).length;
+            const pct = pt.length ? Math.round((done / pt.length) * 100) : 0;
+            const health = overdue > pt.length * 0.2 ? "off_track" : overdue > 0 ? "at_risk" : "on_track";
+            return { ...p, pct, overdue, taskCount: pt.length, health };
+          });
+          const atRiskProjs = activeProjs.filter(p => p.health !== "on_track");
+          if (atRiskProjs.length === 0) return null;
+          return (
+            <div style={{ marginBottom:20 }}>
+              <Card>
+                <SectionHeader title="Projects Needing Attention" icon="📁" action={
+                  <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>All projects →</button>
+                } />
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px,1fr))", gap:10 }}>
+                  {atRiskProjs.slice(0,6).map(p => {
+                    const hc = p.health === "off_track" ? "#ef4444" : "#eab308";
+                    return (
+                      <div key={p.id} onClick={() => setActive("projects")} style={{ padding:"12px 14px", borderRadius:10, background:T.surface2, border:`1px solid ${hc}40`, cursor:"pointer", borderLeft:`3px solid ${hc}` }}
+                        onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                        onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
+                          <div style={{ width:8, height:8, borderRadius:4, background:p.color||T.accent, flexShrink:0 }} />
+                          <span style={{ fontSize:12, fontWeight:600, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</span>
+                          <span style={{ fontSize:9, fontWeight:700, padding:"1px 6px", borderRadius:8, background:hc+"20", color:hc }}>
+                            {p.health === "off_track" ? "Off Track" : "At Risk"}
+                          </span>
+                        </div>
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <div style={{ flex:1, height:3, borderRadius:2, background:T.surface3 }}>
+                            <div style={{ width:`${p.pct}%`, height:"100%", borderRadius:2, background:p.color||T.accent }} />
+                          </div>
+                          <span style={{ fontSize:11, color:T.text3, fontWeight:600, minWidth:28 }}>{p.pct}%</span>
+                        </div>
+                        {p.overdue > 0 && <div style={{ fontSize:10, color:hc, marginTop:5 }}>⚠ {p.overdue} overdue task{p.overdue!==1?"s":""}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            </div>
+          );
+        })()}
+
+        {/* ── Check-ins Needed ── */}
+        {staleKRs.length > 0 && (
+          <div style={{ marginBottom:20 }}>
+            <Card style={{ borderColor: "#eab30840", background: `linear-gradient(135deg, ${T.surface} 0%, #eab30808 100%)` }}>
+              <SectionHeader title="Check-ins Needed" icon="📝" action={
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  {checkedInToday > 0 && <span style={{ fontSize:11, color:"#22c55e", fontWeight:600 }}>✓ {checkedInToday} done today</span>}
+                  <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>Go to OKRs →</button>
+                </div>
+              } />
+              <div style={{ fontSize:12, color:T.text3, marginBottom:12 }}>
+                These Key Results haven't been updated in 7+ days. A quick check-in keeps everyone aligned.
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                {staleKRs.map(kr => {
+                  const last = lastCheckInByKR[kr.id];
+                  const daysSince = last ? Math.floor((Date.now() - new Date(last.created_at).getTime()) / 86400000) : null;
+                  const obj = objectives.find(o => o.id === kr.objective_id);
+                  const pct = Math.round(Number(kr.progress || 0));
+                  const urgentColor = daysSince === null ? "#ef4444" : daysSince >= 14 ? "#ef4444" : "#eab308";
+                  return (
+                    <div key={kr.id} onClick={() => setActive("okrs")} style={{
+                      display:"flex", alignItems:"center", gap:10, padding:"10px 14px",
+                      borderRadius:8, background:T.surface2, cursor:"pointer",
+                      border:`1px solid ${urgentColor}30`, borderLeft:`3px solid ${urgentColor}`,
+                    }}
                       onMouseEnter={e => e.currentTarget.style.background = T.surface3}
                       onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
-                      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
-                        <div style={{ width:8, height:8, borderRadius:4, background:p.color||T.accent, flexShrink:0 }} />
-                        <span style={{ fontSize:12, fontWeight:600, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</span>
-                        <span style={{ fontSize:9, fontWeight:700, padding:"1px 6px", borderRadius:8, background:hc+"20", color:hc }}>
-                          {p.health === "off_track" ? "Off Track" : "At Risk"}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:T.text }}>{kr.title}</div>
+                        {obj && <div style={{ fontSize:10, color:T.text3, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{obj.title}</div>}
+                      </div>
+                      <div style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
+                        <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:8, background:urgentColor+"20", color:urgentColor }}>
+                          {daysSince === null ? "Never" : `${daysSince}d ago`}
                         </span>
+                        <div style={{ fontSize:10, color:T.text3 }}>{pct}% progress</div>
                       </div>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <div style={{ flex:1, height:3, borderRadius:2, background:T.surface3 }}>
-                          <div style={{ width:`${p.pct}%`, height:"100%", borderRadius:2, background:p.color||T.accent }} />
-                        </div>
-                        <span style={{ fontSize:11, color:T.text3, fontWeight:600, minWidth:28 }}>{p.pct}%</span>
-                      </div>
-                      {p.overdue > 0 && <div style={{ fontSize:10, color:hc, marginTop:5 }}>⚠ {p.overdue} overdue task{p.overdue!==1?"s":""}</div>}
                     </div>
                   );
                 })}
               </div>
             </Card>
           </div>
-        );
-      })()}
-      {staleKRs.length > 0 && (
-        <div style={{ marginBottom:20 }}>
-          <Card style={{ borderColor: "#eab30840", background: `linear-gradient(135deg, ${T.surface} 0%, #eab30808 100%)` }}>
-            <SectionHeader title="Check-ins Needed" icon="📝" action={
-              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                {checkedInToday > 0 && <span style={{ fontSize:11, color:"#22c55e", fontWeight:600 }}>✓ {checkedInToday} done today</span>}
-                <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>Go to OKRs →</button>
-              </div>
+        )}
+
+        {/* ── Recent Activity + Approvals ── */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+          <Card>
+            <SectionHeader title="Recent Activity" icon="🕐" action={
+              <button onClick={() => setActive("activity")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
             } />
-            <div style={{ fontSize:12, color:T.text3, marginBottom:12 }}>
-              These Key Results haven't been updated in 7+ days. A quick check-in keeps everyone aligned.
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-              {staleKRs.map(kr => {
-                const last = lastCheckInByKR[kr.id];
-                const daysSince = last ? Math.floor((Date.now() - new Date(last.created_at).getTime()) / 86400000) : null;
-                const obj = objectives.find(o => o.id === kr.objective_id);
-                const pct = Math.round(Number(kr.progress || 0));
-                const urgentColor = daysSince === null ? "#ef4444" : daysSince >= 14 ? "#ef4444" : "#eab308";
+            {recentActivity.length === 0 ? (
+              <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"24px 0" }}>No recent activity</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+                {recentActivity.slice(0,10).map((act, i) => {
+                  const c = acol(act.actor_id);
+                  const entityIcons = { task:"☐", project:"◼", doc:"📄", objective:"🎯", key_result:"◎", campaign:"📢", product:"⬢", call:"📞" };
+                  const actionColors = { created:"#22c55e", completed:"#22c55e", updated:"#3b82f6", deleted:"#ef4444", assigned:"#a855f7", commented:"#06b6d4" };
+                  const actionColor = actionColors[act.action] || T.text3;
+                  const eIcon = entityIcons[act.entity_type] || "◔";
+                  return (
+                    <div key={act.id} onClick={() => {
+                      const modMap = { task:"projects", project:"projects", doc:"docs", objective:"okrs", key_result:"okrs", campaign:"campaigns", product:"plm" };
+                      if (modMap[act.entity_type]) setActive(modMap[act.entity_type]);
+                    }} style={{ display:"flex", gap:10, padding:"8px 6px", borderBottom: i<9?`1px solid ${T.border}20`:"none", cursor:"pointer", borderRadius:6, transition:"background 0.1s" }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div style={{ width:28, height:28, borderRadius:14, background:c+"20", border:`1.5px solid ${c}50`,
+                        display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:c, flexShrink:0 }}>
+                        {ini(act.actor_id)}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, lineHeight:1.4, display:"flex", alignItems:"center", gap:4, flexWrap:"wrap" }}>
+                          <span style={{ fontWeight:600 }}>{uname(act.actor_id)}</span>
+                          <span style={{ color:actionColor, fontWeight:600, fontSize:11 }}>{act.action}</span>
+                          <span style={{ fontSize:12 }}>{eIcon}</span>
+                          <span style={{ color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:140 }}>{act.entity_name || act.entity_type}</span>
+                        </div>
+                        <div style={{ fontSize:10, color:T.text3, marginTop:1 }}>{relTime(act.created_at)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <SectionHeader title="Pending Approvals" icon="⏳" action={
+              <button onClick={() => setActive("finance")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
+            } />
+            {pendingApprovals.length === 0 ? (
+              <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"24px 0" }}>
+                <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
+                No pending approvals — you're all caught up!
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {pendingApprovals.map(req => (
+                  <div key={req.id} style={{ padding:"10px 12px", background:T.surface2, borderRadius:9, border:`1px solid ${T.border}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+                      <div style={{ fontSize:13, fontWeight:600 }}>{req.entity_name || req.entity_type}</div>
+                      {req.amount && <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{fmt$(req.amount)}</div>}
+                    </div>
+                    <div style={{ fontSize:11, color:T.text3, marginBottom:8 }}>{req.description || req.module} · {relTime(req.created_at)}</div>
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={async()=>{
+                        await supabase.from("approval_requests").update({status:"approved",decided_at:new Date().toISOString()}).eq("id",req.id);
+                        setPendingApprovals(p=>p.filter(a=>a.id!==req.id));
+                        notifySlack({ type:"approval", channel:"ben", title:"Approval Granted ✅", message:`${req.entity_name||req.entity_type} has been approved${req.amount?" ("+fmt$(req.amount)+")":""}`, url:"https://helm-app-six.vercel.app" });
+                      }} style={{ flex:1, padding:"5px 0", fontSize:11, fontWeight:600, background:"#22c55e20", color:"#22c55e", border:"1px solid #22c55e40", borderRadius:5, cursor:"pointer" }}>✓ Approve</button>
+                      <button onClick={async()=>{
+                        await supabase.from("approval_requests").update({status:"rejected",decided_at:new Date().toISOString()}).eq("id",req.id);
+                        setPendingApprovals(p=>p.filter(a=>a.id!==req.id));
+                        notifySlack({ type:"approval", channel:"ben", title:"Approval Rejected ❌", message:`${req.entity_name||req.entity_type} was rejected`, url:"https://helm-app-six.vercel.app" });
+                      }} style={{ flex:1, padding:"5px 0", fontSize:11, fontWeight:600, background:"#ef444410", color:"#ef4444", border:"1px solid #ef444430", borderRadius:5, cursor:"pointer" }}>✕ Reject</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${T.border}` }}>
+              <div style={{ fontSize:12, fontWeight:700, color:T.text3, marginBottom:10, textTransform:"uppercase", letterSpacing:0.5 }}>Project Health</div>
+              {projects.slice(0,4).map(proj => {
+                const pt = tasks.filter(t=>t.project_id===proj.id&&!t.parent_task_id);
+                const pd = pt.filter(t=>t.status==="done").length;
+                const pct = pt.length>0?Math.round((pd/pt.length)*100):0;
+                const od = pt.filter(t=>t.due_date&&t.due_date<todayStr&&t.status!=="done").length;
                 return (
-                  <div key={kr.id} onClick={() => setActive("okrs")} style={{
-                    display:"flex", alignItems:"center", gap:10, padding:"10px 14px",
-                    borderRadius:8, background:T.surface2, cursor:"pointer",
-                    border:`1px solid ${urgentColor}30`,
-                    borderLeft:`3px solid ${urgentColor}`,
-                  }}
-                    onMouseEnter={e => e.currentTarget.style.background = T.surface3}
-                    onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
+                  <div key={proj.id} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:7 }}>
+                    <div style={{ width:24, height:24, borderRadius:6, background:proj.color||T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:"#fff", flexShrink:0 }}>{proj.name.charAt(0)}</div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:T.text }}>{kr.title}</div>
-                      {obj && <div style={{ fontSize:10, color:T.text3, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{obj.title}</div>}
+                      <div style={{ fontSize:11, fontWeight:500, marginBottom:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{proj.name}</div>
+                      <div style={{ height:4, borderRadius:4, background:T.surface3, overflow:"hidden" }}>
+                        <div style={{ width:`${pct}%`, height:"100%", background:od>0?"#ef4444":proj.color||T.accent, borderRadius:4 }} />
+                      </div>
                     </div>
-                    <div style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
-                      <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:8, background:urgentColor+"20", color:urgentColor }}>
-                        {daysSince === null ? "Never" : `${daysSince}d ago`}
-                      </span>
-                      <div style={{ fontSize:10, color:T.text3 }}>{pct}% progress</div>
-                    </div>
+                    <span style={{ fontSize:11, fontWeight:700, color:od>0?"#ef4444":T.text2, minWidth:30, textAlign:"right" }}>{pct}%</span>
                   </div>
                 );
               })}
             </div>
           </Card>
         </div>
-      )}
-
-      {/* ── Recent Activity + Approvals ── */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-        {/* Recent Activity */}
-        <Card>
-          <SectionHeader title="Recent Activity" icon="🕐" action={
-            <button onClick={() => setActive("activity")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
-          } />
-          {recentActivity.length === 0 ? (
-            <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"24px 0" }}>No recent activity</div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-              {recentActivity.slice(0,10).map((act, i) => {
-                const c = acol(act.actor_id);
-                const entityIcons = { task:"☐", project:"◼", doc:"📄", objective:"🎯", key_result:"◎", campaign:"📢", product:"⬢", call:"📞" };
-                const actionColors = { created:"#22c55e", completed:"#22c55e", updated:"#3b82f6", deleted:"#ef4444", assigned:"#a855f7", commented:"#06b6d4" };
-                const actionColor = actionColors[act.action] || T.text3;
-                const eIcon = entityIcons[act.entity_type] || "◔";
-                return (
-                  <div key={act.id} onClick={() => {
-                    const modMap = { task:"projects", project:"projects", doc:"docs", objective:"okrs", key_result:"okrs", campaign:"campaigns", product:"plm" };
-                    if (modMap[act.entity_type]) setActive(modMap[act.entity_type]);
-                  }} style={{ display:"flex", gap:10, padding:"8px 6px", borderBottom: i<9?`1px solid ${T.border}20`:"none", cursor:"pointer", borderRadius:6, transition:"background 0.1s" }}
-                    onMouseEnter={e => e.currentTarget.style.background = T.surface2}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    <div style={{ width:28, height:28, borderRadius:14, background:c+"20", border:`1.5px solid ${c}50`,
-                      display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:c, flexShrink:0 }}>
-                      {ini(act.actor_id)}
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:12, lineHeight:1.4, display:"flex", alignItems:"center", gap:4, flexWrap:"wrap" }}>
-                        <span style={{ fontWeight:600 }}>{uname(act.actor_id)}</span>
-                        <span style={{ color:actionColor, fontWeight:600, fontSize:11 }}>{act.action}</span>
-                        <span style={{ fontSize:12 }}>{eIcon}</span>
-                        <span style={{ color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:140 }}>{act.entity_name || act.entity_type}</span>
-                      </div>
-                      <div style={{ fontSize:10, color:T.text3, marginTop:1 }}>{relTime(act.created_at)}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-
-        {/* Pending Approvals */}
-        <Card>
-          <SectionHeader title="Pending Approvals" icon="⏳" action={
-            <button onClick={() => setActive("finance")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
-          } />
-          {pendingApprovals.length === 0 ? (
-            <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"24px 0" }}>
-              <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
-              No pending approvals — you're all caught up!
-            </div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {pendingApprovals.map(req => (
-                <div key={req.id} style={{ padding:"10px 12px", background:T.surface2, borderRadius:9, border:`1px solid ${T.border}` }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-                    <div style={{ fontSize:13, fontWeight:600 }}>{req.entity_name || req.entity_type}</div>
-                    {req.amount && <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{fmt$(req.amount)}</div>}
-                  </div>
-                  <div style={{ fontSize:11, color:T.text3, marginBottom:8 }}>{req.description || req.module} · {relTime(req.created_at)}</div>
-                  <div style={{ display:"flex", gap:6 }}>
-                    <button onClick={async()=>{
-                      await supabase.from("approval_requests").update({status:"approved",decided_at:new Date().toISOString()}).eq("id",req.id);
-                      setPendingApprovals(p=>p.filter(a=>a.id!==req.id));
-                      notifySlack({ type:"approval", channel:"ben", title:"Approval Granted ✅", message:`${req.entity_name||req.entity_type} has been approved${req.amount?" ("+fmt$(req.amount)+")":""}`, url:"https://helm-app-six.vercel.app" });
-                    }} style={{ flex:1, padding:"5px 0", fontSize:11, fontWeight:600, background:"#22c55e20", color:"#22c55e", border:"1px solid #22c55e40", borderRadius:5, cursor:"pointer" }}>✓ Approve</button>
-                    <button onClick={async()=>{
-                      await supabase.from("approval_requests").update({status:"rejected",decided_at:new Date().toISOString()}).eq("id",req.id);
-                      setPendingApprovals(p=>p.filter(a=>a.id!==req.id));
-                      notifySlack({ type:"approval", channel:"ben", title:"Approval Rejected ❌", message:`${req.entity_name||req.entity_type} was rejected`, url:"https://helm-app-six.vercel.app" });
-                    }} style={{ flex:1, padding:"5px 0", fontSize:11, fontWeight:600, background:"#ef444410", color:"#ef4444", border:"1px solid #ef444430", borderRadius:5, cursor:"pointer" }}>✕ Reject</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {/* Quick project health */}
-          <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${T.border}` }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.text3, marginBottom:10, textTransform:"uppercase", letterSpacing:0.5 }}>Project Health</div>
-            {projects.slice(0,4).map(proj => {
-              const pt = tasks.filter(t=>t.project_id===proj.id&&!t.parent_task_id);
-              const pd = pt.filter(t=>t.status==="done").length;
-              const pct = pt.length>0?Math.round((pd/pt.length)*100):0;
-              const od = pt.filter(t=>t.due_date&&t.due_date<todayStr&&t.status!=="done").length;
-              return (
-                <div key={proj.id} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:7 }}>
-                  <div style={{ width:24, height:24, borderRadius:6, background:proj.color||T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:"#fff", flexShrink:0 }}>{proj.name.charAt(0)}</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:11, fontWeight:500, marginBottom:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{proj.name}</div>
-                    <div style={{ height:4, borderRadius:4, background:T.surface3, overflow:"hidden" }}>
-                      <div style={{ width:`${pct}%`, height:"100%", background:od>0?"#ef4444":proj.color||T.accent, borderRadius:4 }} />
-                    </div>
-                  </div>
-                  <span style={{ fontSize:11, fontWeight:700, color:od>0?"#ef4444":T.text2, minWidth:30, textAlign:"right" }}>{pct}%</span>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
       </div>
+
+      {/* ── Calendar Sidebar ── */}
+      <TodaysCalendar profile={profile} collapsed={calCollapsed} setCollapsed={toggleCalCollapsed} />
     </div>
   );
 }
