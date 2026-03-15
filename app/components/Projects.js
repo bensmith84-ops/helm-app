@@ -7,7 +7,7 @@ import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
-const TABS = ["List", "Board", "Timeline", "Calendar", "Updates", "Docs", "Rules"];
+const TABS = ["Info", "List", "Board", "Timeline", "Calendar", "Updates", "Docs", "Rules"];
 const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
 
@@ -708,7 +708,7 @@ export default function ProjectsView() {
         {!showSidebar && <button onClick={() => setShowSidebar(true)} style={S.iconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>}
         <div style={{ width: 12, height: 12, borderRadius: 6, background: proj.color || T.accent, flexShrink: 0 }} />
         <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, flex: 1 }}>{proj.emoji || ""} {proj.name}</h2>
-        {/* Health badge */}
+        {viewMode !== "Info" && <>{/* Health badge */}
         <span style={{ ...S.pill, background: hColor + "18", color: hColor, border: `1px solid ${hColor}40`, fontSize: 11, fontWeight: 700 }}>
           {hLabel}
         </span>
@@ -732,6 +732,7 @@ export default function ProjectsView() {
         <button onClick={() => { setStatusForm({ health: projHealth, summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }} style={{ ...S.pill, background: T.surface2, color: T.text3, fontSize: 11, gap: 4 }} title="Post status update">
           📋 Update
         </button>
+        </>}
         <button onClick={openEditProject} style={S.iconBtn} title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18.4 2.6a2.17 2.17 0 013 3L12 15l-4 1 1-4 9.4-9.4z"/></svg></button>
         <button onClick={() => archiveProject(proj.id)} style={S.iconBtn} title="Archive"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg></button>
         <button onClick={() => deleteProject(proj.id)} style={{ ...S.iconBtn, color: T.red }} title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
@@ -2194,9 +2195,137 @@ export default function ProjectsView() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {showMyTasks ? <MyTasksView /> : proj ? (<>
           <ProjectHeader />
-          {filterBarEl}
+          {viewMode !== "Info" && filterBarEl}
           <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              {viewMode === "Info" && (
+                <div style={{ flex: 1, overflow: "auto", padding: "24px 28px", maxWidth: 700 }}>
+                  {/* Quick actions */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+                    <button onClick={openEditProject} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18.4 2.6a2.17 2.17 0 013 3L12 15l-4 1 1-4 9.4-9.4z"/></svg> Edit Project
+                    </button>
+                    <button onClick={() => { setStatusForm({ health: projHealth, summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      📋 Post Status Update
+                    </button>
+                  </div>
+
+                  {/* Description */}
+                  {proj.description && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Description</div>
+                      <div style={{ fontSize: 14, color: T.text, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{proj.description}</div>
+                    </div>
+                  )}
+
+                  {/* Details grid */}
+                  <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: "14px 16px", marginBottom: 28 }}>
+                    <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Status</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 4, background: healthColors[projHealth] }} />
+                      <span style={{ fontSize: 13, color: healthColors[projHealth], fontWeight: 600 }}>{healthLabels[projHealth]}</span>
+                    </div>
+
+                    <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Progress</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ flex: 1, maxWidth: 200, height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden" }}>
+                        <div style={{ width: `${progress}%`, height: "100%", borderRadius: 3, background: proj.color || T.accent, transition: "width 0.3s" }} />
+                      </div>
+                      <span style={{ fontSize: 12, color: T.text2, fontWeight: 600 }}>{progress}%</span>
+                      <span style={{ fontSize: 11, color: T.text3 }}>{doneCount}/{projTasks.length} tasks done</span>
+                    </div>
+
+                    <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Owner</div>
+                    <div style={{ fontSize: 13, color: T.text }}>{proj.owner_id ? (profiles[proj.owner_id]?.display_name || "Unknown") : <span style={{ color: T.text3 }}>Unassigned</span>}</div>
+
+                    {proj.team_id && <>
+                      <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Team</div>
+                      <div style={{ fontSize: 13, color: T.text }}>{teams.find(t => t.id === proj.team_id)?.name || "—"}</div>
+                    </>}
+
+                    <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Visibility</div>
+                    <div style={{ fontSize: 13, color: T.text }}>{{ private: "🔒 Private", team: "👥 Team", public: "🌐 Public" }[proj.visibility] || proj.visibility || "Private"}</div>
+
+                    <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Color</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 18, height: 18, borderRadius: 6, background: proj.color || T.accent, border: `1px solid ${T.border}` }} />
+                      <span style={{ fontSize: 12, color: T.text3 }}>{proj.color || "#3b82f6"}</span>
+                    </div>
+
+                    {proj.start_date && <>
+                      <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Start Date</div>
+                      <div style={{ fontSize: 13, color: T.text }}>{new Date(proj.start_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+                    </>}
+
+                    {proj.target_end_date && <>
+                      <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Target End Date</div>
+                      <div style={{ fontSize: 13, color: T.text }}>{new Date(proj.target_end_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+                    </>}
+
+                    <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Created</div>
+                    <div style={{ fontSize: 13, color: T.text }}>{proj.created_at ? new Date(proj.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}</div>
+
+                    <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Default View</div>
+                    <div style={{ fontSize: 13, color: T.text }}>{proj.default_view || "List"}</div>
+                  </div>
+
+                  {/* Overdue warning */}
+                  {projOverdue.length > 0 && (
+                    <div style={{ padding: "14px 16px", borderRadius: 10, background: "#ef444410", border: "1px solid #ef444430", marginBottom: 20 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444", marginBottom: 6 }}>⚠ {projOverdue.length} Overdue Task{projOverdue.length !== 1 ? "s" : ""}</div>
+                      {projOverdue.slice(0, 5).map(t => (
+                        <div key={t.id} onClick={() => { setViewMode("List"); setTimeout(() => setSelectedTask(t), 100); }}
+                          style={{ fontSize: 12, color: T.text2, padding: "4px 0", cursor: "pointer" }}
+                          onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.text2}>
+                          · {t.title} <span style={{ color: T.text3 }}>— due {toDateStr(t.due_date)}</span>
+                        </div>
+                      ))}
+                      {projOverdue.length > 5 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>and {projOverdue.length - 5} more...</div>}
+                    </div>
+                  )}
+
+                  {/* Recent status updates */}
+                  {statusUpdates.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Recent Updates</div>
+                      {statusUpdates.slice(0, 3).map(su => {
+                        const suColor = { on_track: "#22c55e", at_risk: "#eab308", off_track: "#ef4444" }[su.status] || T.text3;
+                        return (
+                          <div key={su.id} style={{ padding: "12px 14px", borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 6, background: T.surface2 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: 4, background: suColor }} />
+                              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{su.title}</span>
+                              <span style={{ fontSize: 10, color: T.text3, marginLeft: "auto" }}>{new Date(su.created_at).toLocaleDateString()}</span>
+                            </div>
+                            {su.body && <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.5, marginTop: 4 }}>{su.body.slice(0, 200)}{su.body.length > 200 ? "..." : ""}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Section breakdown */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Sections</div>
+                    {projSections.map((sec, si) => {
+                      const st = projTasks.filter(t => t.section_id === sec.id && !t.parent_task_id);
+                      const dn = st.filter(t => t.status === "done").length;
+                      const pct = st.length ? Math.round((dn / st.length) * 100) : 0;
+                      return (
+                        <div key={sec.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}10` }}>
+                          <span style={{ width: 10, height: 10, borderRadius: 3, background: secColor(si), flexShrink: 0 }} />
+                          <span style={{ fontSize: 13, color: T.text, fontWeight: 500, flex: 1 }}>{sec.name}</span>
+                          <div style={{ width: 80, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: secColor(si) }} />
+                          </div>
+                          <span style={{ fontSize: 11, color: T.text3, width: 50, textAlign: "right" }}>{dn}/{st.length}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {viewMode === "List" && <ListView />}
               {viewMode === "Board" && <BoardView />}
               {viewMode === "Timeline" && <TimelineView />}
