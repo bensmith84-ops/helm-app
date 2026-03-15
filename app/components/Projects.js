@@ -957,8 +957,9 @@ export default function ProjectsView() {
             <Checkbox task={task} size={18} />
             <div style={{ flex: 1, minWidth: 0 }}>
               {parent && <div style={{ fontSize: 10, color: T.text3, marginBottom: 3 }}>↳ {parent.title}</div>}
-              <input value={task.title} onChange={e => { const v = e.target.value; setSelectedTask(p => ({ ...p, title: v })); setTasks(p => p.map(t => t.id === task.id ? { ...t, title: v } : t)); }}
-                onBlur={() => updateField(task.id, "title", task.title)}
+              <input defaultValue={task.title} key={task.id + "-title"}
+                onBlur={e => { if (e.target.value.trim() && e.target.value !== task.title) updateField(task.id, "title", e.target.value.trim()); }}
+                onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
                 style={{ fontSize: 15, fontWeight: 700, color: T.text, background: "none", border: "none", outline: "none", width: "100%", padding: 0, lineHeight: 1.3 }} />
             </div>
             <button onClick={() => setSelectedTask(null)} style={S.iconBtn}>
@@ -1028,12 +1029,16 @@ export default function ProjectsView() {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
                     <label style={{ fontSize: 10, color: T.text3, display: "block", marginBottom: 3 }}>Est. Hours</label>
-                    <input type="number" value={task.estimated_hours || ""} onChange={e => updateField(task.id, "estimated_hours", e.target.value ? Number(e.target.value) : null)}
+                    <input type="number" defaultValue={task.estimated_hours || ""} key={task.id + "-esthrs"}
+                      onBlur={e => updateField(task.id, "estimated_hours", e.target.value ? Number(e.target.value) : null)}
+                      onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
                       placeholder="0" style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                   </div>
                   <div>
                     <label style={{ fontSize: 10, color: T.text3, display: "block", marginBottom: 3 }}>Story Points</label>
-                    <input type="number" value={task.story_points || ""} onChange={e => updateField(task.id, "story_points", e.target.value ? Number(e.target.value) : null)}
+                    <input type="number" defaultValue={task.story_points || ""} key={task.id + "-sp"}
+                      onBlur={e => updateField(task.id, "story_points", e.target.value ? Number(e.target.value) : null)}
+                      onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
                       placeholder="0" style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                   </div>
                 </div>
@@ -1071,7 +1076,9 @@ export default function ProjectsView() {
                   {customFields.map(cf => (
                     <div key={cf.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                       <span style={{ fontSize: 12, color: T.text3, width: 90, flexShrink: 0 }}>{cf.name}</span>
-                      <input value={tcf[cf.id] || ""} onChange={e => updateCustomFieldValue(task.id, cf.id, e.target.value)}
+                      <input defaultValue={tcf[cf.id] || ""} key={task.id + "-cf-" + cf.id}
+                        onBlur={e => updateCustomFieldValue(task.id, cf.id, e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
                         style={{ flex: 1, padding: "4px 7px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
                     </div>
                   ))}
