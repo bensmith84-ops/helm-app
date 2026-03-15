@@ -788,12 +788,11 @@ export default function ProjectsView() {
               <option value="">Move to…</option>
               {projSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            <select onChange={e => { if (e.target.value !== "__clear__") { bulkUpdateTasks("assignee_id", e.target.value === "__none__" ? null : e.target.value); } e.target.value = ""; }} defaultValue=""
-              style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.accent}40`, background: T.surface, color: T.text, cursor: "pointer", outline: "none" }}>
-              <option value="">Assign…</option>
-              <option value="__none__">Unassign</option>
-              {Object.values(profiles).map(u => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}
-            </select>
+            <div style={{ width: 110 }}>
+              <SearchableMultiSelect multi={false} placeholder="Assign…"
+                options={[{ value: "__none__", label: "Unassign", icon: "✕" }, ...Object.values(profiles).map(u => ({ value: u.id, label: u.display_name || u.email, icon: "👤" }))]}
+                selected="" onChange={val => { if (val === "__none__") bulkUpdateTasks("assignee_id", null); else if (val) bulkUpdateTasks("assignee_id", val); }} />
+            </div>
             <button onClick={() => { [...selectedTasks].forEach(id => deleteTask(id)); setSelectedTasks(new Set()); }}
               style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: `1px solid #ef444440`, background: "#ef444415", color: "#ef4444", cursor: "pointer", fontWeight: 600 }}>
               Delete
@@ -1681,7 +1680,11 @@ export default function ProjectsView() {
             const filtProf = allProfiles.filter(u => u.id !== f.owner_id).filter(u => !mSearch || u.display_name?.toLowerCase().includes(mSearch.toLowerCase()) || u.email?.toLowerCase().includes(mSearch.toLowerCase()));
             return <>
             {/* Owner - searchable */}
-            <div style={{ marginBottom: 16 }}><label style={lbl}>Project Owner</label><select value={f.owner_id} onChange={e => set("owner_id", e.target.value)} style={sel}><option value="">Unassigned</option>{allProfiles.map(u => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}</select></div>
+            <div style={{ marginBottom: 16 }}><label style={lbl}>Project Owner</label>
+              <SearchableMultiSelect multi={false} placeholder="Unassigned"
+                options={allProfiles.map(u => ({ value: u.id, label: u.display_name || u.email, icon: "👤" }))}
+                selected={f.owner_id || ""} onChange={val => set("owner_id", val || null)} />
+            </div>
             {/* Add members - searchable */}
             <div style={{ marginBottom: 12 }}><label style={{ ...lbl, marginBottom: 8 }}>Add Members {f.members.length > 0 && <span style={{ color: T.accent, fontWeight: 600 }}>({f.members.length} selected)</span>}</label>
               <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
