@@ -151,14 +151,21 @@ export default function HelmApp() {
         }
 
         setBadges({
-          projects: overdue > 0 ? overdue : null,
-          messages: unreadMsgs > 0 ? unreadMsgs : null,
-          okrs: staleKRs > 0 ? staleKRs : null,
-          activity: pendingNotifs > 0 ? pendingNotifs : null,
+          projects: active === "projects" ? null : overdue > 0 ? overdue : null,
+          messages: active === "messages" ? null : unreadMsgs > 0 ? unreadMsgs : null,
+          okrs: active === "okrs" ? null : staleKRs > 0 ? staleKRs : null,
+          activity: active === "activity" ? null : pendingNotifs > 0 ? pendingNotifs : null,
         });
       } catch (e) { console.warn("Badge count fetch failed:", e); }
     })();
   }, [user?.id, active]);
+
+  // Clear badge when visiting that section
+  useEffect(() => {
+    if (active && badges[active]) {
+      setBadges(prev => ({ ...prev, [active]: null }));
+    }
+  }, [active]);
 
   if (authLoading) return (
     <div style={{ display: "flex", height: "100vh", width: "100vw", alignItems: "center", justifyContent: "center", background: T.bg }}>
