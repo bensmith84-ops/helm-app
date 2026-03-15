@@ -145,6 +145,17 @@ export default function ProjectsView() {
     });
   }, [activeProject]);
 
+  const proj = projects.find(p => p.id === activeProject);
+  const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
+  const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
+  const filteredTasks = useMemo(() => projTasks.filter(t => {
+    if (search && !t.title?.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStatus && t.status !== filterStatus) return false;
+    if (filterPriority && t.priority !== filterPriority) return false;
+    if (filterAssignee && t.assignee_id !== filterAssignee) return false;
+    return true;
+  }), [projTasks, search, filterStatus, filterPriority, filterAssignee]);
+
   useEffect(() => {
     const fn = (e) => {
       const tag = document.activeElement?.tagName;
@@ -214,16 +225,6 @@ export default function ProjectsView() {
     document.addEventListener("keydown", fn);
     return () => document.removeEventListener("keydown", fn);
   }, [showProjectForm, selectedTask, editingSectionId, addingTo, filteredTasks, projSections, selectedTasks, sectionCtxMenu, ctxProject]);
-  const proj = projects.find(p => p.id === activeProject);
-  const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
-  const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
-  const filteredTasks = useMemo(() => projTasks.filter(t => {
-    if (search && !t.title?.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filterStatus && t.status !== filterStatus) return false;
-    if (filterPriority && t.priority !== filterPriority) return false;
-    if (filterAssignee && t.assignee_id !== filterAssignee) return false;
-    return true;
-  }), [projTasks, search, filterStatus, filterPriority, filterAssignee]);
   const rootTasks = (secTasks) => secTasks.filter(t => !t.parent_task_id);
   const getSubtasks = (pid) => filteredTasks.filter(t => t.parent_task_id === pid);
   const sortedTasks = (list) => { if (sortCol === "sort_order") return list; return [...list].sort((a, b) => { let va = a[sortCol] || "", vb = b[sortCol] || ""; if (sortCol === "due_date") { va = va ? new Date(va).getTime() : 9e15; vb = vb ? new Date(vb).getTime() : 9e15; } const c = va < vb ? -1 : va > vb ? 1 : 0; return sortDir === "asc" ? c : -c; }); };
