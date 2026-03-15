@@ -667,12 +667,23 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
                   <div style={{ padding:"8px 12px", borderBottom:`1px solid ${T.border}`, fontSize:11, fontWeight:700 }}>Calendars</div>
                   <div style={{ maxHeight:160, overflowY:"auto" }}>
                     {calendars.map(cal => (
-                      <div key={cal.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 12px" }} onMouseEnter={e=>e.currentTarget.style.background=T.surface2} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                        <div onClick={() => toggleCalendar(cal.id)} style={{ width:14, height:14, borderRadius:3, border:`2px solid ${cal.color||T.accent}`, background:enabledCals.has(cal.id)?(cal.color||T.accent):"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                          {enabledCals.has(cal.id) && <span style={{ color:"#fff", fontSize:8 }}>✓</span>}
+                      <div key={cal.id} style={{ padding:"6px 12px", borderBottom:`1px solid ${T.border}10` }} onMouseEnter={e=>e.currentTarget.style.background=T.surface2} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <div onClick={() => toggleCalendar(cal.id)} style={{ width:14, height:14, borderRadius:3, border:`2px solid ${cal.color||T.accent}`, background:enabledCals.has(cal.id)?(cal.color||T.accent):"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                            {enabledCals.has(cal.id) && <span style={{ color:"#fff", fontSize:8 }}>✓</span>}
+                          </div>
+                          <span onClick={() => toggleCalendar(cal.id)} style={{ flex:1, fontSize:10, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cal.name}</span>
+                          {cal.calendar_type === "ical" && (
+                            <button onClick={() => { const url = prompt("iCal URL:", cal.external_calendar_id || ""); if (url && url !== cal.external_calendar_id) { supabase.from("calendars").update({ external_calendar_id: url }).eq("id", cal.id).then(() => { setCalendars(prev => prev.map(c => c.id === cal.id ? {...c, external_calendar_id: url} : c)); syncIcalFeeds([{...cal, external_calendar_id: url}]); }); }}} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:9, opacity:0.4 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4} title="Edit iCal URL">✎</button>
+                          )}
+                          <button onClick={() => removeCalendar(cal.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:10, opacity:0.3 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.3}>×</button>
                         </div>
-                        <span onClick={() => toggleCalendar(cal.id)} style={{ flex:1, fontSize:10, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cal.name}</span>
-                        <button onClick={() => removeCalendar(cal.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:10, opacity:0.3 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.3}>×</button>
+                        {cal.calendar_type === "ical" && (
+                          <div style={{ fontSize:8, color:T.text3, marginTop:2, marginLeft:22 }}>
+                            {cal.last_synced_at ? `Synced ${new Date(cal.last_synced_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}` : "Not synced yet"}
+                            {!cal.last_synced_at && <span style={{ color:"#f97316", marginLeft:4 }}>— check URL?</span>}
+                          </div>
+                        )}
                       </div>
                     ))}
                     {calendars.length === 0 && <div style={{ padding:"12px", fontSize:10, color:T.text3, textAlign:"center" }}>No calendars</div>}
