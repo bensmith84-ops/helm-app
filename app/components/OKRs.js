@@ -97,6 +97,10 @@ export default function OKRsView() {
   // Check-in state
   const [checkInModal, setCheckInModal] = useState(null); // { kr, objective }
   const [checkIns, setCheckIns] = useState([]); // all check-ins loaded
+  // OKR Status Updates (objective-level weekly updates)
+  const [okrStatusUpdates, setOkrStatusUpdates] = useState([]);
+  const [showOkrStatusForm, setShowOkrStatusForm] = useState(null); // objective or null for all
+  const [okrStatusForm, setOkrStatusForm] = useState({ objective_id: "", health_status: "on_track", summary: "", wins: "", blockers: "", next_steps: "" });
 
   const setView = (v) => { setViewMode(v); try { localStorage.setItem("okr_view", v); } catch {} };
 
@@ -156,11 +160,13 @@ export default function OKRsView() {
       setKeyResults(filteredKR);
       const filteredMS = (ms || []).filter(m => (obj || []).some(o => o.id === m.objective_id));
       setMilestones(filteredMS);
-      // Fetch check-ins for this cycle
-      if (obj?.length > 0) {
-        const objIds = (obj || []).map(o => o.id);
-        const { data: ciData } = await supabase.from("okr_check_ins").select("*").in("objective_id", objIds).order("created_at", { ascending: false });
+      // Fetch check-ins for this cycle (filter by key_result_ids)
+      const krIds = filteredKR.map(k => k.id);
+      if (krIds.length > 0) {
+        const { data: ciData } = await supabase.from("okr_check_ins").select("*").in("key_result_id", krIds).order("created_at", { ascending: false });
         setCheckIns(ciData || []);
+      } else {
+        setCheckIns([]);
       }
       // Fetch milestone updates
       if (filteredMS.length > 0) {
@@ -168,7 +174,12 @@ export default function OKRsView() {
         const { data: upd } = await supabase.from("milestone_updates").select("*").in("milestone_id", msIds).order("period_start");
         setMsUpdates(upd || []);
       }
-      setExpanded((obj || []).map(o => o.id));
+      // Fetch OKR status updates for this cycle's objectives
+      if (obj?.length > 0) {
+        const objIds = (obj || []).map(o => o.id);
+        const { data: suData } = await supabase.from("okr_status_updates").select("*").in("objective_id", objIds).order("created_at", { ascending: false });
+        setOkrStatusUpdates(suData || []);
+      }
       setSelectedKR(null);
     })();
   }, [activeCycle]);
@@ -1142,29 +1153,32 @@ export default function OKRsView() {
   const saveCheckIn = async (formData) => {
     if (!checkInModal) return;
     const { kr, objective } = checkInModal;
+    const newValue = formData.current_value != null ? Number(formData.current_value) : kr.current_value;
+    // Map form fields to actual DB columns
     const payload = {
-      org_id: profile?.org_id,
       key_result_id: kr.id,
-      objective_id: objective.id,
       author_id: user?.id,
       check_in_date: new Date().toISOString().split("T")[0],
-      current_value: formData.current_value != null ? Number(formData.current_value) : kr.current_value,
+      value: newValue,
+      previous_value: kr.current_value,
       confidence: formData.confidence,
-      health: formData.health,
-      summary: formData.summary || null,
+      note: formData.summary || null,
       blockers: formData.blockers || null,
       next_steps: formData.next_steps || null,
-      sentiment: formData.sentiment || null,
+      health_status: formData.health || "on_track",
     };
     const { data, error } = await supabase.from("okr_check_ins").insert(payload).select().single();
-    if (error) return;
+    if (error) { console.error("Check-in error:", error); return; }
+    // Also update last_check_in_at on the KR
+    await supabase.from("key_results").update({ last_check_in_at: new Date().toISOString() }).eq("id", kr.id);
     setCheckIns(p => [data, ...p]);
-    // Update KR current value and health if provided
-    if (payload.current_value !== kr.current_value) {
-      await updateKRValue(kr.id, payload.current_value);
+    // Update KR current value
+    if (newValue !== kr.current_value) {
+      await updateKRValue(kr.id, newValue);
     }
-    if (payload.health !== objective.health) {
-      await updateHealth(objective.id, payload.health);
+    // Update objective health
+    if (formData.health && formData.health !== objective.health) {
+      await updateHealth(objective.id, formData.health);
     }
     setCheckInModal(null);
   };
@@ -1340,7 +1354,7 @@ export default function OKRsView() {
       )}
 
       <div style={{ display: "flex", gap: 0 }}>
-        {[{ key: "list", label: "Objectives", icon: "≡" }, { key: "roadmap", label: "Roadmap", icon: "▬" }].map(t => (
+        {[{ key: "list", label: "Objectives", icon: "≡" }, { key: "roadmap", label: "Roadmap", icon: "▬" }, { key: "updates", label: "Updates", icon: "📋" }].map(t => (
           <button key={t.key} onClick={() => setView(t.key)} style={{ padding: "9px 16px", fontSize: 13, fontWeight: 500, color: viewMode === t.key ? T.text : T.text3, borderBottom: viewMode === t.key ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", background: "none", border: "none", borderBottomWidth: 2, borderBottomStyle: "solid", display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ fontSize: 14 }}>{t.icon}</span>{t.label}
           </button>
@@ -1467,19 +1481,19 @@ export default function OKRsView() {
               <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Recent Check-ins</div>
                 {krCIs.map(ci => {
-                  const sent = { great:"🚀", good:"👍", neutral:"😐", concerned:"😟", blocked:"🚫" }[ci.sentiment] || "•";
-                  const h = HEALTH[ci.health] || HEALTH.on_track;
+                  // DB columns: value, note, blockers, confidence, health_status, check_in_date
+                  const h = HEALTH[ci.health_status || "on_track"] || HEALTH.on_track;
+                  const confPctCI = ci.confidence != null ? Math.round(Number(ci.confidence) * 100) : null;
                   const dAgo = Math.floor((Date.now() - new Date(ci.created_at).getTime()) / 86400000);
                   return (
                     <div key={ci.id} style={{ padding: "10px 12px", borderRadius: 8, background: T.surface2, marginBottom: 6, borderLeft: `3px solid ${h.color}` }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: ci.summary ? 4 : 0 }}>
-                        <span style={{ fontSize: 14 }}>{sent}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: h.color }}>{h.label}</span>
-                        {ci.current_value != null && <span style={{ fontSize: 11, color: T.text3 }}>→ {ci.current_value} / {kr.target_value}</span>}
-                        {ci.confidence != null && <span style={{ fontSize: 10, color: T.text3, marginLeft: "auto" }}>{Math.round(ci.confidence * 100)}% confident</span>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: ci.note ? 4 : 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: h.color + "20", color: h.color }}>{h.label}</span>
+                        {ci.value != null && <span style={{ fontSize: 11, color: T.text3 }}>→ {ci.value} / {kr.target_value}{kr.unit ? " " + kr.unit : ""}</span>}
+                        {confPctCI != null && <span style={{ fontSize: 10, color: T.text3, marginLeft: "auto" }}>{confPctCI}% conf</span>}
                         <span style={{ fontSize: 10, color: T.text3 }}>{dAgo === 0 ? "Today" : `${dAgo}d ago`}</span>
                       </div>
-                      {ci.summary && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.4 }}>{ci.summary}</div>}
+                      {ci.note && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.4 }}>{ci.note}</div>}
                       {ci.blockers && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 3 }}>⚠️ {ci.blockers}</div>}
                     </div>
                   );
@@ -1500,11 +1514,145 @@ export default function OKRsView() {
     );
   };
 
+  const saveOkrStatusUpdate = async (localForm, setShowForm, setLocalForm) => {
+    if (!localForm.summary?.trim()) return false;
+    const objId = localForm.objective_id || objectives[0]?.id;
+    if (!objId) return false;
+    const payload = {
+      org_id: profile?.org_id, objective_id: objId, author_id: user?.id,
+      health_status: localForm.health_status || "on_track",
+      summary: localForm.summary.trim(),
+      wins: localForm.wins || null, blockers: localForm.blockers || null, next_steps: localForm.next_steps || null,
+    };
+    const { data, error } = await supabase.from("okr_status_updates").insert(payload).select().single();
+    if (!error && data) {
+      setOkrStatusUpdates(p => [data, ...p]);
+      await updateHealth(objId, localForm.health_status || "on_track");
+      setShowForm(false);
+      setLocalForm({ objective_id: objectives[0]?.id || "", health_status: "on_track", summary: "", wins: "", blockers: "", next_steps: "" });
+      return true;
+    }
+    return false;
+  };
+
+  // ============================
+  // UPDATES VIEW
+  // ============================
+  const UpdatesView = () => {
+    const [localForm, setLocalForm] = useState({ objective_id: objectives[0]?.id || "", health_status: "on_track", summary: "", wins: "", blockers: "", next_steps: "" });
+    const [showForm, setShowForm] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const hColors = { on_track: "#22c55e", at_risk: "#eab308", off_track: "#ef4444", completed: "#6366f1" };
+    const hLabels = { on_track: "On Track", at_risk: "At Risk", off_track: "Off Track", completed: "Completed" };
+    const updatesByObj = {};
+    okrStatusUpdates.forEach(u => { if (!updatesByObj[u.objective_id]) updatesByObj[u.objective_id] = []; updatesByObj[u.objective_id].push(u); });
+    const doSave = async () => { setSaving(true); await saveOkrStatusUpdate(localForm, setShowForm, setLocalForm); setSaving(false); };
+    const _lbl = { fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 };
+    const _inp = { width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" };
+    return (
+      <div style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+          <div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>OKR Updates</h3>
+            <p style={{ fontSize: 13, color: T.text3, margin: "4px 0 0" }}>Weekly status updates — what's moving, what's blocked, what's next.</p>
+          </div>
+          <button onClick={() => setShowForm(v => !v)} style={{ padding: "9px 18px", borderRadius: 8, background: showForm ? T.surface3 : T.accent, color: showForm ? T.text2 : "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            {showForm ? "Cancel" : "+ Post Update"}
+          </button>
+        </div>
+        {showForm && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: "22px 24px", marginBottom: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+              <div>
+                <label style={_lbl}>Objective</label>
+                <select value={localForm.objective_id} onChange={e => setLocalForm(p => ({ ...p, objective_id: e.target.value }))} style={{ ..._inp, cursor: "pointer", resize: "none", minHeight: "auto", padding: "8px 10px" }}>
+                  {objectives.map(o => <option key={o.id} value={o.id}>{o.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={_lbl}>Health Status</label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[["on_track","On Track","#22c55e"],["at_risk","At Risk","#eab308"],["off_track","Off Track","#ef4444"]].map(([k,l,c]) => (
+                    <button key={k} onClick={() => setLocalForm(p => ({ ...p, health_status: k }))} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1.5px solid ${localForm.health_status === k ? c : T.border}`, background: localForm.health_status === k ? c+"20" : "transparent", color: localForm.health_status === k ? c : T.text3, fontWeight: 600, fontSize: 11, cursor: "pointer" }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={_lbl}>Summary *</label>
+              <textarea value={localForm.summary} onChange={e => setLocalForm(p => ({ ...p, summary: e.target.value }))} autoFocus placeholder="How is this objective progressing this week?" rows={3} style={_inp} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div><label style={_lbl}>✨ Wins</label><textarea value={localForm.wins} onChange={e => setLocalForm(p => ({ ...p, wins: e.target.value }))} placeholder="What went well?" rows={2} style={_inp} /></div>
+              <div><label style={_lbl}>⚠️ Blockers</label><textarea value={localForm.blockers} onChange={e => setLocalForm(p => ({ ...p, blockers: e.target.value }))} placeholder="What's in the way?" rows={2} style={_inp} /></div>
+              <div><label style={_lbl}>➡️ Next Steps</label><textarea value={localForm.next_steps} onChange={e => setLocalForm(p => ({ ...p, next_steps: e.target.value }))} placeholder="What's the plan?" rows={2} style={_inp} /></div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              <button onClick={doSave} disabled={!localForm.summary.trim() || saving} style={{ padding: "8px 20px", borderRadius: 8, background: localForm.summary.trim() ? T.accent : T.surface3, color: localForm.summary.trim() ? "#fff" : T.text3, border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{saving ? "Posting…" : "Post Update"}</button>
+            </div>
+          </div>
+        )}
+        {okrStatusUpdates.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 0", color: T.text3 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>No updates posted yet</div>
+            <div style={{ fontSize: 13, marginBottom: 20 }}>Post weekly updates so your team always knows where each objective stands.</div>
+            <button onClick={() => setShowForm(true)} style={{ padding: "9px 20px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Post First Update</button>
+          </div>
+        ) : objectives.map(obj => {
+          const objUpdates = updatesByObj[obj.id] || [];
+          if (objUpdates.length === 0) return null;
+          const latestH = objUpdates[0]?.health_status || "on_track";
+          const hColor = hColors[latestH] || "#22c55e";
+          const pct = Number(obj.progress || 0);
+          return (
+            <div key={obj.id} style={{ marginBottom: 28 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, padding: "12px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, borderLeft: `4px solid ${hColor}` }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{obj.title}</div>
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{objUpdates.length} update{objUpdates.length !== 1 ? "s" : ""}</div>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 12, background: hColor+"20", color: hColor }}>{hLabels[latestH]}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3 }}><div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: hColor }} /></div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: hColor }}>{Math.round(pct)}%</span>
+                </div>
+              </div>
+              {objUpdates.map(u => {
+                const color = hColors[u.health_status] || "#22c55e";
+                const dAgo = Math.floor((Date.now() - new Date(u.created_at).getTime()) / 86400000);
+                return (
+                  <div key={u.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 20px", marginBottom: 8, marginLeft: 16, borderLeft: `3px solid ${color}` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: color+"20", color }}>{hLabels[u.health_status] || "On Track"}</span>
+                      <Ava uid={u.author_id} sz={20} />
+                      <span style={{ fontSize: 12, color: T.text2, fontWeight: 500 }}>{uname(u.author_id) || "Team"}</span>
+                      <span style={{ fontSize: 11, color: T.text3 }}>· {dAgo === 0 ? "Today" : dAgo === 1 ? "Yesterday" : `${dAgo}d ago`}</span>
+                    </div>
+                    <p style={{ fontSize: 13, color: T.text, lineHeight: 1.6, margin: "0 0 10px" }}>{u.summary}</p>
+                    {(u.wins || u.blockers || u.next_steps) && (
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                        {u.wins && <div style={{ flex: 1, minWidth: 150 }}><div style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", marginBottom: 4 }}>✨ WINS</div><p style={{ fontSize: 12, color: T.text2, margin: 0, lineHeight: 1.5 }}>{u.wins}</p></div>}
+                        {u.blockers && <div style={{ flex: 1, minWidth: 150 }}><div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>⚠️ BLOCKERS</div><p style={{ fontSize: 12, color: T.text2, margin: 0, lineHeight: 1.5 }}>{u.blockers}</p></div>}
+                        {u.next_steps && <div style={{ flex: 1, minWidth: 150 }}><div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginBottom: 4 }}>➡️ NEXT STEPS</div><p style={{ fontSize: 12, color: T.text2, margin: 0, lineHeight: 1.5 }}>{u.next_steps}</p></div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }).filter(Boolean)}
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {header}
-        {viewMode === "list" ? <ListView /> : <RoadmapView />}
+        {viewMode === "list" ? <ListView /> : viewMode === "roadmap" ? <RoadmapView /> : <UpdatesView />}
       </div>
       {editModal}
       <MilestoneModal />
