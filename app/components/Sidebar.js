@@ -32,12 +32,9 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
   // Filter nav items based on module permissions
   const visibleItems = NAV_ITEMS.filter(item => {
     if (item.type === "divider") return true;
-    if (item.adminOnly) return isAdmin || profile?.role === "admin" || profile?.email?.includes("ben.smith");
-    // Settings is always visible
+    if (item.adminOnly) return isAdmin;
     if (item.key === "settings") return true;
-    // If allowedModules is null, show all (admin/no restrictions)
     if (allowedModules === null) return true;
-    // Otherwise only show allowed modules
     return allowedModules.includes(item.key);
   });
   // Remove consecutive dividers or leading/trailing dividers

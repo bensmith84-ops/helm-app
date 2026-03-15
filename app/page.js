@@ -68,21 +68,16 @@ export default function HelmApp() {
     (async () => {
       const { data } = await supabase.from("user_module_permissions").select("*").eq("user_id", user.id).maybeSingle();
       if (data) {
-        setAllowedModules(data.allowed_modules || []);
         setIsAdmin(data.is_admin || false);
+        setAllowedModules(data.is_admin ? null : (data.allowed_modules || []));
       } else {
-        // No permissions set = admin gets everything, others get defaults
-        const isOwner = profile?.role === "admin" || profile?.email?.includes("ben.smith");
-        if (isOwner) {
-          setAllowedModules(null); // null = no restrictions (admin sees all)
-          setIsAdmin(true);
-        } else {
-          setAllowedModules(["dashboard", "scoreboard", "okrs", "scorecard", "projects", "plm"]);
-          setIsAdmin(false);
-        }
+        // No permissions row: check if this is the owner/admin by email
+        const isOwner = profile?.email?.includes("ben.smith@earthbreeze");
+        setIsAdmin(isOwner);
+        setAllowedModules(isOwner ? null : ["dashboard", "scoreboard", "okrs", "scorecard", "projects", "plm"]);
       }
     })();
-  }, [user?.id, profile?.role]);
+  }, [user?.id, profile?.email]);
 
   // Enhanced setActive that can also pass a task ID to open
   const navigateTo = useCallback((module, taskId) => {
