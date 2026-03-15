@@ -336,11 +336,9 @@ export default function ScoreboardView() {
         ? ` (${v > prevRow.value ? "+" : ""}${(((v - prevRow.value) / Math.abs(prevRow.value)) * 100).toFixed(1)}% DoD)`
         : "";
       return `${meta?.label || key}: ${fmtVal(v, meta?.unit || "#", false)}${chg}`;
-    }).join("
-");
+    }).join("\n");
 
-    const context = `As of ${dates[0]}:
-${lines}`;
+    const context = `As of ${dates[0]}:\n${lines}`;
 
     try {
       const res = await fetch(`${BASE}/scoreboard-chat`, {
