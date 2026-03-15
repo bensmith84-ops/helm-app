@@ -622,7 +622,7 @@ export default function ProjectsView() {
 
   const handleBoardDrop = async (taskId, newSec) => { await updateField(taskId, "section_id", newSec); setDragTask(null); setDragOverTarget(null); };
   const { gridTemplate: projGrid, onResizeStart: projResize } = useResizableColumns([280, 110, 90, 110, 100], "projects");
-  const ResizeHandle = ({ index, onStart }) => (<div onMouseDown={(e) => onStart(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
+  const ResizeHandle = ({ index, onStart }) => (<div onMouseDown={(e) => onStart(index, e)} style={{ position: "absolute", right: -1, top: 4, bottom: 4, width: 3, cursor: "col-resize", zIndex: 2, borderRadius: 2, background: T.border + "60", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent} onMouseLeave={e => e.currentTarget.style.background = T.border + "60"} />);
 
   const S = {
     pill: { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer" },
@@ -845,7 +845,7 @@ export default function ProjectsView() {
         <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("status")}>Status{arrow("status")}<ResizeHandle index={1} onStart={projResize} /></div>
         <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("priority")}>Priority{arrow("priority")}<ResizeHandle index={2} onStart={projResize} /></div>
         <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle index={3} onStart={projResize} /></div>
-        <div style={S.colHdr} onClick={() => toggleSort("due_date")}>Due date{arrow("due_date")}</div>
+        <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("due_date")}>Due date{arrow("due_date")}<ResizeHandle index={4} onStart={projResize} /></div>
       </div>
       {projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id); const roots = sortedTasks(rootTasks(st)); const isColl = collapsed[sec.id]; const sd = st.filter(t => t.status === "done").length; const color = secColor(si);
         const wipBreached = sec.wip_limit && st.filter(t => t.status !== "done").length > sec.wip_limit;
