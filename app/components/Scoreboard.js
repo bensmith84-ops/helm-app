@@ -395,8 +395,7 @@ export default function ScoreboardView() {
         const v = rows[0]?.value;
         const avg7 = rows.slice(0,7).reduce((s,r)=>s+r.value,0) / Math.min(7, rows.length);
         return `${meta?.label||key}: latest=${fmtVal(v, meta?.unit||"#", false)} (${rows[0]?.date}), 7d avg=${fmtVal(Math.round(avg7), meta?.unit||"#", false)}`;
-      }).join("
-");
+      }).join("\n");
 
       const res = await fetch(`${BASE}/scoreboard-chat`, {
         method:"POST", headers:HEADERS,
