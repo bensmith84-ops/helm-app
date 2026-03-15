@@ -12,7 +12,7 @@ const TABS = ["Info", "List", "Board", "Timeline", "Calendar", "Updates", "Docs"
 const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
 
-export default function ProjectsView() {
+export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const { user, profile } = useAuth();
   const { showPrompt, showConfirm } = useModal();
   const [projects, setProjects] = useState([]);
@@ -128,6 +128,22 @@ export default function ProjectsView() {
     };
     load();
   }, [profile?.org_id]);
+
+  // Open a specific task when navigating from Dashboard
+  useEffect(() => {
+    if (pendingTaskId && tasks.length > 0 && !loading) {
+      const task = tasks.find(t => t.id === pendingTaskId);
+      if (task) {
+        setSelectedTask(task);
+        if (task.project_id) {
+          setActiveProject(task.project_id);
+          setShowMyTasks(false);
+        }
+        // Stay on My Tasks for personal tasks
+      }
+      clearPendingTask?.();
+    }
+  }, [pendingTaskId, tasks, loading]);
 
   useEffect(() => {
     if (!selectedTask) return;

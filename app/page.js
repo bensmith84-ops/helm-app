@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, Suspense, lazy, Component } from "react";
+import { useState, useEffect, useCallback, Suspense, lazy, Component } from "react";
 import { T } from "./tokens";
 import { supabase } from "./lib/supabase";
 import { useAuth } from "./lib/auth";
@@ -58,6 +58,13 @@ export default function HelmApp() {
   const [active, setActive] = useState("dashboard");
   const [expanded, setExpanded] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [pendingTaskId, setPendingTaskId] = useState(null);
+
+  // Enhanced setActive that can also pass a task ID to open
+  const navigateTo = useCallback((module, taskId) => {
+    if (taskId) setPendingTaskId(taskId);
+    setActive(module);
+  }, []);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [badges, setBadges] = useState({});
   const [globalToast, setGlobalToast] = useState(null);
@@ -192,8 +199,8 @@ export default function HelmApp() {
 
   const renderView = () => {
     switch (active) {
-      case "dashboard": return <DashboardView setActive={setActive} />;
-      case "projects": return <ProjectsView />;
+      case "dashboard": return <DashboardView setActive={navigateTo} />;
+      case "projects": return <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} />;
       case "okrs": return <OKRsView />;
       case "scorecard": return <ScorecardView />;
       case "scoreboard": return <ScoreboardView2 />;

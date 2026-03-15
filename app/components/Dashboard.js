@@ -165,7 +165,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
           const isDueToday = t.due_date === todayStr;
           const isOverdue = t.due_date && t.due_date < todayStr;
           return (
-            <div key={`auto-${t.id}`} onClick={() => setActive("projects")} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${priColor}` }}
+            <div key={`auto-${t.id}`} onClick={() => setActive("projects", t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${priColor}` }}
               onMouseEnter={e => e.currentTarget.style.background = T.surface3}
               onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
               <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${T.border2}`, flexShrink:0 }} />
@@ -193,7 +193,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
                 style={{ width:16, height:16, borderRadius:4, border:`2px solid ${item.is_completed ? "#22c55e" : T.border2}`, background: item.is_completed ? "#22c55e" : "transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
                 {item.is_completed && <span style={{ color:"#fff", fontSize:10, lineHeight:1 }}>✓</span>}
               </div>
-              <div onClick={() => linkedTask && setActive("projects")} style={{ flex:1, minWidth:0, cursor: linkedTask ? "pointer" : "default" }}>
+              <div onClick={() => linkedTask && setActive("projects", linkedTask.id)} style={{ flex:1, minWidth:0, cursor: linkedTask ? "pointer" : "default" }}>
                 <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textDecoration: item.is_completed ? "line-through" : "none" }}>{item.title}</div>
                 <div style={{ fontSize:10, color:T.text3, marginTop:2, display:"flex", gap:6 }}>
                   {proj && <span style={{ display:"flex", alignItems:"center", gap:3 }}><span style={{ width:5, height:5, borderRadius:3, background:proj.color||T.accent }} />{proj.name}</span>}
@@ -1228,7 +1228,7 @@ export default function DashboardView({ setActive }) {
                   const priColors = { urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" };
                   const priColor = priColors[t.priority] || T.text3;
                   return (
-                    <div key={t.id} onClick={() => setActive("projects")} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}` }}>
+                    <div key={t.id} onClick={() => setActive("projects", t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}` }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
                         <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{proj?.name || "—"}</div>
