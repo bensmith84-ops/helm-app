@@ -283,21 +283,142 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
    ═══════════════════════════════════════════════════════ */
 function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   const [events, setEvents] = useState([]);
+  const [icalEvents, setIcalEvents] = useState([]); // parsed from iCal feeds
   const [calendars, setCalendars] = useState([]);
   const [enabledCals, setEnabledCals] = useState(new Set());
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [showCalPicker, setShowCalPicker] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
+  const [showAddEvent, setShowAddEvent] = useState(false);
   const [icalUrl, setIcalUrl] = useState("");
   const [icalName, setIcalName] = useState("");
+  const [icalError, setIcalError] = useState("");
+  const [newEvt, setNewEvt] = useState({ title:"", start:"", end:"", video_link:"", location:"" });
   const calPickerRef = useRef(null);
 
-  // Close calendar picker on outside click
   useEffect(() => {
     const fn = (e) => { if (calPickerRef.current && !calPickerRef.current.contains(e.target)) setShowCalPicker(false); };
     document.addEventListener("mousedown", fn);
     return () => document.removeEventListener("mousedown", fn);
   }, []);
+
+  // ── iCal parser ──
+  const parseIcal = (text) => {
+    const events = [];
+    const blocks = text.split("BEGIN:VEVENT");
+    for (let i = 1; i < blocks.length; i++) {
+      const block = blocks[i].split("END:VEVENT")[0];
+      const get = (key) => {
+        // Handle folded lines (RFC 5545: lines starting with space/tab are continuations)
+        const unfolded = block.replace(/\r?\n[ \t]/g, "");
+        const regex = new RegExp("^" + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "[;:](.*)$", "m");
+        const m = unfolded.match(regex);
+        return m ? m[1].replace(/\\n/g, "\n").replace(/\\,/g, ",").trim() : null;
+      };
+      const parseDate = (val) => {
+        if (!val) return null;
+        // Strip TZID params: e.g. "TZID=America/New_York:20260315T090000" → "20260315T090000"
+        const clean = val.includes(":") ? val.split(":").pop() : val;
+        // Handle YYYYMMDD or YYYYMMDDTHHMMSS or YYYYMMDDTHHMMSSZ
+        if (clean.length === 8) return new Date(clean.slice(0,4)+"-"+clean.slice(4,6)+"-"+clean.slice(6,8)+"T00:00:00");
+        const y=clean.slice(0,4), mo=clean.slice(4,6), d=clean.slice(6,8);
+        const h=clean.slice(9,11)||"00", mi=clean.slice(11,13)||"00", s=clean.slice(13,15)||"00";
+        const isUTC = clean.endsWith("Z");
+        const iso = `${y}-${mo}-${d}T${h}:${mi}:${s}${isUTC?"Z":""}`;
+        return new Date(iso);
+      };
+
+      const summary = get("SUMMARY");
+      const dtStart = get("DTSTART");
+      const dtEnd = get("DTEND");
+      const location = get("LOCATION");
+      const description = get("DESCRIPTION");
+      const uid = get("UID");
+
+      if (!summary || !dtStart) continue;
+
+      const start = parseDate(dtStart);
+      const end = dtEnd ? parseDate(dtEnd) : null;
+      if (!start || isNaN(start.getTime())) continue;
+
+      // Extract video links from description or location
+      let videoLink = null;
+      const urlPattern = /(https?:\/\/[^\s<>"]+(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com)[^\s<>"]*)/i;
+      const descMatch = (description || "").match(urlPattern);
+      const locMatch = (location || "").match(urlPattern);
+      videoLink = descMatch?.[1] || locMatch?.[1] || null;
+
+      events.push({ uid, title: summary, start, end, location, description, video_link: videoLink, all_day: !dtStart.includes("T") && dtStart.replace(/[^0-9]/g,"").length <= 8 });
+    }
+    return events;
+  };
+
+  // ── Fetch iCal feeds ──
+  const syncIcalFeeds = async (cals) => {
+    const icalCals = (cals || calendars).filter(c => c.calendar_type === "ical" && c.external_calendar_id);
+    if (icalCals.length === 0) return;
+    setSyncing(true);
+
+    const today = new Date(); today.setHours(0,0,0,0);
+    const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
+    const allParsed = [];
+
+    for (const cal of icalCals) {
+      try {
+        // Try fetching through Supabase edge function proxy
+        const proxyUrl = `https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/ical-proxy?url=${encodeURIComponent(cal.external_calendar_id)}`;
+        let text = null;
+
+        try {
+          const res = await fetch(proxyUrl, {
+            headers: { "Authorization": `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4` }
+          });
+          if (res.ok) text = await res.text();
+        } catch {}
+
+        // Fallback: try direct fetch (works for some public iCal URLs)
+        if (!text) {
+          try {
+            const res = await fetch(cal.external_calendar_id);
+            if (res.ok) text = await res.text();
+          } catch {}
+        }
+
+        if (!text || !text.includes("BEGIN:VCALENDAR")) continue;
+
+        const parsed = parseIcal(text);
+        const todayEvents = parsed.filter(e => {
+          const eDate = e.start;
+          return eDate >= today && eDate <= todayEnd;
+        });
+
+        todayEvents.forEach(e => {
+          allParsed.push({
+            id: `ical-${cal.id}-${e.uid || e.title}`,
+            calendar_id: cal.id,
+            title: e.title,
+            start_at: e.start.toISOString(),
+            end_at: e.end?.toISOString() || null,
+            location: e.location,
+            video_link: e.video_link,
+            has_video_call: !!e.video_link,
+            all_day: e.all_day,
+            color: cal.color,
+            source: "ical",
+          });
+        });
+
+        // Update last_synced_at
+        await supabase.from("calendars").update({ last_synced_at: new Date().toISOString() }).eq("id", cal.id);
+      } catch (err) {
+        console.warn("iCal sync error for", cal.name, err);
+      }
+    }
+
+    setIcalEvents(allParsed);
+    setSyncing(false);
+  };
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -313,7 +434,6 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
       setCalendars(cals || []);
       setEvents(evts || []);
 
-      // Default: enable all calendars
       const saved = localStorage.getItem("helm-enabled-cals");
       if (saved) {
         try { setEnabledCals(new Set(JSON.parse(saved))); } catch { setEnabledCals(new Set((cals||[]).map(c=>c.id))); }
@@ -321,6 +441,9 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
         setEnabledCals(new Set((cals||[]).map(c=>c.id)));
       }
       setLoading(false);
+
+      // Sync iCal feeds in background
+      syncIcalFeeds(cals);
     })();
   }, [profile?.id]);
 
@@ -333,22 +456,61 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
     });
   };
 
-  const filteredEvents = events.filter(e => !e.calendar_id || enabledCals.has(e.calendar_id));
+  // Merge DB events + iCal parsed events, then filter by enabled calendars
+  const allEvents = [...events, ...icalEvents]
+    .filter(e => !e.calendar_id || enabledCals.has(e.calendar_id))
+    .sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
 
   const addIcalFeed = async () => {
     if (!icalUrl.trim() || !profile?.org_id) return;
+    setIcalError("");
+
+    // Validate URL
+    try { new URL(icalUrl.trim()); } catch {
+      setIcalError("Please enter a valid URL"); return;
+    }
+
+    const calColor = ["#3b82f6","#a855f7","#22c55e","#f97316","#ec4899","#06b6d4"][calendars.length % 6];
     const { data, error } = await supabase.from("calendars").insert({
       org_id: profile.org_id, owner_id: profile.id,
       name: icalName.trim() || "External Calendar",
       calendar_type: "ical", external_provider: "ical",
       external_calendar_id: icalUrl.trim(), sync_enabled: true,
-      color: ["#3b82f6","#a855f7","#22c55e","#f97316","#ec4899","#06b6d4"][calendars.length % 6],
+      color: calColor,
     }).select().single();
-    if (!error && data) {
+
+    if (error) { setIcalError("Failed to save: " + (error.message || "Unknown error")); return; }
+    if (data) {
       setCalendars(prev => [...prev, data]);
       setEnabledCals(prev => new Set([...prev, data.id]));
+      // Immediately sync the new feed
+      syncIcalFeeds([...calendars, data]);
     }
     setIcalUrl(""); setIcalName(""); setShowConnect(false);
+  };
+
+  const removeCalendar = async (calId) => {
+    await supabase.from("calendars").update({ deleted_at: new Date().toISOString() }).eq("id", calId);
+    setCalendars(prev => prev.filter(c => c.id !== calId));
+    setIcalEvents(prev => prev.filter(e => e.calendar_id !== calId));
+    setEnabledCals(prev => { const next = new Set(prev); next.delete(calId); return next; });
+  };
+
+  const addManualEvent = async () => {
+    if (!newEvt.title.trim() || !newEvt.start || !profile?.org_id) return;
+    const { data, error } = await supabase.from("calendar_events").insert({
+      org_id: profile.org_id, organizer_id: profile.id,
+      title: newEvt.title.trim(),
+      start_at: new Date(newEvt.start).toISOString(),
+      end_at: newEvt.end ? new Date(newEvt.end).toISOString() : null,
+      video_link: newEvt.video_link || null,
+      has_video_call: !!newEvt.video_link,
+      location: newEvt.location || null,
+      status: "confirmed",
+    }).select().single();
+    if (!error && data) setEvents(prev => [...prev, data].sort((a,b) => new Date(a.start_at) - new Date(b.start_at)));
+    setNewEvt({ title:"", start:"", end:"", video_link:"", location:"" });
+    setShowAddEvent(false);
   };
 
   const fmtTime = (iso) => {
@@ -365,8 +527,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
 
-  const nowHour = new Date().getHours();
-  const nowMin = new Date().getMinutes();
+  const nowMs = Date.now();
 
   // If collapsed, show just a thin tab to expand
   if (collapsed) {
@@ -376,9 +537,9 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
         onMouseLeave={e => e.currentTarget.style.background = T.surface}>
         <span style={{ fontSize:16, marginBottom:6 }}>📅</span>
         <span style={{ writingMode:"vertical-rl", fontSize:11, fontWeight:600, color:T.text3, letterSpacing:0.5 }}>Calendar</span>
-        {filteredEvents.length > 0 && (
+        {allEvents.length > 0 && (
           <div style={{ width:18, height:18, borderRadius:9, background:T.accent, color:"#fff", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", marginTop:8 }}>
-            {filteredEvents.length}
+            {allEvents.length}
           </div>
         )}
       </div>
@@ -408,16 +569,19 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
                     <div style={{ padding:"16px 14px", fontSize:12, color:T.text3, textAlign:"center" }}>No calendars connected</div>
                   )}
                   {calendars.map(cal => (
-                    <div key={cal.id} onClick={() => toggleCalendar(cal.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 14px", cursor:"pointer", borderBottom:`1px solid ${T.border}20`, transition:"background 0.1s" }}
+                    <div key={cal.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 14px", borderBottom:`1px solid ${T.border}20`, transition:"background 0.1s" }}
                       onMouseEnter={e => e.currentTarget.style.background = T.surface2}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${cal.color || T.accent}`, background: enabledCals.has(cal.id) ? (cal.color || T.accent) : "transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.15s" }}>
+                      <div onClick={() => toggleCalendar(cal.id)} style={{ width:16, height:16, borderRadius:4, border:`2px solid ${cal.color || T.accent}`, background: enabledCals.has(cal.id) ? (cal.color || T.accent) : "transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.15s", cursor:"pointer" }}>
                         {enabledCals.has(cal.id) && <span style={{ color:"#fff", fontSize:9 }}>✓</span>}
                       </div>
-                      <div style={{ flex:1, minWidth:0 }}>
+                      <div onClick={() => toggleCalendar(cal.id)} style={{ flex:1, minWidth:0, cursor:"pointer" }}>
                         <div style={{ fontSize:12, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cal.name}</div>
-                        {cal.external_provider && <div style={{ fontSize:10, color:T.text3, textTransform:"capitalize" }}>{cal.external_provider}</div>}
+                        {cal.external_provider && <div style={{ fontSize:10, color:T.text3, textTransform:"capitalize" }}>{cal.external_provider}{cal.last_synced_at ? ` · synced ${new Date(cal.last_synced_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}` : ""}</div>}
                       </div>
+                      <button onClick={(e) => { e.stopPropagation(); removeCalendar(cal.id); }} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:12, opacity:0.4, padding:"0 2px" }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = "#ef4444"; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = 0.4; e.currentTarget.style.color = T.text3; }}>×</button>
                     </div>
                   ))}
                 </div>
@@ -444,7 +608,8 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
                       </div>
                       <div style={{ fontSize:10, color:T.text3, textAlign:"center", margin:"4px 0" }}>— or paste iCal URL —</div>
                       <input value={icalName} onChange={e => setIcalName(e.target.value)} placeholder="Calendar name" style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
-                      <input value={icalUrl} onChange={e => setIcalUrl(e.target.value)} placeholder="https://calendar.google.com/…/basic.ics" style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
+                      <input value={icalUrl} onChange={e => { setIcalUrl(e.target.value); setIcalError(""); }} placeholder="https://calendar.google.com/…/basic.ics" style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${icalError ? "#ef4444" : T.border}`, background:T.surface2, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
+                      {icalError && <div style={{ fontSize:10, color:"#ef4444", padding:"2px 0" }}>{icalError}</div>}
                       <button onClick={addIcalFeed} disabled={!icalUrl.trim()} style={{ padding:"6px 0", borderRadius:6, border:"none", background:T.accent, color:"#fff", fontSize:11, fontWeight:600, cursor:"pointer", opacity:icalUrl.trim()?1:0.4 }}>Add Calendar</button>
                     </div>
                   )}
@@ -463,38 +628,41 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
       <div style={{ flex:1, overflowY:"auto", padding:"12px 16px" }}>
         {loading ? (
           <div style={{ textAlign:"center", padding:"24px 0", color:T.text3, fontSize:12 }}>Loading…</div>
-        ) : filteredEvents.length === 0 ? (
+        ) : allEvents.length === 0 ? (
           <div style={{ textAlign:"center", padding:"32px 0" }}>
             <div style={{ fontSize:28, marginBottom:8 }}>☀️</div>
             <div style={{ fontSize:13, fontWeight:600, color:T.text2, marginBottom:4 }}>Clear day ahead</div>
             <div style={{ fontSize:11, color:T.text3, marginBottom:12 }}>No meetings scheduled</div>
-            {calendars.length === 0 && (
-              <button onClick={() => setShowCalPicker(true)} style={{ padding:"6px 14px", borderRadius:6, border:`1px solid ${T.accent}40`, background:`${T.accent}10`, color:T.accent, fontSize:11, fontWeight:600, cursor:"pointer" }}>
-                Connect a calendar
+            <div style={{ display:"flex", flexDirection:"column", gap:6, alignItems:"center" }}>
+              {calendars.length === 0 && (
+                <button onClick={() => setShowCalPicker(true)} style={{ padding:"6px 14px", borderRadius:6, border:`1px solid ${T.accent}40`, background:`${T.accent}10`, color:T.accent, fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                  Connect a calendar
+                </button>
+              )}
+              <button onClick={() => setShowAddEvent(true)} style={{ padding:"6px 14px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.text3, fontSize:11, fontWeight:500, cursor:"pointer" }}>
+                + Add event manually
               </button>
-            )}
+            </div>
           </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-            {filteredEvents.map((evt, i) => {
+            {syncing && <div style={{ fontSize:10, color:T.accent, textAlign:"center", padding:"4px 0", marginBottom:4 }}>⟳ Syncing calendars…</div>}
+            {allEvents.map((evt) => {
               const startD = new Date(evt.start_at);
               const endD = evt.end_at ? new Date(evt.end_at) : null;
-              const isNow = startD.getHours() <= nowHour && (!endD || endD.getHours() > nowHour || (endD.getHours() === nowHour && endD.getMinutes() > nowMin));
-              const isPast = endD ? endD < new Date() : startD.getHours() < nowHour;
+              const isNow = startD.getTime() <= nowMs && endD && endD.getTime() > nowMs;
+              const isPast = endD ? endD.getTime() < nowMs : startD.getTime() < nowMs - 3600000;
               const cal = evt.calendar_id ? calendars.find(c => c.id === evt.calendar_id) : null;
               const evtColor = evt.color || cal?.color || T.accent;
               const hasVideo = evt.has_video_call || evt.video_link;
 
               return (
                 <div key={evt.id} style={{ display:"flex", gap:10, padding:"10px 12px", borderRadius:10, background: isNow ? `${evtColor}10` : "transparent", border: isNow ? `1px solid ${evtColor}30` : "1px solid transparent", opacity: isPast ? 0.5 : 1, transition:"all 0.15s" }}>
-                  {/* Time column */}
                   <div style={{ width:52, flexShrink:0, textAlign:"right" }}>
                     <div style={{ fontSize:12, fontWeight:isNow?700:500, color:isNow?evtColor:T.text }}>{evt.all_day ? "All day" : fmtTime(evt.start_at)}</div>
                     {!evt.all_day && endD && <div style={{ fontSize:10, color:T.text3 }}>{getEventDuration(evt.start_at, evt.end_at)}</div>}
                   </div>
-                  {/* Color bar */}
                   <div style={{ width:3, borderRadius:3, background:evtColor, flexShrink:0, alignSelf:"stretch" }} />
-                  {/* Content */}
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:isNow?700:500, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>{evt.title}</div>
                     {evt.location && <div style={{ fontSize:10, color:T.text3, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📍 {evt.location}</div>}
@@ -514,12 +682,35 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
             })}
           </div>
         )}
+
+        {/* Add Event Form */}
+        {showAddEvent && (
+          <div style={{ marginTop:12, padding:"14px", borderRadius:10, border:`1px solid ${T.border}`, background:T.surface2 }}>
+            <div style={{ fontSize:12, fontWeight:700, marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span>New Event</span>
+              <button onClick={() => setShowAddEvent(false)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:14 }}>×</button>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              <input value={newEvt.title} onChange={e => setNewEvt(p=>({...p, title:e.target.value}))} placeholder="Event title" style={{ padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, outline:"none", fontFamily:"inherit" }} />
+              <div style={{ display:"flex", gap:6 }}>
+                <input type="datetime-local" value={newEvt.start} onChange={e => setNewEvt(p=>({...p, start:e.target.value}))} style={{ flex:1, padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
+                <input type="datetime-local" value={newEvt.end} onChange={e => setNewEvt(p=>({...p, end:e.target.value}))} style={{ flex:1, padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, outline:"none", fontFamily:"inherit" }} />
+              </div>
+              <input value={newEvt.video_link} onChange={e => setNewEvt(p=>({...p, video_link:e.target.value}))} placeholder="Video link (Zoom/Meet/Teams)" style={{ padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, outline:"none", fontFamily:"inherit" }} />
+              <input value={newEvt.location} onChange={e => setNewEvt(p=>({...p, location:e.target.value}))} placeholder="Location (optional)" style={{ padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, outline:"none", fontFamily:"inherit" }} />
+              <button onClick={addManualEvent} disabled={!newEvt.title.trim()||!newEvt.start} style={{ padding:"8px 0", borderRadius:6, border:"none", background:T.accent, color:"#fff", fontSize:12, fontWeight:600, cursor:"pointer", opacity:newEvt.title.trim()&&newEvt.start?1:0.4 }}>Add Event</button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Footer with calendar count */}
+      {/* Footer */}
       <div style={{ padding:"10px 16px", borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
         <span style={{ fontSize:10, color:T.text3 }}>{calendars.length} calendar{calendars.length !== 1 ? "s" : ""} · {enabledCals.size} shown</span>
-        <span style={{ fontSize:10, color:T.text3 }}>{filteredEvents.length} event{filteredEvents.length !== 1 ? "s" : ""}</span>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          {!showAddEvent && <button onClick={() => setShowAddEvent(true)} style={{ background:"none", border:"none", color:T.accent, fontSize:10, cursor:"pointer", fontWeight:600 }}>+ Event</button>}
+          <span style={{ fontSize:10, color:T.text3 }}>{allEvents.length} event{allEvents.length !== 1 ? "s" : ""}</span>
+        </div>
       </div>
     </div>
   );

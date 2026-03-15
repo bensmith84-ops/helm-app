@@ -52,13 +52,25 @@ export default function CallsView() {
 
   const createCall = async () => {
     if (!form.title.trim()) return;
+    const scheduledAt = new Date(form.scheduled_at).toISOString();
+    const endAt = new Date(new Date(form.scheduled_at).getTime() + (form.duration_minutes || 60) * 60000).toISOString();
     const { data } = await supabase.from("calls").insert({
       org_id: profile?.org_id, created_by: user?.id,
       title: form.title.trim(), call_type: form.call_type,
-      scheduled_at: new Date(form.scheduled_at).toISOString(),
+      scheduled_at: scheduledAt,
       duration_minutes: form.duration_minutes, status: "upcoming",
     }).select().single();
-    if (data) { setCalls(p => [data, ...p]); setSelected(data); setShowCreate(false); setForm({ title: "", call_type: "scheduled", scheduled_at: new Date().toISOString().slice(0, 16), duration_minutes: 60 }); }
+    if (data) {
+      setCalls(p => [data, ...p]); setSelected(data); setShowCreate(false);
+      setForm({ title: "", call_type: "scheduled", scheduled_at: new Date().toISOString().slice(0, 16), duration_minutes: 60 });
+      // Also create a calendar event so it shows on the dashboard
+      await supabase.from("calendar_events").insert({
+        org_id: profile?.org_id, organizer_id: user?.id,
+        title: form.title.trim(), start_at: scheduledAt, end_at: endAt,
+        has_video_call: true, call_id: data.id, event_type: "call",
+        status: "confirmed",
+      });
+    }
   };
 
   const deleteCall = async (id) => {

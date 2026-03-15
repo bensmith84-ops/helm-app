@@ -4,6 +4,7 @@ import { T } from "./tokens";
 import { supabase } from "./lib/supabase";
 import { useAuth } from "./lib/auth";
 import { useTheme, _setTokens } from "./lib/theme";
+import { ModalProvider } from "./lib/modal";
 import AuthPage from "./components/AuthPage";
 import Sidebar, { NAV_ITEMS } from "./components/Sidebar";
 import DashboardView from "./components/Dashboard";
@@ -194,6 +195,7 @@ export default function HelmApp() {
   const viewIcon = activeNav?.icon || "⬡";
 
   return (
+    <ModalProvider>
     <>
       <style>{`
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -269,5 +271,6 @@ export default function HelmApp() {
         </div>
       )}
     </>
+    </ModalProvider>
   );
 }
