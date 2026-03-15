@@ -333,6 +333,21 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const createSection = async () => { if (!newSectionName.trim()) return; const mx = projSections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0); const { data, error } = await supabase.from("sections").insert({ project_id: activeProject, name: newSectionName.trim(), sort_order: mx + 1 }).select().single(); if (!error && data) setSections(p => [...p, data]); setNewSectionName(""); setAddingSection(false); };
   const renameSection = async (secId) => { if (!editingSectionName.trim()) return; await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId); setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s)); setEditingSectionId(null); };
   const deleteSection = async (secId) => { const st = tasks.filter(t => t.section_id === secId); const ok = await showConfirm("Delete Section", st.length ? `Delete ${st.length} task(s) too?` : "Delete this section?"); if (!ok) return; if (st.length) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("section_id", secId); await supabase.from("sections").delete().eq("id", secId); setSections(p => p.filter(s => s.id !== secId)); setTasks(p => p.filter(t => t.section_id !== secId)); };
+  const moveSection = async (secId, direction) => {
+    const idx = projSections.findIndex(s => s.id === secId);
+    if (idx < 0) return;
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= projSections.length) return;
+    const a = projSections[idx];
+    const b = projSections[swapIdx];
+    const newOrderA = b.sort_order ?? swapIdx;
+    const newOrderB = a.sort_order ?? idx;
+    setSections(p => p.map(s => s.id === a.id ? { ...s, sort_order: newOrderA } : s.id === b.id ? { ...s, sort_order: newOrderB } : s));
+    await Promise.all([
+      supabase.from("sections").update({ sort_order: newOrderA }).eq("id", a.id),
+      supabase.from("sections").update({ sort_order: newOrderB }).eq("id", b.id),
+    ]);
+  };
   const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: user?.id || "", start_date: "", target_end_date: "", default_view: "List", members: [] }); setFormStep(1); setShowProjectForm("new"); };
   const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active", visibility: proj.visibility || "private", join_policy: proj.join_policy || "invite_only", team_id: proj.team_id || "", objective_id: proj.objective_id || "", owner_id: proj.owner_id || "", start_date: proj.start_date || "", target_end_date: proj.target_end_date || "", default_view: proj.default_view || "List", members: [] }); setFormStep(1); setShowProjectForm("edit"); };
   const createProjectFromTemplate = async (template) => {
@@ -923,12 +938,43 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         return (
         <div key={sec.id}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer", userSelect: "none", position: "relative" }}
-            onContextMenu={e => { e.preventDefault(); setSectionCtxMenu({ secId: sec.id, x: e.clientX, y: e.clientY }); }}>
+            onContextMenu={e => { e.preventDefault(); setSectionCtxMenu({ secId: sec.id, x: e.clientX, y: e.clientY }); }}
+            draggable onDragStart={e => { e.dataTransfer.setData("section-id", sec.id); e.currentTarget.style.opacity = "0.4"; }}
+            onDragEnd={e => { e.currentTarget.style.opacity = "1"; }}
+            onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = T.accentDim; }}
+            onDragLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            onDrop={async e => {
+              e.currentTarget.style.background = "transparent";
+              const draggedId = e.dataTransfer.getData("section-id");
+              if (!draggedId || draggedId === sec.id) return;
+              const draggedIdx = projSections.findIndex(s => s.id === draggedId);
+              const dropIdx = si;
+              if (draggedIdx < 0) return;
+              const reordered = [...projSections];
+              const [moved] = reordered.splice(draggedIdx, 1);
+              reordered.splice(dropIdx, 0, moved);
+              const updates = reordered.map((s, i) => ({ ...s, sort_order: i + 1 }));
+              setSections(p => p.map(s => { const u = updates.find(x => x.id === s.id); return u ? { ...s, sort_order: u.sort_order } : s; }));
+              for (const u of updates) { await supabase.from("sections").update({ sort_order: u.sort_order }).eq("id", u.id); }
+            }}>
+            {/* Drag handle */}
+            <div style={{ cursor: "grab", color: T.text3, opacity: 0.3, fontSize: 10, flexShrink: 0, lineHeight: 1 }} title="Drag to reorder">⣿</div>
             <svg onClick={() => setCollapsed(p => ({ ...p, [sec.id]: !isColl }))} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: isColl ? "rotate(-90deg)" : "rotate(0)", transition: "transform 0.15s" }}><path d="M3 4.5l3 3 3-3" stroke={color} strokeWidth="1.5" strokeLinecap="round" /></svg>
-            {editingSectionId === sec.id ? <input autoFocus value={editingSectionName} onChange={e => setEditingSectionName(e.target.value)} onBlur={() => renameSection(sec.id)} onKeyDown={e => e.key === "Enter" && renameSection(sec.id)} style={{ fontSize: 13, fontWeight: 700, color, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 6px", outline: "none" }} /> : <span onDoubleClick={() => { setEditingSectionId(sec.id); setEditingSectionName(sec.name); }} style={{ fontSize: 13, fontWeight: 700, color, flex: 1 }}>{sec.name}</span>}
+            {editingSectionId === sec.id ? <input autoFocus value={editingSectionName} onChange={e => setEditingSectionName(e.target.value)} onBlur={() => renameSection(sec.id)} onKeyDown={e => { if (e.key === "Enter") renameSection(sec.id); if (e.key === "Escape") setEditingSectionId(null); }} onClick={e => e.stopPropagation()} style={{ fontSize: 13, fontWeight: 700, color, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 6px", outline: "none" }} /> : <span onDoubleClick={() => { setEditingSectionId(sec.id); setEditingSectionName(sec.name); }} style={{ fontSize: 13, fontWeight: 700, color, flex: 1 }}>{sec.name}</span>}
             {sec.is_complete_column && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#22c55e20", color: "#22c55e", fontWeight: 700 }}>DONE</span>}
             {sec.wip_limit && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: wipBreached ? "#ef444420" : T.surface3, color: wipBreached ? "#ef4444" : T.text3, fontWeight: 700 }}>WIP {st.filter(t => t.status !== "done").length}/{sec.wip_limit}</span>}
             <span style={{ fontSize: 11, color: T.text3, fontWeight: 500 }}>{sd}/{st.length}</span>
+            {/* Up/Down arrows */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              <button onClick={e => { e.stopPropagation(); moveSection(sec.id, "up"); }} disabled={si === 0}
+                style={{ ...S.iconBtn, padding: 0, opacity: si === 0 ? 0.15 : 0.5, fontSize: 9, lineHeight: 1 }} title="Move up">▲</button>
+              <button onClick={e => { e.stopPropagation(); moveSection(sec.id, "down"); }} disabled={si === projSections.length - 1}
+                style={{ ...S.iconBtn, padding: 0, opacity: si === projSections.length - 1 ? 0.15 : 0.5, fontSize: 9, lineHeight: 1 }} title="Move down">▼</button>
+            </div>
+            {/* Rename button */}
+            <button onClick={e => { e.stopPropagation(); setEditingSectionId(sec.id); setEditingSectionName(sec.name); }} style={{ ...S.iconBtn, opacity: 0.4 }} title="Rename section">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18.4 2.6a2.17 2.17 0 013 3L12 15l-4 1 1-4 9.4-9.4z"/></svg>
+            </button>
             <button onClick={() => deleteSection(sec.id)} style={{ ...S.iconBtn, opacity: 0.4 }} title="Delete section"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
           </div>
           {!isColl && <>{roots.map(task => <TaskRow key={task.id} task={task} depth={0} />)}{addingTo === sec.id ? <div style={{ ...S.row(false, false), background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 20 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createTask(sec.id); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }} onBlur={() => { if (newTitle.trim()) createTask(sec.id); else { setAddingTo(null); setNewTitle(""); } }} placeholder="Task name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 13, outline: "none" }} /></div><div /><div /><div /><div /></div> : <div onClick={() => { setAddingTo(sec.id); setNewTitle(""); }} style={{ ...S.addRow, opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add task…</div>}</>}
