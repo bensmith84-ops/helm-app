@@ -364,9 +364,9 @@ export default function ScoreboardView() {
       if (d1.error) {
         setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync error: ${d1.error}` }]);
       } else if (d1.rows_upserted > 0) {
-        setMessages(p => [...p, { role:"assistant", content:`📊 Daily sync complete!\n\nMatched ${d1.matched?.length||0} metrics: ${d1.matched?.join(", ")||"none"}\nRows imported: ${d1.rows_upserted}\nDates parsed: ${d1.dates_parsed}` }]);
+        setMessages(p => [...p, { role:"assistant", content:`📊 Daily sync complete! ${d1.rows_upserted} rows.\n\nMatched cols:\n${d1.matched_cols?.join("\n")||"none"}\n\nUnmatched headers:\n${d1.unmatched_headers?.join("\n")||"none"}` }]);
       } else {
-        setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync: ${d1.rows_upserted||0} rows imported.\n\nRows built: ${d1.rows_built||0} | Dates parsed: ${d1.dates_parsed||0}\nRPC error: ${d1.rpc_error||"none"}\nUnmatched headers: ${d1.unmatched_headers?.join(", ")||"none"}` }]);
+        setMessages(p => [...p, { role:"assistant", content:`📊 Daily sync: ${d1.rows_upserted||0} rows imported.\n\nMatched cols: ${d1.matched_cols?.join(" | ")||"none"}\n\nAll unmatched headers (full list):\n${d1.unmatched_headers?.join("\n")||"none"}\n\nRPC error: ${d1.rpc_error||"none"}` }]);
       }
       if (d2.success) setMessages(p => [...p, { role:"assistant", content:`✅ Monthly sync: ${d2.rowsUpserted} rows` }]);
     } catch(e) {
