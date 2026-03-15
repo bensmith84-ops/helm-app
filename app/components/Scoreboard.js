@@ -347,6 +347,7 @@ export default function ScoreboardView() {
           question: `Give me a sharp 3-4 sentence executive summary of the latest day's performance. Focus on revenue vs spend, subscription health (net subs vs cancels), and the single most important trend or concern. Be direct and specific with numbers. Flowing prose only, no bullet points.`,
           context,
           messages: [],
+          debug: false,
         }),
       });
       const data = await res.json();
