@@ -322,32 +322,40 @@ export default function ScoreboardView() {
 
   const fetchAiSummary = async (dailyMap) => {
     setAiSummaryLoading(true);
+    // Build context client-side from already-loaded data — no extra DB call needed
     const dates = [...new Set(Object.values(dailyMap).flat().map(r => r.date))].sort().reverse();
     const yesterday = dates[1] || dates[0];
     if (!yesterday) { setAiSummaryLoading(false); return; }
-    const snap = {};
-    for (const [key, rows] of Object.entries(dailyMap)) {
-      const row = rows.find(r => r.date === yesterday);
-      if (row) snap[key] = row.value;
-    }
-    const lines = Object.entries(snap).map(([k, v]) => {
-      const meta = METRIC_META[k];
-      return `${meta?.label || k}: ${fmtVal(v, meta?.unit || "#", false)}`;
-    }).join(", ");
+
+    const lines = Object.entries(dailyMap).map(([key, rows]) => {
+      const meta = METRIC_META[key];
+      const todayRow = rows[0];
+      const prevRow = rows.find(r => r.date < todayRow?.date);
+      const v = todayRow?.value;
+      const chg = v != null && prevRow?.value != null && prevRow.value !== 0
+        ? ` (${v > prevRow.value ? "+" : ""}${(((v - prevRow.value) / Math.abs(prevRow.value)) * 100).toFixed(1)}% DoD)`
+        : "";
+      return `${meta?.label || key}: ${fmtVal(v, meta?.unit || "#", false)}${chg}`;
+    }).join("
+");
+
+    const context = `As of ${dates[0]}:
+${lines}`;
+
     try {
       const res = await fetch(`${BASE}/scoreboard-chat`, {
         method: "POST", headers: HEADERS,
         body: JSON.stringify({
-          question: `Give me a sharp 3-4 sentence executive summary of yesterday's performance (${yesterday}). Here are all the metrics: ${lines}. Focus on revenue vs spend, subscription health (net subs, cancels), and one key trend or concern. Be direct and specific with numbers. No bullet points — flowing prose only.`,
+          question: `Give me a sharp 3-4 sentence executive summary of the latest day's performance. Focus on revenue vs spend, subscription health (net subs vs cancels), and the single most important trend or concern. Be direct and specific with numbers. Flowing prose only, no bullet points.`,
+          context,
           messages: [],
         }),
       });
       const data = await res.json();
-      if (data.text) setAiSummary({ text: data.text, date: yesterday });
-      else if (data.error) setAiSummary({ text: `⚠️ ${data.error}`, date: yesterday });
+      if (data.text) setAiSummary({ text: data.text, date: dates[0] });
+      else if (data.error) setAiSummary({ text: `⚠️ ${data.error}`, date: dates[0] });
     } catch(e) {
-      console.warn("AI summary failed:", e);
-      setAiSummary({ text: `Error: ${e}`, date: yesterday });
+      setAiSummary({ text: `⚠️ Error: ${e}`, date: dates[0] });
     }
     setAiSummaryLoading(false);
   };
@@ -383,10 +391,20 @@ export default function ScoreboardView() {
     setAiLoading(true);
 
     try {
+      // Build context from loaded daily data
+      const chatContext = Object.entries(daily).map(([key, rows]) => {
+        const meta = METRIC_META[key];
+        const v = rows[0]?.value;
+        const avg7 = rows.slice(0,7).reduce((s,r)=>s+r.value,0) / Math.min(7, rows.length);
+        return `${meta?.label||key}: latest=${fmtVal(v, meta?.unit||"#", false)} (${rows[0]?.date}), 7d avg=${fmtVal(Math.round(avg7), meta?.unit||"#", false)}`;
+      }).join("
+");
+
       const res = await fetch(`${BASE}/scoreboard-chat`, {
         method:"POST", headers:HEADERS,
         body: JSON.stringify({
           question,
+          context: chatContext,
           messages: messages.slice(-10).map(m => ({ role:m.role, content:m.content })),
         }),
       });
