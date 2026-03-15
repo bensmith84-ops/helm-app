@@ -36,6 +36,7 @@ export default function PeopleView() {
     return "cards";
   });
   const [hoveredRow, setHoveredRow] = useState(null);
+  const [selectedPeople, setSelectedPeople] = useState(new Set());
   // Teams view state
   const [showTeamForm, setShowTeamForm] = useState(false);
   const [teamForm, setTeamForm] = useState({ name: "", description: "", color: TEAM_COLORS[0], parent_team_id: null });
@@ -167,13 +168,41 @@ export default function PeopleView() {
   // === LIST VIEW ===
   const MemberList = () => { const colH = { fontSize: 11, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", padding: "8px 12px", position: "relative" }; return (
     <div style={{ borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-      <div style={{ display: "grid", gridTemplateColumns: peopleGrid, background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+      {/* Bulk action bar */}
+      {selectedPeople.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 4, borderRadius: 8, background: T.accentDim, border: `1px solid ${T.accent}30` }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{selectedPeople.size} selected</span>
+          <div style={{ flex: 1 }} />
+          <button onClick={async () => {
+            for (const uid of selectedPeople) { const om = getMembership(uid); if (om?.is_active === false) { await supabase.from("org_memberships").update({ is_active: true }).eq("user_id", uid).eq("org_id", profile?.org_id); setMemberships(p => p.map(m => m.user_id === uid ? { ...m, is_active: true } : m)); } }
+            setSelectedPeople(new Set());
+          }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: "#22c55e", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✓ Activate</button>
+          <button onClick={async () => {
+            for (const uid of selectedPeople) { await supabase.from("org_memberships").update({ is_active: false }).eq("user_id", uid).eq("org_id", profile?.org_id); setMemberships(p => p.map(m => m.user_id === uid ? { ...m, is_active: false } : m)); }
+            setSelectedPeople(new Set());
+          }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: "#eab308", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>⊘ Deactivate</button>
+          <button onClick={async () => {
+            if (!confirm(`Remove ${selectedPeople.size} member${selectedPeople.size !== 1 ? "s" : ""}? This cannot be undone.`)) return;
+            for (const uid of selectedPeople) { await deleteUser(uid); }
+            setSelectedPeople(new Set());
+          }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Remove</button>
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: `32px ${peopleGrid}`, background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 0" }}>
+          <input type="checkbox" checked={selectedPeople.size > 0 && selectedPeople.size === filtered.length} onChange={() => {
+            setSelectedPeople(p => p.size === filtered.length ? new Set() : new Set(filtered.map(m => m.id)));
+          }} style={{ width: 14, height: 14, accentColor: T.accent, cursor: "pointer" }} />
+        </div>
         <div style={colH}>Name<RH index={0} /></div><div style={colH}>Email<RH index={1} /></div><div style={colH}>Role<RH index={2} /></div><div style={colH}>Projects<RH index={3} /></div><div style={colH}>Tasks<RH index={4} /></div><div style={colH}>Done<RH index={5} /></div><div style={colH}>Overdue<RH index={6} /></div><div style={{ ...colH, textAlign: "right" }}>Actions</div>
       </div>
-      {filtered.map(member => { const c = acol(member.id); const stats = getStats(member.id); const om = getMembership(member.id); const isMe = member.id === user?.id; const active = om?.is_active !== false; const isOwner = om?.role === "owner"; const hov = hoveredRow === member.id; const sel = selected?.id === member.id; return (
-        <div key={member.id} onClick={() => setSelected(member)} onMouseEnter={() => setHoveredRow(member.id)} onMouseLeave={() => setHoveredRow(null)}
-          style={{ display: "grid", gridTemplateColumns: peopleGrid, alignItems: "center", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: sel ? T.accentDim : hov ? T.surface2 : "transparent", opacity: active ? 1 : 0.5, transition: "background 0.1s" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
+      {filtered.map(member => { const c = acol(member.id); const stats = getStats(member.id); const om = getMembership(member.id); const isMe = member.id === user?.id; const active = om?.is_active !== false; const isOwner = om?.role === "owner"; const hov = hoveredRow === member.id; const sel = selected?.id === member.id; const checked = selectedPeople.has(member.id); return (
+        <div key={member.id} onMouseEnter={() => setHoveredRow(member.id)} onMouseLeave={() => setHoveredRow(null)}
+          style={{ display: "grid", gridTemplateColumns: `32px ${peopleGrid}`, alignItems: "center", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: checked ? T.accentDim : sel ? T.accentDim : hov ? T.surface2 : "transparent", opacity: active ? 1 : 0.5, transition: "background 0.1s" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }} onClick={e => { e.stopPropagation(); setSelectedPeople(p => { const n = new Set(p); n.has(member.id) ? n.delete(member.id) : n.add(member.id); return n; }); }}>
+            <input type="checkbox" checked={checked} readOnly style={{ width: 14, height: 14, accentColor: T.accent, cursor: "pointer" }} />
+          </div>
+          <div onClick={() => setSelected(member)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
             <div style={{ width: 32, height: 32, borderRadius: 16, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: c, flexShrink: 0 }}>{ini(member.display_name)}</div>
             <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.display_name || "Unknown"}</span>
