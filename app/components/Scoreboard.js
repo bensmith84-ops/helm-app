@@ -559,11 +559,29 @@ export default function ScoreboardView() {
                     </div>
 
                     {/* KPI grid */}
-                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))", gap:10, marginBottom:20 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10, marginBottom:20 }}>
                       {kpis.map(({ key, label, unit, color }) => {
                         const v = getDayVal(key);
                         const chg = getDayChange(key);
                         const spark = get7d(key);
+                        const isFlow = ["revenue","ad_spend","net_dollars","new_orders","total_orders","new_gwp_subs","daily_cancels","net_daily_subs","dtc_new_customers","traffic"].includes(key);
+
+                        // Daily ARR = today × 365
+                        const dailyArr = isFlow && v != null ? v * 365 : null;
+
+                        // Monthly ARR = sum of this month's data ÷ days in month so far × 365
+                        const curMonthRows = (daily[key]||[]).filter(r => r.date?.slice(0,7) === new Date().toISOString().slice(0,7));
+                        const monthTotal = curMonthRows.reduce((s,r)=>s+r.value,0);
+                        const monthDays = curMonthRows.length;
+                        const monthlyArr = isFlow && monthDays > 0 ? (monthTotal / monthDays) * 365 : null;
+
+                        // YTD ARR = sum of this year's data ÷ days elapsed × 365
+                        const curYear = new Date().getFullYear().toString();
+                        const ytdRows = (daily[key]||[]).filter(r => r.date?.startsWith(curYear));
+                        const ytdTotal = ytdRows.reduce((s,r)=>s+r.value,0);
+                        const ytdDays = ytdRows.length;
+                        const ytdArr = isFlow && ytdDays > 0 ? (ytdTotal / ytdDays) * 365 : null;
+
                         return (
                           <div key={key} onClick={()=>{ setSelectedMetric(key); setActiveTab("daily"); }}
                             style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer" }}
@@ -574,12 +592,34 @@ export default function ScoreboardView() {
                               {fmtVal(v, unit, true)}
                             </div>
                             {chg != null && (
-                              <div style={{ fontSize:10, fontWeight:600, color:chg>0?"#22c55e":"#ef4444", marginBottom:4 }}>
+                              <div style={{ fontSize:10, fontWeight:600, color:chg>0?"#22c55e":"#ef4444", marginBottom:6 }}>
                                 {chg>0?"▲":"▼"} {Math.abs(chg).toFixed(1)}% vs prev day
                               </div>
                             )}
+                            {isFlow && (dailyArr != null || monthlyArr != null || ytdArr != null) && (
+                              <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:6, marginTop:2, display:"flex", flexDirection:"column", gap:2 }}>
+                                {dailyArr != null && (
+                                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>Day ARR</span>
+                                    <span style={{ fontSize:10, fontWeight:700, color:dailyArr<0?"#ef4444":T.text2 }}>{fmt$(dailyArr, true)}</span>
+                                  </div>
+                                )}
+                                {monthlyArr != null && (
+                                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>Mo ARR</span>
+                                    <span style={{ fontSize:10, fontWeight:700, color:monthlyArr<0?"#ef4444":T.text2 }}>{fmt$(monthlyArr, true)}</span>
+                                  </div>
+                                )}
+                                {ytdArr != null && (
+                                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>YTD ARR</span>
+                                    <span style={{ fontSize:10, fontWeight:700, color:ytdArr<0?"#ef4444":color }}>{fmt$(ytdArr, true)}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             {spark.length > 1 && (
-                              <div style={{ height:28 }}>
+                              <div style={{ height:28, marginTop:6 }}>
                                 <LineChart data={spark} color={v<0?"#ef4444":color} height={28} showArea={false} />
                               </div>
                             )}
