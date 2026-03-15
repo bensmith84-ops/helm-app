@@ -8,40 +8,44 @@ const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const EDGE_BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
 
 const SYSTEM_PROMPT = [
-  "You are Helm AI Builder — an engineering assistant embedded inside Helm (Next.js + Supabase + Vercel).",
+  "You are Helm AI Builder, embedded inside Helm (Next.js + Supabase + Vercel).",
+  "",
+  "HOW YOU WORK:",
+  "1. The system AUTOMATICALLY reads files before you respond. The file content will be in the conversation.",
+  "2. You ALWAYS output exact str_replace patches in this format:",
+  "",
+  "```patch:path/to/file.js",
+  "<<<FIND",
+  "exact code to find (copy-paste from the file shown to you)",
+  "===",
+  "replacement code",
+  ">>>",
+  "```",
+  "",
+  "3. You can have MULTIPLE <<<FIND/===/>>> blocks in one patch.",
+  "4. The FIND section must EXACTLY match text in the file. Copy it character-for-character.",
+  "5. For SQL migrations use: ```sql:migration_name",
+  "6. For NEW files only (that dont exist yet): ```deploy:path/to/file.js",
   "",
   "CRITICAL RULES:",
-  "1. NEVER output full file rewrites for files over 100 lines. Most components are 1000-2000 lines.",
-  "   BEFORE suggesting changes, ask the user to load the file so you can see the actual code.",
-  "   Say: I need to see the current code first. Let me read the file.",
-  "   Then output: [READ_FILE:app/components/FileName.js] and the system will load it into context.",
-  "2. Instead, output TARGETED PATCHES showing the old code and new code.",
-  "3. For new small files (<200 lines) or edge functions, you may write the full content.",
-  "4. For SQL migrations, use code blocks labeled sql:migration_name.",
-  "5. ALWAYS explain what you are changing and why before showing code.",
-  "6. Use deploy: prefix ONLY for new files. Use patch: prefix for changes to existing files.",
+  "- NEVER rewrite entire files. Always use targeted patches.",
+  "- The FIND text must be an EXACT substring of the file. Even whitespace matters.",
+  "- Keep patches small and focused. Multiple small patches > one huge patch.",
+  "- Use inline styles with T.accent, T.text, T.surface etc. NEVER use Tailwind/className.",
+  "- Components use { useState, useEffect, useRef } from react.",
+  "- DB: import { supabase } from '../lib/supabase' with .from().select().eq().order() chains.",
+  "- Auth: import { useAuth } from '../lib/auth' gives { user, profile }.",
+  "- NEVER define React components inside other components (causes remount bugs).",
+  "- Use defaultValue + key + onBlur for text inputs, not controlled value + onChange.",
   "",
   "INFRASTRUCTURE:",
-  "- Supabase project: upbjdmnykheubxkuknuj",
-  "- Frontend: Next.js React, components in app/components/",
-  "- Theme: T.accent, T.text, T.surface via Proxy (import { T } from ../tokens)",
-  "- DB: import { supabase } from ../lib/supabase",
-  "- Auth: import { useAuth } from ../lib/auth gives { user, profile }",
+  "- Supabase: upbjdmnykheubxkuknuj, tables: tasks, sections, projects, profiles, objectives, key_results, custom_fields, etc.",
+  "- Components: Dashboard.js (~1200 lines), Projects.js (~2500 lines), OKRs.js, Calls.js, etc.",
+  "- Theme tokens: T.bg, T.surface, T.surface2, T.surface3, T.border, T.text, T.text2, T.text3, T.accent, T.accentDim, T.green, T.red, etc.",
   "",
-  "KEY TABLES: tasks, sections, projects, objectives, key_results, okr_check_ins, profiles, notifications, documents, campaigns, calls, calendars, calendar_events, dashboard_focus_items, custom_fields",
-  "",
-  "LARGE COMPONENTS (1000-2000 lines — NEVER rewrite fully):",
-  "Dashboard.js, Projects.js, OKRs.js, Finance.js, PLM.js",
-  "",
-  "For changes to existing files, show targeted patches like:",
-  "// FIND THIS CODE:",
-  "...existing code...",
-  "// REPLACE WITH:",
-  "...new code...",
-  "",
-  "For SQL migrations, label them as sql:name.",
-  "For new files only, label them as deploy:path/to/file.js.",
-  "The admin will review all changes before deploying.",
+  "When the user asks for a change, if you need to see a file first, output:",
+  "[READ_FILE:app/components/FileName.js]",
+  "The system will load it and you can then give exact patches.",
 ].join("\n");
 
 
@@ -202,6 +206,22 @@ export default function AIBuilderView() {
   };
 
   // ── Deploy function ──
+  const applyPatch = async (path, replacements, commitMsg, blockId) => {
+    setDeploying(p => ({ ...p, [blockId]: true }));
+    try {
+      const res = await fetch(`${EDGE_BASE}/ai-deploy`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "patch", patches: [{ path, replacements }], commit_message: commitMsg || "patch(ai-builder): " + path }),
+      });
+      const result = await res.json();
+      setDeployResults(p => ({ ...p, [blockId]: result }));
+    } catch (err) {
+      setDeployResults(p => ({ ...p, [blockId]: { success: false, error: err.message } }));
+    }
+    setDeploying(p => ({ ...p, [blockId]: false }));
+  };
+
   const deployFiles = async (files, sql, commitMsg, blockId) => {
     setDeploying(p => ({ ...p, [blockId]: true }));
     try {
@@ -425,16 +445,25 @@ export default function AIBuilderView() {
   // ── Parse deploy blocks from assistant messages ──
   const parseDeployBlocks = (content) => {
     const blocks = [];
-    // Match ```deploy:path and ```sql:name blocks
-    const regex = /```(deploy|sql):([^\n]+)\n([\s\S]*?)```/g;
+    const regex = /```(deploy|sql|patch):([^\n]+)\n([\s\S]*?)```/g;
     let match;
     while ((match = regex.exec(content)) !== null) {
-      blocks.push({
-        type: match[1], // "deploy" or "sql"
-        name: match[2].trim(),
-        content: match[3].trim(),
-        id: `${match[1]}-${match[2].trim()}-${match.index}`,
-      });
+      const type = match[1];
+      const name = match[2].trim();
+      const raw = match[3].trim();
+      
+      if (type === "patch") {
+        // Parse <<<FIND/===/>>> blocks
+        const replacements = [];
+        const patchRegex = /<<<FIND\n([\s\S]*?)\n===\n([\s\S]*?)\n>>>/g;
+        let pm;
+        while ((pm = patchRegex.exec(raw)) !== null) {
+          replacements.push({ find: pm[1], replace: pm[2] });
+        }
+        blocks.push({ type: "patch", name, content: raw, replacements, id: `patch-${name}-${match.index}` });
+      } else {
+        blocks.push({ type, name, content: raw, id: `${type}-${name}-${match.index}` });
+      }
     }
     return blocks;
   };
@@ -471,8 +500,8 @@ export default function AIBuilderView() {
                   const lines = part.split("\n");
                   const header = lines[0].replace("```", "").trim();
                   const code = lines.slice(1, -1).join("\n");
-                  const isDeployable = header.startsWith("deploy:") || header.startsWith("sql:");
-                  const blockType = header.startsWith("deploy:") ? "deploy" : header.startsWith("sql:") ? "sql" : null;
+                  const isDeployable = header.startsWith("deploy:") || header.startsWith("sql:") || header.startsWith("patch:");
+                  const blockType = header.startsWith("patch:") ? "patch" : header.startsWith("deploy:") ? "deploy" : header.startsWith("sql:") ? "sql" : null;
                   const blockName = blockType ? header.split(":").slice(1).join(":").trim() : header;
                   const blockId = `${blockType}-${blockName}-${j}`;
 
@@ -485,7 +514,7 @@ export default function AIBuilderView() {
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", background: isDeployable ? `${T.accent}10` : T.surface3, borderBottom: `1px solid ${isDeployable ? T.accent + "30" : T.border}` }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 10, fontWeight: 700, color: isDeployable ? T.accent : T.text3, textTransform: "uppercase" }}>
-                            {blockType === "deploy" ? `📦 ${blockName}` : blockType === "sql" ? `🗄 ${blockName}` : header || "code"}
+                            {blockType === "patch" ? `🔧 ${blockName}` : blockType === "deploy" ? `📦 ${blockName}` : blockType === "sql" ? `🗄 ${blockName}` : header || "code"}
                           </span>
                           {/* Code / Preview toggle */}
                           {canPreview && (
@@ -506,7 +535,16 @@ export default function AIBuilderView() {
                           {isDeployable && !deployResults[blockId] && (
                             <button
                               onClick={async () => {
-                                if (blockType === "deploy") {
+                                if (blockType === "patch") {
+                                  // Find the replacements from parsed deploy blocks
+                                  const block = deployBlocks.find(b => b.id === blockId);
+                                  if (block?.replacements?.length) {
+                                    applyPatch(blockName, block.replacements, `patch(ai-builder): ${blockName}`, blockId);
+                                  } else {
+                                    alert("No valid <<<FIND/===/>>> blocks found in this patch.");
+                                  }
+                                }
+                                else if (blockType === "deploy") {
                                   const isLargeFile = blockName.includes("Projects") || blockName.includes("Dashboard") || blockName.includes("OKRs") || blockName.includes("Finance") || blockName.includes("PLM");
                                   if (isLargeFile && code.split("\n").length < 500) {
                                     if (!window.confirm(`⚠️ WARNING: ${blockName} is a large component (1000+ lines). This deploy block only has ${code.split("\n").length} lines — it may be truncated and could break the app. Deploy anyway?`)) return;
@@ -517,7 +555,7 @@ export default function AIBuilderView() {
                               }}
                               disabled={deploying[blockId]}
                               style={{ padding: "2px 10px", borderRadius: 4, border: "none", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer", opacity: deploying[blockId] ? 0.5 : 1 }}>
-                              {deploying[blockId] ? "Deploying..." : "🚀 Deploy"}
+                              {deploying[blockId] ? "Applying..." : blockType === "patch" ? "🔧 Apply Patch" : "🚀 Deploy"}
                             </button>
                           )}
                           {deployResults[blockId] && (
