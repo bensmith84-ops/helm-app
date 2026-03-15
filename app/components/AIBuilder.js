@@ -447,9 +447,10 @@ export default function AIBuilderView() {
   // ── Parse deploy blocks from assistant messages ──
   const parseDeployBlocks = (content) => {
     const blocks = [];
-    const regex = /```(deploy|sql|patch):([^\n]+)\n([\s\S]*?)```/g;
+    // First: match explicitly tagged blocks (deploy:, sql:, patch:)
+    const taggedRegex = /```(deploy|sql|patch):([^\n]+)\n([\s\S]*?)```/g;
     let match;
-    while ((match = regex.exec(content)) !== null) {
+    while ((match = taggedRegex.exec(content)) !== null) {
       const type = match[1];
       const name = match[2].trim();
       const raw = match[3].trim();
@@ -502,6 +503,56 @@ export default function AIBuilderView() {
         blocks.push({ type, name, content: raw, id: `${type}-${name}-${match.index}` });
       }
     }
+    
+    // Second pass: find <<<FIND/===/>>> in ANY code block (even untagged ones)
+    const allCodeBlocks = /```([^\n]*)\n([\s\S]*?)```/g;
+    let cb;
+    while ((cb = allCodeBlocks.exec(content)) !== null) {
+      const header = cb[1].trim();
+      const body = cb[2].trim();
+      // Skip already-parsed tagged blocks
+      if (header.match(/^(deploy|sql|patch):/)) continue;
+      // Check if this block contains <<<FIND or === markers
+      if (body.includes("<<<") && body.includes("===") && body.includes(">>>")) {
+        // Try to extract a file path from context (look for .js/.jsx/.ts references)
+        let filePath = "app/components/Projects.js"; // default
+        const pathMatch = content.slice(Math.max(0, cb.index - 200), cb.index).match(/(app\/[^\s`"']+\.(?:js|jsx|ts|tsx))/);
+        if (pathMatch) filePath = pathMatch[1];
+        // Also check the header for a path
+        if (header.match(/\.(js|jsx|ts|tsx)$/)) filePath = header;
+        
+        // Parse replacements
+        const replacements = [];
+        const patterns = [
+          /<<<\s*FIND\s*\n([\s\S]*?)\n\s*===+\s*\n([\s\S]*?)\n\s*>>>/g,
+          /<<<\s*(?:FIND|SEARCH|OLD)\s*\n([\s\S]*?)\n\s*===+\s*(?:REPLACE|NEW)?\s*\n([\s\S]*?)\n\s*>>>/g,
+        ];
+        for (const pat of patterns) {
+          let pm;
+          while ((pm = pat.exec(body)) !== null) {
+            const find = pm[1].trim();
+            const replace = pm[2].trim();
+            if (find && !replacements.some(r => r.find === find)) replacements.push({ find, replace });
+          }
+          if (replacements.length > 0) break;
+        }
+        // Fallback: split on ===
+        if (replacements.length === 0) {
+          const cleaned = body.replace(/^<<<[^\n]*\n/gm, "").replace(/\n>>>\s*$/gm, "");
+          const halves = cleaned.split(/\n\s*===+\s*\n/);
+          if (halves.length >= 2) {
+            for (let hi = 0; hi < halves.length - 1; hi += 2) {
+              if (halves[hi]?.trim()) replacements.push({ find: halves[hi].trim(), replace: (halves[hi+1] || "").trim() });
+            }
+          }
+        }
+        
+        if (replacements.length > 0) {
+          blocks.push({ type: "patch", name: filePath, content: body, replacements, id: `patch-auto-${cb.index}` });
+        }
+      }
+    }
+    
     return blocks;
   };
 
