@@ -244,7 +244,7 @@ export default function DashboardView({ setActive }) {
       </div>
 
       {/* ── Quick Actions ── */}
-      <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap" }}>
+      <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap", alignItems:"center" }}>
         {[
           { icon:"☐", label:"New Task", action:() => setActive("projects"), color:"#3b82f6" },
           { icon:"◎", label:"Check-in KR", action:() => setActive("okrs"), color:"#22c55e" },
@@ -259,6 +259,55 @@ export default function DashboardView({ setActive }) {
           </button>
         ))}
       </div>
+
+      {/* ── Today's Focus ── */}
+      {(() => {
+        const focusTasks = tasks.filter(t =>
+          t.status !== "done" && t.status !== "cancelled" && !t.parent_task_id &&
+          (t.due_date === todayStr || t.priority === "urgent" || (t.priority === "high" && t.due_date && t.due_date <= todayStr))
+        ).sort((a, b) => {
+          const pOrder = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
+          return (pOrder[a.priority] || 4) - (pOrder[b.priority] || 4);
+        }).slice(0, 6);
+
+        if (focusTasks.length === 0) return null;
+        return (
+          <div style={{ marginBottom:20, padding:"16px 20px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, borderLeft:`4px solid ${T.accent}` }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:16 }}>🎯</span>
+                <span style={{ fontSize:14, fontWeight:700 }}>Today's Focus</span>
+                <span style={{ fontSize:11, color:T.text3, background:T.surface2, padding:"1px 8px", borderRadius:8 }}>{focusTasks.length} items</span>
+              </div>
+              <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(240px, 1fr))", gap:8 }}>
+              {focusTasks.map(t => {
+                const proj = projects.find(p => p.id === t.project_id);
+                const priColors = { urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" };
+                const priColor = priColors[t.priority] || T.text3;
+                const isDueToday = t.due_date === todayStr;
+                const isOverdue = t.due_date && t.due_date < todayStr;
+                return (
+                  <div key={t.id} onClick={() => setActive("projects")} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${priColor}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                    onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
+                      <div style={{ fontSize:10, color:T.text3, marginTop:2, display:"flex", gap:6 }}>
+                        {proj && <span style={{ display:"flex", alignItems:"center", gap:3 }}><span style={{ width:5, height:5, borderRadius:3, background:proj.color||T.accent }} />{proj.name}</span>}
+                        {isDueToday && <span style={{ color:T.accent, fontWeight:600 }}>Due today</span>}
+                        {isOverdue && <span style={{ color:"#ef4444", fontWeight:600 }}>Overdue</span>}
+                      </div>
+                    </div>
+                    <span style={{ fontSize:9, padding:"1px 6px", borderRadius:4, background:priColor+"20", color:priColor, fontWeight:700, flexShrink:0 }}>{t.priority}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── KPI Row ── */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>

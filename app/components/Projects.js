@@ -29,6 +29,7 @@ export default function ProjectsView() {
   const [collapsed, setCollapsed] = useState({});
   const [sectionCtxMenu, setSectionCtxMenu] = useState(null); // { secId, x, y }
   const [wipLimitInput, setWipLimitInput] = useState("");
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [hoveredRow, setHoveredRow] = useState(null);
   const [editingSectionId, setEditingSectionId] = useState(null);
   const [editingSectionName, setEditingSectionName] = useState("");
@@ -143,9 +144,74 @@ export default function ProjectsView() {
   }, [activeProject]);
 
   useEffect(() => {
-    const fn = (e) => { if (e.key === "Escape") { if (ctxProject) setCtxProject(null); else if (showProjectForm) setShowProjectForm(false); else if (selectedTask) setSelectedTask(null); else if (editingSectionId) setEditingSectionId(null); else if (addingTo) { setAddingTo(null); setNewTitle(""); } } };
-    document.addEventListener("keydown", fn); return () => document.removeEventListener("keydown", fn);
-  }, [showProjectForm, selectedTask, editingSectionId, addingTo]);
+    const fn = (e) => {
+      const tag = document.activeElement?.tagName;
+      const isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || document.activeElement?.contentEditable === "true";
+
+      if (e.key === "Escape") {
+        if (sectionCtxMenu) { setSectionCtxMenu(null); return; }
+        if (ctxProject) { setCtxProject(null); return; }
+        if (showProjectForm) { setShowProjectForm(false); return; }
+        if (selectedTask) { setSelectedTask(null); return; }
+        if (editingSectionId) { setEditingSectionId(null); return; }
+        if (addingTo) { setAddingTo(null); setNewTitle(""); return; }
+        if (selectedTasks.size > 0) { setSelectedTasks(new Set()); return; }
+      }
+
+      if (isInput) return; // Don't trigger shortcuts when typing
+
+      const allRootTasks = filteredTasks.filter(t => !t.parent_task_id);
+      const curIdx = selectedTask ? allRootTasks.findIndex(t => t.id === selectedTask.id) : -1;
+
+      switch (e.key) {
+        case "j": case "ArrowDown":
+          if (!e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            const next = allRootTasks[Math.min(curIdx + 1, allRootTasks.length - 1)];
+            if (next) setSelectedTask(next);
+          }
+          break;
+        case "k": case "ArrowUp":
+          if (!e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            const prev = allRootTasks[Math.max(curIdx - 1, 0)];
+            if (prev) setSelectedTask(prev);
+          }
+          break;
+        case " ":
+          if (selectedTask) {
+            e.preventDefault();
+            toggleDone(selectedTask);
+          }
+          break;
+        case "Enter":
+          if (selectedTask) {
+            e.preventDefault();
+            setSelectedTask(selectedTask); // opens detail panel
+          }
+          break;
+        case "n":
+          if (!e.metaKey && projSections.length > 0) {
+            e.preventDefault();
+            setAddingTo(projSections[0].id);
+            setNewTitle("");
+          }
+          break;
+        case "f":
+          e.preventDefault();
+          document.querySelector('[placeholder*="Search"]')?.focus();
+          break;
+        case "1": setViewMode("List"); break;
+        case "2": setViewMode("Board"); break;
+        case "3": setViewMode("Timeline"); break;
+        case "?":
+          setShowKeyboardHelp(v => !v);
+          break;
+      }
+    };
+    document.addEventListener("keydown", fn);
+    return () => document.removeEventListener("keydown", fn);
+  }, [showProjectForm, selectedTask, editingSectionId, addingTo, filteredTasks, projSections, selectedTasks, sectionCtxMenu, ctxProject]);
   const proj = projects.find(p => p.id === activeProject);
   const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
   const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
@@ -443,8 +509,11 @@ export default function ProjectsView() {
         <button onClick={() => deleteProject(proj.id)} style={{ ...S.iconBtn, color: T.red }} title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
         {showSidebar && <button onClick={() => setShowSidebar(false)} style={S.iconBtn} title="Collapse"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M11 19l-7-7 7-7"/><path d="M4 12h16"/></svg></button>}
       </div>
-      <div style={{ display: "flex", gap: 0, padding: "0 20px", overflow: "auto" }}>
+      <div style={{ display: "flex", gap: 0, padding: "0 20px", overflow: "auto", alignItems: "center" }}>
         {TABS.map(tab => (<button key={tab} onClick={() => setViewMode(tab)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: viewMode === tab ? 600 : 400, color: viewMode === tab ? T.accent : T.text3, background: "none", border: "none", borderBottom: viewMode === tab ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", transition: "all 0.15s" }}>{tab}</button>))}
+        <div style={{ marginLeft: "auto" }}>
+          <button onClick={() => setShowKeyboardHelp(v => !v)} title="Keyboard shortcuts (?)" style={{ ...S.iconBtn, fontSize: 11, color: T.text3, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 7px" }}>?</button>
+        </div>
       </div>
     </div>); };
   const FilterBar = () => { const assignees = [...new Set(projTasks.map(t => t.assignee_id).filter(Boolean))]; const hasF = filterStatus || filterPriority || filterAssignee; return (
@@ -1617,6 +1686,39 @@ export default function ProjectsView() {
   return (
     <div onClick={() => ctxProject && setCtxProject(null)} style={{ display: "flex", height: "100%", background: T.bg, overflow: "hidden" }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+      {/* Keyboard shortcuts help */}
+      {showKeyboardHelp && (
+        <div onClick={() => setShowKeyboardHelp(false)} style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 420, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 28, zIndex: 301, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Keyboard Shortcuts</h3>
+              <button onClick={() => setShowKeyboardHelp(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+              {[
+                ["J / ↓", "Next task"],
+                ["K / ↑", "Previous task"],
+                ["Space", "Toggle done"],
+                ["Enter", "Open task detail"],
+                ["N", "New task"],
+                ["F", "Focus search"],
+                ["1", "List view"],
+                ["2", "Board view"],
+                ["3", "Timeline view"],
+                ["Esc", "Close / deselect"],
+                ["?", "Show this help"],
+              ].map(([key, desc]) => (
+                <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}20` }}>
+                  <kbd style={{ padding: "2px 7px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, fontSize: 11, fontFamily: "monospace", color: T.accent, fontWeight: 700, minWidth: 40, textAlign: "center", flexShrink: 0 }}>{key}</kbd>
+                  <span style={{ fontSize: 13, color: T.text2 }}>{desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <div style={{ position: "fixed", top: 16, right: 16, zIndex: 200, padding: "10px 16px", borderRadius: 8, background: toast.type === "success" ? T.greenDim : T.redDim, color: toast.type === "success" ? T.green : T.red, fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", animation: "slideIn 0.2s ease" }}>{toast.msg}</div>}
 
       {/* Section context menu */}
