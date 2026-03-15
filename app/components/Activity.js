@@ -95,7 +95,7 @@ export default function ActivityView() {
           <div style={{ borderLeft: `2px solid ${T.border}`, marginLeft: 14 }}>
             {items.map(act => {
               const cfg = ACTION_CFG[act.action] || { icon: "·", color: T.text3, verb: act.action };
-              const isMe = act.user_id === user?.id;
+              const isMe = act.actor_id === user?.id;
               return (
                 <div key={act.id} style={{ display: "flex", gap: 12, padding: "10px 0", marginLeft: -8 }}>
                   <div style={{
@@ -105,7 +105,7 @@ export default function ActivityView() {
                   }}>{cfg.icon}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, lineHeight: 1.4 }}>
-                      <span style={{ fontWeight: 600, color: isMe ? T.accent : T.text }}>{isMe ? "You" : uname(act.user_id)}</span>
+                      <span style={{ fontWeight: 600, color: isMe ? T.accent : T.text }}>{isMe ? "You" : uname(act.actor_id)}</span>
                       {" "}<span style={{ color: T.text2 }}>{cfg.verb}</span>{" "}
                       <span style={{ color: T.text }}>{ENTITY_ICONS[act.entity_type] || ""} {act.entity_name || act.entity_type}</span>
                     </div>

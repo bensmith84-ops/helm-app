@@ -569,7 +569,7 @@ export default function DashboardView({ setActive }) {
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
               {recentActivity.slice(0,10).map((act, i) => {
-                const c = acol(act.user_id);
+                const c = acol(act.actor_id);
                 const entityIcons = { task:"☐", project:"◼", doc:"📄", objective:"🎯", key_result:"◎", campaign:"📢", product:"⬢", call:"📞" };
                 const actionColors = { created:"#22c55e", completed:"#22c55e", updated:"#3b82f6", deleted:"#ef4444", assigned:"#a855f7", commented:"#06b6d4" };
                 const actionColor = actionColors[act.action] || T.text3;
@@ -583,11 +583,11 @@ export default function DashboardView({ setActive }) {
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <div style={{ width:28, height:28, borderRadius:14, background:c+"20", border:`1.5px solid ${c}50`,
                       display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:c, flexShrink:0 }}>
-                      {ini(act.user_id)}
+                      {ini(act.actor_id)}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:12, lineHeight:1.4, display:"flex", alignItems:"center", gap:4, flexWrap:"wrap" }}>
-                        <span style={{ fontWeight:600 }}>{uname(act.user_id)}</span>
+                        <span style={{ fontWeight:600 }}>{uname(act.actor_id)}</span>
                         <span style={{ color:actionColor, fontWeight:600, fontSize:11 }}>{act.action}</span>
                         <span style={{ fontSize:12 }}>{eIcon}</span>
                         <span style={{ color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:140 }}>{act.entity_name || act.entity_type}</span>

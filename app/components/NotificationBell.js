@@ -25,7 +25,7 @@ const relTime = (d) => {
 };
 
 export default function NotificationBell({ setActive }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -71,6 +71,7 @@ export default function NotificationBell({ setActive }) {
   };
 
   const generateNotifications = async () => {
+    if (!user || !profile?.org_id) return;
     const today = new Date().toISOString().split("T")[0];
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
 
@@ -88,7 +89,7 @@ export default function NotificationBell({ setActive }) {
         .maybeSingle();
       if (!existing) {
         await supabase.from("notifications").insert({
-          user_id: user.id, type:"task_overdue",
+          org_id: profile?.org_id, user_id: user.id, type:"task_overdue",
           title: `Task overdue: ${task.title}`,
           body: `${daysLate} day${daysLate!==1?"s":""} late`,
           entity_type: "task", entity_id: task.id, link: "projects",
@@ -122,7 +123,7 @@ export default function NotificationBell({ setActive }) {
             .maybeSingle();
           if (!existing) {
             await supabase.from("notifications").insert({
-              user_id: user.id, type: "okr_deadline",
+              org_id: profile?.org_id, user_id: user.id, type: "okr_deadline",
               title: `Check-in needed: ${kr.title}`,
               body: `No update in 7+ days — team needs visibility on this KR`,
               entity_type: "key_result", entity_id: kr.id, link: "okrs",

@@ -58,7 +58,7 @@ export default function CampaignsView() {
     if (!form.name.trim()) return;
     const { data } = await supabase.from("campaigns").insert({
       org_id: profile?.org_id, name: form.name.trim(),
-      status: form.status, channel: form.channel,
+      status: form.status, campaign_type: form.channel,
     }).select().single();
     if (data) { setCampaigns(p => [data, ...p]); setSelected(data); setShowCreate(false); setForm({ name: "", channel: "email", status: "draft" }); }
   };
@@ -127,7 +127,7 @@ export default function CampaignsView() {
           {filtered.map(camp => {
             const sel = selected?.id === camp.id;
             const st = STATUS_CFG[camp.status] || STATUS_CFG.draft;
-            const ch = CHANNELS.find(c => c.id === camp.channel);
+            const ch = CHANNELS.find(c => c.id === camp.campaign_type);
             const spentPct = camp.budget > 0 ? Math.min(100, Math.round((Number(camp.spent||0) / Number(camp.budget)) * 100)) : 0;
             const roasVal = Number(camp.revenue) > 0 && Number(camp.spent) > 0 ? (Number(camp.revenue)/Number(camp.spent)).toFixed(1) : null;
             const isOver = camp.budget > 0 && Number(camp.spent) > Number(camp.budget);
@@ -193,7 +193,7 @@ export default function CampaignsView() {
                       style={{ fontSize:11, padding:"4px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontFamily:"inherit", cursor:"pointer" }}>
                       {Object.entries(STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
                     </select>
-                    <select value={selected.channel||"email"} onChange={e => update(selected.id, { channel: e.target.value })}
+                    <select value={selected.campaign_type||"email"} onChange={e => update(selected.id, { campaign_type: e.target.value })}
                       style={{ fontSize:11, padding:"4px 8px", borderRadius:5, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontFamily:"inherit", cursor:"pointer" }}>
                       {CHANNELS.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
                     </select>
@@ -305,7 +305,7 @@ export default function CampaignsView() {
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
               <div>
                 <label style={{ fontSize:12, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Channel</label>
-                <select value={form.channel} onChange={e => setForm(p => ({ ...p, channel: e.target.value }))}
+                <select value={form.channel} onChange={e => setForm(p => ({ ...p, channel: e.target.value, campaign_type: e.target.value }))}
                   style={{ width:"100%", padding:"8px 10px", fontSize:12, color:T.text, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer", outline:"none", fontFamily:"inherit" }}>
                   {CHANNELS.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
                 </select>

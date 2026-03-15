@@ -26,6 +26,7 @@ export default function ProjectsView() {
   const [addingTo, setAddingTo] = useState(null);
   const [newTitle, setNewTitle] = useState("");
   const [search, setSearch] = useState("");
+  const [collapsed, setCollapsed] = useState({});
   const [sectionCtxMenu, setSectionCtxMenu] = useState(null); // { secId, x, y }
   const [wipLimitInput, setWipLimitInput] = useState("");
   const [hoveredRow, setHoveredRow] = useState(null);
@@ -108,7 +109,7 @@ export default function ProjectsView() {
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
         // Load templates and docs
         const [tmplR, docsR] = await Promise.all([
-          supabase.from("project_templates").select("*").order("is_builtin desc, name"),
+          supabase.from("project_templates").select("*").order("is_builtin", { ascending: false }).order("name"),
           supabase.from("documents").select("id,title,emoji,updated_at,project_id,status").is("deleted_at", null).order("updated_at", { ascending: false }),
         ]);
         setTemplates(tmplR.data || []);
