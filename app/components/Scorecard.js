@@ -158,7 +158,7 @@ export default function ScorecardView() {
         const map = {};
         (ent || []).forEach(e => {
           if (!map[e.metric_id]) map[e.metric_id] = {};
-          map[e.metric_id][e.week_start] = e.value;
+          map[e.metric_id][e.week_start] = e.value != null ? Number(e.value) : null;
         });
         setEntries(map);
       }
@@ -213,11 +213,16 @@ export default function ScorecardView() {
       // Reload metrics (in case auto_source was configured externally)
       const { data: freshMetrics } = await supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order");
       if (freshMetrics) setMetrics(freshMetrics);
-      // Reload entries
-      const { data: allEntries } = await supabase.from("scorecard_entries").select("*").order("week_start", { ascending: false });
+      // Reload entries — match original load format exactly
+      const metricIds = (freshMetrics || metrics).map(m => m.id);
+      const { data: allEntries } = await supabase.from("scorecard_entries").select("*")
+        .in("metric_id", metricIds).in("week_start", WEEKS);
       const eMap = {};
-      for (const m of (freshMetrics || metrics)) eMap[m.id] = {};
-      for (const e of (allEntries || [])) { if (!eMap[e.metric_id]) eMap[e.metric_id] = {}; eMap[e.metric_id][e.week_start] = e.value; }
+      (freshMetrics || metrics).forEach(m => { eMap[m.id] = {}; });
+      (allEntries || []).forEach(e => {
+        if (!eMap[e.metric_id]) eMap[e.metric_id] = {};
+        eMap[e.metric_id][e.week_start] = e.value != null ? Number(e.value) : null;
+      });
       setEntries(eMap);
       if (result.entries_upserted > 0) alert(`⚡ Auto-calculated ${result.entries_upserted} entries for ${result.metrics_processed} metric(s)`);
       else alert(result.message || `Processed ${result.metrics_processed || 0} metrics, ${result.entries_upserted || 0} entries`);
