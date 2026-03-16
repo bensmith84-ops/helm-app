@@ -51,7 +51,17 @@ const EditableBlock = memo(({ blockId, initialContent, style, placeholder, onCon
       onFocus={onFocus}
     />
   );
-}, (prev, next) => prev.blockId === next.blockId && prev.style === next.style && prev.placeholder === next.placeholder);
+}, (prev, next) => {
+  if (prev.blockId !== next.blockId) return false;
+  if (prev.placeholder !== next.placeholder) return false;
+  // Deep compare style to avoid re-renders from new object references
+  const ps = prev.style, ns = next.style;
+  if (ps === ns) return true;
+  if (!ps || !ns) return false;
+  const keys = new Set([...Object.keys(ps), ...Object.keys(ns)]);
+  for (const k of keys) { if (ps[k] !== ns[k]) return false; }
+  return true;
+});
 EditableBlock.displayName = "EditableBlock";
 
 // ──── TABLE FORMULA ENGINE ────
