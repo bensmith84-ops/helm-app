@@ -51,8 +51,58 @@ class ChunkErrorBoundary extends Component {
   }
 }
 
+function SetPasswordPage() {
+  const { setPassword, signOut, user } = useAuth();
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleSetPassword = async () => {
+    setError("");
+    if (pw.length < 8) return setError("Password must be at least 8 characters");
+    if (pw !== pw2) return setError("Passwords do not match");
+    setSaving(true);
+    const result = await setPassword(pw);
+    if (result.error) setError(result.error.message);
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ display: "flex", height: "100vh", width: "100vw", background: T.bg, alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 400, padding: 36, background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: `linear-gradient(135deg, ${T.accent}, #a855f7)`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 900, color: "#fff", marginBottom: 12 }}>H</div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: T.text, marginBottom: 4 }}>Welcome to Helm</h1>
+          <p style={{ fontSize: 13, color: T.text3 }}>Set a password to secure your account</p>
+          <p style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>{user?.email}</p>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Password</label>
+          <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Minimum 8 characters"
+            style={{ width: "100%", padding: "10px 14px", fontSize: 14, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Confirm Password</label>
+          <input type="password" value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Type password again"
+            onKeyDown={e => e.key === "Enter" && handleSetPassword()}
+            style={{ width: "100%", padding: "10px 14px", fontSize: 14, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+        </div>
+        {error && <div style={{ padding: "8px 12px", borderRadius: 6, background: "#ef444415", color: "#ef4444", fontSize: 12, marginBottom: 14 }}>{error}</div>}
+        <button onClick={handleSetPassword} disabled={saving || !pw || !pw2}
+          style={{ width: "100%", padding: "12px 20px", fontSize: 14, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: saving ? "wait" : "pointer", opacity: saving || !pw || !pw2 ? 0.6 : 1, marginBottom: 12 }}>
+          {saving ? "Setting password..." : "Set Password & Continue"}
+        </button>
+        <div style={{ textAlign: "center" }}>
+          <button onClick={signOut} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>Sign out</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HelmApp() {
-  const { user, profile, loading: authLoading, signOut } = useAuth();
+  const { user, profile, loading: authLoading, signOut, needsPasswordSetup } = useAuth();
   const { tokens, mode } = useTheme();
   _setTokens(tokens); // sync theme tokens to global singleton for T proxy
   const [active, setActive] = useState("dashboard");
@@ -215,6 +265,7 @@ export default function HelmApp() {
   );
 
   if (!user) return <AuthPage />;
+  if (needsPasswordSetup) return <SetPasswordPage />;
 
   const renderView = () => {
     // Check module permissions (settings and dashboard always allowed)
