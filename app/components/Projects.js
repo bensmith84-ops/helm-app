@@ -795,7 +795,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       </div>
     </div>
   );
-  const ProjectHeader = () => { if (!proj) return null;
+  const projectHeaderEl = (() => { if (!proj) return null;
     const hColor = healthColors[projHealth];
     const hLabel = healthLabels[projHealth];
     return (
@@ -840,7 +840,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           <button onClick={() => setShowKeyboardHelp(v => !v)} title="Keyboard shortcuts (?)" style={{ ...S.iconBtn, fontSize: 11, color: T.text3, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 7px" }}>?</button>
         </div>
       </div>
-    </div>); };
+    </div>); })();
   const filterAssignees = [...new Set(projTasks.map(t => t.assignee_id).filter(Boolean))];
   const hasFilters = filterStatus !== "all" || filterPriority !== "all" || filterAssignee.length > 0;
   const filterBarEl = (
@@ -1327,7 +1327,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       </div>
     );
   })();
-  const DetailPane = () => {
+  // DetailPane uses hooks — stabilize with useRef to prevent remount
+  const _detailPaneRef = useRef(null);
+  if (!_detailPaneRef.current) _detailPaneRef.current = () => {
     const [activeDetailTab, setActiveDetailTab] = useState("details");
     const [activity, setActivity] = useState([]);
     const [activityLoading, setActivityLoading] = useState(false);
@@ -1767,6 +1769,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       </div>
     );
   };
+  const DetailPane = _detailPaneRef.current;
 
     const projectFormModalEl = (() => { if (!showProjectForm) return null; const isNew = showProjectForm === "new"; const colors = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"]; const f = projectForm; const set = (k, v) => setProjectForm(p => ({ ...p, [k]: v })); const toggleMember = (uid) => set("members", f.members.includes(uid) ? f.members.filter(id => id !== uid) : [...f.members, uid]); const lbl = { fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }; const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }; const sel = { ...inp, cursor: "pointer" }; const stepNames = ["Details", "Access & Privacy", "People"]; return (
     <div onClick={() => setShowProjectForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1863,7 +1866,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         </div>
       </div>
     </div>); })();
-  const UpdatesView = () => {
+  const updatesViewEl = (() => {
     const HEALTH_COLORS = { on_track: "#22c55e", at_risk: "#eab308", off_track: "#ef4444" };
     const HEALTH_LABELS = { on_track: "On Track", at_risk: "At Risk", off_track: "Off Track" };
     return (
@@ -1903,9 +1906,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         })}
       </div>
     );
-  };
+  })();
 
-  const DocsView = () => {
+  const _docsViewRef = useRef(null);
+  if (!_docsViewRef.current) _docsViewRef.current = () => {
     const [creatingDoc, setCreatingDoc] = useState(false);
     const [newDocTitle, setNewDocTitle] = useState("");
     const [newDocEmoji, setNewDocEmoji] = useState("📄");
@@ -2085,9 +2089,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       </div>
     );
   };
+  const DocsView = _docsViewRef.current;
 
   // Templates modal
-  const TemplatesModal = () => {
+  const templatesModalEl = (() => {
     if (!showTemplates) return null;
     return (
       <div onClick={() => setShowTemplates(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2134,10 +2139,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         </div>
       </div>
     );
-  };
+  })();
 
   // Copy project modal
-  const SaveAsTemplateModal = () => {
+  const saveAsTemplateModalEl = (() => {
     if (!savingAsTemplate) return null;
     const secCount = sections.filter(s => s.project_id === savingAsTemplate.id).length;
     const taskCount = tasks.filter(t => t.project_id === savingAsTemplate.id && !t.parent_task_id).length;
@@ -2161,9 +2166,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         </div>
       </div>
     );
-  };
+  })();
 
-  const CopyModal = () => {
+  const copyModalEl = (() => {
     if (!copyingProject) return null;
     return (
       <div onClick={() => setCopyingProject(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2179,7 +2184,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         </div>
       </div>
     );
-  };
+  })();
 
   // Status form modal
   const HEALTH_OPTS = [{ k: "on_track", l: "On Track", color: "#22c55e" }, { k: "at_risk", l: "At Risk", color: "#eab308" }, { k: "off_track", l: "Off Track", color: "#ef4444" }];
@@ -2345,7 +2350,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
             <DetailPane />
           </div>
         ) : proj ? (<>
-          <ProjectHeader />
+          {projectHeaderEl}
           {viewMode !== "Info" && filterBarEl}
           <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -2481,7 +2486,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               {viewMode === "Board" && {boardViewEl}}
               {viewMode === "Timeline" && {timelineViewEl}}
               {viewMode === "Calendar" && {calendarViewEl}}
-              {viewMode === "Updates" && <UpdatesView />}
+              {viewMode === "Updates" && {updatesViewEl}}
               {viewMode === "Docs" && <DocsView />}
               {viewMode === "Rules" && (
                 <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
@@ -2729,9 +2734,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         )}
       </div>
       {projectFormModalEl}
-      <TemplatesModal />
-      <SaveAsTemplateModal />
-      <CopyModal />
+      {templatesModalEl}
+      {saveAsTemplateModalEl}
+      {copyModalEl}
       {statusFormModalEl}
     </div>
   );
