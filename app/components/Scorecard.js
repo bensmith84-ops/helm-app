@@ -217,7 +217,7 @@ export default function ScorecardView() {
       const { data: allEntries } = await supabase.from("scorecard_entries").select("*").order("week_start", { ascending: false });
       const eMap = {};
       for (const m of (freshMetrics || metrics)) eMap[m.id] = {};
-      for (const e of (allEntries || [])) { if (!eMap[e.metric_id]) eMap[e.metric_id] = {}; eMap[e.metric_id][e.week_start] = e; }
+      for (const e of (allEntries || [])) { if (!eMap[e.metric_id]) eMap[e.metric_id] = {}; eMap[e.metric_id][e.week_start] = e.value; }
       setEntries(eMap);
       if (result.entries_upserted > 0) alert(`⚡ Auto-calculated ${result.entries_upserted} entries for ${result.metrics_processed} metric(s)`);
       else alert(result.message || `Processed ${result.metrics_processed || 0} metrics, ${result.entries_upserted || 0} entries`);
