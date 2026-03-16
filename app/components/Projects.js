@@ -77,6 +77,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [ctxProject, setCtxProject] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
+  const [projMembersList, setProjMembersList] = useState([]); // [{ project_id, user_id, role }]
+  const [showAddMember, setShowAddMember] = useState(false);
   // Templates & copy
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState([]);
@@ -126,7 +128,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const load = async () => {
       setLoading(true);
       try {
-        const [pR, sR, tR, prR, tmR, obR, favR, pmR, permR] = await Promise.all([
+        const [pR, sR, tR, prR, tmR, obR, favR, pmR, permR, allPmR] = await Promise.all([
           supabase.from("projects").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("sections").select("*").order("sort_order"),
           supabase.from("tasks").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("sort_order"),
@@ -136,6 +138,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           supabase.from("project_favorites").select("project_id").eq("user_id", user?.id),
           supabase.from("project_members").select("project_id, user_id, role").eq("user_id", user?.id),
           supabase.from("user_module_permissions").select("is_admin").eq("user_id", user?.id).maybeSingle(),
+          supabase.from("project_members").select("project_id, user_id, role"),
         ]);
         // Filter projects by visibility: public visible to all, private only to members/owner/admin
         const isAdmin = permR.data?.is_admin === true;
@@ -146,6 +149,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         setProjects(visibleProjects); setSections(sR.data || []); setTasks(tR.data || []);
         setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
         setFavorites(new Set((favR.data || []).map(f => f.project_id)));
+        setProjMembersList(allPmR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
         // Load templates and docs
@@ -816,6 +820,37 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         {!showSidebar && <button onClick={() => setShowSidebar(true)} style={S.iconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>}
         <div style={{ width: 12, height: 12, borderRadius: 6, background: proj.color || T.accent, flexShrink: 0 }} />
         <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, flex: 1 }}>{proj.emoji || ""} {proj.name}</h2>
+        {/* Project members */}
+        {(() => {
+          const members = projMembersList.filter(pm => pm.project_id === activeProject);
+          const ownerIncluded = members.some(m => m.user_id === proj.owner_id);
+          const allMemberIds = ownerIncluded ? members.map(m => m.user_id) : [proj.owner_id, ...members.map(m => m.user_id)].filter(Boolean);
+          const uniqueIds = [...new Set(allMemberIds)];
+          const maxShow = 5;
+          const shown = uniqueIds.slice(0, maxShow);
+          const extra = uniqueIds.length - maxShow;
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 0, flexShrink: 0 }}>
+              {shown.map((uid, i) => {
+                const p = profiles[uid];
+                const name = p?.display_name || "?";
+                const c = acol(uid);
+                const isOwner = uid === proj.owner_id;
+                return (
+                  <div key={uid} title={`${name}${isOwner ? " (Owner)" : ""}`}
+                    style={{ width: 28, height: 28, borderRadius: 14, background: `${c}20`, border: `2px solid ${isOwner ? c : T.surface}`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, marginLeft: i > 0 ? -6 : 0, zIndex: maxShow - i, cursor: "default", position: "relative" }}>
+                    {ini(uid)}
+                  </div>
+                );
+              })}
+              {extra > 0 && <div style={{ width: 28, height: 28, borderRadius: 14, background: T.surface3, border: `2px solid ${T.surface}`, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, marginLeft: -6 }}>+{extra}</div>}
+              <button onClick={() => setShowAddMember(true)} title="Manage members"
+                style={{ width: 28, height: 28, borderRadius: 14, background: "transparent", border: `1.5px dashed ${T.border}`, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, cursor: "pointer", marginLeft: 4 }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}>+</button>
+            </div>
+          );
+        })()}
         {viewMode !== "Info" && <>{/* Health badge */}
         <span style={{ ...S.pill, background: hColor + "18", color: hColor, border: `1px solid ${hColor}40`, fontSize: 11, fontWeight: 700 }}>
           {hLabel}
@@ -2751,6 +2786,67 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       {saveAsTemplateModalEl}
       {copyModalEl}
       {statusFormModalEl}
+      {showAddMember && activeProject && (() => {
+        const currentMembers = projMembersList.filter(pm => pm.project_id === activeProject);
+        const currentMemberIds = new Set(currentMembers.map(m => m.user_id));
+        const availableProfiles = Object.values(profiles).filter(p => !currentMemberIds.has(p.id) && p.id !== proj?.owner_id);
+        const addMember = async (uid) => {
+          const { error } = await supabase.from("project_members").insert({ project_id: activeProject, user_id: uid, role: "member" });
+          if (error) return;
+          setProjMembersList(p => [...p, { project_id: activeProject, user_id: uid, role: "member" }]);
+        };
+        const removeMember = async (uid) => {
+          await supabase.from("project_members").delete().eq("project_id", activeProject).eq("user_id", uid);
+          setProjMembersList(p => p.filter(pm => !(pm.project_id === activeProject && pm.user_id === uid)));
+        };
+        return (
+          <div onClick={() => setShowAddMember(false)} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+            <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 420, maxHeight: "70vh", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>Project Members</div>
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{proj?.name}</div>
+                </div>
+                <button onClick={() => setShowAddMember(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
+              </div>
+              <div style={{ flex: 1, overflow: "auto", padding: "12px 20px" }}>
+                {/* Current members */}
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Current Members ({currentMembers.length + (proj?.owner_id ? 1 : 0)})</div>
+                {proj?.owner_id && (() => {
+                  const p = profiles[proj.owner_id]; const c = acol(proj.owner_id);
+                  return <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 15, background: `${c}20`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{ini(proj.owner_id)}</div>
+                    <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p?.display_name || "Unknown"}</div><div style={{ fontSize: 10, color: T.text3 }}>{p?.email}</div></div>
+                    <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 8, background: T.accent + "20", color: T.accent, fontWeight: 700 }}>OWNER</span>
+                  </div>;
+                })()}
+                {currentMembers.filter(m => m.user_id !== proj?.owner_id).map(m => {
+                  const p = profiles[m.user_id]; const c = acol(m.user_id);
+                  return <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 15, background: `${c}20`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{ini(m.user_id)}</div>
+                    <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p?.display_name || "Unknown"}</div><div style={{ fontSize: 10, color: T.text3 }}>{p?.email}</div></div>
+                    <button onClick={() => removeMember(m.user_id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11 }} title="Remove">✕</button>
+                  </div>;
+                })}
+                {/* Add new members */}
+                {availableProfiles.length > 0 && <>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 16, marginBottom: 8 }}>Add Members</div>
+                  {availableProfiles.map(p => {
+                    const c = acol(p.id);
+                    return <div key={p.id} onClick={() => addMember(p.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}`, cursor: "pointer", borderRadius: 6 }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div style={{ width: 30, height: 30, borderRadius: 15, background: `${c}20`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{ini(p.id)}</div>
+                      <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{p.display_name}</div><div style={{ fontSize: 10, color: T.text3 }}>{p.email}</div></div>
+                      <span style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>+ Add</span>
+                    </div>;
+                  })}
+                </>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
