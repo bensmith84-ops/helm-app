@@ -12,6 +12,24 @@ const HEALTH = {
   off_track: { label: "Off Track", color: "#ef4444", bg: "#3d1111" },
 };
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
+// Direction-aware progress: for "below" KRs, being under target = 100%
+const calcProgress = (current, target, direction) => {
+  if (!target || target === 0) return 0;
+  if (direction === "below") {
+    // Target $1.50, Current $1.00 → 100% (at or below = done)
+    // Target $1.50, Current $2.50 → need to drop $1.00 out of $2.50 range → show how close
+    if (current <= target) return 100;
+    // Scale: at 2× target = 0%, at target = 100%
+    return Math.max(0, Math.round((1 - (current - target) / target) * 100));
+  }
+  return Math.round((current / target) * 100);
+};
+const progressColor = (pct, direction, current, target) => {
+  if (direction === "below") {
+    return current <= target ? "#22c55e" : pct >= 80 ? "#eab308" : "#ef4444";
+  }
+  return pct >= 70 ? "#22c55e" : pct >= 40 ? "#eab308" : "#3b82f6";
+};
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 const TIMEFRAME_OPTIONS = [
   { value: "month", label: "Monthly" },
@@ -195,7 +213,7 @@ export default function OKRsView() {
   const updateKRValue = async (krId, value) => {
     const kr = keyResults.find(k => k.id === krId);
     if (!kr) return;
-    const newProgress = kr.target_value > 0 ? Math.round((value / kr.target_value) * 100) : 0;
+    const newProgress = calcProgress(value, Number(kr.target_value), kr.target_direction);
     setKeyResults(p => p.map(k => k.id === krId ? { ...k, current_value: value, progress: newProgress } : k));
     await supabase.from("key_results").update({ current_value: value, progress: newProgress }).eq("id", krId);
     const objId = kr.objective_id;
@@ -413,7 +431,7 @@ export default function OKRsView() {
       const mode = rest.progress_mode || "manual";
       const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0, progress_mode: mode, target_direction: rest.target_direction || "above" };
       if (mode === "manual") {
-        updates.progress = updates.target_value > 0 ? Math.round((updates.current_value / updates.target_value) * 100) : 0;
+        updates.progress = calcProgress(updates.current_value, updates.target_value, updates.target_direction);
       } else {
         const linked = milestones.filter(m => m.key_result_id === id);
         updates.progress = linked.length > 0 ? Math.round(linked.reduce((s, m) => s + Number(m.progress || 0), 0) / linked.length) : 0;
@@ -799,11 +817,8 @@ export default function OKRsView() {
                   <span style={{ position: "relative" }}>Key Result<ORH index={0} /></span><span style={{ position: "relative" }}>Progress<ORH index={1} /></span><span style={{ position: "relative" }}>Value<ORH index={2} /></span><span style={{ position: "relative" }}>Confidence<ORH index={3} /></span><span>Owner</span>
                 </div>
                 {objKRs.map(kr => {
-                  const p = Number(kr.progress || 0); const sel = selectedKR === kr.id;
-                  const isBelow = kr.target_direction === "below";
-                  const effectiveP = isBelow && kr.target_value > 0 ? Math.max(0, Math.round((1 - (Number(kr.current_value || 0) - Number(kr.target_value)) / Number(kr.target_value)) * 100)) : p;
-                  const onTarget = isBelow ? Number(kr.current_value || 0) <= Number(kr.target_value) : p >= 100;
-                  const pColor = onTarget ? T.green : effectiveP >= 70 ? (isBelow ? "#eab308" : T.green) : effectiveP >= 40 ? "#eab308" : T.accent;
+                  const p = calcProgress(Number(kr.current_value || 0), Number(kr.target_value), kr.target_direction); const sel = selectedKR === kr.id;
+                  const pColor = progressColor(p, kr.target_direction, Number(kr.current_value || 0), Number(kr.target_value));
                   const krCIs = checkIns.filter(c => c.key_result_id === kr.id);
                   const lastCI = krCIs[0];
                   const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
@@ -902,7 +917,7 @@ export default function OKRsView() {
               const mode = d.progress_mode || "manual";
               const linkedMS = milestones.filter(m => m.key_result_id === d.id);
               const autoProgress = linkedMS.length > 0 ? Math.round(linkedMS.reduce((s, m) => s + Number(m.progress || 0), 0) / linkedMS.length) : 0;
-              const displayPct = mode === "milestones" ? autoProgress : (d.target_value > 0 ? Math.round(((d.current_value || 0) / d.target_value) * 100) : 0);
+              const displayPct = mode === "milestones" ? autoProgress : calcProgress(Number(d.current_value || 0), Number(d.target_value), d.target_direction);
               return <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
               {/* Progress mode toggle */}
@@ -941,7 +956,7 @@ export default function OKRsView() {
                   <label style={_elbl}>Progress</label>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                     <div style={{ flex: 1, height: 8, borderRadius: 8, background: T.surface3, overflow: "hidden" }}>
-                      <div style={{ width: `${displayPct}%`, height: "100%", borderRadius: 8, background: T.accent, transition: "width 0.3s" }} />
+                      <div style={{ width: `${Math.min(displayPct, 100)}%`, height: "100%", borderRadius: 8, background: progressColor(displayPct, d.target_direction, Number(d.current_value || 0), Number(d.target_value)), transition: "width 0.3s" }} />
                     </div>
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>{displayPct}%</span>
                   </div>
@@ -1480,7 +1495,7 @@ export default function OKRsView() {
     ];
     const confPct = Math.round((form.confidence || 0) * 100);
     const confColor = confPct >= 70 ? "#22c55e" : confPct >= 40 ? "#eab308" : "#ef4444";
-    const currentPct = kr.target_value > 0 ? Math.round((Number(kr.current_value || 0) / Number(kr.target_value)) * 100) : 0;
+    const currentPct = calcProgress(Number(kr.current_value || 0), Number(kr.target_value), kr.target_direction);
 
     return (
       <div onClick={() => setCheckInModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
