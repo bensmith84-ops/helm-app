@@ -22,10 +22,14 @@ const fmt = (v, unit) => {
 };
 
 const getWeekStart = (d = new Date()) => {
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const mon = new Date(d.setDate(diff));
-  return mon.toISOString().split("T")[0];
+  const dt = new Date(d);
+  const day = dt.getDay();
+  const diff = day === 0 ? -6 : 1 - day; // Monday = 1
+  dt.setDate(dt.getDate() + diff);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
 };
 
 const weeksBack = (n) => {
