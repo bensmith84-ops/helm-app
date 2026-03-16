@@ -25,38 +25,18 @@ const now = () => new Date().toISOString();
 const EditableBlock = memo(({ blockId, initialContent, style, placeholder, onContentChange, onKeyDown, onFocus, onSlash, blockRef }) => {
   const ref = useRef(null);
   const contentRef = useRef(initialContent || "");
-  const lastBlockId = useRef(blockId);
-
-  useEffect(() => {
-    // Only reset content when blockId changes (type change, block swap)
-    // NOT on normal re-renders which would wipe typed content
-    if (lastBlockId.current !== blockId) {
-      lastBlockId.current = blockId;
-      if (ref.current) {
-        ref.current.innerText = initialContent || "";
-        contentRef.current = initialContent || "";
-      }
-    }
-  });
-
-  // Set initial content on first mount
-  useEffect(() => {
-    if (ref.current && !ref.current.innerText && initialContent) {
-      ref.current.innerText = initialContent;
-    }
-  }, []);
 
   useEffect(() => { if (blockRef) blockRef(ref.current); }, [blockRef]);
 
   return (
     <div ref={ref} contentEditable suppressContentEditableWarning
+      dangerouslySetInnerHTML={{ __html: initialContent || "" }}
       data-placeholder={placeholder}
       style={{ ...style, outline: "none", minHeight: "1.5em", wordBreak: "break-word" }}
       onInput={e => {
         const text = e.target.innerText;
         contentRef.current = text;
         onContentChange(text);
-        // Slash command detection
         if (text === "/") { onSlash?.(e.target.getBoundingClientRect(), ""); }
         else if (text.startsWith("/") && text.length < 20) { onSlash?.(e.target.getBoundingClientRect(), text.slice(1).toLowerCase()); }
       }}
