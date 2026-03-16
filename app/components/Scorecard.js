@@ -48,7 +48,7 @@ const weeksBack = (n) => {
 const WEEKS = weeksBack(13); // 13 weeks = rolling quarter
 const SHORT_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-function InlineEntry({ value, onSave, unit }) {
+function InlineEntry({ value, onSave, unit, onComment, hasComment }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(value != null ? String(value) : "");
   const inputRef = useRef(null);
@@ -81,6 +81,7 @@ function InlineEntry({ value, onSave, unit }) {
 
   return (
     <div onClick={() => { setVal(value != null ? String(value) : ""); setEditing(true); }}
+      onContextMenu={e => { if (onComment) { e.preventDefault(); onComment(); } }}
       style={{ cursor:"pointer", fontSize:12, textAlign:"center", color: value != null ? T.text : T.text3,
         fontWeight: value != null ? 600 : 400, padding:"2px 4px", borderRadius:4,
         background:"transparent", transition:"background 0.1s",
@@ -123,6 +124,7 @@ export default function ScorecardView() {
   const { user, profile } = useAuth();
   const [metrics, setMetrics] = useState([]);
   const [entries, setEntries] = useState({}); // { metricId: { weekStart: value } }
+  const [comments, setComments] = useState({}); // { metricId: { weekStart: { comment, comment_by, comment_at } } }
   const [goalPeriods, setGoalPeriods] = useState({}); // { metricId: [{ goal, start_date, end_date }] }
   const [editingGoals, setEditingGoals] = useState(null); // metric id or null
   const [profiles, setProfiles] = useState({});
@@ -163,11 +165,17 @@ export default function ScorecardView() {
           supabase.from("scorecard_goal_periods").select("*").in("metric_id", met.map(m => m.id)).order("start_date"),
         ]);
         const map = {};
+        const cMap = {};
         (ent || []).forEach(e => {
           if (!map[e.metric_id]) map[e.metric_id] = {};
           map[e.metric_id][e.week_start] = e.value != null ? Number(e.value) : null;
+          if (e.comment) {
+            if (!cMap[e.metric_id]) cMap[e.metric_id] = {};
+            cMap[e.metric_id][e.week_start] = { comment: e.comment, comment_by: e.comment_by, comment_at: e.comment_at };
+          }
         });
         setEntries(map);
+        setComments(cMap);
         const gpMap = {};
         (gp || []).forEach(g => {
           if (!gpMap[g.metric_id]) gpMap[g.metric_id] = [];
@@ -205,6 +213,26 @@ export default function ScorecardView() {
       { onConflict: "metric_id,week_start" }
     );
     if (error) console.error("[Scorecard] saveEntry error:", error);
+  };
+
+  const saveComment = async (metricId, weekStart, commentText) => {
+    const trimmed = commentText?.trim() || null;
+    setComments(p => {
+      const next = { ...p };
+      if (!next[metricId]) next[metricId] = {};
+      if (trimmed) {
+        next[metricId] = { ...next[metricId], [weekStart]: { comment: trimmed, comment_by: user?.id, comment_at: new Date().toISOString() } };
+      } else {
+        next[metricId] = { ...next[metricId] };
+        delete next[metricId][weekStart];
+      }
+      return next;
+    });
+    const { error } = await supabase.from("scorecard_entries").upsert(
+      { metric_id: metricId, week_start: weekStart, comment: trimmed, comment_by: trimmed ? user?.id : null, comment_at: trimmed ? new Date().toISOString() : null },
+      { onConflict: "metric_id,week_start" }
+    );
+    if (error) console.error("[Scorecard] saveComment error:", error);
   };
 
   const addMetric = async () => {
@@ -245,12 +273,18 @@ export default function ScorecardView() {
       const { data: allEntries } = await supabase.from("scorecard_entries").select("*")
         .in("metric_id", metricIds).in("week_start", WEEKS);
       const eMap = {};
+      const cMap = {};
       (freshMetrics || metrics).forEach(m => { eMap[m.id] = {}; });
       (allEntries || []).forEach(e => {
         if (!eMap[e.metric_id]) eMap[e.metric_id] = {};
         eMap[e.metric_id][e.week_start] = e.value != null ? Number(e.value) : null;
+        if (e.comment) {
+          if (!cMap[e.metric_id]) cMap[e.metric_id] = {};
+          cMap[e.metric_id][e.week_start] = { comment: e.comment, comment_by: e.comment_by, comment_at: e.comment_at };
+        }
       });
       setEntries(eMap);
+      setComments(cMap);
       if (result.entries_upserted > 0) alert(`⚡ Auto-calculated ${result.entries_upserted} entries for ${result.metrics_processed} metric(s)`);
       else alert(result.message || `Processed ${result.metrics_processed || 0} metrics, ${result.entries_upserted || 0} entries`);
     } catch (e) { console.error("Auto-calc failed:", e); alert("Auto-calc error: " + e.message); }
@@ -520,15 +554,44 @@ export default function ScorecardView() {
                       const v = entries[m.id]?.[w] ?? null;
                       const weekGoal = getGoalForDate(m, w);
                       const onTarget = v!=null && weekGoal!=null && (m.unit==="bool"?v>=1: m.target_direction==="below" ? v<=weekGoal : v>=weekGoal);
+                      const cm = comments[m.id]?.[w];
+                      const isMyComment = cm?.comment_by === user?.id;
                       return (
-                        <td key={w} style={{ padding:"6px 4px", background: isThis?T.accentDim+"80":"transparent" }}>
+                        <td key={w} style={{ padding:"6px 4px", background: isThis?T.accentDim+"80":"transparent", position:"relative" }}>
                           <div style={{ position:"relative" }}>
                             {v!=null && weekGoal!=null && (
-                              <div style={{ position:"absolute", top:0, right:2, width:5, height:5, borderRadius:"50%",
+                              <div style={{ position:"absolute", top:0, right: cm ? 14 : 2, width:5, height:5, borderRadius:"50%",
                                 background: onTarget?"#22c55e":"#ef4444", zIndex:1 }} />
                             )}
+                            {cm && (
+                              <div style={{ position:"absolute", top:-1, right:1, zIndex:2, cursor:"pointer", fontSize:10 }}
+                                title={`${cm.comment}${isMyComment ? "\n\n(Right-click to edit/delete)" : ""}`}
+                                onContextMenu={e => {
+                                  if (!isMyComment) return;
+                                  e.preventDefault();
+                                  const action = prompt(`Comment: "${cm.comment}"\n\nType new comment to edit, or type DELETE to remove:`, cm.comment);
+                                  if (action === null) return;
+                                  if (action === "DELETE" || action === "delete") { saveComment(m.id, w, null); }
+                                  else if (action.trim()) { saveComment(m.id, w, action.trim()); }
+                                }}
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  if (!isMyComment) { alert(cm.comment); return; }
+                                  const action = prompt(`Edit comment:`, cm.comment);
+                                  if (action === null) return;
+                                  if (action.trim() === "") { saveComment(m.id, w, null); }
+                                  else { saveComment(m.id, w, action.trim()); }
+                                }}>💬</div>
+                            )}
                             <InlineEntry value={v} unit={m.unit}
-                              onSave={(val) => saveEntry(m.id, w, val)} />
+                              onSave={(val) => saveEntry(m.id, w, val)}
+                              onComment={() => {
+                                const existing = cm?.comment || "";
+                                const text = prompt(existing ? `Edit comment:` : "Add comment:", existing);
+                                if (text === null) return;
+                                if (text.trim() === "" && existing) { saveComment(m.id, w, null); }
+                                else if (text.trim()) { saveComment(m.id, w, text.trim()); }
+                              }} hasComment={!!cm} />
                           </div>
                         </td>
                       );
