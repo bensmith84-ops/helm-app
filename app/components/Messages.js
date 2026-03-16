@@ -312,7 +312,7 @@ export default function MessagesView() {
             <div style={{ padding: "16px 20px" }}>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Task Title</label>
-                <input autoFocus value={taskTitle} onChange={e => setTaskTitle(e.target.value)}
+                <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && taskTitle.trim()) document.getElementById("msg-create-task-btn")?.click(); }}
                   style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               </div>

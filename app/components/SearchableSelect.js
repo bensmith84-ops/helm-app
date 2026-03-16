@@ -53,7 +53,7 @@ function SearchableMultiSelect({ options, selected, onChange, placeholder, multi
       {open && (
         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 60, marginTop: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", maxHeight: 240, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
-            <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..."
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..."
               onClick={e => e.stopPropagation()}
               style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
           </div>

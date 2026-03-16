@@ -1032,7 +1032,7 @@ export default function DashboardView({ setActive }) {
               <div style={{ padding:"20px 24px" }}>
                 <div style={{ marginBottom:14 }}>
                   <label style={{ fontSize:12, fontWeight:600, color:T.text2, display:"block", marginBottom:4 }}>Task Title *</label>
-                  <input autoFocus value={newTaskForm.title} onChange={e => setNewTaskForm(p => ({...p, title: e.target.value}))}
+                  <input value={newTaskForm.title} onChange={e => setNewTaskForm(p => ({...p, title: e.target.value}))}
                     onKeyDown={e => { if (e.key === "Enter" && newTaskForm.title.trim()) { document.getElementById("dash-create-task-btn")?.click(); } }}
                     placeholder="What needs to be done?"
                     style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:14, outline:"none", boxSizing:"border-box" }} />

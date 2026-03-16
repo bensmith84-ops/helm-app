@@ -299,7 +299,7 @@ export default function CampaignsView() {
             <h3 style={{ fontSize:17, fontWeight:700, marginBottom:20 }}>New Campaign</h3>
             <div style={{ marginBottom:14 }}>
               <label style={{ fontSize:12, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Name *</label>
-              <input autoFocus value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key==="Enter" && createCampaign()}
+              <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key==="Enter" && createCampaign()}
                 placeholder="Campaign name…" style={{ width:"100%", padding:"9px 12px", fontSize:13, color:T.text, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:7, outline:"none", fontFamily:"inherit", boxSizing:"border-box" }} />
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>

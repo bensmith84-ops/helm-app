@@ -348,7 +348,7 @@ export default function AutomationView() {
 
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 4, display: "block" }}>Name *</label>
-              <input autoFocus value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && createRule()}
+              <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && createRule()}
                 placeholder="e.g. Alert on overdue tasks" style={{ width: "100%", padding: "9px 12px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
             </div>
 

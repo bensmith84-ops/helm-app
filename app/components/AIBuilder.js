@@ -767,7 +767,7 @@ export default function AIBuilderView() {
               type="password"
               placeholder="sk-ant-api03-..."
               defaultValue={apiKey}
-              autoFocus
+             
               onKeyDown={e => { if (e.key === "Enter" && e.target.value.trim()) saveApiKey(e.target.value.trim()); }}
               id="api-key-input"
               style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontFamily: "monospace", outline: "none", boxSizing: "border-box", marginBottom: 12 }} />

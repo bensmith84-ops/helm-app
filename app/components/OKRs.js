@@ -892,7 +892,7 @@ export default function OKRsView() {
           <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
             {/* OBJECTIVE EDIT */}
             {type === "objective" && <>
-              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
+              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} style={_einp} /></div>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Description</label><textarea value={d.description || ""} onChange={e => editSet("description", e.target.value)} rows={2} style={{ ..._einp, resize: "vertical" }} /></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
@@ -919,7 +919,7 @@ export default function OKRsView() {
               const autoProgress = linkedMS.length > 0 ? Math.round(linkedMS.reduce((s, m) => s + Number(m.progress || 0), 0) / linkedMS.length) : 0;
               const displayPct = mode === "milestones" ? autoProgress : calcProgress(Number(d.current_value || 0), Number(d.target_value), d.target_direction);
               return <>
-              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
+              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} style={_einp} /></div>
               {/* Progress mode toggle */}
               <div style={{ marginBottom: 12, padding: "10px 14px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
                 <label style={{ ..._elbl, marginBottom: 8 }}>Progress Mode</label>
@@ -977,7 +977,7 @@ export default function OKRsView() {
               const autoPct = tv > 0 ? Math.round((cv / tv) * 100) : 0;
               const h = HEALTH[d.health || "on_track"] || HEALTH.on_track;
               return <>
-              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} autoFocus style={_einp} /></div>
+              <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} style={_einp} /></div>
 
               {/* Health status selector */}
               <div style={{ marginBottom: 12 }}>
@@ -1029,7 +1029,7 @@ export default function OKRsView() {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px", gap: 8, marginBottom: 8 }}>
                       <div><label style={{ ..._elbl, fontSize: 10 }}>Period Start</label><input type="date" value={d._newUpdate.period_start} onChange={e => editSet("_newUpdate", { ...d._newUpdate, period_start: e.target.value })} style={{ ..._einp, fontSize: 12 }} /></div>
                       <div><label style={{ ..._elbl, fontSize: 10 }}>Period End</label><input type="date" value={d._newUpdate.period_end} onChange={e => editSet("_newUpdate", { ...d._newUpdate, period_end: e.target.value })} style={{ ..._einp, fontSize: 12 }} /></div>
-                      <div><label style={{ ..._elbl, fontSize: 10 }}>Value</label><input type="number" value={d._newUpdate.value} onChange={e => editSet("_newUpdate", { ...d._newUpdate, value: e.target.value })} placeholder="0" style={{ ..._einp, fontSize: 12 }} autoFocus /></div>
+                      <div><label style={{ ..._elbl, fontSize: 10 }}>Value</label><input type="number" value={d._newUpdate.value} onChange={e => editSet("_newUpdate", { ...d._newUpdate, value: e.target.value })} placeholder="0" style={{ ..._einp, fontSize: 12 }} /></div>
                     </div>
                     <input value={d._newUpdate.note || ""} onChange={e => editSet("_newUpdate", { ...d._newUpdate, note: e.target.value })} placeholder="Note (optional)" style={{ ..._einp, fontSize: 12, marginBottom: 8 }} />
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
@@ -1069,7 +1069,7 @@ export default function OKRsView() {
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 6, marginBottom: 6 }}>
                               <div><label style={{ fontSize: 9, color: T.text3 }}>From</label><input type="date" value={d._editUpdateData?.period_start || u.period_start} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), period_start: e.target.value })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
                               <div><label style={{ fontSize: 9, color: T.text3 }}>To</label><input type="date" value={d._editUpdateData?.period_end || u.period_end} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), period_end: e.target.value })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
-                              <div><label style={{ fontSize: 9, color: T.text3 }}>Value</label><input type="number" value={d._editUpdateData?.value ?? u.value} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), value: e.target.value })} autoFocus style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
+                              <div><label style={{ fontSize: 9, color: T.text3 }}>Value</label><input type="number" value={d._editUpdateData?.value ?? u.value} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), value: e.target.value })} style={{ ..._einp, fontSize: 11, padding: "4px 6px" }} /></div>
                             </div>
                             <input value={d._editUpdateData?.note ?? (u.note || "")} onChange={e => editSet("_editUpdateData", { ...(d._editUpdateData || u), note: e.target.value })} placeholder="Note" style={{ ..._einp, fontSize: 11, padding: "4px 6px", marginBottom: 6 }} />
                             <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
@@ -1143,12 +1143,12 @@ export default function OKRsView() {
   })();
 
   // Milestone form modal
-  const MilestoneModal = () => { if (!msForm) return null; return (
+  const milestoneModal = msForm && (
     <div onClick={() => setMsForm(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={e => e.stopPropagation()} style={{ width: 380, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px" }}>Add Milestone</h3>
         <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Title</label>
-          <input value={msForm.title} onChange={e => setMsForm(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Launch Australia GWP" autoFocus style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          <input value={msForm.title} onChange={e => setMsForm(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Launch Australia GWP" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <div style={{ flex: 1 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Start</label><input type="date" value={msForm.start_date} onChange={e => setMsForm(p => ({ ...p, start_date: e.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} /></div>
@@ -1160,7 +1160,7 @@ export default function OKRsView() {
           <button onClick={saveMilestone} style={{ padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Add</button>
         </div>
       </div>
-    </div>); };
+    </div>);
 
   // Header
 
@@ -1304,7 +1304,7 @@ export default function OKRsView() {
           <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text3 }}>
             <span>Annual target:</span>
             {finEditing?.metricId === metric.id && finEditing?.field === "annual" ? (
-              <input autoFocus value={finEditVal}
+              <input value={finEditVal}
                 onChange={e => setFinEditVal(e.target.value)}
                 onBlur={() => saveAnnualTarget(metric.id, finEditVal)}
                 onKeyDown={e => { if (e.key === "Enter") saveAnnualTarget(metric.id, finEditVal); if (e.key === "Escape") setFinEditing(null); }}
@@ -1350,7 +1350,7 @@ export default function OKRsView() {
                 <div style={{ fontSize: 9, fontWeight: 700, color: isCur ? T.accent : T.text3, marginBottom: 3, textTransform: "uppercase" }}>{mon}</div>
                 {/* Actual */}
                 {isEditingActual ? (
-                  <input autoFocus value={finEditVal}
+                  <input value={finEditVal}
                     onChange={e => setFinEditVal(e.target.value)}
                     onBlur={() => saveMonthlyValue(metric.id, m, "actual", finEditVal)}
                     onKeyDown={e => { if (e.key === "Enter") saveMonthlyValue(metric.id, m, "actual", finEditVal); if (e.key === "Escape") setFinEditing(null); }}
@@ -1363,7 +1363,7 @@ export default function OKRsView() {
                 )}
                 {/* Target */}
                 {isEditingTarget ? (
-                  <input autoFocus value={finEditVal}
+                  <input value={finEditVal}
                     onChange={e => setFinEditVal(e.target.value)}
                     onBlur={() => saveMonthlyValue(metric.id, m, "target", finEditVal)}
                     onKeyDown={e => { if (e.key === "Enter") saveMonthlyValue(metric.id, m, "target", finEditVal); if (e.key === "Escape") setFinEditing(null); }}
@@ -1405,7 +1405,7 @@ export default function OKRsView() {
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>Name *</div>
-              <input value={cycleForm.name} onChange={e => setCycleForm(p => ({ ...p, name: e.target.value }))} autoFocus
+              <input value={cycleForm.name} onChange={e => setCycleForm(p => ({ ...p, name: e.target.value }))}
                 placeholder="e.g. Q2 2026" style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", width: 160 }} />
             </div>
             <div>
@@ -1596,7 +1596,7 @@ export default function OKRsView() {
               <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>What happened this week? *</label>
               <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))}
                 placeholder="Key progress, wins, or updates…"
-                rows={3} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} autoFocus />
+                rows={3} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
             </div>
 
             {/* Blockers */}
@@ -1783,7 +1783,7 @@ export default function OKRsView() {
             </div>
             <div style={{ marginBottom: 12 }}>
               <label style={_lbl}>Summary *</label>
-              <textarea value={localForm.summary} onChange={e => setLocalForm(p => ({ ...p, summary: e.target.value }))} autoFocus placeholder="How is this objective progressing this week?" rows={3} style={_inp} />
+              <textarea value={localForm.summary} onChange={e => setLocalForm(p => ({ ...p, summary: e.target.value }))} placeholder="How is this objective progressing this week?" rows={3} style={_inp} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
               <div><label style={_lbl}>✨ Wins</label><textarea value={localForm.wins} onChange={e => setLocalForm(p => ({ ...p, wins: e.target.value }))} placeholder="What went well?" rows={2} style={_inp} /></div>
@@ -1859,7 +1859,7 @@ export default function OKRsView() {
       </div>
 
       {editModal}
-      <MilestoneModal />
+      {milestoneModal}
       {objFormModal}
       <CheckInModal />
     </div>
@@ -1912,7 +1912,7 @@ function OwnerPicker({ profiles, value, onChange }) {
       </div>
       {open && <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", overflow: "hidden" }}>
         <div style={{ padding: 6, borderBottom: `1px solid ${T.border}` }}>
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" autoFocus
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
             style={{ ..._inp, padding: "6px 8px", fontSize: 11 }}
             onClick={e => e.stopPropagation()} />
         </div>
@@ -1965,7 +1965,7 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
           <div style={{ marginBottom: 14 }}><label style={_lbl}>Objective Title *</label>
-            <input value={f.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Win and Lead the Category at Mass Retail" autoFocus style={_inp} />
+            <input value={f.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Win and Lead the Category at Mass Retail" style={_inp} />
           </div>
           <div style={{ marginBottom: 14 }}><label style={_lbl}>Description</label>
             <textarea value={f.description} onChange={e => set("description", e.target.value)} rows={2} placeholder="Optional context or details" style={{ ..._inp, resize: "vertical", minHeight: 48 }} />

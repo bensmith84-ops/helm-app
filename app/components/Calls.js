@@ -264,7 +264,7 @@ export default function CallsView() {
             ].map(f => (
               <div key={f.k} style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>{f.l}</label>
-                <input autoFocus={f.k === "title"} type={f.t} value={form[f.k] || ""} onChange={e => setForm(p => ({ ...p, [f.k]: f.t === "number" ? Number(e.target.value) || 60 : e.target.value }))} onKeyDown={e => e.key === "Enter" && createCall()}
+                <input type={f.t} value={form[f.k] || ""} onChange={e => setForm(p => ({ ...p, [f.k]: f.t === "number" ? Number(e.target.value) || 60 : e.target.value }))} onKeyDown={e => e.key === "Enter" && createCall()}
                   style={{ width: "100%", padding: "8px 10px", fontSize: 13, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, outline: "none", fontFamily: "inherit", boxSizing: "border-box", colorScheme: "dark" }} />
               </div>
             ))}

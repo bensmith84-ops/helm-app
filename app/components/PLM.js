@@ -120,7 +120,7 @@ function MultiSelectDropdown({ label, value=[], onChange, options }) {
       {open && (
         <div style={{ position:"absolute", zIndex:200, background:T.surface, border:"1px solid "+T.border, borderRadius:8, boxShadow:"0 8px 24px #00000060", marginTop:4, width:"100%", maxHeight:220, overflow:"hidden", display:"flex", flexDirection:"column" }}>
           <div style={{ padding:"8px 10px", borderBottom:"1px solid "+T.border }}>
-            <input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{ width:"100%", fontSize:12, background:T.surface2, border:"1px solid "+T.border, borderRadius:5, padding:"4px 8px", color:T.text, outline:"none" }} />
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{ width:"100%", fontSize:12, background:T.surface2, border:"1px solid "+T.border, borderRadius:5, padding:"4px 8px", color:T.text, outline:"none" }} />
           </div>
           <div style={{ overflowY:"auto", flex:1 }}>
             {filtered.map(opt=>(
@@ -160,7 +160,7 @@ function FormulaIngredientCell({ value, itemType, onPick, onChange, onBlur }) {
   if (editing) {
     return (
       <>
-        <input ref={inputRef} autoFocus value={draft}
+        <input ref={inputRef} value={draft}
           onChange={e=>{ setDraft(e.target.value); onChange(e.target.value); }}
           onBlur={()=>{ setEditing(false); onBlur(); }}
           onKeyDown={e=>{ if(e.key==="Escape"||e.key==="Enter"){ setEditing(false); onBlur(); }}}
@@ -620,7 +620,7 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
       <div style={{ display:"flex",gap:6 }}>
         <input value={custom} onChange={e=>setCustom(e.target.value)}
           onBlur={()=>{ onChange(custom); onBlur&&onBlur(); }}
-          placeholder="Enter supplier name" autoFocus
+          placeholder="Enter supplier name"
           style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.accent,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit" }} />
         <button onClick={()=>setMode("select")} title="Pick from library"
           style={{ fontSize:11,padding:"4px 8px",background:T.surface3,border:"1px solid "+T.border,borderRadius:5,cursor:"pointer",color:T.text3,whiteSpace:"nowrap" }}>
@@ -1058,7 +1058,7 @@ function IngredientPickerModal({ onPick, onClose }) {
           <div style={{ padding:20,flex:1 }}>
             <div style={{ fontSize:11,fontWeight:600,color:T.text3,marginBottom:6 }}>Ingredient Name *</div>
             <input
-              autoFocus
+             
               value={customName}
               onChange={e=>setCustomName(e.target.value)}
               onKeyDown={e=>{ if(e.key==="Enter"&&customName.trim()) pick(customName.trim(),"","ingredient"); }}

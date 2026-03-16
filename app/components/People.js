@@ -133,7 +133,7 @@ export default function PeopleView() {
     const filt = people.filter(u => !q || u.display_name?.toLowerCase().includes(q.toLowerCase()) || u.email?.toLowerCase().includes(q.toLowerCase()));
     return (<div>
       <div style={{ padding: "6px 10px", borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, background: T.surface, zIndex: 1 }}>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder || "Search people…"} autoFocus style={{ width: "100%", padding: "6px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder || "Search people…"} style={{ width: "100%", padding: "6px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
       </div>
       <div style={{ maxHeight: 220, overflow: "auto" }}>
         {filt.length === 0 && <div style={{ padding: 12, fontSize: 12, color: T.text3, textAlign: "center" }}>No matches</div>}
@@ -428,18 +428,18 @@ export default function PeopleView() {
     </div>); };
 
   // === MODALS ===
-  const InviteModal = () => { if (!showInvite) return null; return (
+  const inviteModal = showInvite && (
     <div onClick={() => setShowInvite(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={e => e.stopPropagation()} style={{ width: 400, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>Add Team Member</h3>
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Name</label><input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="Full name" autoFocus style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Name</label><input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="Full name" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
         <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Email</label><input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="email@company.com" type="email" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
         <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Role</label><select value={inviteRole} onChange={e => setInviteRole(e.target.value)} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none" }}>{ROLES.filter(r => r !== "owner").map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}</select></div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button onClick={() => setShowInvite(false)} style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button><button onClick={inviteUser} style={{ padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Add Member</button></div>
       </div>
-    </div>); };
+    </div>);
 
-  const TeamFormModal = () => { if (!showTeamForm) return null; return (
+  const teamFormModal = showTeamForm && (
     <div onClick={() => setShowTeamForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={e => e.stopPropagation()} style={{ width: 400, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>{teamForm.parent_team_id ? "New Sub-team" : "New Team"}</h3>
@@ -449,7 +449,7 @@ export default function PeopleView() {
             <button onClick={() => setTeamForm(p => ({ ...p, parent_team_id: null }))} style={{ marginLeft: "auto", background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11 }}>✕ Remove</button>
           </div>
         ) : null; })()}
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Team Name</label><input value={teamForm.name} onChange={e => setTeamForm(p => ({ ...p, name: e.target.value }))} placeholder={teamForm.parent_team_id ? "e.g. Manufacturing" : "e.g. Operations"} autoFocus style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Team Name</label><input value={teamForm.name} onChange={e => setTeamForm(p => ({ ...p, name: e.target.value }))} placeholder={teamForm.parent_team_id ? "e.g. Manufacturing" : "e.g. Operations"} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
         <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Description</label><input value={teamForm.description} onChange={e => setTeamForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional description" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
         {!teamForm.parent_team_id && teams.filter(t => !t.parent_team_id).length > 0 && (
           <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Parent Team (optional)</label>
@@ -463,7 +463,7 @@ export default function PeopleView() {
         <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 6 }}>Color</label><div style={{ display: "flex", gap: 6 }}>{TEAM_COLORS.map(c => <div key={c} onClick={() => setTeamForm(p => ({ ...p, color: c }))} style={{ width: 28, height: 28, borderRadius: 14, background: c, cursor: "pointer", border: teamForm.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: teamForm.color === c ? `0 0 0 2px ${c}` : "none" }} />)}</div></div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button onClick={() => setShowTeamForm(false)} style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button><button onClick={createTeam} style={{ padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Create Team</button></div>
       </div>
-    </div>); };
+    </div>);
 
   if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}><div style={{ width: 28, height: 28, border: `3px solid ${T.border}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.8s linear infinite", marginRight: 10 }} />Loading team…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;
 
@@ -491,8 +491,8 @@ export default function PeopleView() {
         {viewMode === "teams" && <TeamsView />}
       </div>
       {viewMode !== "teams" && <DetailPanel />}
-      <InviteModal />
-      <TeamFormModal />
+      {inviteModal}
+      {teamFormModal}
     </div>
   );
 }

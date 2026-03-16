@@ -338,7 +338,7 @@ export default function DocsView({ setActive }) {
                       <td key={ci} style={{ ...cellStyle, background: formula ? `${T.accent}08` : "transparent" }}
                         onClick={() => { setEditCell(key); setEditVal(formula || cell); }}>
                         {isEditing ? (
-                          <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                          <input value={editVal} onChange={e => setEditVal(e.target.value)}
                             onBlur={() => { setCell(ri, ci, editVal); setEditCell(null); }}
                             onKeyDown={e => { if (e.key === "Enter") { setCell(ri, ci, editVal); setEditCell(null); } if (e.key === "Escape") setEditCell(null); if (e.key === "Tab") { e.preventDefault(); setCell(ri, ci, editVal); const nc = ci + 1 < td.cols.length ? `${ri},${ci+1}` : ri + 1 < td.rows.length ? `${ri+1},0` : null; if (nc) { setEditCell(nc); const [nr, ncc] = nc.split(",").map(Number); setEditVal(td.formulas?.[nc] || td.rows[nr]?.[ncc] || ""); } else { setEditCell(null); } } }}
                             style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontFamily: formula ? "monospace" : "inherit" }} />
@@ -733,7 +733,7 @@ export default function DocsView({ setActive }) {
       {/* SLASH MENU with search */}
       {slashMenu && <div style={{ position: "fixed", left: Math.min(slashMenu.x, window.innerWidth - 240), top: Math.min(slashMenu.y, window.innerHeight - 340), width: 230, background: T.surface || "#fff", borderRadius: 8, border: `1px solid ${T.border}`, boxShadow: "0 8px 30px rgba(0,0,0,0.2)", zIndex: 100, overflow: "hidden", maxHeight: 340 }}>
         <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
-          <input autoFocus value={slashMenu.filter} onChange={e => setSlashMenu(p => ({ ...p, filter: e.target.value.toLowerCase() }))}
+          <input value={slashMenu.filter} onChange={e => setSlashMenu(p => ({ ...p, filter: e.target.value.toLowerCase() }))}
             placeholder="Search blocks..." onKeyDown={e => { if (e.key === "Escape") setSlashMenu(null); if (e.key === "Enter") { const filtered = SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter)); if (filtered.length) { changeBlockType(slashMenu.blockId, filtered[0].type); blockContents.current[slashMenu.blockId] = ""; } } }}
             style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, fontFamily: "inherit" }} />
         </div>

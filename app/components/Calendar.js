@@ -330,7 +330,7 @@ export default function CalendarView() {
                       {/* Quick add */}
                       {addingTask === ds ? (
                         <div style={{ display:"flex", gap:6, marginTop:4 }}>
-                          <input autoFocus value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)}
+                          <input value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)}
                             onKeyDown={e => { if (e.key==="Enter") quickAddTask(ds); if (e.key==="Escape") { setAddingTask(null); setNewTaskTitle(""); } }}
                             placeholder="Task name…"
                             style={{ flex:1, padding:"6px 10px", borderRadius:6, border:`1px solid ${T.accent}`, background:T.surface2, color:T.text, fontSize:12, outline:"none" }} />
@@ -391,7 +391,7 @@ export default function CalendarView() {
               {/* Quick add */}
               {addingTask === selectedDate ? (
                 <div style={{ display:"flex", gap:6, marginTop:8 }}>
-                  <input autoFocus value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)}
+                  <input value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)}
                     onKeyDown={e => { if (e.key==="Enter") quickAddTask(selectedDate); if (e.key==="Escape") { setAddingTask(null); setNewTaskTitle(""); } }}
                     placeholder="New task…"
                     style={{ flex:1, padding:"6px 8px", borderRadius:6, border:`1px solid ${T.accent}`, background:T.surface2, color:T.text, fontSize:12, outline:"none" }} />
