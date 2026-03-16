@@ -262,6 +262,8 @@ export default function ScoreboardView() {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMetric, setSelectedMetric] = useState(null);
+  const [dailyView, setDailyView] = useState("cards");
+  const [tableViewPage, setTableViewPage] = useState(0);
   const [aiSummary, setAiSummary] = useState(null);
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
   const chatEndRef = useRef(null);
@@ -888,8 +890,15 @@ export default function ScoreboardView() {
               </div>
             ) : (
               <div>
+                {/* Sub-tab toggle: Cards vs Table */}
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16 }}>
+                  {[["cards","📊 Cards"],["table","📋 Table"]].map(([k,l])=>(
+                    <button key={k} onClick={()=>setDailyView(k)} style={{ padding:"5px 14px", fontSize:12, fontWeight:600, borderRadius:6, border:`1px solid ${dailyView===k?T.accent:T.border}`, background:dailyView===k?T.accentDim:"transparent", color:dailyView===k?T.accent:T.text3, cursor:"pointer" }}>{l}</button>
+                  ))}
+                </div>
+
+                {dailyView === "cards" && (<>
                 <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
-                  {/* Group metrics by category */}
                   {Object.entries(
                     Object.keys(daily).reduce((groups, k) => {
                       const g = (METRIC_META[k]?.group) || "Other";
@@ -917,7 +926,6 @@ export default function ScoreboardView() {
                     <div style={{ height:120, marginBottom:12 }}>
                       <BarChart data={[...daily[selectedMetric]].reverse()} color={METRIC_META[selectedMetric]?.color||T.accent} height={120} />
                     </div>
-                    {/* Recent rows table */}
                     <table style={{ width:"100%", borderCollapse:"collapse" }}>
                       <thead><tr style={{ borderBottom:`1px solid ${T.border}` }}>
                         <th style={{ padding:"6px 8px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>Date</th>
@@ -940,6 +948,75 @@ export default function ScoreboardView() {
                     </table>
                   </div>
                 )}
+                </>)}
+
+                {dailyView === "table" && (() => {
+                  // Build all unique dates (newest first)
+                  const allDates = [...new Set(Object.values(daily).flat().map(r => r.date))].sort().reverse();
+                  // Get ordered metric keys by group
+                  const metricKeys = Object.keys(daily).sort((a, b) => {
+                    const ga = METRIC_META[a]?.group || "ZZZ", gb = METRIC_META[b]?.group || "ZZZ";
+                    if (ga !== gb) return ga.localeCompare(gb);
+                    return (METRIC_META[a]?.label || a).localeCompare(METRIC_META[b]?.label || b);
+                  });
+                  // Build lookup: { metric_key: { date: value } }
+                  const lookup = {};
+                  for (const [key, rows] of Object.entries(daily)) {
+                    lookup[key] = {};
+                    for (const r of rows) lookup[key][r.date] = r.value;
+                  }
+                  // Pagination
+                  const pageSize = 30;
+                  const totalPages = Math.ceil(allDates.length / pageSize);
+                  const pageDates = allDates.slice(tableViewPage * pageSize, (tableViewPage + 1) * pageSize);
+
+                  return (
+                    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, overflow:"hidden" }}>
+                      <div style={{ overflow:"auto", maxHeight:"calc(100vh - 260px)" }}>
+                        <table style={{ borderCollapse:"collapse", fontSize:11, width:"max-content", minWidth:"100%" }}>
+                          <thead>
+                            <tr style={{ position:"sticky", top:0, zIndex:2, background:T.surface }}>
+                              <th style={{ padding:"8px 12px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", borderBottom:`2px solid ${T.border}`, position:"sticky", left:0, background:T.surface, zIndex:3, minWidth:90 }}>Date</th>
+                              {metricKeys.map(k => (
+                                <th key={k} style={{ padding:"8px 10px", textAlign:"right", fontSize:9, fontWeight:700, color:METRIC_META[k]?.color||T.text3, textTransform:"uppercase", borderBottom:`2px solid ${T.border}`, whiteSpace:"nowrap", minWidth:80 }}>
+                                  {METRIC_META[k]?.label || k}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pageDates.map((date, di) => {
+                              const isWeekend = [0,6].includes(new Date(date+"T12:00:00").getDay());
+                              const d = new Date(date+"T12:00:00");
+                              const dateLabel = d.toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric" });
+                              return (
+                                <tr key={date} style={{ borderBottom:`1px solid ${T.border}`, background: isWeekend ? T.surface2 : "transparent" }}>
+                                  <td style={{ padding:"6px 12px", fontSize:11, fontWeight:600, color:T.text2, whiteSpace:"nowrap", position:"sticky", left:0, background: isWeekend ? T.surface2 : T.surface, zIndex:1 }}>{dateLabel}</td>
+                                  {metricKeys.map(k => {
+                                    const v = lookup[k]?.[date];
+                                    const unit = METRIC_META[k]?.unit || "$";
+                                    return (
+                                      <td key={k} style={{ padding:"6px 10px", textAlign:"right", fontSize:11, fontWeight:500, color: v == null ? T.border : v < 0 ? "#ef4444" : T.text, whiteSpace:"nowrap" }}>
+                                        {v != null ? fmtVal(v, unit, false) : ""}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      {totalPages > 1 && (
+                        <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:12, padding:"12px", borderTop:`1px solid ${T.border}` }}>
+                          <button onClick={()=>setTableViewPage(p=>Math.max(0,p-1))} disabled={tableViewPage===0} style={{ padding:"4px 12px", fontSize:11, fontWeight:600, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", color:tableViewPage===0?T.text3:T.accent, cursor:tableViewPage===0?"default":"pointer" }}>← Prev</button>
+                          <span style={{ fontSize:11, color:T.text3 }}>Page {tableViewPage+1} of {totalPages} · {allDates.length} days</span>
+                          <button onClick={()=>setTableViewPage(p=>Math.min(totalPages-1,p+1))} disabled={tableViewPage>=totalPages-1} style={{ padding:"4px 12px", fontSize:11, fontWeight:600, borderRadius:5, border:`1px solid ${T.border}`, background:"transparent", color:tableViewPage>=totalPages-1?T.text3:T.accent, cursor:tableViewPage>=totalPages-1?"default":"pointer" }}>Next →</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
