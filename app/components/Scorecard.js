@@ -379,14 +379,6 @@ export default function ScorecardView() {
                 {keyResults.map(kr=><option key={kr.id} value={kr.id}>{kr.title}</option>)}
               </select>
             </div>
-            <div style={{ display:"flex", gap:6 }}>
-              <button onClick={() => setShowAddMetric(false)}
-                style={{ padding:"7px 10px", fontSize:12, background:T.surface3, color:T.text2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer" }}>Cancel</button>
-              <button onClick={addMetric} disabled={saving||!newMetric.name.trim()}
-                style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", opacity:saving?0.6:1 }}>
-                {saving?"Adding…":"Add"}
-              </button>
-            </div>
           </div>
           {/* Auto-calculate from Scoreboard */}
           <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 8, border: `1px solid ${newMetric.auto_source ? T.accent + "40" : T.border}`, background: newMetric.auto_source ? T.accent + "08" : "transparent" }}>
@@ -422,6 +414,14 @@ export default function ScorecardView() {
                 </div>
               </div>
             )}
+          </div>
+          <div style={{ display:"flex", gap:6, justifyContent:"flex-end", marginTop:12 }}>
+            <button onClick={() => setShowAddMetric(false)}
+              style={{ padding:"7px 10px", fontSize:12, background:T.surface3, color:T.text2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer" }}>Cancel</button>
+            <button onClick={addMetric} disabled={saving||!newMetric.name.trim()}
+              style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", opacity:saving?0.6:1 }}>
+              {saving?"Adding…":"Add"}
+            </button>
           </div>
         </div>
       )}
