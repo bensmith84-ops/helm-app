@@ -930,7 +930,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
 
   const TaskRow = ({ task, depth = 0 }) => { const subs = getSubtasks(task.id); const hasSubs = subs.length > 0 || addingSubtaskTo === task.id; const exp = expandedTasks[task.id]; const sel = selectedTask?.id === task.id; const isEditingTitle = editingTaskId === task.id; const saveTitle = async () => { if (editingTaskTitle.trim() && editingTaskTitle !== task.title) { await updateField(task.id, "title", editingTaskTitle.trim()); } setEditingTaskId(null); }; const rowRef = useRef(null); return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selectedTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selectedTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input value={editingTaskTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{subs.length > 0 && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}{task.recurrence && task.recurrence !== "none" && !isEditingTitle && <span title={`Repeats ${task.recurrence}`} style={{ fontSize: 10, color: T.text3, opacity: 0.6 }}>🔄</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} /></div><div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSubtaskTo === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newSubtaskTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (newSubtaskTitle.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
 
-  const ListView = () => { const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
+  const listViewEl = (() => { const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
       <div style={{ display: "grid", gridTemplateColumns: projGrid, padding: "0 12px", borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.bg }}>
         <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("title")}>Task name{arrow("title")}<ResizeHandle index={0} onStart={projResize} /></div>
@@ -986,8 +986,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           {!isColl && <>{roots.map(task => <TaskRow key={task.id} task={task} depth={0} />)}{addingTo === sec.id ? <div style={{ ...S.row(false, false), background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 20 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createTask(sec.id); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }} onBlur={() => { if (newTitle.trim()) createTask(sec.id); else { setAddingTo(null); setNewTitle(""); } }} placeholder="Task name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 13, outline: "none" }} /></div><div /><div /><div /><div /></div> : <div onClick={() => { setAddingTo(sec.id); setNewTitle(""); }} style={{ ...S.addRow, opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add task…</div>}</>}
         </div>); })}
       {addingSection ? <div style={{ padding: "8px 12px", display: "flex", gap: 8 }}><input value={newSectionName} onChange={e => setNewSectionName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") setAddingSection(false); }} placeholder="Section name…" style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none" }} /><button onClick={createSection} style={{ padding: "4px 12px", borderRadius: 4, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer" }}>Add</button></div> : <div onClick={() => setAddingSection(true)} style={{ ...S.addRow, opacity: 0.5, paddingLeft: 12 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add section…</div>}
-    </div>); };
-  const BoardView = () => (
+    </div>); })();
+  const boardViewEl = (
     <div style={{ flex: 1, display: "flex", gap: 16, padding: "16px 20px", overflow: "auto" }}>
       {projSections.map((sec, si) => {
         const st = filteredTasks.filter(t => t.section_id === sec.id && !t.parent_task_id);
@@ -1102,7 +1102,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       )}
     </div>
   );
-  const TimelineView = () => {
+  const timelineViewEl = (() => {
     const tw = filteredTasks.filter(t => !t.parent_task_id && (t.start_date || t.due_date));
     if (!tw.length) return (
       <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
@@ -1246,8 +1246,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         </div>
       </div>
     );
-  };
-  const CalendarView = () => { const yr = calMonth.getFullYear(); const mo = calMonth.getMonth(); const fd = new Date(yr, mo, 1).getDay(); const dim = new Date(yr, mo + 1, 0).getDate(); const today = new Date(); const cells = []; for (let i = 0; i < fd; i++) cells.push(null); for (let d = 1; d <= dim; d++) cells.push(d); const gtd = (day) => { const ds = `${yr}-${String(mo + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; return filteredTasks.filter(t => t.due_date === ds); }; return (
+  })();
+  const calendarViewEl = (() => { const yr = calMonth.getFullYear(); const mo = calMonth.getMonth(); const fd = new Date(yr, mo, 1).getDay(); const dim = new Date(yr, mo + 1, 0).getDate(); const today = new Date(); const cells = []; for (let i = 0; i < fd; i++) cells.push(null); for (let d = 1; d <= dim; d++) cells.push(d); const gtd = (day) => { const ds = `${yr}-${String(mo + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; return filteredTasks.filter(t => t.due_date === ds); }; return (
     <div style={{ flex: 1, overflow: "auto", padding: "12px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <button onClick={() => setCalMonth(new Date(yr, mo - 1, 1))} style={S.iconBtn}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -1263,8 +1263,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
             {dt.length > 3 && <div style={{ fontSize: 9, color: T.text3, textAlign: "center" }}>+{dt.length - 3}</div>}
           </div>); })}
       </div>
-    </div>); };
-  const MyTasksView = () => {
+    </div>); })();
+  const myTasksViewEl = (() => {
     const today = new Date(); today.setHours(0,0,0,0);
     const weekOut = new Date(today); weekOut.setDate(weekOut.getDate() + 7);
     const mt = tasks.filter(t => t.assignee_id === user?.id && t.status !== "done" && t.status !== "cancelled" && !t.parent_task_id);
@@ -1326,7 +1326,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         ))}
       </div>
     );
-  };
+  })();
   const DetailPane = () => {
     const [activeDetailTab, setActiveDetailTab] = useState("details");
     const [activity, setActivity] = useState([]);
@@ -2341,7 +2341,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {showMyTasks ? (
           <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-            <MyTasksView />
+            {myTasksViewEl}
             <DetailPane />
           </div>
         ) : proj ? (<>
@@ -2477,10 +2477,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                   </div>
                 </div>
               )}
-              {viewMode === "List" && <ListView />}
-              {viewMode === "Board" && <BoardView />}
-              {viewMode === "Timeline" && <TimelineView />}
-              {viewMode === "Calendar" && <CalendarView />}
+              {viewMode === "List" && {listViewEl}}
+              {viewMode === "Board" && {boardViewEl}}
+              {viewMode === "Timeline" && {timelineViewEl}}
+              {viewMode === "Calendar" && {calendarViewEl}}
               {viewMode === "Updates" && <UpdatesView />}
               {viewMode === "Docs" && <DocsView />}
               {viewMode === "Rules" && (
