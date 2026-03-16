@@ -7,7 +7,6 @@ import { useModal } from "../lib/modal";
 // Module-level filter cache — survives component unmount/remount
 let _cachedFilterStatus = null;
 let _cachedFilterPriority = null;
-const _readFilter = (key) => { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : "all"; } catch { return "all"; } };
 import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import SearchableMultiSelect from "./SearchableSelect";
@@ -55,11 +54,14 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  // Filter persistence: module-level cache + localStorage
-  if (_cachedFilterStatus === null) _cachedFilterStatus = _readFilter("helm_proj_filterStatus2");
-  if (_cachedFilterPriority === null) _cachedFilterPriority = _readFilter("helm_proj_filterPriority2");
-  const [filterStatus, setFilterStatusRaw] = useState(_cachedFilterStatus);
-  const [filterPriority, setFilterPriorityRaw] = useState(_cachedFilterPriority);
+  // Filter persistence: read localStorage EVERY mount, cache for in-session
+  const _readLS = (key) => { try { if (typeof window !== "undefined") { const s = localStorage.getItem(key); if (s) return JSON.parse(s); } } catch {} return null; };
+  const _initStatus = _readLS("helm_proj_filterStatus2") ?? _cachedFilterStatus ?? "all";
+  const _initPriority = _readLS("helm_proj_filterPriority2") ?? _cachedFilterPriority ?? "all";
+  _cachedFilterStatus = _initStatus;
+  _cachedFilterPriority = _initPriority;
+  const [filterStatus, setFilterStatusRaw] = useState(_initStatus);
+  const [filterPriority, setFilterPriorityRaw] = useState(_initPriority);
   const setFilterStatus = (v) => { _cachedFilterStatus = v; setFilterStatusRaw(v); try { localStorage.setItem("helm_proj_filterStatus2", JSON.stringify(v)); } catch {} };
   const setFilterPriority = (v) => { _cachedFilterPriority = v; setFilterPriorityRaw(v); try { localStorage.setItem("helm_proj_filterPriority2", JSON.stringify(v)); } catch {} };
   const [filterAssignee, setFilterAssignee] = useState([]);
