@@ -50,19 +50,14 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  const [filterStatus, setFilterStatusRaw] = useState("all");
-  const [filterPriority, setFilterPriorityRaw] = useState("all");
-  // Load persisted filters from localStorage on client mount
-  useEffect(() => {
-    try {
-      const s = localStorage.getItem("helm_proj_filterStatus");
-      if (s) setFilterStatusRaw(JSON.parse(s));
-      const p = localStorage.getItem("helm_proj_filterPriority");
-      if (p) setFilterPriorityRaw(JSON.parse(p));
-    } catch {}
-  }, []);
-  const setFilterStatus = (v) => { setFilterStatusRaw(v); try { localStorage.setItem("helm_proj_filterStatus", JSON.stringify(v)); } catch {} };
-  const setFilterPriority = (v) => { setFilterPriorityRaw(v); try { localStorage.setItem("helm_proj_filterPriority", JSON.stringify(v)); } catch {} };
+  const getStoredFilter = (key, fallback) => {
+    if (typeof window === "undefined") return fallback;
+    try { const s = localStorage.getItem(key); if (s) return JSON.parse(s); } catch {} return fallback;
+  };
+  const [filterStatus, setFilterStatusRaw] = useState(() => getStoredFilter("helm_proj_filterStatus2", "all"));
+  const [filterPriority, setFilterPriorityRaw] = useState(() => getStoredFilter("helm_proj_filterPriority2", "all"));
+  const setFilterStatus = (v) => { setFilterStatusRaw(v); try { localStorage.setItem("helm_proj_filterStatus2", JSON.stringify(v)); } catch {} };
+  const setFilterPriority = (v) => { setFilterPriorityRaw(v); try { localStorage.setItem("helm_proj_filterPriority2", JSON.stringify(v)); } catch {} };
   const [filterAssignee, setFilterAssignee] = useState([]);
   const [sortCol, setSortCol] = useState("sort_order");
   const [sortDir, setSortDir] = useState("asc");
