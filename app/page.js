@@ -170,7 +170,7 @@ export default function HelmApp() {
         let unreadMsgs = 0;
         const readMap = {};
         (myReads || []).forEach(r => { readMap[r.channel_id] = r; });
-        const { data: channels } = await supabase.from("channels").select("id").is("deleted_at", null);
+        const { data: channels } = await supabase.from("channels").select("id").eq("is_archived", false);
         if (channels?.length) {
           for (const ch of channels) {
             const r = readMap[ch.id];
