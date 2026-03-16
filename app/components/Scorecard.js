@@ -53,6 +53,7 @@ function InlineEntry({ value, onSave, unit }) {
   const [val, setVal] = useState(value != null ? String(value) : "");
   const inputRef = useRef(null);
 
+  useEffect(() => { setVal(value != null ? String(value) : ""); }, [value]);
   useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
 
   const save = () => {
@@ -194,17 +195,16 @@ export default function ScorecardView() {
   };
 
   const saveEntry = async (metricId, weekStart, value) => {
+    const numVal = value != null ? Number(value) : null;
     setEntries(p => ({
       ...p,
-      [metricId]: { ...(p[metricId]||{}), [weekStart]: value }
+      [metricId]: { ...(p[metricId]||{}), [weekStart]: numVal }
     }));
-    const existing = await supabase.from("scorecard_entries")
-      .select("id").eq("metric_id", metricId).eq("week_start", weekStart).maybeSingle();
-    if (existing.data?.id) {
-      await supabase.from("scorecard_entries").update({ value, entered_by: user.id }).eq("id", existing.data.id);
-    } else {
-      await supabase.from("scorecard_entries").insert({ metric_id: metricId, week_start: weekStart, value, entered_by: user.id });
-    }
+    const { error } = await supabase.from("scorecard_entries").upsert(
+      { metric_id: metricId, week_start: weekStart, value: numVal, entered_by: user?.id || null },
+      { onConflict: "metric_id,week_start" }
+    );
+    if (error) console.error("[Scorecard] saveEntry error:", error);
   };
 
   const addMetric = async () => {
