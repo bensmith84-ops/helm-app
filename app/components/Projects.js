@@ -999,11 +999,38 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         const borderColor = isOver ? T.accent : isWipBreached ? "#ef4444" : T.border;
         return (
           <div key={sec.id}
-            onDragOver={(e) => { e.preventDefault(); setDragOverTarget(sec.id); }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              // Accept both task drops and section drops
+              setDragOverTarget(sec.id);
+            }}
             onDragLeave={() => setDragOverTarget(null)}
-            onDrop={() => { if (dragTask) handleBoardDrop(dragTask, sec.id); }}
+            onDrop={(e) => {
+              const sectionId = e.dataTransfer.getData("board-section-id");
+              if (sectionId && sectionId !== sec.id) {
+                // Section reorder
+                const draggedIdx = projSections.findIndex(s => s.id === sectionId);
+                const dropIdx = si;
+                if (draggedIdx >= 0) {
+                  const reordered = [...projSections];
+                  const [moved] = reordered.splice(draggedIdx, 1);
+                  reordered.splice(dropIdx, 0, moved);
+                  const updates = reordered.map((s, i) => ({ ...s, sort_order: i + 1 }));
+                  setSections(p => p.map(s => { const u = updates.find(x => x.id === s.id); return u ? { ...s, sort_order: u.sort_order } : s; }));
+                  for (const u of updates) { supabase.from("sections").update({ sort_order: u.sort_order }).eq("id", u.id); }
+                }
+                setDragOverTarget(null);
+                return;
+              }
+              if (dragTask) handleBoardDrop(dragTask, sec.id);
+            }}
             style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", borderRadius: 10, background: isOver ? T.accentDim : T.surface, border: `1px solid ${borderColor}`, transition: "border 0.15s" }}>
-            <div style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center", gap: 8, borderBottom: `2px solid ${isDoneCol ? "#22c55e" : color}` }}>
+            <div
+              draggable
+              onDragStart={e => { e.dataTransfer.setData("board-section-id", sec.id); e.currentTarget.style.opacity = "0.4"; }}
+              onDragEnd={e => { e.currentTarget.style.opacity = "1"; setDragOverTarget(null); }}
+              style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center", gap: 8, borderBottom: `2px solid ${isDoneCol ? "#22c55e" : color}`, cursor: "grab" }}>
+              <div style={{ color: T.text3, opacity: 0.3, fontSize: 10, flexShrink: 0, lineHeight: 1 }} title="Drag to reorder">⣿</div>
               {isDoneCol ? <span style={{ fontSize: 14 }}>✅</span> : null}
               <span style={{ fontSize: 13, fontWeight: 700, color: isDoneCol ? "#22c55e" : color, flex: 1 }}>{sec.name}</span>
               <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 8,
