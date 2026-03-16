@@ -119,6 +119,8 @@ export default function ScorecardView() {
   const { user, profile } = useAuth();
   const [metrics, setMetrics] = useState([]);
   const [entries, setEntries] = useState({}); // { metricId: { weekStart: value } }
+  const [goalPeriods, setGoalPeriods] = useState({}); // { metricId: [{ goal, start_date, end_date }] }
+  const [editingGoals, setEditingGoals] = useState(null); // metric id or null
   const [profiles, setProfiles] = useState({});
   const [keyResults, setKeyResults] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -152,19 +154,41 @@ export default function ScorecardView() {
       setKeyResults(krs || []);
 
       if (met?.length) {
-        const { data: ent } = await supabase.from("scorecard_entries")
-          .select("*").in("metric_id", met.map(m => m.id))
-          .in("week_start", WEEKS);
+        const [{ data: ent }, { data: gp }] = await Promise.all([
+          supabase.from("scorecard_entries").select("*").in("metric_id", met.map(m => m.id)).in("week_start", WEEKS),
+          supabase.from("scorecard_goal_periods").select("*").in("metric_id", met.map(m => m.id)).order("start_date"),
+        ]);
         const map = {};
         (ent || []).forEach(e => {
           if (!map[e.metric_id]) map[e.metric_id] = {};
           map[e.metric_id][e.week_start] = e.value != null ? Number(e.value) : null;
         });
         setEntries(map);
+        const gpMap = {};
+        (gp || []).forEach(g => {
+          if (!gpMap[g.metric_id]) gpMap[g.metric_id] = [];
+          gpMap[g.metric_id].push(g);
+        });
+        setGoalPeriods(gpMap);
       }
       setLoading(false);
     })();
   }, []);
+
+  // Get the applicable goal for a given date, checking goal periods first, then falling back to metric.goal
+  const getGoalForDate = (metric, dateStr) => {
+    const periods = goalPeriods[metric.id];
+    if (periods?.length) {
+      // Find the period that covers this date (last matching one wins)
+      for (let i = periods.length - 1; i >= 0; i--) {
+        const p = periods[i];
+        if (dateStr >= p.start_date && (!p.end_date || dateStr <= p.end_date)) {
+          return Number(p.goal);
+        }
+      }
+    }
+    return metric.goal != null ? Number(metric.goal) : null;
+  };
 
   const saveEntry = async (metricId, weekStart, value) => {
     setEntries(p => ({
@@ -252,14 +276,22 @@ export default function ScorecardView() {
   const metricSummary = metrics.map(m => {
     const vals = WEEKS.map(w => entries[m.id]?.[w] ?? null);
     const latest = vals.filter(v=>v!=null).slice(-1)[0];
-    const goal = m.goal;
-    const hits = vals.filter(v => v!=null && goal != null && (m.unit==="bool"?v>=1:v>=goal)).length;
+    const latestWeek = WEEKS.filter((w, i) => vals[i] != null).slice(-1)[0];
+    const currentGoal = latestWeek ? getGoalForDate(m, latestWeek) : getGoalForDate(m, WEEKS[WEEKS.length - 1]);
+    const isBelow = m.target_direction === "below";
+    const hits = WEEKS.filter((w, i) => {
+      const v = vals[i];
+      if (v == null) return false;
+      const g = getGoalForDate(m, w);
+      if (g == null) return false;
+      return m.unit === "bool" ? v >= 1 : isBelow ? v <= g : v >= g;
+    }).length;
     const total = vals.filter(v=>v!=null).length;
-    return { ...m, latest, vals, hits, total };
+    return { ...m, latest, vals, hits, total, currentGoal };
   });
 
-  const onTrack = metricSummary.filter(m => m.goal!=null && m.latest!=null && (m.unit==="bool"?m.latest>=1: m.target_direction==="below" ? m.latest<=m.goal : m.latest>=m.goal)).length;
-  const offTrack = metricSummary.filter(m => m.goal!=null && m.latest!=null && (m.unit==="bool"?m.latest<1: m.target_direction==="below" ? m.latest>m.goal : m.latest<m.goal)).length;
+  const onTrack = metricSummary.filter(m => m.currentGoal!=null && m.latest!=null && (m.unit==="bool"?m.latest>=1: m.target_direction==="below" ? m.latest<=m.currentGoal : m.latest>=m.currentGoal)).length;
+  const offTrack = metricSummary.filter(m => m.currentGoal!=null && m.latest!=null && (m.unit==="bool"?m.latest<1: m.target_direction==="below" ? m.latest>m.currentGoal : m.latest<m.currentGoal)).length;
   const noData = metricSummary.filter(m => m.latest==null).length;
 
   return (
@@ -431,7 +463,7 @@ export default function ScorecardView() {
                     {/* Metric name + owner */}
                     <td style={{ padding:"10px 12px", position:"sticky", left:0, background: idx%2===0?T.bg||"transparent":T.surface2+"60" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <RagDot value={m.latest} goal={m.goal} unit={m.unit} direction={m.target_direction} />
+                        <RagDot value={m.latest} goal={m.currentGoal} unit={m.unit} direction={m.target_direction} />
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{m.name}{m.auto_source && <span title={`Auto: ${m.auto_agg}${m.auto_weight_key ? ` weighted by ${m.auto_weight_key}` : ""} from ${m.auto_source}`} style={{ fontSize:10, color:T.accent, marginLeft:5, fontWeight:700 }}>⚡</span>}</div>
                           {m.description && <div style={{ fontSize:10, color:T.text3 }}>{m.description}</div>}
@@ -461,7 +493,7 @@ export default function ScorecardView() {
                     {/* Goal */}
                     <td style={{ padding:"10px 8px", textAlign:"center" }}>
                       <span style={{ fontSize:12, color:T.text2, fontWeight:500 }}>
-                        {m.goal != null ? fmt(m.goal, m.unit) : "—"}
+                        {m.currentGoal != null ? <span onClick={e => { e.stopPropagation(); setEditingGoals(editingGoals === m.id ? null : m.id); }} style={{ cursor: "pointer" }} title="Click to manage goal periods">{fmt(m.currentGoal, m.unit)}</span> : <span onClick={e => { e.stopPropagation(); setEditingGoals(m.id); }} style={{ cursor: "pointer" }} title="Set goal">—</span>}
                       </span>
                     </td>
                     {/* Sparkline */}
@@ -483,11 +515,12 @@ export default function ScorecardView() {
                     {WEEKS.map(w => {
                       const isThis = w === thisWeek;
                       const v = entries[m.id]?.[w] ?? null;
-                      const onTarget = v!=null && m.goal!=null && (m.unit==="bool"?v>=1: m.target_direction==="below" ? v<=m.goal : v>=m.goal);
+                      const weekGoal = getGoalForDate(m, w);
+                      const onTarget = v!=null && weekGoal!=null && (m.unit==="bool"?v>=1: m.target_direction==="below" ? v<=weekGoal : v>=weekGoal);
                       return (
                         <td key={w} style={{ padding:"6px 4px", background: isThis?T.accentDim+"80":"transparent" }}>
                           <div style={{ position:"relative" }}>
-                            {v!=null && m.goal!=null && (
+                            {v!=null && weekGoal!=null && (
                               <div style={{ position:"absolute", top:0, right:2, width:5, height:5, borderRadius:"50%",
                                 background: onTarget?"#22c55e":"#ef4444", zIndex:1 }} />
                             )}
@@ -527,6 +560,66 @@ export default function ScorecardView() {
             </tbody>
           </table>
         )}
+
+        {/* Goal Periods Editor */}
+        {editingGoals && (() => {
+          const m = metrics.find(x => x.id === editingGoals);
+          if (!m) return null;
+          const periods = goalPeriods[m.id] || [];
+          const addPeriod = async () => {
+            const goal = prompt("Goal value:", m.goal || "");
+            if (!goal) return;
+            const start = prompt("Start date (YYYY-MM-DD):", new Date().toISOString().split("T")[0]);
+            if (!start) return;
+            const end = prompt("End date (YYYY-MM-DD, leave blank for ongoing):", "");
+            const { data } = await supabase.from("scorecard_goal_periods").insert({
+              metric_id: m.id, goal: parseFloat(goal), start_date: start, end_date: end || null,
+            }).select().single();
+            if (data) setGoalPeriods(p => ({ ...p, [m.id]: [...(p[m.id] || []), data].sort((a, b) => a.start_date.localeCompare(b.start_date)) }));
+          };
+          const deletePeriod = async (id) => {
+            await supabase.from("scorecard_goal_periods").delete().eq("id", id);
+            setGoalPeriods(p => ({ ...p, [m.id]: (p[m.id] || []).filter(g => g.id !== id) }));
+          };
+          return (
+            <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={() => setEditingGoals(null)} />
+              <div style={{ position: "relative", width: 480, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201, maxHeight: "80vh", overflow: "auto" }}>
+                <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Goal Periods — {m.name}</h3>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Set different targets for different time periods. {m.target_direction === "below" ? "Lower is better." : "Higher is better."}</div>
+                  </div>
+                  <button onClick={() => setEditingGoals(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
+                </div>
+                <div style={{ padding: "16px 24px" }}>
+                  {periods.length === 0 && (
+                    <div style={{ padding: "20px 0", textAlign: "center", color: T.text3, fontSize: 12 }}>
+                      No goal periods set. Using default goal: {m.goal != null ? fmt(Number(m.goal), m.unit) : "none"}.
+                    </div>
+                  )}
+                  {periods.map((p, i) => (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: T.accent }}>{fmt(Number(p.goal), m.unit)}</div>
+                        <div style={{ fontSize: 11, color: T.text3 }}>
+                          {new Date(p.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          {" → "}
+                          {p.end_date ? new Date(p.end_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Ongoing"}
+                        </div>
+                        {p.note && <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic", marginTop: 2 }}>{p.note}</div>}
+                      </div>
+                      <button onClick={() => deletePeriod(p.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={addPeriod} style={{ marginTop: 12, padding: "8px 16px", borderRadius: 8, border: `1px dashed ${T.border}`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", width: "100%" }}>
+                    + Add Goal Period
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Legend */}
         {metrics.length > 0 && (
