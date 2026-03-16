@@ -88,10 +88,12 @@ function InlineEntry({ value, onSave, unit }) {
   );
 }
 
-function RagDot({ value, goal, unit }) {
+function RagDot({ value, goal, unit, direction }) {
   if (value == null || goal == null) return <div style={{ width:10, height:10, borderRadius:"50%", background:T.border }} />;
-  const ratio = unit === "bool" ? (value ? 1 : 0) : (goal !== 0 ? value / goal : 1);
-  const color = ratio >= 1 ? "#22c55e" : ratio >= 0.8 ? "#eab308" : "#ef4444";
+  const isBelow = direction === "below";
+  const onTarget = unit === "bool" ? value >= 1 : isBelow ? value <= goal : value >= goal;
+  const ratio = unit === "bool" ? (value ? 1 : 0) : isBelow ? (goal !== 0 ? goal / value : 1) : (goal !== 0 ? value / goal : 1);
+  const color = onTarget ? "#22c55e" : ratio >= 0.8 ? "#eab308" : "#ef4444";
   return <div style={{ width:10, height:10, borderRadius:"50%", background:color, flexShrink:0 }} />;
 }
 
@@ -121,7 +123,7 @@ export default function ScorecardView() {
   const [keyResults, setKeyResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddMetric, setShowAddMetric] = useState(false);
-  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"" });
+  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above" });
   const [saving, setSaving] = useState(false);
   const [orgId, setOrgId] = useState(null);
   const [autoCalcRunning, setAutoCalcRunning] = useState(false);
@@ -186,13 +188,14 @@ export default function ScorecardView() {
       goal: newMetric.goal ? parseFloat(newMetric.goal) : null,
       frequency: newMetric.frequency, description: newMetric.description,
       linked_kr_id: newMetric.linked_kr_id || null,
+      target_direction: newMetric.target_direction || "above",
       auto_source: newMetric.auto_source || null,
       auto_agg: newMetric.auto_source ? (newMetric.auto_agg || "sum") : null,
       auto_weight_key: newMetric.auto_agg === "weighted_average" ? (newMetric.auto_weight_key || null) : null,
       org_id: orgId, owner_id: user.id, sort_order: metrics.length,
     }).select().single();
     if (data) { setMetrics(p => [...p, data]); setEntries(p => ({...p, [data.id]: {}})); }
-    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"" });
+    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above" });
     setShowAddMetric(false);
     setSaving(false);
     // Auto-calc if this metric has a source
@@ -250,8 +253,8 @@ export default function ScorecardView() {
     return { ...m, latest, vals, hits, total };
   });
 
-  const onTrack = metricSummary.filter(m => m.goal!=null && m.latest!=null && (m.unit==="bool"?m.latest>=1:m.latest>=m.goal)).length;
-  const offTrack = metricSummary.filter(m => m.goal!=null && m.latest!=null && (m.unit==="bool"?m.latest<1:m.latest<m.goal)).length;
+  const onTrack = metricSummary.filter(m => m.goal!=null && m.latest!=null && (m.unit==="bool"?m.latest>=1: m.target_direction==="below" ? m.latest<=m.goal : m.latest>=m.goal)).length;
+  const offTrack = metricSummary.filter(m => m.goal!=null && m.latest!=null && (m.unit==="bool"?m.latest<1: m.target_direction==="below" ? m.latest>m.goal : m.latest<m.goal)).length;
   const noData = metricSummary.filter(m => m.latest==null).length;
 
   return (
@@ -310,6 +313,7 @@ export default function ScorecardView() {
               { label:"Metric Name *", key:"name", placeholder:"e.g. Weekly Revenue" },
               { label:"Unit", key:"unit", type:"select", options:["number","$","%","bool"] },
               { label:"Weekly Goal", key:"goal", placeholder:"e.g. 250000" },
+              { label:"On Track When", key:"target_direction", type:"select", options:["above","below"] },
               { label:"Frequency", key:"frequency", type:"select", options:["daily","weekly","monthly"] },
               { label:"Description", key:"description", placeholder:"Optional description" },
             ].map(f => (
@@ -422,7 +426,7 @@ export default function ScorecardView() {
                     {/* Metric name + owner */}
                     <td style={{ padding:"10px 12px", position:"sticky", left:0, background: idx%2===0?T.bg||"transparent":T.surface2+"60" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <RagDot value={m.latest} goal={m.goal} unit={m.unit} />
+                        <RagDot value={m.latest} goal={m.goal} unit={m.unit} direction={m.target_direction} />
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{m.name}{m.auto_source && <span title={`Auto: ${m.auto_agg}${m.auto_weight_key ? ` weighted by ${m.auto_weight_key}` : ""} from ${m.auto_source}`} style={{ fontSize:10, color:T.accent, marginLeft:5, fontWeight:700 }}>⚡</span>}</div>
                           {m.description && <div style={{ fontSize:10, color:T.text3 }}>{m.description}</div>}
@@ -474,7 +478,7 @@ export default function ScorecardView() {
                     {WEEKS.map(w => {
                       const isThis = w === thisWeek;
                       const v = entries[m.id]?.[w] ?? null;
-                      const onTarget = v!=null && m.goal!=null && (m.unit==="bool"?v>=1:v>=m.goal);
+                      const onTarget = v!=null && m.goal!=null && (m.unit==="bool"?v>=1: m.target_direction==="below" ? v<=m.goal : v>=m.goal);
                       return (
                         <td key={w} style={{ padding:"6px 4px", background: isThis?T.accentDim+"80":"transparent" }}>
                           <div style={{ position:"relative" }}>
