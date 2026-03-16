@@ -25,12 +25,19 @@ const now = () => new Date().toISOString();
 const EditableBlock = memo(({ blockId, initialContent, style, placeholder, onContentChange, onKeyDown, onFocus, onSlash, blockRef }) => {
   const ref = useRef(null);
   const contentRef = useRef(initialContent || "");
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (!initialized.current && ref.current) {
+      ref.current.innerText = initialContent || "";
+      initialized.current = true;
+    }
+  }, [initialContent]);
 
   useEffect(() => { if (blockRef) blockRef(ref.current); }, [blockRef]);
 
   return (
     <div ref={ref} contentEditable suppressContentEditableWarning
-      dangerouslySetInnerHTML={{ __html: initialContent || "" }}
       data-placeholder={placeholder}
       style={{ ...style, outline: "none", minHeight: "1.5em", wordBreak: "break-word" }}
       onInput={e => {
@@ -109,6 +116,7 @@ export default function DocsView({ setActive }) {
   const blockRefs = useRef({});
   const blockContents = useRef({}); // Store content in ref to avoid re-renders
   const saveTimer = useRef(null);
+  const titleSaveTimer = useRef(null);
 
   const [projects, setProjects] = useState([]);
 
@@ -706,7 +714,7 @@ export default function DocsView({ setActive }) {
                 {emojiPicker && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", padding: "8px 0", maxWidth: 320 }}>
                   {EMOJIS.map(e => <span key={e} onClick={() => { updateMeta(activeDoc.id, { emoji: e }); setEmojiPicker(false); }} style={{ fontSize: 22, cursor: "pointer", padding: 4, borderRadius: 4 }} onMouseEnter={ev => ev.currentTarget.style.background = T.surface2} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>{e}</span>)}
                 </div>}
-                <input value={activeDoc.title || ""} onChange={e => { const t = e.target.value; setActiveDoc(p => ({ ...p, title: t })); setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, title: t } : d)); if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => supabase.from("documents").update({ title: t, updated_at: now() }).eq("id", activeDoc.id), 600); }}
+                <input value={activeDoc.title || ""} onChange={e => { const t = e.target.value; setActiveDoc(p => ({ ...p, title: t })); setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, title: t } : d)); if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current); titleSaveTimer.current = setTimeout(() => supabase.from("documents").update({ title: t, updated_at: now() }).eq("id", activeDoc.id), 600); }}
                   placeholder="Untitled" style={{ fontSize: 34, fontWeight: 800, color: T.text, background: "transparent", border: "none", outline: "none", width: "100%", fontFamily: "inherit", padding: 0, letterSpacing: "-0.02em" }} />
               </div>
               <div style={{ paddingBottom: 200, paddingTop: 8 }}>
