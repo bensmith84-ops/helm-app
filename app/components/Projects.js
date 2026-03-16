@@ -126,7 +126,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const load = async () => {
       setLoading(true);
       try {
-        const [pR, sR, tR, prR, tmR, obR, favR] = await Promise.all([
+        const [pR, sR, tR, prR, tmR, obR, favR, pmR, permR] = await Promise.all([
           supabase.from("projects").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("sections").select("*").order("sort_order"),
           supabase.from("tasks").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("sort_order"),
@@ -134,8 +134,16 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           supabase.from("teams").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("objectives").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
           supabase.from("project_favorites").select("project_id").eq("user_id", user?.id),
+          supabase.from("project_members").select("project_id, user_id, role").eq("user_id", user?.id),
+          supabase.from("user_module_permissions").select("is_admin").eq("user_id", user?.id).maybeSingle(),
         ]);
-        setProjects(pR.data || []); setSections(sR.data || []); setTasks(tR.data || []);
+        // Filter projects by visibility: public visible to all, private only to members/owner/admin
+        const isAdmin = permR.data?.is_admin === true;
+        const myMemberProjects = new Set((pmR.data || []).map(pm => pm.project_id));
+        const visibleProjects = isAdmin ? (pR.data || []) : (pR.data || []).filter(p => 
+          p.visibility === "public" || p.owner_id === user?.id || p.created_by === user?.id || myMemberProjects.has(p.id)
+        );
+        setProjects(visibleProjects); setSections(sR.data || []); setTasks(tR.data || []);
         setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
         setFavorites(new Set((favR.data || []).map(f => f.project_id)));
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
