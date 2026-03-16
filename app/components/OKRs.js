@@ -98,7 +98,7 @@ export default function OKRsView() {
     if (typeof window !== "undefined") { try { return localStorage.getItem("okr_view") || "list"; } catch {} }
     return "list";
   });
-  const { gridTemplate: okrGrid, onResizeStart: okrResize } = useResizableColumns([250, 160, 80, 80, 60], "okrs");
+  const { gridTemplate: okrGrid, onResizeStart: okrResize } = useResizableColumns([300, 180, 160, 80, 60], "okrs-v2");
   const ORH = ({ index }) => (<div onMouseDown={(e) => okrResize(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
   const [loading, setLoading] = useState(true);
   // Milestone form
@@ -824,7 +824,7 @@ export default function OKRsView() {
                   const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
                   const isStale = daysSince === null || daysSince >= 7;
                   return (
-                    <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 42, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s" }}>
+                    <div key={kr.id} onClick={() => editKR(kr)} style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 48, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: sel ? `${T.accent}10` : "transparent", borderLeft: sel ? `3px solid ${T.accent}` : isStale ? "3px solid #eab30840" : "3px solid transparent", transition: "background 0.1s" }}>
                       <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         {kr.title}
                         {kr.progress_mode === "milestones" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${T.accent}20`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>AUTO</span>}
@@ -835,11 +835,11 @@ export default function OKRsView() {
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${Math.min(p, 100)}%`, height: "100%", borderRadius: 5, background: pColor, transition: "width 0.3s" }} /></div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: pColor, minWidth: 28 }}>{Math.round(p)}%</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: pColor, minWidth: 36, textAlign: "right" }}>{Math.round(p)}%</span>
                       </div>
                       {/* Inline value edit */}
                       {kr.progress_mode === "milestones" ? (
-                        <span style={{ fontSize: 12, color: T.text3 }}>{kr.current_value}/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
+                        <span style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.current_value}/{kr.target_value}{kr.unit ? " "+kr.unit : ""}</span>
                       ) : (
                         <span onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <input
