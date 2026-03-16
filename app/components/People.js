@@ -94,10 +94,9 @@ export default function PeopleView() {
   const inviteUser = async () => {
     if (!inviteEmail.trim()) return showToast("Email required");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
         body: JSON.stringify({ email: inviteEmail.trim(), display_name: inviteName.trim() || inviteEmail.split("@")[0], role: inviteRole, org_id: profile.org_id }),
       });
       const result = await res.json();
