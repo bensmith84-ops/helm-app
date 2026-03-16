@@ -127,6 +127,7 @@ export default function ScorecardView() {
   const [comments, setComments] = useState({}); // { metricId: { weekStart: { comment, comment_by, comment_at } } }
   const [goalPeriods, setGoalPeriods] = useState({}); // { metricId: [{ goal, start_date, end_date }] }
   const [editingGoals, setEditingGoals] = useState(null); // metric id or null
+  const [commentModal, setCommentModal] = useState(null); // { metricId, weekStart, existing, isOwner }
   const [profiles, setProfiles] = useState({});
   const [keyResults, setKeyResults] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -565,33 +566,13 @@ export default function ScorecardView() {
                             )}
                             {cm && (
                               <div style={{ position:"absolute", top:-1, right:1, zIndex:2, cursor:"pointer", fontSize:10 }}
-                                title={`${cm.comment}${isMyComment ? "\n\n(Right-click to edit/delete)" : ""}`}
-                                onContextMenu={e => {
-                                  if (!isMyComment) return;
-                                  e.preventDefault();
-                                  const action = prompt(`Comment: "${cm.comment}"\n\nType new comment to edit, or type DELETE to remove:`, cm.comment);
-                                  if (action === null) return;
-                                  if (action === "DELETE" || action === "delete") { saveComment(m.id, w, null); }
-                                  else if (action.trim()) { saveComment(m.id, w, action.trim()); }
-                                }}
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  if (!isMyComment) { alert(cm.comment); return; }
-                                  const action = prompt(`Edit comment:`, cm.comment);
-                                  if (action === null) return;
-                                  if (action.trim() === "") { saveComment(m.id, w, null); }
-                                  else { saveComment(m.id, w, action.trim()); }
-                                }}>💬</div>
+                                title={cm.comment}
+                                onClick={e => { e.stopPropagation(); setCommentModal({ metricId: m.id, weekStart: w, existing: cm.comment, isOwner: isMyComment }); }}>💬</div>
                             )}
                             <InlineEntry value={v} unit={m.unit}
                               onSave={(val) => saveEntry(m.id, w, val)}
-                              onComment={() => {
-                                const existing = cm?.comment || "";
-                                const text = prompt(existing ? `Edit comment:` : "Add comment:", existing);
-                                if (text === null) return;
-                                if (text.trim() === "" && existing) { saveComment(m.id, w, null); }
-                                else if (text.trim()) { saveComment(m.id, w, text.trim()); }
-                              }} hasComment={!!cm} />
+                              onComment={() => setCommentModal({ metricId: m.id, weekStart: w, existing: cm?.comment || "", isOwner: !cm || isMyComment })}
+                              hasComment={!!cm} />
                           </div>
                         </td>
                       );
@@ -685,6 +666,58 @@ export default function ScorecardView() {
               </div>
             </div>
           );
+        })()}
+
+        {/* Comment Modal */}
+        {commentModal && (() => {
+          const { metricId, weekStart, existing, isOwner } = commentModal;
+          const metric = metrics.find(m => m.id === metricId);
+          const weekDate = new Date(weekStart + "T12:00:00");
+          const weekLabel = weekDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          const CommentModalInner = () => {
+            const [text, setText] = useState(existing || "");
+            return (
+              <div onClick={() => setCommentModal(null)} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+                <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 400, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201 }}>
+                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>{existing ? "Edit Comment" : "Add Comment"}</div>
+                      <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{metric?.name} — Week of {weekLabel}</div>
+                    </div>
+                    <button onClick={() => setCommentModal(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
+                  </div>
+                  <div style={{ padding: "16px 20px" }}>
+                    {isOwner ? (
+                      <>
+                        <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder="Add a note about this week's number..."
+                          style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+                          {existing && (
+                            <button onClick={() => { saveComment(metricId, weekStart, null); setCommentModal(null); }}
+                              style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Delete</button>
+                          )}
+                          <button onClick={() => setCommentModal(null)}
+                            style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface3, color: T.text2, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                          <button onClick={() => { if (text.trim()) { saveComment(metricId, weekStart, text.trim()); } setCommentModal(null); }} disabled={!text.trim() && !existing}
+                            style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: !text.trim() && !existing ? 0.5 : 1 }}>Save</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ padding: "14px 16px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 13, color: T.text, lineHeight: 1.6 }}>{existing}</div>
+                        <div style={{ textAlign: "right", marginTop: 12 }}>
+                          <button onClick={() => setCommentModal(null)}
+                            style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface3, color: T.text2, fontSize: 12, cursor: "pointer" }}>Close</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          };
+          return <CommentModalInner />;
         })()}
 
         {/* Legend */}
