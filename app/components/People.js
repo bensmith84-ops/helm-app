@@ -115,7 +115,22 @@ export default function PeopleView() {
   const toggleModuleAccess = async (uid, mod) => { const om = getMembership(uid); if (!om) return; const perms = om.module_permissions || {}; const current = perms[mod] !== false; const updated = { ...perms, [mod]: !current }; const { error } = await supabase.from("org_memberships").update({ module_permissions: updated }).eq("id", om.id); if (error) return showToast("Failed to update permissions"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, module_permissions: updated } : m)); };
   const toggleProjectAccess = async (uid, projectId) => { const existing = projectMembers.find(pm => pm.user_id === uid && pm.project_id === projectId); if (existing) { await supabase.from("project_members").delete().eq("id", existing.id); setProjectMembers(p => p.filter(pm => pm.id !== existing.id)); } else { const { data, error } = await supabase.from("project_members").insert({ project_id: projectId, user_id: uid, role: "member" }).select().single(); if (!error && data) setProjectMembers(p => [...p, data]); } };
   const deactivateUser = async (uid) => { const om = getMembership(uid); if (!om) return; const newActive = !om.is_active; const updates = { is_active: newActive }; if (!newActive) updates.deactivated_at = new Date().toISOString(); else updates.deactivated_at = null; const { error } = await supabase.from("org_memberships").update(updates).eq("id", om.id); if (error) return showToast("Failed to update"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, ...updates } : m)); showToast(newActive ? "User reactivated" : "User deactivated", "success"); };
-  const removeUser = async (uid) => { const om = getMembership(uid); if (om) await supabase.from("org_memberships").delete().eq("id", om.id); await supabase.from("project_members").delete().eq("user_id", uid); await supabase.from("team_members").delete().eq("user_id", uid); await supabase.from("profiles").delete().eq("id", uid); setMembers(p => p.filter(m => m.id !== uid)); setMemberships(p => p.filter(m => m.user_id !== uid)); setProjectMembers(p => p.filter(pm => pm.user_id !== uid)); setTeamMembers(p => p.filter(tm => tm.user_id !== uid)); if (selected?.id === uid) setSelected(null); };
+  const removeUser = async (uid) => {
+    try {
+      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/remove-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
+        body: JSON.stringify({ user_id: uid }),
+      });
+      const result = await res.json();
+      if (result.error) { console.error("[People] Remove failed:", result.error); return; }
+    } catch (e) { console.error("[People] Remove failed:", e); }
+    setMembers(p => p.filter(m => m.id !== uid));
+    setMemberships(p => p.filter(m => m.user_id !== uid));
+    setProjectMembers(p => p.filter(pm => pm.user_id !== uid));
+    setTeamMembers(p => p.filter(tm => tm.user_id !== uid));
+    if (selected?.id === uid) setSelected(null);
+  };
   const deleteUser = async (uid) => { if (!confirm("Permanently remove this user?")) return; await removeUser(uid); showToast("User removed", "success"); };
   const hasModuleAccess = (uid, mod) => { const om = getMembership(uid); if (!om) return true; if (om.role === "owner" || om.role === "admin") return true; const perms = om.module_permissions || {}; return perms[mod] !== false; };
   const hasProjectAccess = (uid, pid) => projectMembers.some(pm => pm.user_id === uid && pm.project_id === pid);
