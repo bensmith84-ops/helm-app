@@ -50,12 +50,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  const [filterStatus, setFilterStatusRaw] = useState(() => {
-    if (typeof window !== "undefined") { try { const s = localStorage.getItem("helm_proj_filterStatus"); if (s) return JSON.parse(s); } catch {} } return "all";
-  });
-  const [filterPriority, setFilterPriorityRaw] = useState(() => {
-    if (typeof window !== "undefined") { try { const s = localStorage.getItem("helm_proj_filterPriority"); if (s) return JSON.parse(s); } catch {} } return "all";
-  });
+  const [filterStatus, setFilterStatusRaw] = useState("all");
+  const [filterPriority, setFilterPriorityRaw] = useState("all");
+  // Load persisted filters from localStorage on client mount
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem("helm_proj_filterStatus");
+      if (s) setFilterStatusRaw(JSON.parse(s));
+      const p = localStorage.getItem("helm_proj_filterPriority");
+      if (p) setFilterPriorityRaw(JSON.parse(p));
+    } catch {}
+  }, []);
   const setFilterStatus = (v) => { setFilterStatusRaw(v); try { localStorage.setItem("helm_proj_filterStatus", JSON.stringify(v)); } catch {} };
   const setFilterPriority = (v) => { setFilterPriorityRaw(v); try { localStorage.setItem("helm_proj_filterPriority", JSON.stringify(v)); } catch {} };
   const [filterAssignee, setFilterAssignee] = useState([]);
