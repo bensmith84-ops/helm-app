@@ -50,8 +50,14 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterPriority, setFilterPriority] = useState("all");
+  const [filterStatus, setFilterStatusRaw] = useState(() => {
+    if (typeof window !== "undefined") { try { const s = localStorage.getItem("helm_proj_filterStatus"); if (s) return JSON.parse(s); } catch {} } return "all";
+  });
+  const [filterPriority, setFilterPriorityRaw] = useState(() => {
+    if (typeof window !== "undefined") { try { const s = localStorage.getItem("helm_proj_filterPriority"); if (s) return JSON.parse(s); } catch {} } return "all";
+  });
+  const setFilterStatus = (v) => { setFilterStatusRaw(v); try { localStorage.setItem("helm_proj_filterStatus", JSON.stringify(v)); } catch {} };
+  const setFilterPriority = (v) => { setFilterPriorityRaw(v); try { localStorage.setItem("helm_proj_filterPriority", JSON.stringify(v)); } catch {} };
   const [filterAssignee, setFilterAssignee] = useState([]);
   const [sortCol, setSortCol] = useState("sort_order");
   const [sortDir, setSortDir] = useState("asc");
