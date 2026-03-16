@@ -2482,11 +2482,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                   </div>
                 </div>
               )}
-              {viewMode === "List" && {listViewEl}}
-              {viewMode === "Board" && {boardViewEl}}
-              {viewMode === "Timeline" && {timelineViewEl}}
-              {viewMode === "Calendar" && {calendarViewEl}}
-              {viewMode === "Updates" && {updatesViewEl}}
+              {viewMode === "List" && listViewEl}
+              {viewMode === "Board" && boardViewEl}
+              {viewMode === "Timeline" && timelineViewEl}
+              {viewMode === "Calendar" && calendarViewEl}
+              {viewMode === "Updates" && updatesViewEl}
               {viewMode === "Docs" && <DocsView />}
               {viewMode === "Rules" && (
                 <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
