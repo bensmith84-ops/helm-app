@@ -98,8 +98,8 @@ export default function OKRsView() {
     if (typeof window !== "undefined") { try { return localStorage.getItem("okr_view") || "list"; } catch {} }
     return "list";
   });
-  const { gridTemplate: okrGrid, onResizeStart: okrResize } = useResizableColumns([300, 180, 160, 80, 60], "okrs-v2");
-  const ORH = ({ index }) => (<div onMouseDown={(e) => okrResize(index, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />);
+  const okrGrid = "3fr 2fr 2fr 1fr 60px";
+  // Resize handles removed — using proportional fr units now
   const [loading, setLoading] = useState(true);
   // Milestone form
   const [msForm, setMsForm] = useState(null); // { objectiveId, title, start_date, end_date, color }
@@ -814,7 +814,7 @@ export default function OKRsView() {
             {isExp && objKRs.length > 0 && (
               <div style={{ borderTop: `1px solid ${T.border}` }}>
                 <div style={{ display: "grid", gridTemplateColumns: okrGrid, gap: 0, padding: "0 20px 0 48px", alignItems: "center", height: 28, fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, background: T.bg }}>
-                  <span style={{ position: "relative" }}>Key Result<ORH index={0} /></span><span style={{ position: "relative" }}>Progress<ORH index={1} /></span><span style={{ position: "relative" }}>Value<ORH index={2} /></span><span style={{ position: "relative" }}>Confidence<ORH index={3} /></span><span>Owner</span>
+                  <span>Key Result</span><span>Progress</span><span>Value</span><span>Confidence</span><span>Owner</span>
                 </div>
                 {objKRs.map(kr => {
                   const p = calcProgress(Number(kr.current_value || 0), Number(kr.target_value), kr.target_direction); const sel = selectedKR === kr.id;
