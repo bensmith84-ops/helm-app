@@ -5,8 +5,15 @@ import { useAuth } from "../lib/auth";
 import { useModal } from "../lib/modal";
 
 // Module-level filter cache — survives component unmount/remount
-let _cachedFilterStatus = null;
-let _cachedFilterPriority = null;
+// This is the ONLY source of truth for filters
+if (typeof window !== "undefined") {
+  if (!window._helmFilters) {
+    window._helmFilters = {
+      status: (() => { try { const s = localStorage.getItem("helm_fS"); if (s) return JSON.parse(s); } catch {} return "all"; })(),
+      priority: (() => { try { const s = localStorage.getItem("helm_fP"); if (s) return JSON.parse(s); } catch {} return "all"; })(),
+    };
+  }
+}
 import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import SearchableMultiSelect from "./SearchableSelect";
@@ -54,19 +61,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  // Filter persistence — useEffect loads from localStorage after mount
-  const [filterStatus, setFilterStatusRaw] = useState(() => _cachedFilterStatus ?? "all");
-  const [filterPriority, setFilterPriorityRaw] = useState(() => _cachedFilterPriority ?? "all");
-  useEffect(() => {
-    try {
-      const s = localStorage.getItem("helm_proj_filterStatus2");
-      if (s) { const v = JSON.parse(s); _cachedFilterStatus = v; setFilterStatusRaw(v); }
-      const p = localStorage.getItem("helm_proj_filterPriority2");
-      if (p) { const v = JSON.parse(p); _cachedFilterPriority = v; setFilterPriorityRaw(v); }
-    } catch {}
-  }, []);
-  const setFilterStatus = (v) => { _cachedFilterStatus = v; setFilterStatusRaw(v); try { localStorage.setItem("helm_proj_filterStatus2", JSON.stringify(v)); } catch {} };
-  const setFilterPriority = (v) => { _cachedFilterPriority = v; setFilterPriorityRaw(v); try { localStorage.setItem("helm_proj_filterPriority2", JSON.stringify(v)); } catch {} };
+  // Filter state — synced with window._helmFilters for persistence
+  const _hf = typeof window !== "undefined" ? window._helmFilters : { status: "all", priority: "all" };
+  const [filterStatus, _setFS] = useState(_hf?.status ?? "all");
+  const [filterPriority, _setFP] = useState(_hf?.priority ?? "all");
+  const setFilterStatus = (v) => { _setFS(v); if (typeof window !== "undefined") { window._helmFilters.status = v; try { localStorage.setItem("helm_fS", JSON.stringify(v)); } catch {} } };
+  const setFilterPriority = (v) => { _setFP(v); if (typeof window !== "undefined") { window._helmFilters.priority = v; try { localStorage.setItem("helm_fP", JSON.stringify(v)); } catch {} } };
   const [filterAssignee, setFilterAssignee] = useState([]);
   const [sortCol, setSortCol] = useState("sort_order");
   const [sortDir, setSortDir] = useState("asc");
@@ -1961,8 +1961,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     );
   })();
 
-  const _docsViewRef = useRef(null);
-  if (!_docsViewRef.current) _docsViewRef.current = () => {
+  const DocsView = () => {
     const [creatingDoc, setCreatingDoc] = useState(false);
     const [newDocTitle, setNewDocTitle] = useState("");
     const [newDocEmoji, setNewDocEmoji] = useState("📄");
@@ -2142,8 +2141,6 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       </div>
     );
   };
-  const DocsView = _docsViewRef.current;
-
   // Templates modal
   const templatesModalEl = (() => {
     if (!showTemplates) return null;

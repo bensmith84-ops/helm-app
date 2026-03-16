@@ -25,14 +25,16 @@ const now = () => new Date().toISOString();
 const EditableBlock = memo(({ blockId, initialContent, style, placeholder, onContentChange, onKeyDown, onFocus, onSlash, blockRef }) => {
   const ref = useRef(null);
   const contentRef = useRef(initialContent || "");
+  const prevBlockId = useRef(blockId);
 
-  // Only update DOM if content changed externally (e.g. block type change)
+  // Only update DOM if the block ID actually changed (not just a re-render)
   useEffect(() => {
-    if (ref.current && ref.current.innerText !== initialContent) {
-      ref.current.innerText = initialContent || "";
+    if (prevBlockId.current !== blockId) {
+      if (ref.current) ref.current.innerText = initialContent || "";
+      contentRef.current = initialContent || "";
+      prevBlockId.current = blockId;
     }
-    contentRef.current = initialContent || "";
-  }, [blockId]); // Only re-sync on block ID change, NOT on content change
+  }, [blockId, initialContent]);
 
   useEffect(() => { if (blockRef) blockRef(ref.current); }, [blockRef]);
 
