@@ -22,19 +22,31 @@ const mkBlock = (type = "text", content = "") => {
 const now = () => new Date().toISOString();
 
 // ──── STABLE EDITABLE BLOCK (no re-render on typing) ────
-const EditableBlock = memo(({ blockId, initialContent, style, placeholder, onContentChange, onKeyDown, onFocus, onSlash, blockRef }) => {
+const EditableBlock = memo(function EditableBlock({ blockId, initialContent, style, placeholder, onContentChange, onKeyDown, onFocus, onSlash, blockRef }) {
   const ref = useRef(null);
   const contentRef = useRef(initialContent || "");
-  const initialized = useRef(false);
 
+  // Set content via ref after mount — only once per blockId
+  const lastSetBlockId = useRef(null);
   useEffect(() => {
-    if (!initialized.current && ref.current) {
+    if (ref.current && lastSetBlockId.current !== blockId) {
       ref.current.innerText = initialContent || "";
-      initialized.current = true;
+      contentRef.current = initialContent || "";
+      lastSetBlockId.current = blockId;
     }
-  }, [initialContent]);
+  }, [blockId, initialContent]);
 
   useEffect(() => { if (blockRef) blockRef(ref.current); }, [blockRef]);
+
+  // Stable handlers via refs to avoid prop changes causing re-renders
+  const onContentChangeRef = useRef(onContentChange);
+  const onKeyDownRef = useRef(onKeyDown);
+  const onFocusRef = useRef(onFocus);
+  const onSlashRef = useRef(onSlash);
+  onContentChangeRef.current = onContentChange;
+  onKeyDownRef.current = onKeyDown;
+  onFocusRef.current = onFocus;
+  onSlashRef.current = onSlash;
 
   return (
     <div ref={ref} contentEditable suppressContentEditableWarning
@@ -43,25 +55,15 @@ const EditableBlock = memo(({ blockId, initialContent, style, placeholder, onCon
       onInput={e => {
         const text = e.target.innerText;
         contentRef.current = text;
-        onContentChange(text);
-        if (text === "/") { onSlash?.(e.target.getBoundingClientRect(), ""); }
-        else if (text.startsWith("/") && text.length < 20) { onSlash?.(e.target.getBoundingClientRect(), text.slice(1).toLowerCase()); }
+        onContentChangeRef.current?.(text);
+        if (text === "/") { onSlashRef.current?.(e.target.getBoundingClientRect(), ""); }
+        else if (text.startsWith("/") && text.length < 20) { onSlashRef.current?.(e.target.getBoundingClientRect(), text.slice(1).toLowerCase()); }
       }}
-      onKeyDown={e => onKeyDown?.(e, contentRef.current)}
-      onFocus={onFocus}
+      onKeyDown={e => onKeyDownRef.current?.(e, contentRef.current)}
+      onFocus={() => onFocusRef.current?.()}
     />
   );
-}, (prev, next) => {
-  if (prev.blockId !== next.blockId) return false;
-  if (prev.placeholder !== next.placeholder) return false;
-  // Deep compare style to avoid re-renders from new object references
-  const ps = prev.style, ns = next.style;
-  if (ps === ns) return true;
-  if (!ps || !ns) return false;
-  const keys = new Set([...Object.keys(ps), ...Object.keys(ns)]);
-  for (const k of keys) { if (ps[k] !== ns[k]) return false; }
-  return true;
-});
+}, () => true); // NEVER re-render — content is managed entirely via DOM/refs
 EditableBlock.displayName = "EditableBlock";
 
 // ──── TABLE FORMULA ENGINE ────
@@ -413,7 +415,8 @@ export default function DocsView({ setActive }) {
   };
 
   // ──── BLOCK RENDERER ────
-  const Block = ({ block, index }) => {
+  const _blockRef = useRef(null);
+  if (!_blockRef.current) _blockRef.current = ({ block, index }) => {
     const [hov, setHov] = useState(false);
     if (block.type === "divider") return (
       <div style={{ padding: "8px 0 8px 32", position: "relative" }} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}>
@@ -489,6 +492,7 @@ export default function DocsView({ setActive }) {
       </div>
     );
   };
+  const Block = _blockRef.current;
 
   if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading…</div>;
 
