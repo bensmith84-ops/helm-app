@@ -25,16 +25,26 @@ const now = () => new Date().toISOString();
 const EditableBlock = memo(({ blockId, initialContent, style, placeholder, onContentChange, onKeyDown, onFocus, onSlash, blockRef }) => {
   const ref = useRef(null);
   const contentRef = useRef(initialContent || "");
-  const prevBlockId = useRef(blockId);
+  const lastBlockId = useRef(blockId);
 
-  // Only update DOM if the block ID actually changed (not just a re-render)
   useEffect(() => {
-    if (prevBlockId.current !== blockId) {
-      if (ref.current) ref.current.innerText = initialContent || "";
-      contentRef.current = initialContent || "";
-      prevBlockId.current = blockId;
+    // Only reset content when blockId changes (type change, block swap)
+    // NOT on normal re-renders which would wipe typed content
+    if (lastBlockId.current !== blockId) {
+      lastBlockId.current = blockId;
+      if (ref.current) {
+        ref.current.innerText = initialContent || "";
+        contentRef.current = initialContent || "";
+      }
     }
-  }, [blockId, initialContent]);
+  });
+
+  // Set initial content on first mount
+  useEffect(() => {
+    if (ref.current && !ref.current.innerText && initialContent) {
+      ref.current.innerText = initialContent;
+    }
+  }, []);
 
   useEffect(() => { if (blockRef) blockRef(ref.current); }, [blockRef]);
 

@@ -4,16 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useModal } from "../lib/modal";
 
-// Module-level filter cache — survives component unmount/remount
-// This is the ONLY source of truth for filters
-if (typeof window !== "undefined") {
-  if (!window._helmFilters) {
-    window._helmFilters = {
-      status: (() => { try { const s = localStorage.getItem("helm_fS"); if (s) return JSON.parse(s); } catch {} return "all"; })(),
-      priority: (() => { try { const s = localStorage.getItem("helm_fP"); if (s) return JSON.parse(s); } catch {} return "all"; })(),
-    };
-  }
-}
+// Filter persistence handled inside component via useEffect
 import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import SearchableMultiSelect from "./SearchableSelect";
@@ -61,12 +52,21 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  // Filter state — synced with window._helmFilters for persistence
-  const _hf = typeof window !== "undefined" ? window._helmFilters : { status: "all", priority: "all" };
-  const [filterStatus, _setFS] = useState(_hf?.status ?? "all");
-  const [filterPriority, _setFP] = useState(_hf?.priority ?? "all");
-  const setFilterStatus = (v) => { _setFS(v); if (typeof window !== "undefined") { window._helmFilters.status = v; try { localStorage.setItem("helm_fS", JSON.stringify(v)); } catch {} } };
-  const setFilterPriority = (v) => { _setFP(v); if (typeof window !== "undefined") { window._helmFilters.priority = v; try { localStorage.setItem("helm_fP", JSON.stringify(v)); } catch {} } };
+  // Filter state with persistence
+  const [filterStatus, _setFS] = useState("all");
+  const [filterPriority, _setFP] = useState("all");
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem("helm_fS");
+      const p = localStorage.getItem("helm_fP");
+      if (s) _setFS(JSON.parse(s));
+      if (p) _setFP(JSON.parse(p));
+    } catch {}
+    setFiltersLoaded(true);
+  }, []);
+  const setFilterStatus = (v) => { _setFS(v); try { localStorage.setItem("helm_fS", JSON.stringify(v)); } catch {} };
+  const setFilterPriority = (v) => { _setFP(v); try { localStorage.setItem("helm_fP", JSON.stringify(v)); } catch {} };
   const [filterAssignee, setFilterAssignee] = useState([]);
   const [sortCol, setSortCol] = useState("sort_order");
   const [sortDir, setSortDir] = useState("asc");
