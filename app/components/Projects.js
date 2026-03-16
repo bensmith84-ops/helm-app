@@ -732,7 +732,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           const pOverdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < pToday).length;
           const pHealth = pOverdue > pt.length * 0.2 ? "#ef4444" : pOverdue > 0 ? "#eab308" : "#22c55e";
           return (
-          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus("all"); setFilterPriority("all"); setFilterAssignee([]); }}
+          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); }}
             onContextMenu={e => { e.preventDefault(); setCtxProject(ctxProject === p.id ? null : p.id); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
             <div onClick={e => toggleFavorite(p.id, e)} style={{ cursor: "pointer", fontSize: 12, color: "#eab308", flexShrink: 0, lineHeight: 1 }} title="Remove from favorites">★</div>
@@ -765,7 +765,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           const pOverdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < pToday).length;
           const pHealth = pOverdue > pt.length * 0.2 ? "#ef4444" : pOverdue > 0 ? "#eab308" : "#22c55e";
           return (
-          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); setFilterStatus("all"); setFilterPriority("all"); setFilterAssignee([]); }}
+          <div key={p.id} onClick={() => { setActiveProject(p.id); setShowMyTasks(false); setSelectedTask(null); setSearch(""); }}
             onContextMenu={e => { e.preventDefault(); setCtxProject(ctxProject === p.id ? null : p.id); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: act ? T.accentDim : "transparent", marginBottom: 2, position: "relative" }}>
             <div onClick={e => toggleFavorite(p.id, e)} style={{ cursor: "pointer", fontSize: 12, color: T.text3, flexShrink: 0, lineHeight: 1, opacity: 0.3, transition: "opacity 0.15s" }}
