@@ -13,8 +13,11 @@ const fmt = (v, unit) => {
     const abs = Math.abs(v);
     const s = v < 0 ? "-" : "";
     if (abs >= 1_000_000) return s + "$" + (abs/1e6).toFixed(1) + "M";
-    if (abs >= 1_000)     return s + "$" + (abs/1e3).toFixed(0) + "K";
-    return s + "$" + Number(v).toFixed(0);
+    if (abs >= 10_000)    return s + "$" + Math.round(abs).toLocaleString();
+    if (abs >= 1_000)     return s + "$" + (abs/1e3).toFixed(1) + "K";
+    // Under $1K: show decimals if the value has them
+    const hasDecimals = abs % 1 !== 0;
+    return s + "$" + (hasDecimals ? Number(v).toFixed(2) : Number(v).toFixed(0));
   }
   if (unit === "%") return Number(v).toFixed(1) + "%";
   if (unit === "bool") return v ? "✓" : "✗";
