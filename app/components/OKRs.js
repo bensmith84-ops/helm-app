@@ -410,7 +410,7 @@ export default function OKRsView() {
     } else if (type === "kr") {
       const { id, ...rest } = data;
       const mode = rest.progress_mode || "manual";
-      const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0, progress_mode: mode };
+      const updates = { title: rest.title, target_value: Number(rest.target_value) || 100, unit: rest.unit || null, owner_id: rest.owner_id || null, start_date: rest.start_date || null, end_date: rest.end_date || null, current_value: Number(rest.current_value) || 0, progress_mode: mode, target_direction: rest.target_direction || "above" };
       if (mode === "manual") {
         updates.progress = updates.target_value > 0 ? Math.round((updates.current_value / updates.target_value) * 100) : 0;
       } else {
@@ -799,6 +799,10 @@ export default function OKRsView() {
                 </div>
                 {objKRs.map(kr => {
                   const p = Number(kr.progress || 0); const sel = selectedKR === kr.id;
+                  const isBelow = kr.target_direction === "below";
+                  const effectiveP = isBelow && kr.target_value > 0 ? Math.max(0, Math.round((1 - (Number(kr.current_value || 0) - Number(kr.target_value)) / Number(kr.target_value)) * 100)) : p;
+                  const onTarget = isBelow ? Number(kr.current_value || 0) <= Number(kr.target_value) : p >= 100;
+                  const pColor = onTarget ? T.green : effectiveP >= 70 ? (isBelow ? "#eab308" : T.green) : effectiveP >= 40 ? "#eab308" : T.accent;
                   const krCIs = checkIns.filter(c => c.key_result_id === kr.id);
                   const lastCI = krCIs[0];
                   const daysSince = lastCI ? Math.floor((Date.now() - new Date(lastCI.created_at).getTime()) / 86400000) : null;
@@ -814,8 +818,8 @@ export default function OKRsView() {
                         </button>
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${Math.min(p, 100)}%`, height: "100%", borderRadius: 5, background: p >= 70 ? T.green : p >= 40 ? T.yellow : T.accent, transition: "width 0.3s" }} /></div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: p >= 70 ? T.green : p >= 40 ? T.yellow : T.text2, minWidth: 28 }}>{Math.round(p)}%</span>
+                        <div style={{ flex: 1, height: 5, borderRadius: 5, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${Math.min(p, 100)}%`, height: "100%", borderRadius: 5, background: pColor, transition: "width 0.3s" }} /></div>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: pColor, minWidth: 28 }}>{Math.round(p)}%</span>
                       </div>
                       {/* Inline value edit */}
                       {kr.progress_mode === "milestones" ? (
@@ -917,6 +921,18 @@ export default function OKRsView() {
                 <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} disabled={mode === "milestones"} style={{ ..._einp, opacity: mode === "milestones" ? 0.5 : 1 }} /></div>
                 <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => editSet("target_value", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, %" style={_einp} /></div>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={_elbl}>On Track When Value Is</label>
+                <div style={{ display: "flex", gap: 0, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.border}` }}>
+                  {[{ k: "above", l: "↑ Above Target", desc: "Higher is better (e.g., revenue, subs)" }, { k: "below", l: "↓ Below Target", desc: "Lower is better (e.g., CPA, costs)" }].map(o => (
+                    <button key={o.k} onClick={() => editSet("target_direction", o.k)}
+                      style={{ flex: 1, padding: "8px 0", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: (d.target_direction || "above") === o.k ? (o.k === "above" ? "#22c55e" : "#3b82f6") : T.surface3, color: (d.target_direction || "above") === o.k ? "#fff" : T.text3 }}>{o.l}</button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>
+                  {(d.target_direction || "above") === "above" ? "Green when value meets or exceeds target" : "Green when value is at or below target"}
+                </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
