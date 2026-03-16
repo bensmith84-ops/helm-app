@@ -117,9 +117,18 @@ export default function ScorecardView() {
   const [keyResults, setKeyResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddMetric, setShowAddMetric] = useState(false);
-  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"" });
+  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"" });
   const [saving, setSaving] = useState(false);
   const [orgId, setOrgId] = useState(null);
+  const [autoCalcRunning, setAutoCalcRunning] = useState(false);
+
+  const DAILY_KEYS = ["revenue","amazon_revenue","ad_spend","cpa","dtc_cac","x_cac","gwp_cpa","nc_aov","net_dollars","total_orders","new_orders","amazon_total_orders","units_shipped","dtc_new_customers","amz_new_customers","traffic","blended_cvr","new_gwp_subs","new_shopify_subs","daily_cancels","net_daily_subs","amz_net_subs","sub_rate","upsell_take_rate","comp_yago","opex_pct_rev"];
+  const AGG_METHODS = [
+    { value: "sum", label: "Sum", desc: "Total for the week (e.g., revenue, orders)" },
+    { value: "average", label: "Average", desc: "Simple average of daily values" },
+    { value: "weighted_average", label: "Weighted Average", desc: "Weighted by another metric (e.g., CPA weighted by purchases)" },
+    { value: "last", label: "Last Value", desc: "Use the last day's value for the week" },
+  ];
 
   useEffect(() => {
     (async () => {
@@ -173,12 +182,42 @@ export default function ScorecardView() {
       goal: newMetric.goal ? parseFloat(newMetric.goal) : null,
       frequency: newMetric.frequency, description: newMetric.description,
       linked_kr_id: newMetric.linked_kr_id || null,
+      auto_source: newMetric.auto_source || null,
+      auto_agg: newMetric.auto_source ? (newMetric.auto_agg || "sum") : null,
+      auto_weight_key: newMetric.auto_agg === "weighted_average" ? (newMetric.auto_weight_key || null) : null,
       org_id: orgId, owner_id: user.id, sort_order: metrics.length,
     }).select().single();
     if (data) { setMetrics(p => [...p, data]); setEntries(p => ({...p, [data.id]: {}})); }
-    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"" });
+    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"" });
     setShowAddMetric(false);
     setSaving(false);
+    // Auto-calc if this metric has a source
+    if (data?.auto_source) runAutoCalc();
+  };
+
+  const runAutoCalc = async () => {
+    setAutoCalcRunning(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/scorecard-auto-calc", {
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+      });
+      const result = await res.json();
+      if (result.success) {
+        // Reload entries
+        const { data: allEntries } = await supabase.from("scorecard_entries").select("*").order("week_start", { ascending: false });
+        const eMap = {};
+        for (const m of metrics) eMap[m.id] = {};
+        for (const e of (allEntries || [])) { if (!eMap[e.metric_id]) eMap[e.metric_id] = {}; eMap[e.metric_id][e.week_start] = e; }
+        setEntries(eMap);
+      }
+    } catch (e) { console.error("Auto-calc failed:", e); }
+    setAutoCalcRunning(false);
+  };
+
+  const updateMetricAutoSource = async (metricId, field, value) => {
+    await supabase.from("scorecard_metrics").update({ [field]: value || null }).eq("id", metricId);
+    setMetrics(p => p.map(m => m.id === metricId ? { ...m, [field]: value || null } : m));
   };
 
   const deleteMetric = async (id) => {
@@ -242,6 +281,12 @@ export default function ScorecardView() {
             }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.surface2, color:T.text2, border:`1px solid ${T.border}`, borderRadius:7, cursor:"pointer" }}>
               ↓ Export
             </button>
+            {metrics.some(m => m.auto_source) && (
+              <button onClick={runAutoCalc} disabled={autoCalcRunning}
+                style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.surface2, color:T.accent, border:`1px solid ${T.accent}40`, borderRadius:7, cursor:autoCalcRunning?"wait":"pointer", opacity:autoCalcRunning?0.6:1 }}>
+                {autoCalcRunning ? "Calculating…" : "⚡ Auto-calc"}
+              </button>
+            )}
             <button onClick={() => setShowAddMetric(true)}
               style={{ padding:"7px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:7, cursor:"pointer" }}>
               + Add Metric
@@ -292,6 +337,41 @@ export default function ScorecardView() {
               </button>
             </div>
           </div>
+          {/* Auto-calculate from Scoreboard */}
+          <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 8, border: `1px solid ${newMetric.auto_source ? T.accent + "40" : T.border}`, background: newMetric.auto_source ? T.accent + "08" : "transparent" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: newMetric.auto_source ? 10 : 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: newMetric.auto_source ? T.accent : T.text2 }}>⚡ Auto-calculate from Scoreboard</span>
+              <select value={newMetric.auto_source} onChange={e => setNewMetric(p => ({ ...p, auto_source: e.target.value }))}
+                style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer" }}>
+                <option value="">Manual entry</option>
+                {DAILY_KEYS.map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+              </select>
+            </div>
+            {newMetric.auto_source && (
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 10, color: T.text3, marginBottom: 3, fontWeight: 600 }}>Aggregation</div>
+                  <select value={newMetric.auto_agg} onChange={e => setNewMetric(p => ({ ...p, auto_agg: e.target.value }))}
+                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer" }}>
+                    {AGG_METHODS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+                  </select>
+                </div>
+                {newMetric.auto_agg === "weighted_average" && (
+                  <div>
+                    <div style={{ fontSize: 10, color: T.text3, marginBottom: 3, fontWeight: 600 }}>Weight by</div>
+                    <select value={newMetric.auto_weight_key} onChange={e => setNewMetric(p => ({ ...p, auto_weight_key: e.target.value }))}
+                      style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer" }}>
+                      <option value="">Select weight metric…</option>
+                      {DAILY_KEYS.filter(k => k !== newMetric.auto_source).map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: T.text3, marginTop: 12, flex: 1 }}>
+                  {AGG_METHODS.find(a => a.value === newMetric.auto_agg)?.desc}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -337,7 +417,7 @@ export default function ScorecardView() {
                       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                         <RagDot value={m.latest} goal={m.goal} unit={m.unit} />
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{m.name}</div>
+                          <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{m.name}{m.auto_source && <span title={`Auto: ${m.auto_agg}${m.auto_weight_key ? ` weighted by ${m.auto_weight_key}` : ""} from ${m.auto_source}`} style={{ fontSize:10, color:T.accent, marginLeft:5, fontWeight:700 }}>⚡</span>}</div>
                           {m.description && <div style={{ fontSize:10, color:T.text3 }}>{m.description}</div>}
                           {m.linked_kr_id && (() => {
                             const kr = keyResults.find(k => k.id === m.linked_kr_id);
@@ -401,7 +481,27 @@ export default function ScorecardView() {
                         </td>
                       );
                     })}
-                    <td style={{ padding:"6px 4px", textAlign:"center" }}>
+                    <td style={{ padding:"6px 4px", textAlign:"center", whiteSpace:"nowrap" }}>
+                      <button onClick={() => {
+                        const current = m.auto_source || "";
+                        const source = prompt("Auto-source from Scoreboard metric key:\n\nAvailable: " + DAILY_KEYS.join(", ") + "\n\nCurrent: " + (current || "none") + "\n\nEnter key (or leave blank to disable):", current);
+                        if (source === null) return; // cancelled
+                        if (source === "") {
+                          updateMetricAutoSource(m.id, "auto_source", null);
+                          updateMetricAutoSource(m.id, "auto_agg", null);
+                          updateMetricAutoSource(m.id, "auto_weight_key", null);
+                          return;
+                        }
+                        updateMetricAutoSource(m.id, "auto_source", source);
+                        const agg = prompt("Aggregation method:\n\nsum = Total for the week\naverage = Simple daily average\nweighted_average = Weighted by another metric\nlast = Last day's value\n\nCurrent: " + (m.auto_agg || "sum"), m.auto_agg || "sum");
+                        if (agg) updateMetricAutoSource(m.id, "auto_agg", agg);
+                        if (agg === "weighted_average") {
+                          const wk = prompt("Weight by which metric?\n\nAvailable: " + DAILY_KEYS.filter(k => k !== source).join(", "), m.auto_weight_key || "");
+                          if (wk) updateMetricAutoSource(m.id, "auto_weight_key", wk);
+                        }
+                      }}
+                        title={m.auto_source ? `Auto: ${m.auto_agg} of ${m.auto_source}${m.auto_weight_key ? " weighted by " + m.auto_weight_key : ""}` : "Configure auto-calculate"}
+                        style={{ background:"none", border:"none", color: m.auto_source ? T.accent : T.text3, cursor:"pointer", fontSize:11, opacity: m.auto_source ? 1 : 0.5 }}>⚡</button>
                       <button onClick={() => deleteMetric(m.id)}
                         style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:12, opacity:0.5 }}>✕</button>
                     </td>
