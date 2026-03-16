@@ -54,14 +54,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
-  // Filter persistence: read localStorage EVERY mount, cache for in-session
-  const _readLS = (key) => { try { if (typeof window !== "undefined") { const s = localStorage.getItem(key); if (s) return JSON.parse(s); } } catch {} return null; };
-  const _initStatus = _readLS("helm_proj_filterStatus2") ?? _cachedFilterStatus ?? "all";
-  const _initPriority = _readLS("helm_proj_filterPriority2") ?? _cachedFilterPriority ?? "all";
-  _cachedFilterStatus = _initStatus;
-  _cachedFilterPriority = _initPriority;
-  const [filterStatus, setFilterStatusRaw] = useState(_initStatus);
-  const [filterPriority, setFilterPriorityRaw] = useState(_initPriority);
+  // Filter persistence — useEffect loads from localStorage after mount
+  const [filterStatus, setFilterStatusRaw] = useState(() => _cachedFilterStatus ?? "all");
+  const [filterPriority, setFilterPriorityRaw] = useState(() => _cachedFilterPriority ?? "all");
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem("helm_proj_filterStatus2");
+      if (s) { const v = JSON.parse(s); _cachedFilterStatus = v; setFilterStatusRaw(v); }
+      const p = localStorage.getItem("helm_proj_filterPriority2");
+      if (p) { const v = JSON.parse(p); _cachedFilterPriority = v; setFilterPriorityRaw(v); }
+    } catch {}
+  }, []);
   const setFilterStatus = (v) => { _cachedFilterStatus = v; setFilterStatusRaw(v); try { localStorage.setItem("helm_proj_filterStatus2", JSON.stringify(v)); } catch {} };
   const setFilterPriority = (v) => { _cachedFilterPriority = v; setFilterPriorityRaw(v); try { localStorage.setItem("helm_proj_filterPriority2", JSON.stringify(v)); } catch {} };
   const [filterAssignee, setFilterAssignee] = useState([]);
