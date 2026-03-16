@@ -202,15 +202,19 @@ export default function ScorecardView() {
         method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
       });
       const result = await res.json();
-      if (result.success) {
-        // Reload entries
-        const { data: allEntries } = await supabase.from("scorecard_entries").select("*").order("week_start", { ascending: false });
-        const eMap = {};
-        for (const m of metrics) eMap[m.id] = {};
-        for (const e of (allEntries || [])) { if (!eMap[e.metric_id]) eMap[e.metric_id] = {}; eMap[e.metric_id][e.week_start] = e; }
-        setEntries(eMap);
-      }
-    } catch (e) { console.error("Auto-calc failed:", e); }
+      console.log("[Scorecard] Auto-calc result:", result);
+      // Reload metrics (in case auto_source was configured externally)
+      const { data: freshMetrics } = await supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order");
+      if (freshMetrics) setMetrics(freshMetrics);
+      // Reload entries
+      const { data: allEntries } = await supabase.from("scorecard_entries").select("*").order("week_start", { ascending: false });
+      const eMap = {};
+      for (const m of (freshMetrics || metrics)) eMap[m.id] = {};
+      for (const e of (allEntries || [])) { if (!eMap[e.metric_id]) eMap[e.metric_id] = {}; eMap[e.metric_id][e.week_start] = e; }
+      setEntries(eMap);
+      if (result.entries_upserted > 0) alert(`⚡ Auto-calculated ${result.entries_upserted} entries for ${result.metrics_processed} metric(s)`);
+      else alert(result.message || `Processed ${result.metrics_processed || 0} metrics, ${result.entries_upserted || 0} entries`);
+    } catch (e) { console.error("Auto-calc failed:", e); alert("Auto-calc error: " + e.message); }
     setAutoCalcRunning(false);
   };
 
