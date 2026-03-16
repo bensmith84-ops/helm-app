@@ -94,6 +94,7 @@ export default function OKRsView() {
   const [finEditVal, setFinEditVal]   = useState("");
   const [finSyncing, setFinSyncing]   = useState(false);
   const [finSyncMsg, setFinSyncMsg]   = useState("");
+  const [finCollapsed, setFinCollapsed] = useState(false);
   // Check-in state
   const [checkInModal, setCheckInModal] = useState(null); // { kr, objective }
   const [checkIns, setCheckIns] = useState([]); // all check-ins loaded
@@ -1442,23 +1443,6 @@ export default function OKRsView() {
           </div>
         </div>
       </div>
-      {/* ── Financial Metrics ── */}
-      {finMetrics.length > 0 && (
-        <div style={{ marginBottom: 16, padding: "14px 0 0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1 }}>Financial Metrics {finYear}</div>
-            <div style={{ height: 1, flex: 1, background: T.border }} />
-            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            {finSyncMsg && <span style={{ fontSize:11, color: finSyncMsg.startsWith("✓") ? "#22c55e" : "#ef4444", fontWeight:600 }}>{finSyncMsg}</span>}
-            <button onClick={syncFromSheets} disabled={finSyncing} style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:5, background:T.accentDim, color:T.accent, border:"1px solid "+T.accent+"40", cursor:"pointer", opacity:finSyncing?0.6:1, whiteSpace:"nowrap" }}>
-              {finSyncing ? "Syncing…" : "⟳ Sync from Sheet"}
-            </button>
-            <span style={{ fontSize:10, color:T.text3 }}>Click cell to edit · Actual / Target</span>
-          </div>
-          </div>
-          {finMetrics.map(m => <FinMetricRow key={m.id} metric={m} />)}
-        </div>
-      )}
 
       <div style={{ display: "flex", gap: 0 }}>
         {[{ key: "list", label: "Objectives", icon: "≡" }, { key: "roadmap", label: "Roadmap", icon: "▬" }, { key: "updates", label: "Updates", icon: "📋" }].map(t => (
@@ -1858,6 +1842,25 @@ export default function OKRsView() {
         {header}
         {viewMode === "list" ? <ListView /> : viewMode === "roadmap" ? <RoadmapView /> : <UpdatesView />}
       </div>
+      {/* ── Financial Metrics (collapsible, at bottom) ── */}
+      {finMetrics.length > 0 && (
+        <div style={{ marginBottom: 16, padding: "14px 20px 0" }}>
+          <div onClick={() => setFinCollapsed(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: finCollapsed ? 0 : 12, cursor: "pointer", userSelect: "none" }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transition: "transform 0.15s", transform: finCollapsed ? "rotate(-90deg)" : "rotate(0)" }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1 }}>Financial Metrics {finYear}</div>
+            <div style={{ height: 1, flex: 1, background: T.border }} />
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            {finSyncMsg && <span style={{ fontSize:11, color: finSyncMsg.startsWith("✓") ? "#22c55e" : "#ef4444", fontWeight:600 }}>{finSyncMsg}</span>}
+            <button onClick={syncFromSheets} disabled={finSyncing} style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:5, background:T.accentDim, color:T.accent, border:"1px solid "+T.accent+"40", cursor:"pointer", opacity:finSyncing?0.6:1, whiteSpace:"nowrap" }}>
+              {finSyncing ? "Syncing…" : "⟳ Sync from Sheet"}
+            </button>
+            <span style={{ fontSize:10, color:T.text3 }}>Click cell to edit · Actual / Target</span>
+          </div>
+          </div>
+          {!finCollapsed && finMetrics.map(m => <FinMetricRow key={m.id} metric={m} />)}
+        </div>
+      )}
+
       {editModal}
       <MilestoneModal />
       {objFormModal}
