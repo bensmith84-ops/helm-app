@@ -295,7 +295,6 @@ export default function HelmApp() {
       case "activity": return <ActivityView setActive={setActive} />;
       case "settings": return <SettingsView isAdmin={isAdmin} />;
       case "ai-builder": return <AIBuilderView />;
-      case "roc": return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 200 }}>😊</div>;
       default: return <DashboardView setActive={setActive} />;
     }
   };

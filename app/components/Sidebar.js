@@ -25,7 +25,6 @@ export const NAV_ITEMS = [
   { key: "settings", icon: "⚙", label: "Settings" },
   { type: "divider" },
   { key: "ai-builder", icon: "✦", label: "AI Builder", adminOnly: true },
-  { key: "roc", icon: "🐕", label: "Roc is Cool" },
 ];
 
 export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile, allowedModules, isAdmin }) {
