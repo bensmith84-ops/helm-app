@@ -329,10 +329,12 @@ export default function ScoreboardView() {
     }
     // Load user's custom KPI card preferences
     const { data: { session } } = await supabase.auth.getSession();
-    const uid = session?.userId;
-    setUserId(uid);
-    const { data: uc } = await supabase.from("scoreboard_user_cards").select("*").eq("user_id", uid).order("sort_order");
-    if (uc && uc.length > 0) setUserCards(uc);
+    const uid = session?.user?.id;
+    if (uid) {
+      setUserId(uid);
+      const { data: uc } = await supabase.from("scoreboard_user_cards").select("*").eq("user_id", uid).order("sort_order");
+      if (uc && uc.length > 0) setUserCards(uc);
+    }
     setLoading(false);
   };
 
