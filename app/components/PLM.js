@@ -1772,6 +1772,22 @@ function AIAdvisorTab({ program }) {
 }
 
 
+const DETAIL_TABS = [
+  { key:"overview",      label:"Overview"       },
+  { key:"ai_advisor",    label:"\u{1F916} AI Advisor"  },
+  { key:"claims_sub",    label:"Claims & Evidence"},
+  { key:"formulations",  label:"Formulations"   },
+  { key:"sourcing",      label:"Sourcing"       },
+  { key:"gm_scenarios",  label:"GM% Scenarios"  },
+  { key:"experiments",   label:"Experiments"    },
+  { key:"trials",        label:"Trials"         },
+  { key:"reg_claims",    label:"Reg Claims"     },
+  { key:"skus",          label:"SKUs"           },
+  { key:"issues",        label:"Issues"         },
+  { key:"test_results",  label:"Test Results"   },
+  { key:"gate_reviews",  label:"Gate Reviews"   },
+];
+
 function ProgramDetail({ program, onBack, onUpdate }) {
   const [tab, setTab] = useState("overview");
   const [counts, setCounts] = useState({});
