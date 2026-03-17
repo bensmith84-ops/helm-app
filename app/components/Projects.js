@@ -856,7 +856,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
             </div>
           );
         })()}
-        {viewMode !== "Info" && <>{/* Health badge */}
+        {viewMode !== "Info" && <>{/* Visibility + Health badge */}
+        <span style={{ ...S.pill, background: proj.visibility === "private" ? "#a855f715" : T.surface2, color: proj.visibility === "private" ? "#a855f7" : T.text3, border: `1px solid ${proj.visibility === "private" ? "#a855f730" : T.border}`, fontSize: 11, fontWeight: 600, gap: 4 }}>
+          {proj.visibility === "private" ? "🔒 Private" : "🌐 Public"}
+        </span>
         <span style={{ ...S.pill, background: hColor + "18", color: hColor, border: `1px solid ${hColor}40`, fontSize: 11, fontWeight: 700 }}>
           {hLabel}
         </span>
