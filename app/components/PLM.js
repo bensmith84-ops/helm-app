@@ -1772,6 +1772,180 @@ function AIAdvisorTab({ program }) {
 }
 
 
+function ProgramDetail({ program, onBack, onUpdate }) {
+  const [tab, setTab] = useState("overview");
+  const [counts, setCounts] = useState({});
+
+  useEffect(()=>{
+    const load=async()=>{
+      const[{count:formulations},{count:experiments},{count:trials},{count:skus},{count:claims},{count:issues}]=await Promise.all([
+        supabase.from("plm_formulations").select("*",{count:"exact",head:true}).eq("program_id",program.id),
+        supabase.from("plm_experiments").select("*",{count:"exact",head:true}).eq("program_id",program.id),
+        supabase.from("plm_manufacturing_trials").select("*",{count:"exact",head:true}).eq("program_id",program.id),
+        supabase.from("plm_skus").select("*",{count:"exact",head:true}).eq("program_id",program.id),
+        supabase.from("plm_claims").select("*",{count:"exact",head:true}).eq("program_id",program.id),
+        supabase.from("plm_issues").select("*",{count:"exact",head:true}).eq("program_id",program.id),
+      ]);
+      setCounts({formulations,experiments,trials,skus,claims,issues});
+    };
+    load();
+  },[program.id]);
+
+  const renderTab=()=>{
+    switch(tab){
+      case "overview":     return <OverviewTab program={program} onUpdate={onUpdate} counts={counts} />;
+      case "ai_advisor":   return <AIAdvisorTab program={program} />;
+      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
+      case "sourcing":     return <SourcingTab program={program} />;
+      case "gm_scenarios": return <GMScenarioTab program={program} />;
+      case "formulations": return <FormulationsTab programId={program.id} />;
+      case "experiments":  return <ExperimentsTab programId={program.id} />;
+      case "trials":       return <TrialsTab programId={program.id} />;
+      case "reg_claims":   return <RegClaimsTab programId={program.id} />;
+      case "skus":         return <SKUsTab programId={program.id} />;
+      case "issues":       return <IssuesTab programId={program.id} />;
+      case "test_results": return <TestResultsTab programId={program.id} />;
+      case "gate_reviews": return <GateReviewsTab programId={program.id} />;
+      default:             return null;
+    }
+  };
+
+  return (
+    <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
+      <div style={{ padding:"14px 24px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none",border:"1px solid "+T.border,color:T.text2,cursor:"pointer",borderRadius:6,padding:"4px 10px",fontSize:12 }}>← Back</button>
+        <div style={{ flex:1 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
+            <div style={{ fontSize:18,fontWeight:700,color:T.text }}>{program.name}</div>
+            <StageBadge stage={program.current_stage} />
+            <PriorityBadge priority={program.priority} />
+            {program.target_gross_margin_pct&&<span style={{ fontSize:11,fontWeight:700,background:"#22c55e15",color:"#22c55e",padding:"2px 8px",borderRadius:4 }}>GM% Target: {program.target_gross_margin_pct}%</span>}
+            {(program.target_markets_v2||[]).map(m=><span key={m} style={{ fontSize:10,fontWeight:700,background:T.surface3,color:T.text3,padding:"2px 7px",borderRadius:4 }}>{m}</span>)}
+          </div>
+          {program.code&&<div style={{ fontSize:11,color:T.text3,marginTop:2 }}>{program.code}</div>}
+        </div>
+      </div>
+      <div style={{ display:"flex",gap:0,borderBottom:"1px solid "+T.border,paddingLeft:24,flexShrink:0,overflowX:"auto" }}>
+        {DETAIL_TABS.map(t=>(
+          <button key={t.key} onClick={()=>setTab(t.key)} style={{ background:"none",border:"none",cursor:"pointer",padding:"10px 12px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",color:tab===t.key?T.accent:T.text3,borderBottom:"2px solid "+(tab===t.key?T.accent:"transparent"),transition:"color 0.15s" }}>{t.label}</button>
+        ))}
+      </div>
+      <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>{renderTab()}</div>
+    </div>
+  );
+}
+
+// ─── NEW PROGRAM MODAL (3-step) ───────────────────────────────────────────────
+
+function NewProgramModal({ onClose, onCreated, orgId }) {
+  const [step, setStep]   = useState(1);
+  const [form, setForm]   = useState({
+    name:"", program_type:"new_product", priority:"medium",
+    current_stage:"ideation", brand:"", target_launch_date:"",
+    target_gross_margin_pct:"", target_unit_price:"",
+    target_markets_v2:[], channels_v2:[], desired_claims:[],
+  });
+  const [newClaim, setNewClaim] = useState("");
+  const [saving, setSaving]     = useState(false);
+  const set=(f,v)=>setForm(p=>({...p,[f]:v}));
+
+  const addClaim=()=>{ const t=newClaim.trim(); if(!t)return; set("desired_claims",[...form.desired_claims,t]); setNewClaim(""); };
+  const removeClaim=i=>set("desired_claims",form.desired_claims.filter((_,idx)=>idx!==i));
+
+  const handleCreate=async()=>{
+    if(!form.name.trim())return; setSaving(true);
+    const NUMERIC=["target_gross_margin_pct","target_unit_price"];
+    const ARRAYS=["target_markets_v2","channels_v2","desired_claims"];
+    const raw={...form,org_id:orgId};
+    const payload=Object.fromEntries(Object.entries(raw).map(([k,v])=>{
+      if(NUMERIC.includes(k)) return [k, v!==""&&v!==null?parseFloat(v):null];
+      if(ARRAYS.includes(k)) return [k, Array.isArray(v)?v:[]];
+      return [k,v===""?null:v];
+    }));
+    if(!payload.org_id){ setSaving(false); alert("Unable to determine your organization. Please refresh and try again."); return; }
+    const{data}=await supabase.from("plm_programs").insert(payload).select().single();
+    if(data)onCreated(data); setSaving(false);
+  };
+
+  const stepTitles=["Program Basics","Market & Channels","Claim Statements"];
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"#00000080",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T.surface,border:"1px solid "+T.border,borderRadius:12,padding:24,width:520,maxWidth:"95vw",maxHeight:"90vh",overflow:"auto" }} onClick={e=>e.stopPropagation()}>
+
+        {/* Step indicator */}
+        <div style={{ display:"flex",gap:0,marginBottom:20 }}>
+          {stepTitles.map((title,i)=>(
+            <div key={i} onClick={()=>step>i+1&&setStep(i+1)} style={{ flex:1,textAlign:"center",paddingBottom:8,cursor:step>i+1?"pointer":"default",borderBottom:"2px solid "+(step===i+1?T.accent:step>i+1?T.accent+"60":T.border) }}>
+              <div style={{ fontSize:11,fontWeight:700,color:step>=i+1?T.accent:T.text3 }}>{i+1}. {title}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Step 1 */}
+        {step===1&&(
+          <div>
+            <InlineField label="Program Name *" value={form.name} onChange={v=>set("name",v)} placeholder="e.g. Next-Gen Moisturizer" />
+            <InlineField label="Type" value={form.program_type} onChange={v=>set("program_type",v)} options={["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
+            <InlineField label="Brand" value={form.brand} onChange={v=>set("brand",v)} placeholder="Brand name" />
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+              <InlineField label="Priority" value={form.priority} onChange={v=>set("priority",v)} options={["critical","high","medium","low"].map(x=>({value:x,label:x}))} />
+              <InlineField label="Starting Stage" value={form.current_stage} onChange={v=>set("current_stage",v)} options={STAGES.map(s=>({value:s.key,label:s.label}))} />
+            </div>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+              <InlineField label="GM% Target" value={form.target_gross_margin_pct} onChange={v=>set("target_gross_margin_pct",v)} type="number" placeholder="e.g. 65" />
+              <InlineField label="Target Unit Price ($)" value={form.target_unit_price} onChange={v=>set("target_unit_price",v)} type="number" placeholder="e.g. 29.99" />
+            </div>
+            <InlineField label="Target Launch Date" value={form.target_launch_date} onChange={v=>set("target_launch_date",v)} type="date" />
+          </div>
+        )}
+
+        {/* Step 2 */}
+        {step===2&&(
+          <div>
+            <div style={{ marginBottom:16,padding:12,background:T.surface2,borderRadius:8,fontSize:12,color:T.text3,lineHeight:1.6,border:"1px solid "+T.border }}>
+              Define where this product will be sold. These selections feed into financial modeling, regulatory requirements, and AI-driven insights.
+            </div>
+            <MultiSelectDropdown label="Target Markets" value={form.target_markets_v2} onChange={v=>set("target_markets_v2",v)} options={TARGET_MARKETS} />
+            <MultiSelectDropdown label="Sales Channels" value={form.channels_v2} onChange={v=>set("channels_v2",v)} options={CHANNELS_LIST} />
+          </div>
+        )}
+
+        {/* Step 3 */}
+        {step===3&&(
+          <div>
+            <div style={{ marginBottom:12,padding:12,background:T.surface2,borderRadius:8,fontSize:12,color:T.text3,lineHeight:1.6,border:"1px solid "+T.border }}>
+              List every marketing or regulatory claim you intend to make. The AI advisor will later cross-reference these against your formulation, ingredients, test data, and substantiation documents — flagging gaps and suggesting what evidence is needed to defend each claim.
+            </div>
+            {form.desired_claims.map((claim,idx)=>(
+              <div key={idx} style={{ display:"flex",gap:8,marginBottom:8,alignItems:"flex-start" }}>
+                <span style={{ marginTop:9,fontSize:12,color:T.accent,fontWeight:700,flexShrink:0 }}>#{idx+1}</span>
+                <div style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"7px 10px",lineHeight:1.5 }}>{claim}</div>
+                <button onClick={()=>removeClaim(idx)} style={{ marginTop:6,background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:14,padding:0 }}>✕</button>
+              </div>
+            ))}
+            <div style={{ display:"flex",gap:8,marginTop:8 }}>
+              <input value={newClaim} onChange={e=>setNewClaim(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addClaim()} placeholder="e.g. 98% saw visible improvement in 4 weeks…" style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"7px 10px",outline:"none" }} />
+              <button onClick={addClaim} style={{ padding:"7px 14px",fontSize:12,fontWeight:600,background:T.accentDim,color:T.accent,border:"1px solid "+T.accent+"40",borderRadius:6,cursor:"pointer" }}>Add</button>
+            </div>
+            {form.desired_claims.length===0&&<div style={{ marginTop:8,fontSize:12,color:T.text3,fontStyle:"italic" }}>You can skip this and add claims later. Press Enter or click Add after typing each claim.</div>}
+          </div>
+        )}
+
+        <div style={{ display:"flex",gap:10,marginTop:20 }}>
+          <button onClick={step===1?onClose:()=>setStep(s=>s-1)} style={{ flex:1,padding:10,fontSize:13,background:T.surface2,color:T.text2,border:"1px solid "+T.border,borderRadius:6,cursor:"pointer" }}>{step===1?"Cancel":"← Back"}</button>
+          {step<3?(
+            <button onClick={()=>setStep(s=>s+1)} disabled={step===1&&!form.name.trim()} style={{ flex:2,padding:10,fontSize:13,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer",opacity:step===1&&!form.name.trim()?0.5:1 }}>Next →</button>
+          ):(
+            <button onClick={handleCreate} disabled={saving||!form.name.trim()} style={{ flex:2,padding:10,fontSize:13,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer",opacity:saving?0.6:1 }}>{saving?"Creating…":"✓ Create Program"}</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── MAIN PLM VIEW ────────────────────────────────────────────────────────────
 
 export default function PLMView() {
