@@ -268,6 +268,7 @@ export default function ScoreboardView() {
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
   const [userCards, setUserCards] = useState(null); // null = use defaults, [] = custom
   const [showCardCustomize, setShowCardCustomize] = useState(false);
+  const [userId, setUserId] = useState(null);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -327,7 +328,10 @@ export default function ScoreboardView() {
       setSelectedMetric(Object.keys(dMap)[0]);
     }
     // Load user's custom KPI card preferences
-    const { data: uc } = await supabase.from("scoreboard_user_cards").select("*").eq("user_id", user?.id).order("sort_order");
+    const { data: { session } } = await supabase.auth.getSession();
+    const uid = session?.userId;
+    setUserId(uid);
+    const { data: uc } = await supabase.from("scoreboard_user_cards").select("*").eq("user_id", uid).order("sort_order");
     if (uc && uc.length > 0) setUserCards(uc);
     setLoading(false);
   };
@@ -1151,20 +1155,20 @@ export default function ScoreboardView() {
         const toggleCard = async (metric) => {
           if (currentKeys.has(metric.key)) {
             // Remove
-            await supabase.from("scoreboard_user_cards").delete().eq("user_id", user?.id).eq("metric_key", metric.key);
+            await supabase.from("scoreboard_user_cards").delete().eq("user_id", userId).eq("metric_key", metric.key);
             if (userCards) {
               const next = userCards.filter(c => c.metric_key !== metric.key);
               setUserCards(next.length > 0 ? next : null);
             } else {
               // First time customizing — save all defaults minus this one
               const remaining = ALL_METRICS.filter(m => DEFAULT_KEYS.includes(m.key) && m.key !== metric.key);
-              const rows = remaining.map((m, i) => ({ user_id: user?.id, metric_key: m.key, label: m.label, unit: m.unit, color: m.color, sort_order: i }));
+              const rows = remaining.map((m, i) => ({ user_id: userId, metric_key: m.key, label: m.label, unit: m.unit, color: m.color, sort_order: i }));
               await supabase.from("scoreboard_user_cards").upsert(rows, { onConflict: "user_id,metric_key" });
               setUserCards(rows);
             }
           } else {
             // Add
-            const newCard = { user_id: user?.id, metric_key: metric.key, label: metric.label, unit: metric.unit, color: metric.color, sort_order: (userCards?.length || DEFAULT_KEYS.length) };
+            const newCard = { user_id: userId, metric_key: metric.key, label: metric.label, unit: metric.unit, color: metric.color, sort_order: (userCards?.length || DEFAULT_KEYS.length) };
             const { data } = await supabase.from("scoreboard_user_cards").upsert(newCard, { onConflict: "user_id,metric_key" }).select().single();
             if (data) {
               if (userCards) {
@@ -1172,7 +1176,7 @@ export default function ScoreboardView() {
               } else {
                 // First time adding — save defaults + new
                 const defaults = ALL_METRICS.filter(m => DEFAULT_KEYS.includes(m.key));
-                const rows = [...defaults, metric].map((m, i) => ({ user_id: user?.id, metric_key: m.key, label: m.label, unit: m.unit, color: m.color, sort_order: i }));
+                const rows = [...defaults, metric].map((m, i) => ({ user_id: userId, metric_key: m.key, label: m.label, unit: m.unit, color: m.color, sort_order: i }));
                 await supabase.from("scoreboard_user_cards").upsert(rows, { onConflict: "user_id,metric_key" });
                 setUserCards(rows);
               }
@@ -1181,7 +1185,7 @@ export default function ScoreboardView() {
         };
 
         const resetToDefaults = async () => {
-          await supabase.from("scoreboard_user_cards").delete().eq("user_id", user?.id);
+          await supabase.from("scoreboard_user_cards").delete().eq("user_id", userId);
           setUserCards(null);
         };
 
