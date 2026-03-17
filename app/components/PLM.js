@@ -1575,7 +1575,6 @@ function GateReviewsTab({ programId }) {
 // ─── AI ADVISOR TAB ──────────────────────────────────────────────────────────
 
 function AIAdvisorTab({ program }) {
-  const { user } = useAuth();
   const [advisorType, setAdvisorType] = useState("detergent_chemist");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
