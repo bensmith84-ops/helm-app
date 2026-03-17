@@ -574,18 +574,18 @@ export default function ScorecardView() {
                                   onMouseEnter={e => { const tip = e.currentTarget.querySelector("[data-tip]"); if (tip) tip.style.display = "block"; }}
                                   onMouseLeave={e => { const tip = e.currentTarget.querySelector("[data-tip]"); if (tip) tip.style.display = "none"; }}>
                                   💬
-                                  <div data-tip="1" style={{ display:"none", position:"absolute", bottom:"calc(100% + 6px)", right:-8, zIndex:100,
-                                    minWidth:180, maxWidth:260, padding:"10px 12px", borderRadius:10,
+                                  <div data-tip="1" style={{ display:"none", position:"absolute", top:"calc(100% + 6px)", right:-8, zIndex:100,
+                                    minWidth:200, maxWidth:320, padding:"10px 14px", borderRadius:10,
                                     background:T.surface, border:`1px solid ${T.border}`, boxShadow:"0 8px 24px rgba(0,0,0,0.3)",
                                     pointerEvents:"none" }}>
-                                    <div style={{ fontSize:11, color:T.text, lineHeight:1.5, marginBottom:6, wordBreak:"break-word" }}>{cm.comment}</div>
-                                    <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:10, color:T.text3 }}>
+                                    <div style={{ position:"absolute", top:-4, right:12, width:8, height:8, background:T.surface,
+                                      border:`1px solid ${T.border}`, borderBottom:"none", borderRight:"none",
+                                      transform:"rotate(45deg)" }} />
+                                    <div style={{ fontSize:12, color:T.text, lineHeight:1.6, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{cm.comment}</div>
+                                    <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:10, color:T.text3, marginTop:6, borderTop:`1px solid ${T.border}`, paddingTop:6 }}>
                                       <span style={{ fontWeight:600 }}>{cmAuthor}</span>
                                       {cmTime && <><span>·</span><span>{cmTime}</span></>}
                                     </div>
-                                    <div style={{ position:"absolute", bottom:-4, right:12, width:8, height:8, background:T.surface,
-                                      border:`1px solid ${T.border}`, borderTop:"none", borderLeft:"none",
-                                      transform:"rotate(45deg)" }} />
                                   </div>
                                 </div>
                               </div>);
