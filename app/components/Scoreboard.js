@@ -266,6 +266,8 @@ export default function ScoreboardView() {
   const [tableViewPage, setTableViewPage] = useState(0);
   const [aiSummary, setAiSummary] = useState(null);
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [userCards, setUserCards] = useState(null); // null = use defaults, [] = custom
+  const [showCardCustomize, setShowCardCustomize] = useState(false);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -323,8 +325,10 @@ export default function ScoreboardView() {
     setDaily(dMap);
     if (Object.keys(dMap).length) {
       setSelectedMetric(Object.keys(dMap)[0]);
-      fetchAiSummary(dMap);
     }
+    // Load user's custom KPI card preferences
+    const { data: uc } = await supabase.from("scoreboard_user_cards").select("*").eq("user_id", user?.id).order("sort_order");
+    if (uc && uc.length > 0) setUserCards(uc);
     setLoading(false);
   };
 
@@ -530,17 +534,39 @@ export default function ScoreboardView() {
             const get7d = (key) => (daily[key]||[]).slice(0,7).reverse();
             const sum7d = (key) => (daily[key]||[]).slice(0,7).reduce((s,r)=>s+r.value,0);
 
-            // Key metrics for overview
-            const kpis = [
-              { key:"revenue",      label:"Revenue",        unit:"$", color:"#22c55e" },
-              { key:"ad_spend",     label:"Ad Spend",       unit:"$", color:"#f97316" },
-              { key:"net_dollars",  label:"Net $",          unit:"$", color:getDayVal("net_dollars")>=0?"#22c55e":"#ef4444" },
-              { key:"traffic",      label:"Sessions",       unit:"#", color:"#4f7fff" },
-              { key:"blended_cvr",  label:"Blended CVR",    unit:"%", color:"#8b5cf6" },
-              { key:"new_orders",   label:"New Orders",     unit:"#", color:"#22c55e" },
+            // All available metrics with labels
+            const ALL_METRICS = [
+              { key:"revenue", label:"Revenue", unit:"$", color:"#22c55e" },
+              { key:"ad_spend", label:"Ad Spend", unit:"$", color:"#f97316" },
+              { key:"net_dollars", label:"Net $", unit:"$", color:getDayVal("net_dollars")>=0?"#22c55e":"#ef4444" },
+              { key:"traffic", label:"Sessions", unit:"#", color:"#4f7fff" },
+              { key:"blended_cvr", label:"Blended CVR", unit:"%", color:"#8b5cf6" },
+              { key:"new_orders", label:"New Orders", unit:"#", color:"#22c55e" },
               { key:"net_daily_subs", label:"Net Daily Subs", unit:"#", color:"#4f7fff" },
-              { key:"daily_cancels",label:"Cancels",        unit:"#", color:"#ef4444" },
+              { key:"daily_cancels", label:"Cancels", unit:"#", color:"#ef4444" },
+              { key:"total_orders", label:"Total Orders", unit:"#", color:"#22c55e" },
+              { key:"new_gwp_subs", label:"New GWP Subs", unit:"#", color:"#22c55e" },
+              { key:"new_shopify_subs", label:"New Shopify Subs", unit:"#", color:"#06b6d4" },
+              { key:"gwp_cpa", label:"GWP CPA", unit:"$", color:"#f97316" },
+              { key:"cpa", label:"CPA", unit:"$", color:"#f97316" },
+              { key:"dtc_cac", label:"DTC CAC", unit:"$", color:"#f97316" },
+              { key:"x_cac", label:"X-CAC", unit:"$", color:"#ef4444" },
+              { key:"nc_aov", label:"NC AOV", unit:"$", color:"#22c55e" },
+              { key:"sub_rate", label:"Sub Rate", unit:"%", color:"#8b5cf6" },
+              { key:"upsell_take_rate", label:"Upsell Take Rate", unit:"%", color:"#8b5cf6" },
+              { key:"opex_pct_rev", label:"OpEx % Rev", unit:"%", color:"#eab308" },
+              { key:"dtc_new_customers", label:"DTC New Customers", unit:"#", color:"#22c55e" },
+              { key:"comp_yago", label:"Comp YAGO", unit:"%", color:"#4f7fff" },
+              { key:"amazon_revenue", label:"Amazon Revenue", unit:"$", color:"#f59e0b" },
+              { key:"amazon_total_orders", label:"Amazon Orders", unit:"#", color:"#f59e0b" },
+              { key:"amz_net_subs", label:"AMZ Net Subs", unit:"#", color:"#f59e0b" },
+              { key:"amz_new_customers", label:"AMZ New Customers", unit:"#", color:"#f59e0b" },
             ];
+
+            const DEFAULT_KEYS = ["revenue","ad_spend","net_dollars","traffic","blended_cvr","new_orders","net_daily_subs","daily_cancels"];
+
+            // Use user cards if set, otherwise defaults
+            const kpis = userCards ? userCards.map(uc => ({ key:uc.metric_key, label:uc.label, unit:uc.unit, color:uc.color })) : ALL_METRICS.filter(m => DEFAULT_KEYS.includes(m.key));
 
             const hasDaily = Object.keys(daily).length > 0;
 
@@ -566,28 +592,34 @@ export default function ScoreboardView() {
                       <span style={{ cursor:"pointer", color:T.accent, textDecoration:"underline" }} onClick={()=>setActiveTab("chat")}>Ask the AI →</span>
                     </div>
 
-                    {/* AI Summary card */}
-                    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:"14px 18px", marginBottom:20, position:"relative", overflow:"hidden" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-                        <span style={{ fontSize:14 }}>🤖</span>
-                        <span style={{ fontSize:12, fontWeight:700, color:T.text }}>AI Summary</span>
-                        {aiSummary?.date && <span style={{ fontSize:11, color:T.text3 }}>— {aiSummary.date}</span>}
+                    {/* AI Summary — manual only */}
+                    {aiSummary ? (
+                      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:"14px 18px", marginBottom:20 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                          <span style={{ fontSize:14 }}>🤖</span>
+                          <span style={{ fontSize:12, fontWeight:700, color:T.text }}>AI Summary</span>
+                          {aiSummary?.date && <span style={{ fontSize:11, color:T.text3 }}>— {aiSummary.date}</span>}
+                          <button onClick={()=>fetchAiSummary(daily)} disabled={aiSummaryLoading}
+                            style={{ marginLeft:"auto", fontSize:11, padding:"3px 10px", background:"none", border:`1px solid ${T.border}`, borderRadius:5, color:T.text3, cursor:"pointer", opacity:aiSummaryLoading?0.5:1 }}>
+                            {aiSummaryLoading ? "..." : "↻ Refresh"}
+                          </button>
+                          <button onClick={()=>setAiSummary(null)}
+                            style={{ fontSize:11, padding:"3px 8px", background:"none", border:"none", color:T.text3, cursor:"pointer" }}>✕</button>
+                        </div>
+                        <p style={{ fontSize:13, color:T.text2, lineHeight:1.7, margin:0 }}>{aiSummary.text}</p>
+                      </div>
+                    ) : (
+                      <div style={{ display:"flex", gap:8, marginBottom:20, alignItems:"center" }}>
                         <button onClick={()=>fetchAiSummary(daily)} disabled={aiSummaryLoading}
-                          style={{ marginLeft:"auto", fontSize:11, padding:"3px 10px", background:"none", border:`1px solid ${T.border}`, borderRadius:5, color:T.text3, cursor:"pointer", opacity:aiSummaryLoading?0.5:1 }}>
-                          {aiSummaryLoading ? "..." : "↻ Refresh"}
+                          style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 14px", fontSize:12, fontWeight:600, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, color:T.text2, cursor:"pointer" }}>
+                          {aiSummaryLoading ? <><span>🤖</span> Generating summary...</> : <><span>🤖</span> Generate AI Summary</>}
+                        </button>
+                        <button onClick={()=>setShowCardCustomize(true)}
+                          style={{ display:"flex", alignItems:"center", gap:5, padding:"7px 14px", fontSize:12, fontWeight:600, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, color:T.text2, cursor:"pointer" }}>
+                          ⚙ Customize Cards
                         </button>
                       </div>
-                      {aiSummaryLoading ? (
-                        <div style={{ display:"flex", gap:4, alignItems:"center" }}>
-                          {[0,1,2].map(i => <div key={i} style={{ width:6,height:6,borderRadius:"50%",background:T.accent,animation:`bounce 1s ease-in-out ${i*0.15}s infinite` }} />)}
-                          <span style={{ fontSize:12, color:T.text3, marginLeft:6 }}>Analyzing yesterday's performance…</span>
-                        </div>
-                      ) : aiSummary ? (
-                        <p style={{ fontSize:13, color:T.text2, lineHeight:1.7, margin:0 }}>{aiSummary.text}</p>
-                      ) : (
-                        <p style={{ fontSize:12, color:T.text3, margin:0 }}>Loading AI analysis…</p>
-                      )}
-                    </div>
+                    )}
 
                     {/* KPI grid */}
                     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10, marginBottom:20 }}>
@@ -1083,6 +1115,117 @@ export default function ScoreboardView() {
         @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
         @keyframes spin { to { transform: rotate(360deg) } }
       `}</style>
+
+      {/* Card Customization Modal */}
+      {showCardCustomize && (() => {
+        const ALL_METRICS = [
+          { key:"revenue", label:"Revenue", unit:"$", color:"#22c55e" },
+          { key:"ad_spend", label:"Ad Spend", unit:"$", color:"#f97316" },
+          { key:"net_dollars", label:"Net $", unit:"$", color:"#22c55e" },
+          { key:"traffic", label:"Sessions", unit:"#", color:"#4f7fff" },
+          { key:"blended_cvr", label:"Blended CVR", unit:"%", color:"#8b5cf6" },
+          { key:"new_orders", label:"New Orders", unit:"#", color:"#22c55e" },
+          { key:"net_daily_subs", label:"Net Daily Subs", unit:"#", color:"#4f7fff" },
+          { key:"daily_cancels", label:"Cancels", unit:"#", color:"#ef4444" },
+          { key:"total_orders", label:"Total Orders", unit:"#", color:"#22c55e" },
+          { key:"new_gwp_subs", label:"New GWP Subs", unit:"#", color:"#22c55e" },
+          { key:"new_shopify_subs", label:"New Shopify Subs", unit:"#", color:"#06b6d4" },
+          { key:"gwp_cpa", label:"GWP CPA", unit:"$", color:"#f97316" },
+          { key:"cpa", label:"CPA", unit:"$", color:"#f97316" },
+          { key:"dtc_cac", label:"DTC CAC", unit:"$", color:"#f97316" },
+          { key:"x_cac", label:"X-CAC", unit:"$", color:"#ef4444" },
+          { key:"nc_aov", label:"NC AOV", unit:"$", color:"#22c55e" },
+          { key:"sub_rate", label:"Sub Rate", unit:"%", color:"#8b5cf6" },
+          { key:"upsell_take_rate", label:"Upsell Take Rate", unit:"%", color:"#8b5cf6" },
+          { key:"opex_pct_rev", label:"OpEx % Rev", unit:"%", color:"#eab308" },
+          { key:"dtc_new_customers", label:"DTC New Customers", unit:"#", color:"#22c55e" },
+          { key:"comp_yago", label:"Comp YAGO", unit:"%", color:"#4f7fff" },
+          { key:"amazon_revenue", label:"Amazon Revenue", unit:"$", color:"#f59e0b" },
+          { key:"amazon_total_orders", label:"Amazon Orders", unit:"#", color:"#f59e0b" },
+          { key:"amz_net_subs", label:"AMZ Net Subs", unit:"#", color:"#f59e0b" },
+          { key:"amz_new_customers", label:"AMZ New Customers", unit:"#", color:"#f59e0b" },
+        ];
+        const DEFAULT_KEYS = ["revenue","ad_spend","net_dollars","traffic","blended_cvr","new_orders","net_daily_subs","daily_cancels"];
+        const currentKeys = new Set(userCards ? userCards.map(c => c.metric_key) : DEFAULT_KEYS);
+
+        const toggleCard = async (metric) => {
+          if (currentKeys.has(metric.key)) {
+            // Remove
+            await supabase.from("scoreboard_user_cards").delete().eq("user_id", user?.id).eq("metric_key", metric.key);
+            if (userCards) {
+              const next = userCards.filter(c => c.metric_key !== metric.key);
+              setUserCards(next.length > 0 ? next : null);
+            } else {
+              // First time customizing — save all defaults minus this one
+              const remaining = ALL_METRICS.filter(m => DEFAULT_KEYS.includes(m.key) && m.key !== metric.key);
+              const rows = remaining.map((m, i) => ({ user_id: user?.id, metric_key: m.key, label: m.label, unit: m.unit, color: m.color, sort_order: i }));
+              await supabase.from("scoreboard_user_cards").upsert(rows, { onConflict: "user_id,metric_key" });
+              setUserCards(rows);
+            }
+          } else {
+            // Add
+            const newCard = { user_id: user?.id, metric_key: metric.key, label: metric.label, unit: metric.unit, color: metric.color, sort_order: (userCards?.length || DEFAULT_KEYS.length) };
+            const { data } = await supabase.from("scoreboard_user_cards").upsert(newCard, { onConflict: "user_id,metric_key" }).select().single();
+            if (data) {
+              if (userCards) {
+                setUserCards([...userCards, data]);
+              } else {
+                // First time adding — save defaults + new
+                const defaults = ALL_METRICS.filter(m => DEFAULT_KEYS.includes(m.key));
+                const rows = [...defaults, metric].map((m, i) => ({ user_id: user?.id, metric_key: m.key, label: m.label, unit: m.unit, color: m.color, sort_order: i }));
+                await supabase.from("scoreboard_user_cards").upsert(rows, { onConflict: "user_id,metric_key" });
+                setUserCards(rows);
+              }
+            }
+          }
+        };
+
+        const resetToDefaults = async () => {
+          await supabase.from("scoreboard_user_cards").delete().eq("user_id", user?.id);
+          setUserCards(null);
+        };
+
+        return (
+          <div onClick={() => setShowCardCustomize(false)} style={{ position:"fixed", inset:0, zIndex:200, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.5)" }} />
+            <div onClick={e => e.stopPropagation()} style={{ position:"relative", width:520, maxHeight:"80vh", background:T.surface, borderRadius:14, border:`1px solid ${T.border}`, boxShadow:"0 20px 60px rgba(0,0,0,0.4)", zIndex:201, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+              <div style={{ padding:"16px 20px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div>
+                  <div style={{ fontSize:15, fontWeight:700 }}>Customize KPI Cards</div>
+                  <div style={{ fontSize:11, color:T.text3, marginTop:2 }}>Choose which metrics appear on your overview</div>
+                </div>
+                <button onClick={() => setShowCardCustomize(false)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:18 }}>×</button>
+              </div>
+              <div style={{ flex:1, overflow:"auto", padding:"12px 20px" }}>
+                {ALL_METRICS.map(metric => {
+                  const isActive = currentKeys.has(metric.key);
+                  return (
+                    <div key={metric.key} onClick={() => toggleCard(metric)}
+                      style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 12px", borderRadius:8, cursor:"pointer", marginBottom:4,
+                        background:isActive ? T.accentDim : "transparent", border:`1px solid ${isActive ? T.accent+"40" : "transparent"}` }}
+                      onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.surface2; }}
+                      onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                      <div style={{ width:10, height:10, borderRadius:5, background:metric.color, flexShrink:0 }} />
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:isActive ? 600 : 400, color:T.text }}>{metric.label}</div>
+                        <div style={{ fontSize:10, color:T.text3 }}>{metric.key} · {metric.unit === "$" ? "Dollar" : metric.unit === "%" ? "Percentage" : "Count"}</div>
+                      </div>
+                      <div style={{ width:20, height:20, borderRadius:4, border:`2px solid ${isActive ? T.accent : T.border}`, background:isActive ? T.accent : "transparent",
+                        display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", flexShrink:0 }}>
+                        {isActive && "✓"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ padding:"12px 20px", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <button onClick={resetToDefaults} style={{ fontSize:11, color:T.text3, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>Reset to defaults</button>
+                <div style={{ fontSize:11, color:T.text3 }}>{currentKeys.size} card{currentKeys.size !== 1 ? "s" : ""} selected</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
