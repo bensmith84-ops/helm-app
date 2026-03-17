@@ -29,8 +29,17 @@ export const NAV_ITEMS = [
 
 export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile, allowedModules, isAdmin }) {
   const w = expanded ? 212 : 52;
+  // Reorder nav items based on user's saved nav_order
+  const reorderedItems = (() => {
+    const navOrder = profile?.nav_order;
+    if (!navOrder || !Array.isArray(navOrder)) return NAV_ITEMS;
+    const nonDivider = NAV_ITEMS.filter(n => !n.type);
+    const ordered = navOrder.map(k => nonDivider.find(n => n.key === k)).filter(Boolean);
+    const remaining = nonDivider.filter(n => !navOrder.includes(n.key));
+    return [...ordered, ...remaining];
+  })();
   // Filter nav items based on module permissions
-  const visibleItems = NAV_ITEMS.filter(item => {
+  const visibleItems = reorderedItems.filter(item => {
     if (item.type === "divider") return true;
     if (item.adminOnly) return isAdmin;
     if (item.key === "settings") return true;

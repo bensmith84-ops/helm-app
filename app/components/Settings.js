@@ -136,16 +136,46 @@ export default function SettingsView({ isAdmin }) {
           <>
             <h1 style={{ fontSize:20, fontWeight:800, marginBottom:20 }}>Profile</h1>
             <Section title="Personal Information" subtitle="This is how you appear across Helm">
-              {/* Avatar */}
+              {/* Avatar with upload */}
               <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:24 }}>
-                <div style={{ width:72, height:72, borderRadius:36, background:acol(user?.id)+"30",
-                  border:`2px solid ${acol(user?.id)}60`, display:"flex", alignItems:"center",
-                  justifyContent:"center", fontSize:24, fontWeight:700, color:acol(user?.id) }}>
-                  {ini(displayName || profile?.display_name)}
+                <div style={{ position:"relative" }}>
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Avatar" style={{ width:72, height:72, borderRadius:36, objectFit:"cover", border:`2px solid ${acol(user?.id)}60` }} />
+                  ) : (
+                    <div style={{ width:72, height:72, borderRadius:36, background:acol(user?.id)+"30",
+                      border:`2px solid ${acol(user?.id)}60`, display:"flex", alignItems:"center",
+                      justifyContent:"center", fontSize:24, fontWeight:700, color:acol(user?.id) }}>
+                      {ini(displayName || profile?.display_name)}
+                    </div>
+                  )}
+                  <label style={{ position:"absolute", bottom:-2, right:-2, width:26, height:26, borderRadius:13,
+                    background:T.accent, border:`2px solid ${T.surface}`, display:"flex", alignItems:"center", justifyContent:"center",
+                    cursor:"pointer", fontSize:12, color:"#fff" }} title="Upload photo">
+                    📷
+                    <input type="file" accept="image/*" style={{ display:"none" }} onChange={async e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 5 * 1024 * 1024) return showToast("Max 5MB", "#ef4444");
+                      const ext = file.name.split(".").pop();
+                      const path = `${user.id}/avatar.${ext}`;
+                      const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+                      if (error) return showToast("Upload failed: " + error.message, "#ef4444");
+                      const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+                      const url = publicUrl + "?t=" + Date.now();
+                      await supabase.from("profiles").update({ avatar_url: url }).eq("id", user.id);
+                      showToast("Photo updated");
+                      window.location.reload();
+                    }} />
+                  </label>
                 </div>
                 <div>
                   <div style={{ fontSize:14, fontWeight:600 }}>{displayName || "Your name"}</div>
                   <div style={{ fontSize:12, color:T.text3 }}>{user?.email}</div>
+                  {profile?.avatar_url && <button onClick={async () => {
+                    await supabase.from("profiles").update({ avatar_url: null }).eq("id", user.id);
+                    showToast("Photo removed");
+                    window.location.reload();
+                  }} style={{ fontSize:11, color:T.text3, background:"none", border:"none", cursor:"pointer", padding:0, marginTop:4, textDecoration:"underline" }}>Remove photo</button>}
                 </div>
               </div>
               <Field label="Display Name">
@@ -196,6 +226,55 @@ export default function SettingsView({ isAdmin }) {
                   Current: <strong style={{ color:T.accent }}>{accentKey ? accentKey.charAt(0).toUpperCase() + accentKey.slice(1) : "Blue"}</strong>
                 </div>
               </Field>
+            </Section>
+
+            <Section title="Sidebar Menu Order" subtitle="Drag items to reorder your navigation menu">
+              {(() => {
+                const nonDividerItems = NAV_ITEMS.filter(n => !n.type);
+                const savedOrder = profile?.nav_order;
+                const ordered = savedOrder ? savedOrder.map(k => nonDividerItems.find(n => n.key === k)).filter(Boolean).concat(nonDividerItems.filter(n => !savedOrder.includes(n.key))) : nonDividerItems;
+                const [dragIdx, setDragIdx] = useState(null);
+                const [items, setItems] = useState(ordered);
+                const saveOrder = async (newItems) => {
+                  const order = newItems.map(n => n.key);
+                  setItems(newItems);
+                  await supabase.from("profiles").update({ nav_order: order }).eq("id", user.id);
+                  showToast("Menu order saved");
+                };
+                return (
+                  <div>
+                    {items.map((item, i) => (
+                      <div key={item.key} draggable
+                        onDragStart={() => setDragIdx(i)}
+                        onDragOver={e => { e.preventDefault(); }}
+                        onDrop={() => {
+                          if (dragIdx === null || dragIdx === i) return;
+                          const next = [...items];
+                          const [moved] = next.splice(dragIdx, 1);
+                          next.splice(i, 0, moved);
+                          saveOrder(next);
+                          setDragIdx(null);
+                        }}
+                        onDragEnd={() => setDragIdx(null)}
+                        style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8,
+                          border:`1px solid ${T.border}`, marginBottom:4, cursor:"grab",
+                          background: dragIdx === i ? T.accentDim : T.surface2,
+                          opacity: dragIdx === i ? 0.5 : 1, transition:"background 0.1s" }}>
+                        <span style={{ color:T.text3, fontSize:12, cursor:"grab" }}>⠿</span>
+                        <span style={{ fontSize:16, width:22, textAlign:"center" }}>{item.icon}</span>
+                        <span style={{ fontSize:13, fontWeight:500 }}>{item.label}</span>
+                      </div>
+                    ))}
+                    <button onClick={async () => {
+                      await supabase.from("profiles").update({ nav_order: null }).eq("id", user.id);
+                      setItems(nonDividerItems);
+                      showToast("Reset to default order");
+                    }} style={{ marginTop:8, fontSize:11, color:T.text3, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>
+                      Reset to default order
+                    </button>
+                  </div>
+                );
+              })()}
             </Section>
           </>
         )}
