@@ -1094,6 +1094,8 @@ function FormulationsTab({ programId }) {
   useEffect(()=>{ supabase.from("plm_formulations").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setFormulas(data||[]);setLoading(false);}); },[programId]);
   useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("formulation_id",selected.id).order("sort_order").order("created_at").then(({data})=>setItems(data||[])); },[selected]);
   const addFormula=async()=>{ const{data}=await supabase.from("plm_formulations").insert({program_id:programId,name:"New Formulation",version:"v1.0",status:"draft"}).select().single(); if(data){setFormulas(p=>[...p,data]);setSelected(data);} };
+  const updateFormula=async(field,val)=>{ await supabase.from("plm_formulations").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setFormulas(p=>p.map(x=>x.id===u.id?u:x)); };
+  const deleteFormula=async()=>{ if(!window.confirm(`Delete "${selected.name}"?`))return; await supabase.from("plm_formula_items").delete().eq("formulation_id",selected.id); await supabase.from("plm_formulations").delete().eq("id",selected.id); setFormulas(p=>p.filter(x=>x.id!==selected.id)); setSelected(null); };
   const addItem=async({ name="", uom="", type="ingredient" }={})=>{ if(!selected)return; const{data}=await supabase.from("plm_formula_items").insert({formulation_id:selected.id,ingredient_name:name,item_type:type,quantity:0,unit:"%",input_qty:null,input_uom:uom||null}).select().single(); if(data)setItems(p=>[...p,data]); };
   const totalPct=items.filter(i=>i.unit==="%").reduce((a,b)=>a+parseFloat(b.quantity||0),0);
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
@@ -1110,11 +1112,19 @@ function FormulationsTab({ programId }) {
       <div>
         {!selected?<EmptyState icon="⚗️" text="Select a formulation to view its ingredients" />:(
           <>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
-              <div><div style={{ fontSize:15,fontWeight:600,color:T.text }}>{selected.name}</div><div style={{ fontSize:11,color:T.text3 }}>{selected.version}</div></div>
-              <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12 }}>
+              <div style={{ flex:1 }}>
+                <InlineField label="Formula Name" value={selected.name} onChange={v=>updateFormula("name",v)} />
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12 }}>
+                  <InlineField label="Version" value={selected.version} onChange={v=>updateFormula("version",v)} />
+                  <InlineField label="Status" value={selected.status} onChange={v=>updateFormula("status",v)} options={["draft","in_review","approved","rejected","superseded","archived"].map(s=>({value:s,label:s.replace(/_/g," ")}))} />
+                  <InlineField label="Form Type" value={selected.form_type} onChange={v=>updateFormula("form_type",v)} options={["liquid","powder","tablet","capsule","gel","cream","spray","sheet","pod","other"].map(s=>({value:s,label:s}))} />
+                </div>
+              </div>
+              <div style={{ display:"flex",alignItems:"center",gap:8,marginTop:4 }}>
                 <span style={{ fontSize:12,color:totalPct>100.5?"#ef4444":totalPct>99.4?"#22c55e":"#eab308",fontWeight:600 }}>Total: {totalPct.toFixed(2)}%</span>
                 <button onClick={()=>setShowPicker(true)} style={{ display:"flex",alignItems:"center",gap:5,padding:"5px 12px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ Ingredient</button>
+                <button onClick={deleteFormula} style={{ padding:"5px 10px",fontSize:12,background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.text3,cursor:"pointer" }} title="Delete formula">🗑</button>
               </div>
             </div>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
@@ -1136,9 +1146,58 @@ function ExperimentsTab({ programId }) {
   const [experiments, setExperiments] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeSubTab, setActiveSubTab] = useState("design");
   useEffect(()=>{ supabase.from("plm_experiments").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setExperiments(data||[]);setLoading(false);}); },[programId]);
-  const add=async()=>{ const{data}=await supabase.from("plm_experiments").insert({program_id:programId,name:"New Experiment",experiment_type:"formulation",status:"planning"}).select().single(); if(data){setExperiments(p=>[...p,data]);setSelected(data);} };
+  const add=async()=>{ const{data}=await supabase.from("plm_experiments").insert({program_id:programId,name:"New Experiment",experiment_type:"formulation",status:"planning",factors:[],responses:[],run_matrix:[]}).select().single(); if(data){setExperiments(p=>[...p,data]);setSelected(data);} };
   const update=async(field,val)=>{ await supabase.from("plm_experiments").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setExperiments(p=>p.map(x=>x.id===u.id?u:x)); };
+  const del=async()=>{ if(!window.confirm(`Delete "${selected.name}"?`))return; await supabase.from("plm_experiments").delete().eq("id",selected.id); setExperiments(p=>p.filter(x=>x.id!==selected.id)); setSelected(null); };
+
+  // Factor/response/run helpers
+  const factors = selected?.factors || [];
+  const responses = selected?.responses || [];
+  const runMatrix = selected?.run_matrix || [];
+  const addFactor = () => update("factors", [...factors, { id: crypto.randomUUID(), name: "", unit: "", type: "continuous", low: "", high: "", levels: [] }]);
+  const updateFactor = (id, upd) => update("factors", factors.map(f => f.id === id ? { ...f, ...upd } : f));
+  const removeFactor = (id) => update("factors", factors.filter(f => f.id !== id));
+  const addResponse = () => update("responses", [...responses, { id: crypto.randomUUID(), name: "", unit: "", target: "", direction: "maximize" }]);
+  const updateResponse = (id, upd) => update("responses", responses.map(r => r.id === id ? { ...r, ...upd } : r));
+  const removeResponse = (id) => update("responses", responses.filter(r => r.id !== id));
+
+  const generateFullFactorial = () => {
+    if (factors.length === 0) return;
+    const levels = factors.map(f => f.type === "categorical" ? (f.levels || []) : [f.low, f.high].filter(v => v !== "" && v !== undefined));
+    const combos = levels.reduce((acc, lvls) => {
+      if (acc.length === 0) return lvls.map(l => [l]);
+      return acc.flatMap(combo => lvls.map(l => [...combo, l]));
+    }, []);
+    const runs = combos.map((combo, i) => {
+      const run = { id: crypto.randomUUID(), run_number: i + 1, factor_values: {}, response_values: {}, notes: "" };
+      factors.forEach((f, j) => { run.factor_values[f.id] = combo[j]; });
+      responses.forEach(r => { run.response_values[r.id] = ""; });
+      return run;
+    });
+    update("run_matrix", runs);
+  };
+
+  const updateRun = (runId, field, val) => {
+    update("run_matrix", runMatrix.map(r => r.id === runId ? { ...r, [field]: val } : r));
+  };
+  const updateRunFactor = (runId, factorId, val) => {
+    update("run_matrix", runMatrix.map(r => r.id === runId ? { ...r, factor_values: { ...r.factor_values, [factorId]: val } } : r));
+  };
+  const updateRunResponse = (runId, respId, val) => {
+    update("run_matrix", runMatrix.map(r => r.id === runId ? { ...r, response_values: { ...r.response_values, [respId]: val } } : r));
+  };
+  const addManualRun = () => {
+    const run = { id: crypto.randomUUID(), run_number: runMatrix.length + 1, factor_values: {}, response_values: {}, notes: "" };
+    factors.forEach(f => { run.factor_values[f.id] = ""; });
+    responses.forEach(r => { run.response_values[r.id] = ""; });
+    update("run_matrix", [...runMatrix, run]);
+  };
+  const removeRun = (id) => update("run_matrix", runMatrix.filter(r => r.id !== id));
+
+  const subTabs = ["design", "matrix", "analysis"];
+
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
     <div style={{ display:"grid",gridTemplateColumns:"220px 1fr",gap:16 }}>
@@ -1148,16 +1207,160 @@ function ExperimentsTab({ programId }) {
           <AddBtn onClick={add} label="New" />
         </div>
         {experiments.length===0&&<EmptyState icon="🔬" text="No experiments yet" />}
-        {experiments.map(e=><div key={e.id} onClick={()=>setSelected(e)} style={{ padding:"8px 10px",borderRadius:6,cursor:"pointer",marginBottom:4,background:selected?.id===e.id?T.accentDim:T.surface2,border:"1px solid "+(selected?.id===e.id?T.accent+"60":T.border) }}><div style={{ fontSize:13,fontWeight:500,color:T.text }}>{e.name}</div><div style={{ fontSize:11,color:T.text3,marginTop:2 }}><StatusDot status={e.status} />{e.experiment_type||"—"}</div></div>)}
+        {experiments.map(e=><div key={e.id} onClick={()=>{setSelected(e);setActiveSubTab("design");}} style={{ padding:"8px 10px",borderRadius:6,cursor:"pointer",marginBottom:4,background:selected?.id===e.id?T.accentDim:T.surface2,border:"1px solid "+(selected?.id===e.id?T.accent+"60":T.border) }}><div style={{ fontSize:13,fontWeight:500,color:T.text }}>{e.name}</div><div style={{ fontSize:11,color:T.text3,marginTop:2 }}><StatusDot status={e.status} />{e.experiment_type||"—"}</div></div>)}
       </div>
       <div>
         {!selected?<EmptyState icon="🔬" text="Select an experiment to view details" />:(
           <div>
-            <InlineField label="Name" value={selected.name} onChange={v=>update("name",v)} />
-            <InlineField label="Type" value={selected.experiment_type} onChange={v=>update("experiment_type",v)} options={["formulation","process","stability","efficacy","safety","sensory","packaging","shelf_life","microbial","accelerated_aging","other"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
-            <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["planning","in_progress","completed","analyzing","concluded","cancelled"].map(s=>({value:s,label:s}))} />
-            <InlineField label="Hypothesis" value={selected.hypothesis} onChange={v=>update("hypothesis",v)} multiline placeholder="State your hypothesis…" />
-            <InlineField label="Conclusions" value={selected.conclusions} onChange={v=>update("conclusions",v)} multiline placeholder="Conclusions…" />
+            {/* Header */}
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12 }}>
+              <InlineField label="Experiment Name" value={selected.name} onChange={v=>update("name",v)} />
+              <button onClick={del} style={{ padding:"5px 10px",fontSize:12,background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.text3,cursor:"pointer" }} title="Delete">🗑</button>
+            </div>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:16 }}>
+              <InlineField label="Type" value={selected.experiment_type} onChange={v=>update("experiment_type",v)} options={["formulation","process","stability","efficacy","safety","sensory","packaging","shelf_life","microbial","accelerated_aging","other"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
+              <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["planning","in_progress","completed","analyzing","concluded","cancelled"].map(s=>({value:s,label:s}))} />
+              <InlineField label="DOE Design" value={selected.doe_design} onChange={v=>update("doe_design",v)} options={["full_factorial","fractional_factorial","central_composite","box_behnken","taguchi","one_factor","custom","screening","response_surface","mixture","none"].map(s=>({value:s,label:s.replace(/_/g," ")}))} />
+            </div>
+            <InlineField label="Hypothesis" value={selected.hypothesis} onChange={v=>update("hypothesis",v)} multiline placeholder="State your hypothesis — what do you expect to learn?" />
+
+            {/* Sub-tabs */}
+            <div style={{ display:"flex",gap:0,borderBottom:`1px solid ${T.border}`,marginBottom:16 }}>
+              {subTabs.map(t => <button key={t} onClick={()=>setActiveSubTab(t)} style={{ padding:"8px 16px",fontSize:12,fontWeight:activeSubTab===t?700:400,color:activeSubTab===t?T.accent:T.text3,background:"none",border:"none",borderBottom:activeSubTab===t?`2px solid ${T.accent}`:"2px solid transparent",cursor:"pointer",textTransform:"capitalize" }}>{t}</button>)}
+            </div>
+
+            {/* Design Tab — Factors & Responses */}
+            {activeSubTab === "design" && (
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:20 }}>
+                {/* Factors */}
+                <div>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
+                    <div style={{ fontSize:12,fontWeight:700,color:T.text2 }}>Factors (Independent Variables)</div>
+                    <AddBtn onClick={addFactor} label="Add" />
+                  </div>
+                  {factors.length === 0 && <div style={{ fontSize:12,color:T.text3,padding:"12px 0" }}>No factors defined. Add variables you want to test.</div>}
+                  {factors.map(f => (
+                    <div key={f.id} style={{ padding:"10px 12px",borderRadius:8,border:`1px solid ${T.border}`,marginBottom:6,background:T.surface2 }}>
+                      <div style={{ display:"flex",gap:8,marginBottom:6 }}>
+                        <input value={f.name} onChange={e=>updateFactor(f.id,{name:e.target.value})} placeholder="Factor name (e.g. Surfactant %)" style={{ flex:1,padding:"4px 8px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none" }} />
+                        <input value={f.unit} onChange={e=>updateFactor(f.id,{unit:e.target.value})} placeholder="Unit" style={{ width:60,padding:"4px 6px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none" }} />
+                        <button onClick={()=>removeFactor(f.id)} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:12 }}>✕</button>
+                      </div>
+                      <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+                        <select value={f.type} onChange={e=>updateFactor(f.id,{type:e.target.value})} style={{ padding:"3px 6px",fontSize:11,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text }}>
+                          <option value="continuous">Continuous</option>
+                          <option value="categorical">Categorical</option>
+                        </select>
+                        {f.type === "continuous" ? (
+                          <>
+                            <input value={f.low??""} onChange={e=>updateFactor(f.id,{low:e.target.value})} placeholder="Low" style={{ width:60,padding:"3px 6px",fontSize:11,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none" }} />
+                            <span style={{ fontSize:11,color:T.text3 }}>to</span>
+                            <input value={f.high??""} onChange={e=>updateFactor(f.id,{high:e.target.value})} placeholder="High" style={{ width:60,padding:"3px 6px",fontSize:11,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none" }} />
+                          </>
+                        ) : (
+                          <input value={(f.levels||[]).join(", ")} onChange={e=>updateFactor(f.id,{levels:e.target.value.split(",").map(s=>s.trim()).filter(Boolean)})} placeholder="Level 1, Level 2, ..." style={{ flex:1,padding:"3px 6px",fontSize:11,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none" }} />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Responses */}
+                <div>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
+                    <div style={{ fontSize:12,fontWeight:700,color:T.text2 }}>Responses (Dependent Variables)</div>
+                    <AddBtn onClick={addResponse} label="Add" />
+                  </div>
+                  {responses.length === 0 && <div style={{ fontSize:12,color:T.text3,padding:"12px 0" }}>No responses defined. Add what you're measuring.</div>}
+                  {responses.map(r => (
+                    <div key={r.id} style={{ padding:"10px 12px",borderRadius:8,border:`1px solid ${T.border}`,marginBottom:6,background:T.surface2 }}>
+                      <div style={{ display:"flex",gap:8,marginBottom:6 }}>
+                        <input value={r.name} onChange={e=>updateResponse(r.id,{name:e.target.value})} placeholder="Response name (e.g. Cleaning Score)" style={{ flex:1,padding:"4px 8px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none" }} />
+                        <input value={r.unit} onChange={e=>updateResponse(r.id,{unit:e.target.value})} placeholder="Unit" style={{ width:60,padding:"4px 6px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none" }} />
+                        <button onClick={()=>removeResponse(r.id)} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:12 }}>✕</button>
+                      </div>
+                      <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+                        <select value={r.direction} onChange={e=>updateResponse(r.id,{direction:e.target.value})} style={{ padding:"3px 6px",fontSize:11,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text }}>
+                          <option value="maximize">Maximize ↑</option>
+                          <option value="minimize">Minimize ↓</option>
+                          <option value="target">Hit Target ◎</option>
+                        </select>
+                        <input value={r.target??""} onChange={e=>updateResponse(r.id,{target:e.target.value})} placeholder="Target value" style={{ width:80,padding:"3px 6px",fontSize:11,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none" }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Matrix Tab — Run Matrix */}
+            {activeSubTab === "matrix" && (
+              <div>
+                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
+                  <button onClick={generateFullFactorial} disabled={factors.length===0} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer",opacity:factors.length===0?0.4:1 }}>Generate Full Factorial</button>
+                  <button onClick={addManualRun} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.surface2,color:T.text2,border:`1px solid ${T.border}`,borderRadius:6,cursor:"pointer" }}>+ Add Run</button>
+                  <span style={{ fontSize:12,color:T.text3 }}>{runMatrix.length} run{runMatrix.length!==1?"s":""}</span>
+                </div>
+                {runMatrix.length === 0 ? (
+                  <div style={{ padding:"24px",textAlign:"center",color:T.text3,fontSize:13 }}>Define factors and responses in the Design tab, then generate runs here.</div>
+                ) : (
+                  <div style={{ overflow:"auto",maxHeight:500 }}>
+                    <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
+                      <thead>
+                        <tr style={{ borderBottom:`1px solid ${T.border}` }}>
+                          <th style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase",width:40 }}>#</th>
+                          {factors.map(f => <th key={f.id} style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#3b82f6",textTransform:"uppercase" }}>{f.name||"Factor"}{f.unit?` (${f.unit})`:""}</th>)}
+                          {responses.map(r => <th key={r.id} style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#22c55e",textTransform:"uppercase" }}>{r.name||"Response"}{r.unit?` (${r.unit})`:""}</th>)}
+                          <th style={{ padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>Notes</th>
+                          <th style={{ width:30 }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {runMatrix.map(run => (
+                          <tr key={run.id} style={{ borderBottom:`1px solid ${T.border}` }}>
+                            <td style={{ padding:"4px 8px",fontWeight:600,color:T.text3 }}>{run.run_number}</td>
+                            {factors.map(f => <td key={f.id} style={{ padding:"4px 4px" }}><input value={run.factor_values?.[f.id]??""} onChange={e=>updateRunFactor(run.id,f.id,e.target.value)} style={{ width:"100%",padding:"3px 6px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>)}
+                            {responses.map(r => <td key={r.id} style={{ padding:"4px 4px" }}><input value={run.response_values?.[r.id]??""} onChange={e=>updateRunResponse(run.id,r.id,e.target.value)} placeholder="—" style={{ width:"100%",padding:"3px 6px",fontSize:12,background:"#22c55e08",border:`1px solid #22c55e30`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>)}
+                            <td style={{ padding:"4px 4px" }}><input value={run.notes||""} onChange={e=>updateRun(run.id,"notes",e.target.value)} placeholder="..." style={{ width:"100%",padding:"3px 6px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>
+                            <td><button onClick={()=>removeRun(run.id)} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:11 }}>✕</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Analysis Tab */}
+            {activeSubTab === "analysis" && (
+              <div>
+                <InlineField label="Conclusions" value={selected.conclusions} onChange={v=>update("conclusions",v)} multiline placeholder="Summarize what you learned from this experiment…" />
+                <InlineField label="Recommendations" value={selected.recommendations} onChange={v=>update("recommendations",v)} multiline placeholder="Next steps and recommended actions…" />
+                {runMatrix.length > 0 && responses.length > 0 && (
+                  <div style={{ marginTop:16,padding:"16px",borderRadius:10,border:`1px solid ${T.border}`,background:T.surface2 }}>
+                    <div style={{ fontSize:12,fontWeight:700,color:T.text2,marginBottom:10 }}>Quick Statistics</div>
+                    {responses.map(resp => {
+                      const vals = runMatrix.map(r => parseFloat(r.response_values?.[resp.id])).filter(v => !isNaN(v));
+                      if (vals.length === 0) return <div key={resp.id} style={{ fontSize:12,color:T.text3,marginBottom:4 }}>{resp.name}: No data</div>;
+                      const min = Math.min(...vals), max = Math.max(...vals), avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+                      const stdDev = Math.sqrt(vals.reduce((a,b)=>a+Math.pow(b-avg,2),0)/vals.length);
+                      return (
+                        <div key={resp.id} style={{ marginBottom:10 }}>
+                          <div style={{ fontSize:12,fontWeight:600,color:T.text,marginBottom:4 }}>{resp.name}{resp.unit?` (${resp.unit})`:""}</div>
+                          <div style={{ display:"flex",gap:16,fontSize:11,color:T.text3 }}>
+                            <span>Min: <strong style={{ color:T.text }}>{min.toFixed(2)}</strong></span>
+                            <span>Max: <strong style={{ color:T.text }}>{max.toFixed(2)}</strong></span>
+                            <span>Mean: <strong style={{ color:T.text }}>{avg.toFixed(2)}</strong></span>
+                            <span>Std Dev: <strong style={{ color:T.text }}>{stdDev.toFixed(2)}</strong></span>
+                            <span>N: <strong style={{ color:T.text }}>{vals.length}</strong></span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
