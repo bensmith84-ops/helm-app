@@ -564,11 +564,32 @@ export default function ScorecardView() {
                               <div style={{ position:"absolute", top:0, right: cm ? 14 : 2, width:5, height:5, borderRadius:"50%",
                                 background: onTarget?"#22c55e":"#ef4444", zIndex:1 }} />
                             )}
-                            {cm && (
+                            {cm && (() => {
+                              const cmAuthor = profiles[cm.comment_by]?.display_name || "Someone";
+                              const cmTime = cm.comment_at ? new Date(cm.comment_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+                              return (
                               <div style={{ position:"absolute", top:-1, right:1, zIndex:2, cursor:"pointer", fontSize:10 }}
-                                title={cm.comment}
-                                onClick={e => { e.stopPropagation(); setCommentModal({ metricId: m.id, weekStart: w, existing: cm.comment, isOwner: isMyComment }); }}>💬</div>
-                            )}
+                                onClick={e => { e.stopPropagation(); setCommentModal({ metricId: m.id, weekStart: w, existing: cm.comment, isOwner: isMyComment }); }}>
+                                <div style={{ position:"relative" }}
+                                  onMouseEnter={e => { const tip = e.currentTarget.querySelector("[data-tip]"); if (tip) tip.style.display = "block"; }}
+                                  onMouseLeave={e => { const tip = e.currentTarget.querySelector("[data-tip]"); if (tip) tip.style.display = "none"; }}>
+                                  💬
+                                  <div data-tip="1" style={{ display:"none", position:"absolute", bottom:"calc(100% + 6px)", right:-8, zIndex:100,
+                                    minWidth:180, maxWidth:260, padding:"10px 12px", borderRadius:10,
+                                    background:T.surface, border:`1px solid ${T.border}`, boxShadow:"0 8px 24px rgba(0,0,0,0.3)",
+                                    pointerEvents:"none" }}>
+                                    <div style={{ fontSize:11, color:T.text, lineHeight:1.5, marginBottom:6, wordBreak:"break-word" }}>{cm.comment}</div>
+                                    <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:10, color:T.text3 }}>
+                                      <span style={{ fontWeight:600 }}>{cmAuthor}</span>
+                                      {cmTime && <><span>·</span><span>{cmTime}</span></>}
+                                    </div>
+                                    <div style={{ position:"absolute", bottom:-4, right:12, width:8, height:8, background:T.surface,
+                                      border:`1px solid ${T.border}`, borderTop:"none", borderLeft:"none",
+                                      transform:"rotate(45deg)" }} />
+                                  </div>
+                                </div>
+                              </div>);
+                            })()}
                             <InlineEntry value={v} unit={m.unit}
                               onSave={(val) => saveEntry(m.id, w, val)}
                               onComment={() => setCommentModal({ metricId: m.id, weekStart: w, existing: cm?.comment || "", isOwner: !cm || isMyComment })}
