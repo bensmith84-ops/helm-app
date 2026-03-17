@@ -1575,376 +1575,202 @@ function GateReviewsTab({ programId }) {
 // ─── AI ADVISOR TAB ──────────────────────────────────────────────────────────
 
 function AIAdvisorTab({ program }) {
-  const [advisorType, setAdvisorType] = useState("claims_review");
+  const { user } = useAuth();
+  const [advisorType, setAdvisorType] = useState("detergent_chemist");
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+  const chatRef = useRef(null);
 
   const ADVISORS = [
-    { key:"claims_review", label:"Claims Advisor", icon:"✅", desc:"Assess claim feasibility against your formula and substantiation evidence" },
-    { key:"gm_advisor",    label:"GM% Advisor",    icon:"💰", desc:"Strategic recommendations to hit your gross margin target" },
-    { key:"stage_readiness",label:"Stage Readiness",icon:"🚦", desc:"Assess readiness to advance to the next stage gate" },
+    { key:"detergent_chemist", label:"Detergent Chemist", icon:"\u{1F9EA}", desc:"PhD-level expertise in PVA sheets, surfactants, enzymes, dissolution, and scale-up" },
+    { key:"formulation_advisor", label:"Formulation", icon:"\u2697\uFE0F", desc:"Ingredient selection, compatibility, troubleshooting for sheet format" },
+    { key:"doe_advisor", label:"DOE / Experiments", icon:"\u{1F52C}", desc:"Design experiments, analyze results, optimize formulations" },
+    { key:"manufacturing_troubleshoot", label:"Manufacturing", icon:"\u{1F3ED}", desc:"Film casting, drying, scale-up, quality control" },
+    { key:"stability_predictor", label:"Stability", icon:"\u{1F4C8}", desc:"Shelf life prediction, accelerated aging, packaging" },
+    { key:"ingredient_advisor", label:"Ingredients", icon:"\u{1F33F}", desc:"Raw materials, natural alternatives, PVA substitutes, cost optimization" },
+    { key:"claim_support", label:"Claims", icon:"\u2705", desc:"Regulatory compliance, claim substantiation, green claims" },
   ];
 
-  const runAdvisor = async () => {
-    setLoading(true); setResult(null); setError(null);
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setInput("");
+    setMessages(p => [...p, { role:"user", text:userMsg }]);
+    setLoading(true);
+
+    const history = messages.map(m => `${m.role === "user" ? "USER" : "ASSISTANT"}: ${m.text}`).join("\n\n");
+
     try {
-      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/plm-advisor", {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/plm-ai", {
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4"},
-        body:JSON.stringify({ program_id:program.id, advisor_type:advisorType }),
+        headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+        body:JSON.stringify({
+          action: advisorType,
+          program_id: program.id,
+          context: {
+            question: userMsg,
+            conversation_history: history || undefined,
+            store_result: false,
+          },
+        }),
       });
       const data = await res.json();
-      if (data.error) setError(data.error);
-      else setResult(data.result);
-    } catch(e) { setError(String(e)); }
-    setLoading(false);
-  };
-
-  const RAG = ({ val }) => {
-    const colors = { high:"#22c55e", medium:"#eab308", low:"#ef4444", strong:"#22c55e", moderate:"#eab308", weak:"#f97316", none:"#ef4444", complete:"#22c55e", in_progress:"#eab308", not_started:"#ef4444", critical:"#ef4444", major:"#f97316", minor:"#eab308" };
-    const c = colors[val?.toLowerCase()] || T.text3;
-    return <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:4, background:c+"20", color:c, textTransform:"uppercase" }}>{val}</span>;
-  };
-
-  return (
-    <div>
-      {/* Advisor selector */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:20 }}>
-        {ADVISORS.map(a=>(
-          <div key={a.key} onClick={()=>setAdvisorType(a.key)} style={{ padding:"14px 16px", borderRadius:10, cursor:"pointer",
-            background: advisorType===a.key ? T.accentDim : T.surface2,
-            border:`1px solid ${advisorType===a.key ? T.accent : T.border}`,
-            transition:"all 0.15s" }}>
-            <div style={{ fontSize:20, marginBottom:6 }}>{a.icon}</div>
-            <div style={{ fontSize:13, fontWeight:700, color:advisorType===a.key?T.accent:T.text, marginBottom:4 }}>{a.label}</div>
-            <div style={{ fontSize:11, color:T.text3, lineHeight:1.5 }}>{a.desc}</div>
-          </div>
-        ))}
-      </div>
-
-      <button onClick={runAdvisor} disabled={loading} style={{ width:"100%", padding:12, fontSize:14, fontWeight:700,
-        background:loading?"transparent":T.accent, color:loading?T.text3:"#fff",
-        border:`1px solid ${loading?T.border:T.accent}`, borderRadius:9, cursor:loading?"wait":"pointer",
-        marginBottom:20, transition:"all 0.15s" }}>
-        {loading ? "🤖 Analyzing your program…" : `Run ${ADVISORS.find(a=>a.key===advisorType)?.label}`}
-      </button>
-
-      {loading && (
-        <div style={{ textAlign:"center", padding:"40px 0", color:T.text3 }}>
-          <div style={{ fontSize:32, marginBottom:12, animation:"pulse 1s ease-in-out infinite" }}>🤖</div>
-          <div style={{ fontSize:14, fontWeight:600, marginBottom:4 }}>Analyzing your program…</div>
-          <div style={{ fontSize:12 }}>Reviewing formula, claims, sourcing, and test data</div>
-        </div>
-      )}
-
-      {error && <div style={{ padding:"12px 16px", background:"#ef444415", border:"1px solid #ef444440", borderRadius:9, color:"#ef4444", fontSize:13 }}>⚠️ {error}</div>}
-
-      {result && !loading && (
-        <div>
-          {/* Claims Review */}
-          {advisorType==="claims_review" && (
-            <div>
-              {result.overall_assessment && (
-                <div style={{ padding:"14px 16px", background:T.surface2, border:"1px solid "+T.border, borderRadius:10, marginBottom:16 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:1, marginBottom:6 }}>Overall Assessment</div>
-                  <div style={{ fontSize:13, color:T.text, lineHeight:1.7 }}>{result.overall_assessment}</div>
-                </div>
-              )}
-              {(result.claim_reviews||[]).map((cr,i)=>(
-                <div key={i} style={{ padding:"16px", background:T.surface2, border:"1px solid "+T.border, borderRadius:10, marginBottom:12 }}>
-                  <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:12 }}>
-                    <span style={{ fontSize:16, fontWeight:800, color:T.accent, flexShrink:0 }}>#{cr.claim_number}</span>
-                    <div style={{ fontSize:13, color:T.text, lineHeight:1.5, flex:1 }}>{cr.claim_text}</div>
-                  </div>
-                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12 }}>
-                    {cr.feasibility&&<div style={{ display:"flex", alignItems:"center", gap:4 }}><span style={{ fontSize:10, color:T.text3 }}>Feasibility:</span><RAG val={cr.feasibility}/></div>}
-                    {cr.evidence_strength&&<div style={{ display:"flex", alignItems:"center", gap:4 }}><span style={{ fontSize:10, color:T.text3 }}>Evidence:</span><RAG val={cr.evidence_strength}/></div>}
-                    {cr.regulatory_risk&&<div style={{ display:"flex", alignItems:"center", gap:4 }}><span style={{ fontSize:10, color:T.text3 }}>Reg Risk:</span><RAG val={cr.regulatory_risk}/></div>}
-                  </div>
-                  {cr.gaps?.length>0&&(
-                    <div style={{ marginBottom:10 }}>
-                      <div style={{ fontSize:11, fontWeight:700, color:"#ef4444", marginBottom:4 }}>Gaps</div>
-                      {cr.gaps.map((g,gi)=><div key={gi} style={{ fontSize:12, color:T.text2, padding:"2px 0" }}>• {g}</div>)}
-                    </div>
-                  )}
-                  {cr.recommendations?.length>0&&(
-                    <div>
-                      <div style={{ fontSize:11, fontWeight:700, color:"#22c55e", marginBottom:4 }}>Recommendations</div>
-                      {cr.recommendations.map((r,ri)=><div key={ri} style={{ fontSize:12, color:T.text2, padding:"2px 0" }}>✓ {r}</div>)}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {result.next_steps?.length>0&&(
-                <div style={{ padding:"14px 16px", background:T.accentDim, border:"1px solid "+T.accent+"40", borderRadius:10 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:T.accent, marginBottom:8 }}>Priority Next Steps</div>
-                  {result.next_steps.map((s,i)=><div key={i} style={{ fontSize:12, color:T.text, padding:"3px 0" }}>{i+1}. {s}</div>)}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* GM Advisor */}
-          {advisorType==="gm_advisor" && (
-            <div>
-              {result.summary&&<div style={{ padding:"14px 16px", background:T.surface2, border:"1px solid "+T.border, borderRadius:10, marginBottom:16, fontSize:13, color:T.text, lineHeight:1.7 }}>{result.summary}</div>}
-              {result.gm_benchmark&&(
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:16 }}>
-                  {[["Low",result.gm_benchmark.low+"%","#ef4444"],["Typical",result.gm_benchmark.typical+"%","#eab308"],["High",result.gm_benchmark.high+"%","#22c55e"]].map(([l,v,c])=>(
-                    <div key={l} style={{ padding:"14px", background:T.surface2, border:"1px solid "+T.border, borderRadius:9, textAlign:"center" }}>
-                      <div style={{ fontSize:22, fontWeight:800, color:c }}>{v}</div>
-                      <div style={{ fontSize:11, color:T.text3 }}>{l} GM%</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {(result.recommendations||[]).map((r,i)=>(
-                <div key={i} style={{ padding:"12px 14px", background:T.surface2, border:"1px solid "+T.border, borderRadius:9, marginBottom:10, display:"flex", gap:10 }}>
-                  <RAG val={r.impact}/>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, fontWeight:600, marginBottom:4 }}>{r.title}</div>
-                    <div style={{ fontSize:12, color:T.text2, lineHeight:1.5 }}>{r.detail}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Stage Readiness */}
-          {advisorType==="stage_readiness" && (
-            <div>
-              {result.readiness_score!=null&&(
-                <div style={{ display:"flex", alignItems:"center", gap:20, padding:"20px", background:T.surface2, border:"1px solid "+T.border, borderRadius:12, marginBottom:16 }}>
-                  <div style={{ position:"relative", flexShrink:0 }}>
-                    <svg width={80} height={80} style={{ transform:"rotate(-90deg)" }}>
-                      <circle cx={40} cy={40} r={32} fill="none" stroke={T.surface3} strokeWidth={6}/>
-                      <circle cx={40} cy={40} r={32} fill="none" stroke={result.readiness_score>=80?"#22c55e":result.readiness_score>=60?"#eab308":"#ef4444"} strokeWidth={6}
-                        strokeDasharray={`${(result.readiness_score/100)*201} 201`} strokeLinecap="round"/>
-                    </svg>
-                    <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:800, color:T.text }}>{result.readiness_score}%</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>{result.current_stage} → {result.next_stage}</div>
-                    <div style={{ fontSize:13, color:T.text2, lineHeight:1.6 }}>{result.summary}</div>
-                  </div>
-                </div>
-              )}
-              {result.blockers?.length>0&&(
-                <div style={{ marginBottom:16 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:"#ef4444", textTransform:"uppercase", letterSpacing:1, marginBottom:8 }}>Blockers</div>
-                  {result.blockers.map((b,i)=>(
-                    <div key={i} style={{ display:"flex", gap:8, alignItems:"center", padding:"9px 12px", background:"#ef444410", border:"1px solid #ef444430", borderRadius:8, marginBottom:6 }}>
-                      <RAG val={b.severity}/><div style={{ fontSize:12, color:T.text }}>{b.item}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {(result.checklist||[]).map((item,i)=>(
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:T.surface2, border:"1px solid "+T.border, borderRadius:8, marginBottom:6 }}>
-                  <span style={{ fontSize:16 }}>{item.status==="complete"?"✅":item.status==="in_progress"?"🔄":"⬜"}</span>
-                  <div style={{ flex:1, fontSize:12, color:T.text }}>{item.item}</div>
-                  {item.required&&<span style={{ fontSize:9, fontWeight:700, color:T.accent, background:T.accentDim, padding:"2px 6px", borderRadius:4 }}>REQUIRED</span>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── PROGRAM DETAIL ───────────────────────────────────────────────────────────
-
-const DETAIL_TABS = [
-  { key:"overview",      label:"Overview"       },
-  { key:"ai_advisor",    label:"🤖 AI Advisor"  },
-  { key:"claims_sub",    label:"Claims & Evidence"},
-  { key:"formulations",  label:"Formulations"   },
-  { key:"sourcing",      label:"Sourcing"       },
-  { key:"gm_scenarios",  label:"GM% Scenarios"  },
-  { key:"experiments",   label:"Experiments"    },
-  { key:"trials",        label:"Trials"         },
-  { key:"reg_claims",    label:"Reg Claims"     },
-  { key:"skus",          label:"SKUs"           },
-  { key:"issues",        label:"Issues"         },
-  { key:"test_results",  label:"Test Results"   },
-  { key:"gate_reviews",  label:"Gate Reviews"   },
-];
-
-function ProgramDetail({ program, onBack, onUpdate }) {
-  const [tab, setTab] = useState("overview");
-  const [counts, setCounts] = useState({});
-
-  useEffect(()=>{
-    const load=async()=>{
-      const[{count:formulations},{count:experiments},{count:trials},{count:skus},{count:claims},{count:issues}]=await Promise.all([
-        supabase.from("plm_formulations").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_experiments").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_manufacturing_trials").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_skus").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_claims").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_issues").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-      ]);
-      setCounts({formulations,experiments,trials,skus,claims,issues});
-    };
-    load();
-  },[program.id]);
-
-  const renderTab=()=>{
-    switch(tab){
-      case "overview":     return <OverviewTab program={program} onUpdate={onUpdate} counts={counts} />;
-      case "ai_advisor":   return <AIAdvisorTab program={program} />;
-      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
-      case "sourcing":     return <SourcingTab program={program} />;
-      case "gm_scenarios": return <GMScenarioTab program={program} />;
-      case "formulations": return <FormulationsTab programId={program.id} />;
-      case "experiments":  return <ExperimentsTab programId={program.id} />;
-      case "trials":       return <TrialsTab programId={program.id} />;
-      case "reg_claims":   return <RegClaimsTab programId={program.id} />;
-      case "skus":         return <SKUsTab programId={program.id} />;
-      case "issues":       return <IssuesTab programId={program.id} />;
-      case "test_results": return <TestResultsTab programId={program.id} />;
-      case "gate_reviews": return <GateReviewsTab programId={program.id} />;
-      default:             return null;
+      if (data.success) {
+        setMessages(p => [...p, { role:"assistant", text:data.response, tokens:data.usage, duration:data.duration_ms }]);
+      } else {
+        setMessages(p => [...p, { role:"assistant", text:`Error: ${data.error}`, isError:true }]);
+      }
+    } catch(e) {
+      setMessages(p => [...p, { role:"assistant", text:`Error: ${String(e)}`, isError:true }]);
     }
+    setLoading(false);
+    setTimeout(() => chatRef.current?.scrollTo({ top:chatRef.current.scrollHeight, behavior:"smooth" }), 100);
+  };
+
+  const SUGGESTIONS = {
+    detergent_chemist: [
+      "Our sheets aren't dissolving fully in cold water. What should we try?",
+      "What are the best natural alternatives to PVA for our sheet format?",
+      "How can we increase surfactant loading without hurting dissolution?",
+      "Our sheets are getting brittle during shipping. What's causing this?",
+    ],
+    formulation_advisor: [
+      "Recommend a surfactant blend optimized for cold water cleaning in sheet format",
+      "We're getting white residue on dark clothes. How do we fix this?",
+      "What enzyme cocktail should we use for general laundry stain removal?",
+    ],
+    doe_advisor: [
+      "Help me design a DOE to optimize surfactant concentration vs dissolution time",
+      "I have 3 factors with 2 levels each. What design should I use?",
+    ],
+    manufacturing_troubleshoot: [
+      "We're getting air bubbles in our film during casting. How do we fix this?",
+      "Film thickness is inconsistent across the web width. What should we adjust?",
+    ],
+    stability_predictor: [
+      "Our sheets lose fragrance after 3 months. What's happening?",
+      "How do we predict shelf life from our 40C/75%RH accelerated data?",
+    ],
+    ingredient_advisor: [
+      "Compare pullulan vs HPMC vs modified starch as PVA alternatives",
+      "What biosurfactants could replace LAS in our sheets?",
+    ],
+    claim_support: [
+      "Can we claim 'plastic-free' if we use PVA film?",
+      "What testing do we need to support an 'eco-friendly' claim?",
+    ],
   };
 
   return (
-    <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
-      <div style={{ padding:"14px 24px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
-        <button onClick={onBack} style={{ background:"none",border:"1px solid "+T.border,color:T.text2,cursor:"pointer",borderRadius:6,padding:"4px 10px",fontSize:12 }}>← Back</button>
-        <div style={{ flex:1 }}>
-          <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
-            <div style={{ fontSize:18,fontWeight:700,color:T.text }}>{program.name}</div>
-            <StageBadge stage={program.current_stage} />
-            <PriorityBadge priority={program.priority} />
-            {program.target_gross_margin_pct&&<span style={{ fontSize:11,fontWeight:700,background:"#22c55e15",color:"#22c55e",padding:"2px 8px",borderRadius:4 }}>GM% Target: {program.target_gross_margin_pct}%</span>}
-            {(program.target_markets_v2||[]).map(m=><span key={m} style={{ fontSize:10,fontWeight:700,background:T.surface3,color:T.text3,padding:"2px 7px",borderRadius:4 }}>{m}</span>)}
-          </div>
-          {program.code&&<div style={{ fontSize:11,color:T.text3,marginTop:2 }}>{program.code}</div>}
-        </div>
-      </div>
-      <div style={{ display:"flex",gap:0,borderBottom:"1px solid "+T.border,paddingLeft:24,flexShrink:0,overflowX:"auto" }}>
-        {DETAIL_TABS.map(t=>(
-          <button key={t.key} onClick={()=>setTab(t.key)} style={{ background:"none",border:"none",cursor:"pointer",padding:"10px 12px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",color:tab===t.key?T.accent:T.text3,borderBottom:"2px solid "+(tab===t.key?T.accent:"transparent"),transition:"color 0.15s" }}>{t.label}</button>
+    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 260px)" }}>
+      {/* Advisor selector */}
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12, flexShrink:0 }}>
+        {ADVISORS.map(a=>(
+          <button key={a.key} onClick={()=>{ setAdvisorType(a.key); setMessages([]); }}
+            title={a.desc}
+            style={{ padding:"6px 12px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:600,
+              background: advisorType===a.key ? T.accentDim : T.surface2,
+              border:`1px solid ${advisorType===a.key ? T.accent : T.border}`,
+              color: advisorType===a.key ? T.accent : T.text3,
+              display:"flex", alignItems:"center", gap:5, transition:"all 0.15s" }}>
+            <span>{a.icon}</span>{a.label}
+          </button>
         ))}
       </div>
-      <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>{renderTab()}</div>
-    </div>
-  );
-}
 
-// ─── NEW PROGRAM MODAL (3-step) ───────────────────────────────────────────────
-
-function NewProgramModal({ onClose, onCreated, orgId }) {
-  const [step, setStep]   = useState(1);
-  const [form, setForm]   = useState({
-    name:"", program_type:"new_product", priority:"medium",
-    current_stage:"ideation", brand:"", target_launch_date:"",
-    target_gross_margin_pct:"", target_unit_price:"",
-    target_markets_v2:[], channels_v2:[], desired_claims:[],
-  });
-  const [newClaim, setNewClaim] = useState("");
-  const [saving, setSaving]     = useState(false);
-  const set=(f,v)=>setForm(p=>({...p,[f]:v}));
-
-  const addClaim=()=>{ const t=newClaim.trim(); if(!t)return; set("desired_claims",[...form.desired_claims,t]); setNewClaim(""); };
-  const removeClaim=i=>set("desired_claims",form.desired_claims.filter((_,idx)=>idx!==i));
-
-  const handleCreate=async()=>{
-    if(!form.name.trim())return; setSaving(true);
-    const NUMERIC=["target_gross_margin_pct","target_unit_price"];
-    const ARRAYS=["target_markets_v2","channels_v2","desired_claims"];
-    const raw={...form,org_id:orgId};
-    const payload=Object.fromEntries(Object.entries(raw).map(([k,v])=>{
-      if(NUMERIC.includes(k)) return [k, v!==""&&v!==null?parseFloat(v):null];
-      if(ARRAYS.includes(k)) return [k, Array.isArray(v)?v:[]];
-      return [k,v===""?null:v];
-    }));
-    if(!payload.org_id){ setSaving(false); alert("Unable to determine your organization. Please refresh and try again."); return; }
-    const{data}=await supabase.from("plm_programs").insert(payload).select().single();
-    if(data)onCreated(data); setSaving(false);
-  };
-
-  const stepTitles=["Program Basics","Market & Channels","Claim Statements"];
-
-  return (
-    <div style={{ position:"fixed",inset:0,background:"#00000080",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center" }} onClick={onClose}>
-      <div style={{ background:T.surface,border:"1px solid "+T.border,borderRadius:12,padding:24,width:520,maxWidth:"95vw",maxHeight:"90vh",overflow:"auto" }} onClick={e=>e.stopPropagation()}>
-
-        {/* Step indicator */}
-        <div style={{ display:"flex",gap:0,marginBottom:20 }}>
-          {stepTitles.map((title,i)=>(
-            <div key={i} onClick={()=>step>i+1&&setStep(i+1)} style={{ flex:1,textAlign:"center",paddingBottom:8,cursor:step>i+1?"pointer":"default",borderBottom:"2px solid "+(step===i+1?T.accent:step>i+1?T.accent+"60":T.border) }}>
-              <div style={{ fontSize:11,fontWeight:700,color:step>=i+1?T.accent:T.text3 }}>{i+1}. {title}</div>
+      {/* Chat area */}
+      <div ref={chatRef} style={{ flex:1, overflow:"auto", padding:"12px 0", display:"flex", flexDirection:"column", gap:12 }}>
+        {messages.length === 0 && (
+          <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:12 }}>
+            <div style={{ fontSize:48 }}>{ADVISORS.find(a=>a.key===advisorType)?.icon}</div>
+            <div style={{ fontSize:16, fontWeight:700, color:T.text }}>{ADVISORS.find(a=>a.key===advisorType)?.label}</div>
+            <div style={{ fontSize:13, color:T.text3, textAlign:"center", maxWidth:500, lineHeight:1.6 }}>
+              {ADVISORS.find(a=>a.key===advisorType)?.desc}
             </div>
-          ))}
-        </div>
-
-        {/* Step 1 */}
-        {step===1&&(
-          <div>
-            <InlineField label="Program Name *" value={form.name} onChange={v=>set("name",v)} placeholder="e.g. Next-Gen Moisturizer" />
-            <InlineField label="Type" value={form.program_type} onChange={v=>set("program_type",v)} options={["new_product","line_extension","reformulation","cost_reduction","packaging_change","claim_addition","market_expansion","renovation","private_label","co_manufacturing"].map(t=>({value:t,label:t.replace(/_/g," ")}))} />
-            <InlineField label="Brand" value={form.brand} onChange={v=>set("brand",v)} placeholder="Brand name" />
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-              <InlineField label="Priority" value={form.priority} onChange={v=>set("priority",v)} options={["critical","high","medium","low"].map(x=>({value:x,label:x}))} />
-              <InlineField label="Starting Stage" value={form.current_stage} onChange={v=>set("current_stage",v)} options={STAGES.map(s=>({value:s.key,label:s.label}))} />
+            <div style={{ fontSize:12, color:T.text3, marginTop:8 }}>Try asking:</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, maxWidth:500, width:"100%" }}>
+              {(SUGGESTIONS[advisorType] || []).map((q,i) => (
+                <button key={i} onClick={()=>setInput(q)} style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${T.border}`,
+                  background:T.surface2, color:T.text2, fontSize:12, cursor:"pointer", textAlign:"left",
+                  lineHeight:1.4 }}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>{q}</button>
+              ))}
             </div>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-              <InlineField label="GM% Target" value={form.target_gross_margin_pct} onChange={v=>set("target_gross_margin_pct",v)} type="number" placeholder="e.g. 65" />
-              <InlineField label="Target Unit Price ($)" value={form.target_unit_price} onChange={v=>set("target_unit_price",v)} type="number" placeholder="e.g. 29.99" />
-            </div>
-            <InlineField label="Target Launch Date" value={form.target_launch_date} onChange={v=>set("target_launch_date",v)} type="date" />
           </div>
         )}
 
-        {/* Step 2 */}
-        {step===2&&(
-          <div>
-            <div style={{ marginBottom:16,padding:12,background:T.surface2,borderRadius:8,fontSize:12,color:T.text3,lineHeight:1.6,border:"1px solid "+T.border }}>
-              Define where this product will be sold. These selections feed into financial modeling, regulatory requirements, and AI-driven insights.
+        {messages.map((msg, i) => (
+          <div key={i} style={{ display:"flex", gap:10, alignItems:msg.role==="user"?"flex-end":"flex-start",
+            flexDirection:msg.role==="user"?"row-reverse":"row" }}>
+            <div style={{ width:28, height:28, borderRadius:14, background:msg.role==="user"?T.accent+"30":"#a855f720",
+              display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, flexShrink:0,
+              color:msg.role==="user"?T.accent:"#a855f7" }}>
+              {msg.role==="user"?"You":ADVISORS.find(a=>a.key===advisorType)?.icon}
             </div>
-            <MultiSelectDropdown label="Target Markets" value={form.target_markets_v2} onChange={v=>set("target_markets_v2",v)} options={TARGET_MARKETS} />
-            <MultiSelectDropdown label="Sales Channels" value={form.channels_v2} onChange={v=>set("channels_v2",v)} options={CHANNELS_LIST} />
+            <div style={{ maxWidth:"85%", padding:"10px 14px", borderRadius:12,
+              background:msg.role==="user"?T.accentDim:msg.isError?"#ef444415":T.surface2,
+              border:`1px solid ${msg.isError?"#ef444440":T.border}` }}>
+              <div style={{ fontSize:13, color:msg.isError?"#ef4444":T.text, lineHeight:1.7, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{msg.text}</div>
+              {msg.tokens && (
+                <div style={{ fontSize:10, color:T.text3, marginTop:6, display:"flex", gap:8 }}>
+                  <span>{msg.tokens.input_tokens + msg.tokens.output_tokens} tokens</span>
+                  <span>{(msg.duration/1000).toFixed(1)}s</span>
+                </div>
+              )}
+            </div>
           </div>
-        )}
+        ))}
 
-        {/* Step 3 */}
-        {step===3&&(
-          <div>
-            <div style={{ marginBottom:12,padding:12,background:T.surface2,borderRadius:8,fontSize:12,color:T.text3,lineHeight:1.6,border:"1px solid "+T.border }}>
-              List every marketing or regulatory claim you intend to make. The AI advisor will later cross-reference these against your formulation, ingredients, test data, and substantiation documents — flagging gaps and suggesting what evidence is needed to defend each claim.
-            </div>
-            {form.desired_claims.map((claim,idx)=>(
-              <div key={idx} style={{ display:"flex",gap:8,marginBottom:8,alignItems:"flex-start" }}>
-                <span style={{ marginTop:9,fontSize:12,color:T.accent,fontWeight:700,flexShrink:0 }}>#{idx+1}</span>
-                <div style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"7px 10px",lineHeight:1.5 }}>{claim}</div>
-                <button onClick={()=>removeClaim(idx)} style={{ marginTop:6,background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:14,padding:0 }}>✕</button>
+        {loading && (
+          <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+            <div style={{ width:28, height:28, borderRadius:14, background:"#a855f720",
+              display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>{ADVISORS.find(a=>a.key===advisorType)?.icon}</div>
+            <div style={{ padding:"10px 14px", borderRadius:12, background:T.surface2, border:`1px solid ${T.border}` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ fontSize:13, color:T.text3 }}>Thinking</span>
+                <span style={{ display:"inline-flex", gap:3 }}>
+                  {[0,1,2].map(j=><span key={j} style={{ width:4, height:4, borderRadius:2, background:T.text3, animation:`pulse 1.4s ease-in-out ${j*0.2}s infinite` }} />)}
+                </span>
               </div>
-            ))}
-            <div style={{ display:"flex",gap:8,marginTop:8 }}>
-              <input value={newClaim} onChange={e=>setNewClaim(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addClaim()} placeholder="e.g. 98% saw visible improvement in 4 weeks…" style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"7px 10px",outline:"none" }} />
-              <button onClick={addClaim} style={{ padding:"7px 14px",fontSize:12,fontWeight:600,background:T.accentDim,color:T.accent,border:"1px solid "+T.accent+"40",borderRadius:6,cursor:"pointer" }}>Add</button>
             </div>
-            {form.desired_claims.length===0&&<div style={{ marginTop:8,fontSize:12,color:T.text3,fontStyle:"italic" }}>You can skip this and add claims later. Press Enter or click Add after typing each claim.</div>}
           </div>
         )}
+      </div>
 
-        <div style={{ display:"flex",gap:10,marginTop:20 }}>
-          <button onClick={step===1?onClose:()=>setStep(s=>s-1)} style={{ flex:1,padding:10,fontSize:13,background:T.surface2,color:T.text2,border:"1px solid "+T.border,borderRadius:6,cursor:"pointer" }}>{step===1?"Cancel":"← Back"}</button>
-          {step<3?(
-            <button onClick={()=>setStep(s=>s+1)} disabled={step===1&&!form.name.trim()} style={{ flex:2,padding:10,fontSize:13,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer",opacity:step===1&&!form.name.trim()?0.5:1 }}>Next →</button>
-          ):(
-            <button onClick={handleCreate} disabled={saving||!form.name.trim()} style={{ flex:2,padding:10,fontSize:13,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer",opacity:saving?0.6:1 }}>{saving?"Creating…":"✓ Create Program"}</button>
+      {/* Input */}
+      <div style={{ flexShrink:0, borderTop:`1px solid ${T.border}`, padding:"12px 0 0" }}>
+        <div style={{ display:"flex", gap:8 }}>
+          <input value={input} onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+            placeholder={`Ask the ${ADVISORS.find(a=>a.key===advisorType)?.label} anything...`}
+            style={{ flex:1, padding:"10px 14px", borderRadius:10, border:`1px solid ${T.border}`,
+              background:T.surface2, color:T.text, fontSize:13, outline:"none", fontFamily:"inherit" }} />
+          <button onClick={sendMessage} disabled={loading || !input.trim()}
+            style={{ padding:"10px 20px", borderRadius:10, border:"none", background:T.accent,
+              color:"#fff", fontSize:13, fontWeight:700, cursor:loading?"wait":"pointer",
+              opacity:!input.trim()?0.4:1 }}>
+            Send
+          </button>
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:6 }}>
+          <div style={{ fontSize:10, color:T.text3 }}>
+            Context: {program.name} &middot; Switch advisors above for different expertise
+          </div>
+          {messages.length > 0 && (
+            <button onClick={()=>setMessages([])} style={{ fontSize:10, color:T.text3, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>
+              Clear chat
+            </button>
           )}
         </div>
       </div>
     </div>
   );
 }
+
 
 // ─── MAIN PLM VIEW ────────────────────────────────────────────────────────────
 
