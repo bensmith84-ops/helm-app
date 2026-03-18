@@ -84,3 +84,4 @@ export async function GET(request) {
     return NextResponse.redirect(`${APP_URL}?shopify=error&msg=${encodeURIComponent(err.message?.slice(0, 100))}`);
   }
 }
+// shopify v2
