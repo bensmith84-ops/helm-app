@@ -85,6 +85,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [projMembersList, setProjMembersList] = useState([]); // [{ project_id, user_id, role }]
   const [showAddMember, setShowAddMember] = useState(false);
   const _profilesRef = useRef({});
+  // Labels
+  const [labels, setLabels] = useState([]); // all org labels
+  const [labelAssignments, setLabelAssignments] = useState([]); // task_id <-> label_id
+  // Custom fields - uses existing customFields/customFieldValues state above
+  const [showFieldSettings, setShowFieldSettings] = useState(false);
   // Templates & copy
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState([]);
@@ -158,6 +163,13 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         setProjMembersList(allPmR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
+        // Load labels, assignments, custom fields
+        const [lblR, lblAR] = await Promise.all([
+          supabase.from("task_labels").select("*").order("name"),
+          supabase.from("task_label_assignments").select("*"),
+        ]);
+        setLabels(lblR.data || []);
+        setLabelAssignments(lblAR.data || []);
         // Load templates and docs
         const [tmplR, docsR] = await Promise.all([
           supabase.from("project_templates").select("*").order("is_builtin", { ascending: false }).order("name"),
@@ -293,6 +305,27 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   }, [showProjectForm, selectedTask, editingSectionId, addingTo, filteredTasks, projSections, selectedTasks, sectionCtxMenu, ctxProject]);
   const rootTasks = (secTasks) => secTasks.filter(t => !t.parent_task_id);
   const getSubtasks = (pid) => filteredTasks.filter(t => t.parent_task_id === pid);
+
+  // Label helpers
+  const getTaskLabels = (taskId) => {
+    const assignedIds = labelAssignments.filter(a => a.task_id === taskId).map(a => a.label_id);
+    return labels.filter(l => assignedIds.includes(l.id));
+  };
+  const toggleLabel = async (taskId, labelId) => {
+    const existing = labelAssignments.find(a => a.task_id === taskId && a.label_id === labelId);
+    if (existing) {
+      await supabase.from("task_label_assignments").delete().eq("id", existing.id);
+      setLabelAssignments(p => p.filter(a => a.id !== existing.id));
+    } else {
+      const { data } = await supabase.from("task_label_assignments").insert({ task_id: taskId, label_id: labelId }).select().single();
+      if (data) setLabelAssignments(p => [...p, data]);
+    }
+  };
+  const createLabel = async (name, color) => {
+    const { data } = await supabase.from("task_labels").insert({ name, color, org_id: profile?.org_id || "a0000000-0000-0000-0000-000000000001" }).select().single();
+    if (data) setLabels(p => [...p, data]);
+    return data;
+  };
   const sortedTasks = (list) => { if (sortCol === "sort_order") return list; return [...list].sort((a, b) => { let va = a[sortCol] || "", vb = b[sortCol] || ""; if (sortCol === "due_date") { va = va ? new Date(va).getTime() : 9e15; vb = vb ? new Date(vb).getTime() : 9e15; } const c = va < vb ? -1 : va > vb ? 1 : 0; return sortDir === "asc" ? c : -c; }); };
   const doneCount = projTasks.filter(t => t.status === "done").length;
   const progress = projTasks.length ? Math.round((doneCount / projTasks.length) * 100) : 0;
@@ -3045,6 +3078,78 @@ function DateCell({ task, onUpdate }) {
       onClick={(e) => e.stopPropagation()}
       style={{ background: "none", border: "none", color: od ? T.red : task.due_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit" }} />
   );
+}
+
+
+function LabelPills({ taskLabels, small }) {
+  if (!taskLabels || taskLabels.length === 0) return null;
+  return (
+    <div style={{ display: "flex", gap: 3, flexWrap: "wrap", flexShrink: 0 }}>
+      {taskLabels.map(l => (
+        <span key={l.id} style={{ fontSize: small ? 8 : 9, fontWeight: 700, padding: small ? "1px 4px" : "1px 6px", borderRadius: 3, background: l.color + "20", color: l.color, whiteSpace: "nowrap" }}>{l.name}</span>
+      ))}
+    </div>
+  );
+}
+
+function LabelPicker({ taskId, taskLabels, allLabels, onToggle, onCreate, onClose }) {
+  const [search, setSearch] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState("#3b82f6");
+  const [showCreate, setShowCreate] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => { const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); }; document.addEventListener("mousedown", fn); return () => document.removeEventListener("mousedown", fn); }, [onClose]);
+  const assignedIds = new Set(taskLabels.map(l => l.id));
+  const filtered = search ? allLabels.filter(l => l.name.toLowerCase().includes(search.toLowerCase())) : allLabels;
+  const COLORS = ["#ef4444","#f97316","#eab308","#22c55e","#06b6d4","#3b82f6","#8b5cf6","#ec4899","#6b7280"];
+  return (
+    <div ref={ref} style={{ position: "absolute", top: "100%", left: 0, zIndex: 50, marginTop: 4, width: 220, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", padding: 4 }}>
+      <div style={{ padding: "4px 6px" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search labels..." autoFocus
+          style={{ width: "100%", padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+      </div>
+      <div style={{ maxHeight: 180, overflow: "auto" }}>
+        {filtered.map(l => (
+          <div key={l.id} onClick={() => onToggle(taskId, l.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
+            onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <div style={{ width: 14, height: 14, borderRadius: 3, background: l.color + "30", border: `2px solid ${l.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9 }}>
+              {assignedIds.has(l.id) ? "✓" : ""}
+            </div>
+            <span style={{ color: T.text }}>{l.name}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ borderTop: `1px solid ${T.border}`, padding: "4px 6px", marginTop: 2 }}>
+        {!showCreate ? (
+          <button onClick={() => setShowCreate(true)} style={{ width: "100%", padding: "4px 0", fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>+ Create label</button>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Label name" style={{ width: "100%", padding: "4px 6px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 3 }}>
+              {COLORS.map(c => <div key={c} onClick={() => setNewColor(c)} style={{ width: 16, height: 16, borderRadius: 3, background: c, cursor: "pointer", border: newColor === c ? "2px solid #fff" : "2px solid transparent", boxShadow: newColor === c ? `0 0 0 1px ${c}` : "none" }} />)}
+            </div>
+            <button onClick={async () => { if (!newName.trim()) return; const l = await onCreate(newName.trim(), newColor); if (l) { onToggle(taskId, l.id); setNewName(""); setShowCreate(false); } }}
+              style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Create & Apply</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CustomFieldCell({ task, field, value, onChange }) {
+  const ft = field.field_type;
+  const base = { fontSize: 12, color: T.text, background: "none", border: "none", outline: "none", fontFamily: "inherit", width: "100%", padding: "2px 4px" };
+  if (ft === "checkbox") return <input type="checkbox" checked={value === "true"} onChange={e => onChange(task.id, field.id, e.target.checked ? "true" : "false")} style={{ accentColor: T.accent }} />;
+  if (ft === "select") return (
+    <select value={value || ""} onChange={e => onChange(task.id, field.id, e.target.value)} style={{ ...base, cursor: "pointer" }}>
+      <option value="">—</option>
+      {(field.options || []).map(o => <option key={o.value || o} value={o.value || o}>{o.value || o}</option>)}
+    </select>
+  );
+  if (ft === "date") return <input type="date" value={value || ""} onChange={e => onChange(task.id, field.id, e.target.value)} style={{ ...base, width: 110 }} />;
+  if (ft === "number") return <input type="number" value={value || ""} onBlur={e => onChange(task.id, field.id, e.target.value)} onChange={() => {}} style={{ ...base, textAlign: "right", width: 60 }} />;
+  return <input value={value || ""} onBlur={e => onChange(task.id, field.id, e.target.value)} style={{ ...base }} placeholder="—" />;
 }
 
 function Dropdown({ children, onClose, wide }) {
