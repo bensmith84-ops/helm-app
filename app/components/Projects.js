@@ -84,6 +84,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [favorites, setFavorites] = useState(new Set());
   const [projMembersList, setProjMembersList] = useState([]); // [{ project_id, user_id, role }]
   const [showAddMember, setShowAddMember] = useState(false);
+  const _profilesRef = useRef({});
   // Templates & copy
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState([]);
@@ -120,10 +121,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const archiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "archived" }).eq("id", id); if (error) return showToast("Failed to archive"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "archived" } : pr)); if (activeProject === id) setActiveProject(null); showToast("Project archived", "success"); };
   const unarchiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "active" }).eq("id", id); if (error) return showToast("Failed to restore"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "active" } : pr)); showToast("Project restored", "success"); };
   const deleteProject = async (id) => { const name = projects.find(p => p.id === id)?.name || "this project"; if (!window.confirm(`Delete "${name}"? This will permanently remove the project and all its tasks. This cannot be undone.`)) return; const { error } = await supabase.from("projects").delete().eq("id", id); if (error) return showToast("Failed to delete: " + error.message); setProjects(p => p.filter(pr => pr.id !== id)); setTasks(p => p.filter(t => t.project_id !== id)); setSections(p => p.filter(s => s.project_id !== id)); if (activeProject === id) { setActiveProject(null); setSelectedTask(null); } showToast("Project deleted", "success"); };
-  const ini = (uid) => { const u = profiles[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
+  const ini = (uid) => { const u = _profilesRef.current[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const iniName = (name) => name ? name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?";
   const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
-  const uname = (uid) => profiles[uid]?.display_name || "";
+  const uname = (uid) => _profilesRef.current[uid]?.display_name || "";
   const secColor = (i) => SECTION_COLORS[i % SECTION_COLORS.length];
   const timeAgo = (ds) => { const m = Math.floor((Date.now() - new Date(ds).getTime()) / 60000); if (m < 1) return "just now"; if (m < 60) return m + "m ago"; const h = Math.floor(m / 60); if (h < 24) return h + "h ago"; return Math.floor(h / 24) + "d ago"; };
   const formatFileSize = (b) => { if (!b) return "0 B"; const k = 1024; const s = ["B", "KB", "MB", "GB"]; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(1)) + " " + s[i]; };
@@ -1001,7 +1002,6 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   _selTasksRef.current = selectedTasks;
   _tasksRef.current = tasks;
 
-  const _profilesRef = useRef({});
   const _profileRef = useRef(null);
   _profilesRef.current = profiles;
   _profileRef.current = profile;
