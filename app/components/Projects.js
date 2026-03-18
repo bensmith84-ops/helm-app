@@ -1001,6 +1001,13 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   _selTasksRef.current = selectedTasks;
   _tasksRef.current = tasks;
 
+  const _profilesRef = useRef({});
+  const _profileRef = useRef(null);
+  _profilesRef.current = profiles;
+  _profileRef.current = profile;
+  const _projMembersRef = useRef([]);
+  _projMembersRef.current = projMembersList;
+
   const _taskRowRef = useRef(null);
   if (!_taskRowRef.current) _taskRowRef.current = ({ task, depth = 0 }) => {
     // Read current values from refs (not stale closure)
@@ -1021,7 +1028,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const saveTitle = async () => { if (_editTitleRef.current.trim() && _editTitleRef.current !== task.title) { await updateField(task.id, "title", _editTitleRef.current.trim()); } setEditingTaskId(null); };
     const rowRef = useRef(null);
     const TaskRow = _taskRowRef.current;
-    return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input value={editTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{subs.length > 0 && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}{task.recurrence && task.recurrence !== "none" && !isEditingTitle && <span title={`Repeats ${task.recurrence}`} style={{ fontSize: 10, color: T.text3, opacity: 0.6 }}>🔄</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} /></div><div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSub === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newSubTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (_newSubTitleRef.current.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} autoFocus placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
+    return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input value={editTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{subs.length > 0 && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length}</span>}{task.recurrence && task.recurrence !== "none" && !isEditingTitle && <span title={`Repeats ${task.recurrence}`} style={{ fontSize: 10, color: T.text3, opacity: 0.6 }}>🔄</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div><div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={_profilesRef.current} profile={_profileRef.current} ini={ini} acol={acol} uname={uname} projectMembers={_projMembersRef.current} activeProject={activeProject} /></div><div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div></div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSub === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newSubTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (_newSubTitleRef.current.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} autoFocus placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div><div /><div /><div /><div /></div>}</>); };
 
   const listViewEl = (() => { const TaskRow = _taskRowRef.current; const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
@@ -1517,7 +1524,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "10px 12px", alignItems: "center", marginBottom: 18 }}>
                 <span style={FIELD_LABEL}>Status</span><StatusPill task={task} onUpdate={updateField} S={S} />
                 <span style={FIELD_LABEL}>Priority</span><PriorityPill task={task} onUpdate={updateField} S={S} />
-                <span style={FIELD_LABEL}>Assignee</span><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} />
+                <span style={FIELD_LABEL}>Assignee</span><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} projectMembers={projMembersList} activeProject={activeProject} />
                 <span style={FIELD_LABEL}>Due Date</span><DateCell task={task} onUpdate={updateField} />
                 <span style={FIELD_LABEL}>Start Date</span>
                 <input type="date" value={task.start_date || ""} onChange={e => updateField(task.id, "start_date", e.target.value || null)}
@@ -2931,14 +2938,37 @@ function PriorityPill({ task, onUpdate, S }) {
   );
 }
 
-function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname }) {
+function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname, projectMembers, activeProject }) {
   const [open, setOpen] = useState(false);
   const [aSearch, setASearch] = useState("");
+  const [showAddPrompt, setShowAddPrompt] = useState(null); // user to prompt about
   const pl = Object.values(profiles);
+  const memberIds = new Set((projectMembers || []).filter(pm => pm.project_id === activeProject).map(pm => pm.user_id));
   const filtered = aSearch.trim() ? pl.filter(u => (u.display_name||"").toLowerCase().includes(aSearch.toLowerCase()) || (u.email||"").toLowerCase().includes(aSearch.toLowerCase())) : pl;
+  
+  const assignUser = async (userId) => {
+    // Check if user is a project member
+    if (activeProject && !memberIds.has(userId) && userId !== profile?.id) {
+      setShowAddPrompt(userId);
+      return;
+    }
+    onUpdate(task.id, "assignee_id", userId);
+    setOpen(false);
+  };
+
+  const confirmAssign = async (addToProject) => {
+    const userId = showAddPrompt;
+    if (addToProject && activeProject) {
+      await supabase.from("project_members").insert({ project_id: activeProject, user_id: userId, role: "member" });
+    }
+    onUpdate(task.id, "assignee_id", userId);
+    setShowAddPrompt(null);
+    setOpen(false);
+  };
+
   return (
     <div style={{ position: "relative" }}>
-      <div onClick={(e) => { e.stopPropagation(); setOpen(!open); setASearch(""); }}
+      <div onClick={(e) => { e.stopPropagation(); setOpen(!open); setASearch(""); setShowAddPrompt(null); }}
         style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", padding: "2px 4px", borderRadius: 4 }}>
         {task.assignee_id ? (
           <>
@@ -2949,10 +2979,10 @@ function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname }) {
           <div style={{ width: 20, height: 20, borderRadius: 10, border: `1.5px dashed ${T.text3}` }} />
         )}
       </div>
-      {open && (
+      {open && !showAddPrompt && (
         <Dropdown onClose={() => setOpen(false)} wide>
           <div style={{ padding: "4px 6px" }}>
-            <input value={aSearch} onChange={e => setASearch(e.target.value)} onClick={e => e.stopPropagation()} placeholder="Search…"
+            <input value={aSearch} onChange={e => setASearch(e.target.value)} onClick={e => e.stopPropagation()} placeholder="Search people…" autoFocus
               style={{ width: "100%", padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
           </div>
           {profile?.id && task.assignee_id !== profile.id && (
@@ -2963,12 +2993,45 @@ function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname }) {
           <DropdownItem onClick={() => { onUpdate(task.id, "assignee_id", null); setOpen(false); }}>
             <span style={{ color: T.text3 }}>Unassigned</span>
           </DropdownItem>
-          {filtered.map(u => (
+          {activeProject && <div style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 4 }}>Project Members</div>}
+          {filtered.filter(u => memberIds.has(u.id)).map(u => (
             <DropdownItem key={u.id} onClick={() => { onUpdate(task.id, "assignee_id", u.id); setOpen(false); }}>
               <div style={{ width: 18, height: 18, borderRadius: 9, background: acol(u.id) + "30", color: acol(u.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>{ini(u.id)}</div>
-              {u.display_name || u.email}
+              <span style={{ flex: 1 }}>{u.display_name || u.email}</span>
             </DropdownItem>
           ))}
+          {filtered.filter(u => !memberIds.has(u.id) && u.id !== profile?.id).length > 0 && (
+            <div style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 6, borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>Others in Org</div>
+          )}
+          {filtered.filter(u => !memberIds.has(u.id) && u.id !== profile?.id).map(u => (
+            <DropdownItem key={u.id} onClick={() => assignUser(u.id)}>
+              <div style={{ width: 18, height: 18, borderRadius: 9, background: acol(u.id) + "20", color: acol(u.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, opacity: 0.6 }}>{ini(u.id)}</div>
+              <span style={{ flex: 1, color: T.text3 }}>{u.display_name || u.email}</span>
+            </DropdownItem>
+          ))}
+        </Dropdown>
+      )}
+      {open && showAddPrompt && (
+        <Dropdown onClose={() => { setShowAddPrompt(null); setOpen(false); }} wide>
+          <div style={{ padding: "10px 12px" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 8 }}>
+              {profiles[showAddPrompt]?.display_name || "This person"} isn't in this project
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button onClick={() => confirmAssign(true)}
+                style={{ padding: "7px 12px", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", textAlign: "left" }}>
+                Add to project & assign task
+              </button>
+              <button onClick={() => confirmAssign(false)}
+                style={{ padding: "7px 12px", fontSize: 11, fontWeight: 500, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", textAlign: "left" }}>
+                Assign task only (won't see project)
+              </button>
+              <button onClick={() => { setShowAddPrompt(null); }}
+                style={{ padding: "5px 12px", fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </Dropdown>
       )}
     </div>
