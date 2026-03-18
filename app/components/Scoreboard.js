@@ -273,32 +273,38 @@ function ShopifySkuTab() {
 
   const runSync = async (daysBack) => {
     setSyncing(true);
-    const since = new Date(Date.now() - daysBack * 86400000).toISOString().slice(0, 10);
-    const until = new Date().toISOString().slice(0, 10);
-    let totalOrders = 0, totalRows = 0, currentPage = null, pageNum = 0;
+    let totalOrders = 0, totalRows = 0, daysComplete = 0;
+    const totalDays = daysBack;
+
     try {
-      let hasMore = true;
-      while (hasMore) {
-        pageNum++;
-        setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows });
-        const body = { action: "sku_sync", date_from: since, date_to: until };
-        if (currentPage) body.page_info = currentPage;
-        else body.days_back = daysBack;
+      // Process one day at a time, newest first
+      for (let d = 0; d < daysBack; d++) {
+        const targetDate = new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+        daysComplete = d + 1;
+        setSyncProgress({ day: daysComplete, totalDays, date: targetDate, orders: totalOrders, rows: totalRows });
+
         const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-sync", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "day_sync", date: targetDate }),
         });
         const data = await res.json();
-        if (!data.success) { console.error("Sync error:", data.error); break; }
-        totalOrders += data.orders_fetched || 0;
-        totalRows += data.sku_rows || 0;
-        hasMore = data.has_more && data.next_page_info;
-        currentPage = data.next_page_info;
-        setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows, hasMore });
-        if (hasMore) await new Promise(r => setTimeout(r, 500));
+        if (!data.success) {
+          console.error(`Sync error for ${targetDate}:`, data.error);
+          // Continue to next day instead of stopping
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+        totalOrders += data.orders || 0;
+        totalRows += data.rows || 0;
+        setSyncProgress({ day: daysComplete, totalDays, date: targetDate, orders: totalOrders, rows: totalRows });
+
+        // Small delay between days to avoid rate limits
+        if (d < daysBack - 1) await new Promise(r => setTimeout(r, 300));
       }
     } catch (e) { console.error("Sync failed:", e); }
     setSyncing(false);
-    setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows, done: true });
+    setSyncProgress({ day: daysComplete, totalDays: totalDays, orders: totalOrders, rows: totalRows, done: true });
     const sinceReload = new Date(Date.now() - skuDateRange * 86400000).toISOString().slice(0, 10);
     const { data: fresh } = await supabase.from("shopify_sku_daily").select("*")
       .gte("date", sinceReload).order("date", { ascending: false }).order("units_sold", { ascending: false });
@@ -345,18 +351,27 @@ function ShopifySkuTab() {
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button onClick={() => runSync(7)} disabled={syncing}
             style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>
-            {syncing ? "Syncing..." : "Sync 7 days"}</button>
+            {syncing ? "Syncing..." : "Sync 7d"}</button>
           <button onClick={() => runSync(30)} disabled={syncing}
-            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Sync 30 days</button>
+            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>30d</button>
+          <button onClick={() => runSync(90)} disabled={syncing}
+            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>90d</button>
+          <button onClick={() => { const jan1 = new Date(new Date().getFullYear(), 0, 1); const days = Math.ceil((Date.now() - jan1.getTime()) / 86400000); runSync(days); }} disabled={syncing}
+            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.accent, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer" }}>YTD</button>
           <button onClick={() => runSync(180)} disabled={syncing}
-            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.accent, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer" }}>Sync 6 months</button>
+            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>6mo</button>
         </div>
       </div>
       {syncProgress && (
         <div style={{ padding: "10px 14px", borderRadius: 8, background: syncProgress.done ? "#22c55e15" : T.accentDim, border: `1px solid ${syncProgress.done ? "#22c55e40" : T.accent + "40"}`, marginBottom: 12, fontSize: 12 }}>
           {syncProgress.done
-            ? `✅ Sync complete — ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows (${syncProgress.page} pages)`
-            : `⏳ Syncing page ${syncProgress.page}... ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows`}
+            ? `✅ Sync complete — ${syncProgress.day} days, ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} SKU rows`
+            : `⏳ Day ${syncProgress.day} of ${syncProgress.totalDays} (${syncProgress.date}) — ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows so far`}
+          {syncing && syncProgress.totalDays > 0 && (
+            <div style={{ marginTop: 6, height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", background: T.accent, borderRadius: 2, transition: "width 0.3s", width: `${Math.round((syncProgress.day / syncProgress.totalDays) * 100)}%` }} />
+            </div>
+          )}
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
