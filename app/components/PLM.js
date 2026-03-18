@@ -1147,7 +1147,16 @@ function ExperimentsTab({ programId }) {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeSubTab, setActiveSubTab] = useState("design");
+  const [trialRuns, setTrialRuns] = useState([]);
+  const [trialsLoading, setTrialsLoading] = useState(false);
+  const [expandedRun, setExpandedRun] = useState(null);
   useEffect(()=>{ supabase.from("plm_experiments").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setExperiments(data||[]);setLoading(false);}); },[programId]);
+  // Load trial runs when experiment is selected
+  useEffect(()=>{
+    if(!selected?.id){setTrialRuns([]);return;}
+    setTrialsLoading(true);
+    supabase.from("plm_experiment_runs").select("*").eq("experiment_id",selected.id).order("run_number").then(({data})=>{setTrialRuns(data||[]);setTrialsLoading(false);});
+  },[selected?.id]);
   const add=async()=>{ const{data}=await supabase.from("plm_experiments").insert({program_id:programId,name:"New Experiment",experiment_type:"formulation",status:"planning",factors:[],responses:[],run_matrix:[]}).select().single(); if(data){setExperiments(p=>[...p,data]);setSelected(data);} };
   const update=async(field,val)=>{ await supabase.from("plm_experiments").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setExperiments(p=>p.map(x=>x.id===u.id?u:x)); };
   const del=async()=>{ if(!window.confirm(`Delete "${selected.name}"?`))return; await supabase.from("plm_experiments").delete().eq("id",selected.id); setExperiments(p=>p.filter(x=>x.id!==selected.id)); setSelected(null); };
@@ -1196,7 +1205,7 @@ function ExperimentsTab({ programId }) {
   };
   const removeRun = (id) => update("run_matrix", runMatrix.filter(r => r.id !== id));
 
-  const subTabs = ["design", "matrix", "analysis"];
+  const subTabs = ["design", "matrix", "trials", "analysis"];
 
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -1332,6 +1341,152 @@ function ExperimentsTab({ programId }) {
             )}
 
             {/* Analysis Tab */}
+            {activeSubTab === "trials" && (() => {
+              const updateRun = async (runId, field, val) => {
+                await supabase.from("plm_experiment_runs").update({ [field]: val, updated_at: new Date().toISOString() }).eq("id", runId);
+                setTrialRuns(p => p.map(r => r.id === runId ? { ...r, [field]: val } : r));
+              };
+              const updateResult = async (runId, responseName, val) => {
+                const run = trialRuns.find(r => r.id === runId);
+                const results = { ...(run?.response_results || {}), [responseName]: val === "" ? null : parseFloat(val) };
+                await supabase.from("plm_experiment_runs").update({ response_results: results, updated_at: new Date().toISOString() }).eq("id", runId);
+                setTrialRuns(p => p.map(r => r.id === runId ? { ...r, response_results: results } : r));
+              };
+              const STATUS_OPTS = ["planned","in_progress","completed","failed","skipped"];
+              const SC = { planned: T.text3, in_progress: "#eab308", completed: "#22c55e", failed: "#ef4444", skipped: "#8b93a8" };
+
+              if (trialsLoading) return <div style={{ color: T.text3, fontSize: 12, padding: 16 }}>Loading trials...</div>;
+
+              if (trialRuns.length === 0) return (
+                <div style={{ textAlign: "center", padding: "40px 16px", color: T.text3 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🔬</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>No trial runs yet</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.6 }}>Use the AI Advisor to create an experiment with per-run manufacturing instructions, or add runs manually in the Matrix tab.</div>
+                </div>
+              );
+
+              return (
+                <div>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
+                    {trialRuns.length} trials · Click a run to expand instructions, notes, and enter results
+                  </div>
+                  {trialRuns.map(run => {
+                    const isExpanded = expandedRun === run.id;
+                    const fs = run.factor_settings || {};
+                    return (
+                      <div key={run.id} style={{ marginBottom: 8, borderRadius: 8, border: `1px solid ${isExpanded ? T.accent + "60" : T.border}`, background: isExpanded ? T.accentDim : T.surface2, overflow: "hidden" }}>
+                        {/* Run header */}
+                        <div onClick={() => setExpandedRun(isExpanded ? null : run.id)}
+                          style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: T.text, minWidth: 55 }}>Run {run.run_number}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: (SC[run.status] || T.text3) + "20", color: SC[run.status] || T.text3 }}>
+                            {run.status}
+                          </span>
+                          <span style={{ fontSize: 11, color: T.text3, flex: 1 }}>
+                            {Object.entries(fs).map(([k,v]) => `${k}: ${v}`).join(" · ")}
+                          </span>
+                          <span style={{ fontSize: 12, color: T.text3 }}>{isExpanded ? "▲" : "▼"}</span>
+                        </div>
+
+                        {/* Expanded detail */}
+                        {isExpanded && (
+                          <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${T.border}` }}>
+                            {/* Status + batch info */}
+                            <div style={{ display: "flex", gap: 10, marginTop: 10, marginBottom: 12 }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3 }}>STATUS</div>
+                                <select value={run.status} onChange={e => updateRun(run.id, "status", e.target.value)}
+                                  style={{ width: "100%", padding: "5px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text }}>
+                                  {STATUS_OPTS.map(s => <option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
+                                </select>
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3 }}>BATCH ID</div>
+                                <input value={run.batch_id || ""} onBlur={e => updateRun(run.id, "batch_id", e.target.value)} onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, batch_id: e.target.value } : r))}
+                                  placeholder="e.g., LAB-2026-042" style={{ width: "100%", padding: "5px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3 }}>OPERATOR</div>
+                                <input value={run.operator || ""} onBlur={e => updateRun(run.id, "operator", e.target.value)} onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, operator: e.target.value } : r))}
+                                  placeholder="Who ran this?" style={{ width: "100%", padding: "5px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3 }}>RUN DATE</div>
+                                <input type="date" value={run.run_date || ""} onChange={e => updateRun(run.id, "run_date", e.target.value || null)}
+                                  style={{ width: "100%", padding: "5px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
+                              </div>
+                            </div>
+
+                            {/* Factor settings */}
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Factor Settings</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {Object.entries(fs).map(([k,v]) => (
+                                  <span key={k} style={{ padding: "3px 8px", borderRadius: 4, background: "#3b82f620", border: "1px solid #3b82f640", fontSize: 11, color: "#3b82f6" }}>
+                                    <strong>{k}</strong>: {String(v)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Manufacturing instructions */}
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Manufacturing Instructions</div>
+                              <textarea value={run.manufacturing_instructions || ""} onBlur={e => updateRun(run.id, "manufacturing_instructions", e.target.value)}
+                                onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, manufacturing_instructions: e.target.value } : r))}
+                                rows={6} placeholder="Step-by-step instructions for this specific trial..."
+                                style={{ width: "100%", padding: "8px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} />
+                            </div>
+
+                            {/* Process deviations */}
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Process Deviations</div>
+                              <textarea value={run.process_deviations || ""} onBlur={e => updateRun(run.id, "process_deviations", e.target.value)}
+                                onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, process_deviations: e.target.value } : r))}
+                                rows={2} placeholder="What actually happened differently from the instructions..."
+                                style={{ width: "100%", padding: "8px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+                            </div>
+
+                            {/* Response results */}
+                            {responses.length > 0 && (
+                              <div style={{ marginBottom: 12 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Results</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+                                  {responses.map(resp => (
+                                    <div key={resp.name || resp.id} style={{ padding: "8px 10px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
+                                      <div style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", marginBottom: 3 }}>{resp.name} {resp.unit ? `(${resp.unit})` : ""}</div>
+                                      <input type="number" step="any"
+                                        value={run.response_results?.[resp.name] ?? ""}
+                                        onChange={e => updateResult(run.id, resp.name, e.target.value)}
+                                        placeholder={`${resp.target === "maximize" ? "↑" : resp.target === "minimize" ? "↓" : "◎"} ${resp.target}${resp.target_value ? ` (${resp.target_value})` : ""}`}
+                                        style={{ width: "100%", padding: "5px 8px", fontSize: 13, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Notes */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                              {[["pre_run_notes","Pre-Run Notes","Setup notes before running..."],["in_process_notes","In-Process Notes","Observations during the trial..."],["post_run_notes","Post-Run Notes","Post-trial observations..."]].map(([field,label,ph]) => (
+                                <div key={field}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>{label}</div>
+                                  <textarea value={run[field] || ""} onBlur={e => updateRun(run.id, field, e.target.value)}
+                                    onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, [field]: e.target.value } : r))}
+                                    rows={3} placeholder={ph}
+                                    style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
             {activeSubTab === "analysis" && (
               <div>
                 <InlineField label="Conclusions" value={selected.conclusions} onChange={v=>update("conclusions",v)} multiline placeholder="Summarize what you learned from this experiment…" />
