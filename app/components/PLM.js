@@ -1906,10 +1906,12 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
     if(!form.name.trim())return; setSaving(true);
     const NUMERIC=["target_gross_margin_pct","target_unit_price"];
     const ARRAYS=["target_markets_v2","channels_v2","desired_claims"];
+    const DATES=["target_launch_date","actual_launch_date"];
     const raw={...form,org_id:orgId};
     const payload=Object.fromEntries(Object.entries(raw).map(([k,v])=>{
       if(NUMERIC.includes(k)) return [k, v!==""&&v!==null?parseFloat(v):null];
       if(ARRAYS.includes(k)) return [k, Array.isArray(v)?v:[]];
+      if(DATES.includes(k)) return [k, v&&v!==""?v:null];
       return [k,v===""?null:v];
     }));
     if(!payload.org_id){ setSaving(false); alert("Unable to determine your organization. Please refresh and try again."); return; }
