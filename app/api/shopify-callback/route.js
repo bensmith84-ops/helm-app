@@ -8,15 +8,25 @@ export async function GET(request) {
   const url = new URL(request.url);
   const params = url.searchParams;
 
+  // Debug endpoint to check if env vars are set
+  if (params.get("action") === "debug") {
+    return NextResponse.json({
+      client_id_set: !!SHOPIFY_CLIENT_ID,
+      client_id_prefix: SHOPIFY_CLIENT_ID?.slice(0, 8) || "NOT SET",
+      secret_set: !!SHOPIFY_CLIENT_SECRET,
+      secret_prefix: SHOPIFY_CLIENT_SECRET?.slice(0, 8) || "NOT SET",
+    });
+  }
+
   if (!SHOPIFY_CLIENT_ID || !SHOPIFY_CLIENT_SECRET) {
-    return NextResponse.json({ error: "Shopify credentials not configured. Set SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET in Vercel env vars." }, { status: 500 });
+    return NextResponse.redirect(`${APP_URL}?shopify=error&msg=env_vars_missing`);
   }
 
   if (params.get("action") === "connect") {
     const shop = params.get("shop") || "earth-breeze-hydrogen.myshopify.com";
-    const state = crypto.randomUUID();
     const scopes = "read_orders,read_customers,read_products";
     const redirectUri = `${APP_URL}/api/shopify-callback`;
+    const state = crypto.randomUUID();
     const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_CLIENT_ID}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     return NextResponse.redirect(authUrl);
   }
@@ -39,20 +49,29 @@ export async function GET(request) {
       }),
     });
 
+    const tokenText = await tokenRes.text();
+    
     if (!tokenRes.ok) {
-      console.error("Shopify token exchange failed:", await tokenRes.text());
-      return NextResponse.redirect(`${APP_URL}?shopify=error&msg=token_failed`);
+      console.error("Shopify token exchange failed:", tokenRes.status, tokenText);
+      return NextResponse.redirect(`${APP_URL}?shopify=error&msg=token_${tokenRes.status}_${encodeURIComponent(tokenText.slice(0, 100))}`);
     }
 
-    const tokenData = await tokenRes.json();
+    let tokenData;
+    try {
+      tokenData = JSON.parse(tokenText);
+    } catch {
+      return NextResponse.redirect(`${APP_URL}?shopify=error&msg=invalid_json`);
+    }
+
     const accessToken = tokenData.access_token;
     const scopes = tokenData.scope;
 
     if (!accessToken) {
-      return NextResponse.redirect(`${APP_URL}?shopify=error&msg=no_token`);
+      return NextResponse.redirect(`${APP_URL}?shopify=error&msg=no_token_in_response`);
     }
 
-    await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-store-token", {
+    // Store token via Supabase edge function
+    const storeRes = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-store-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ shop, access_token: accessToken, scopes }),
@@ -62,7 +81,6 @@ export async function GET(request) {
 
   } catch (err) {
     console.error("Shopify OAuth error:", err);
-    return NextResponse.redirect(`${APP_URL}?shopify=error&msg=${encodeURIComponent(err.message)}`);
+    return NextResponse.redirect(`${APP_URL}?shopify=error&msg=${encodeURIComponent(err.message?.slice(0, 100))}`);
   }
 }
-// Shopify integration ready
