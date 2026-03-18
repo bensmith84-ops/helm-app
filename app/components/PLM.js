@@ -1629,7 +1629,7 @@ function AIAdvisorTab({ program }) {
       });
       const data = await res.json();
       if (data.success) {
-        setMessages(p => [...p, { role: "assistant", text: data.response, tokens: data.usage, duration: data.duration_ms }]);
+        setMessages(p => [...p, { role: "assistant", text: data.response, tokens: data.usage, duration: data.duration_ms, createdItems: data.created_items }]);
         if (!activeConvId && data.conversation_id) {
           setActiveConvId(data.conversation_id);
           setConversations(p => [{ id: data.conversation_id, title: userMsg.slice(0, 80), updated_at: new Date().toISOString() }, ...p]);
@@ -1739,6 +1739,17 @@ function AIAdvisorTab({ program }) {
                 background: msg.role === "user" ? T.accentDim : msg.isError ? "#ef444415" : T.surface2,
                 border: `1px solid ${msg.isError ? "#ef444440" : T.border}` }}>
                 <div style={{ fontSize: 13, color: msg.isError ? "#ef4444" : T.text, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{msg.text}</div>
+                {msg.createdItems && msg.createdItems.length > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {msg.createdItems.map((item, ci) => (
+                      <div key={ci} style={{ padding: "6px 10px", borderRadius: 6, background: "#22c55e15", border: "1px solid #22c55e40", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>{item.tool === "create_program" ? "📦" : item.tool === "create_formulation" ? "🧪" : "🔬"}</span>
+                        <span style={{ fontWeight: 600, color: "#22c55e" }}>Created:</span>
+                        <span style={{ color: T.text }}>{item.result?.message || item.result?.name || "Item created"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {msg.tokens && (
                   <div style={{ fontSize: 10, color: T.text3, marginTop: 6, display: "flex", gap: 8 }}>
                     <span>{msg.tokens.input_tokens + msg.tokens.output_tokens} tokens</span>
