@@ -248,6 +248,195 @@ const PROMPTS = [
   "Analyze our March performance so far",
 ];
 
+// ── Shopify SKU Tab ─────────────────────────────────────────────────────────
+function ShopifySkuTab() {
+  const [skuData, setSkuData] = useState([]);
+  const [skuLoading, setSkuLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(null);
+  const [skuView, setSkuView] = useState("sku_summary");
+  const [skuDateRange, setSkuDateRange] = useState(7);
+  const [skuSearch, setSkuSearch] = useState("");
+  const [skuCountry, setSkuCountry] = useState("all");
+
+  useEffect(() => {
+    const load = async () => {
+      setSkuLoading(true);
+      const since = new Date(Date.now() - skuDateRange * 86400000).toISOString().slice(0, 10);
+      const { data } = await supabase.from("shopify_sku_daily").select("*")
+        .gte("date", since).order("date", { ascending: false }).order("units_sold", { ascending: false });
+      setSkuData(data || []);
+      setSkuLoading(false);
+    };
+    load();
+  }, [skuDateRange]);
+
+  const runSync = async (daysBack) => {
+    setSyncing(true);
+    const since = new Date(Date.now() - daysBack * 86400000).toISOString().slice(0, 10);
+    const until = new Date().toISOString().slice(0, 10);
+    let totalOrders = 0, totalRows = 0, currentPage = null, pageNum = 0;
+    try {
+      let hasMore = true;
+      while (hasMore) {
+        pageNum++;
+        setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows });
+        const body = { action: "sku_sync", date_from: since, date_to: until };
+        if (currentPage) body.page_info = currentPage;
+        else body.days_back = daysBack;
+        const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-sync", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) { console.error("Sync error:", data.error); break; }
+        totalOrders += data.orders_fetched || 0;
+        totalRows += data.sku_rows || 0;
+        hasMore = data.has_more && data.next_page_info;
+        currentPage = data.next_page_info;
+        setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows, hasMore });
+        if (hasMore) await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (e) { console.error("Sync failed:", e); }
+    setSyncing(false);
+    setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows, done: true });
+    const sinceReload = new Date(Date.now() - skuDateRange * 86400000).toISOString().slice(0, 10);
+    const { data: fresh } = await supabase.from("shopify_sku_daily").select("*")
+      .gte("date", sinceReload).order("date", { ascending: false }).order("units_sold", { ascending: false });
+    setSkuData(fresh || []);
+  };
+
+  const filtered = skuData.filter(r => {
+    if (skuSearch && !r.sku.toLowerCase().includes(skuSearch.toLowerCase()) && !r.product_title?.toLowerCase().includes(skuSearch.toLowerCase())) return false;
+    if (skuCountry !== "all" && r.country_code !== skuCountry) return false;
+    return true;
+  });
+  const countries = [...new Set(skuData.map(r => r.country_code))].sort();
+  const skuSummary = {};
+  for (const r of filtered) {
+    const key = r.sku;
+    if (!skuSummary[key]) skuSummary[key] = { sku: r.sku, product_title: r.product_title, variant_title: r.variant_title, units: 0, revenue: 0, orders: 0, days: new Set() };
+    skuSummary[key].units += r.units_sold;
+    skuSummary[key].revenue += parseFloat(r.net_revenue) || 0;
+    skuSummary[key].orders += r.orders_count;
+    skuSummary[key].days.add(r.date);
+  }
+  const skuSummaryArr = Object.values(skuSummary).map(s => ({ ...s, days: s.days.size, avg_daily: s.days.size > 0 ? Math.round(s.units / s.days.size * 10) / 10 : 0 })).sort((a, b) => b.units - a.units);
+  const totalUnits = filtered.reduce((s, r) => s + r.units_sold, 0);
+  const totalRev = filtered.reduce((s, r) => s + (parseFloat(r.net_revenue) || 0), 0);
+  const fmt = (v) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : String(Math.round(v));
+  const fmtD = (v) => `$${v >= 1000 ? (v/1000).toFixed(1) + "k" : v.toFixed(2)}`;
+
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: "16px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Shopify SKU Sales</div>
+        <select value={skuDateRange} onChange={e => setSkuDateRange(Number(e.target.value))}
+          style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer" }}>
+          <option value={1}>Today</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option>
+          <option value={30}>Last 30 days</option><option value={90}>Last 90 days</option><option value={180}>Last 6 months</option>
+        </select>
+        <select value={skuCountry} onChange={e => setSkuCountry(e.target.value)}
+          style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer" }}>
+          <option value="all">All Countries</option>
+          {countries.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <input value={skuSearch} onChange={e => setSkuSearch(e.target.value)} placeholder="Search SKU or product..."
+          style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", width: 180 }} />
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button onClick={() => runSync(7)} disabled={syncing}
+            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>
+            {syncing ? "Syncing..." : "Sync 7 days"}</button>
+          <button onClick={() => runSync(30)} disabled={syncing}
+            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Sync 30 days</button>
+          <button onClick={() => runSync(180)} disabled={syncing}
+            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.accent, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer" }}>Sync 6 months</button>
+        </div>
+      </div>
+      {syncProgress && (
+        <div style={{ padding: "10px 14px", borderRadius: 8, background: syncProgress.done ? "#22c55e15" : T.accentDim, border: `1px solid ${syncProgress.done ? "#22c55e40" : T.accent + "40"}`, marginBottom: 12, fontSize: 12 }}>
+          {syncProgress.done
+            ? `✅ Sync complete — ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows (${syncProgress.page} pages)`
+            : `⏳ Syncing page ${syncProgress.page}... ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows`}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+        {[
+          { label: "Total Units", value: fmt(totalUnits), color: "#22c55e" },
+          { label: "Net Revenue", value: fmtD(totalRev), color: "#3b82f6" },
+          { label: "Unique SKUs", value: skuSummaryArr.length, color: "#8b5cf6" },
+          { label: "Avg Units/Day", value: skuDateRange > 0 ? (totalUnits / Math.min(skuDateRange, Math.max(skuSummaryArr[0]?.days || 1, 1))).toFixed(0) : "—", color: "#f97316" },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{ padding: "12px 14px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>{label}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color, marginTop: 4 }}>{value}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, marginBottom: 12 }}>
+        {[["sku_summary", "By SKU"], ["daily", "Daily Detail"]].map(([k, l]) => (
+          <button key={k} onClick={() => setSkuView(k)}
+            style={{ padding: "8px 14px", fontSize: 12, fontWeight: skuView === k ? 700 : 400, color: skuView === k ? T.accent : T.text3, background: "none", border: "none", borderBottom: skuView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer" }}>{l}</button>
+        ))}
+      </div>
+      {skuLoading ? <div style={{ color: T.text3, fontSize: 13 }}>Loading...</div> : (
+        <>
+          {skuView === "sku_summary" && (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                {["SKU", "Product", "Variant", "Units", "Revenue", "Orders", "Days", "Avg/Day"].map(h => (
+                  <th key={h} style={{ padding: "6px 8px", textAlign: ["SKU","Product","Variant"].includes(h) ? "left" : "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{skuSummaryArr.map(s => (
+                <tr key={s.sku} style={{ borderBottom: `1px solid ${T.border}` }}>
+                  <td style={{ padding: "6px 8px", fontWeight: 600, fontFamily: "monospace", fontSize: 11, color: T.accent }}>{s.sku}</td>
+                  <td style={{ padding: "6px 8px", color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.product_title}</td>
+                  <td style={{ padding: "6px 8px", color: T.text3 }}>{s.variant_title || "—"}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{s.units.toLocaleString()}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: "#22c55e", fontWeight: 600 }}>${s.revenue.toFixed(2)}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: T.text2 }}>{s.orders.toLocaleString()}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>{s.days}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: "#f97316" }}>{s.avg_daily}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+          {skuView === "daily" && (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                {["Date", "SKU", "Product", "Country", "Units", "Gross $", "Discounts", "Net $", "Orders", "Avg Price"].map(h => (
+                  <th key={h} style={{ padding: "6px 8px", textAlign: ["Date","SKU","Product","Country"].includes(h) ? "left" : "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{filtered.slice(0, 200).map((r, i) => (
+                <tr key={i} style={{ borderBottom: `1px solid ${T.border}` }}>
+                  <td style={{ padding: "6px 8px", color: T.text3 }}>{r.date}</td>
+                  <td style={{ padding: "6px 8px", fontFamily: "monospace", fontSize: 11, color: T.accent, fontWeight: 600 }}>{r.sku}</td>
+                  <td style={{ padding: "6px 8px", color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.product_title}</td>
+                  <td style={{ padding: "6px 8px", color: T.text3 }}>{r.country_code}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{r.units_sold}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: T.text2 }}>${parseFloat(r.gross_revenue).toFixed(2)}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: "#ef4444" }}>${parseFloat(r.discounts).toFixed(2)}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: "#22c55e", fontWeight: 600 }}>${parseFloat(r.net_revenue).toFixed(2)}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>{r.orders_count}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>${parseFloat(r.avg_unit_price).toFixed(2)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+          {filtered.length === 0 && !skuLoading && (
+            <div style={{ textAlign: "center", padding: "40px 0", color: T.text3 }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🛒</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>No SKU data yet</div>
+              <div style={{ fontSize: 12 }}>Click a sync button above to pull order data from Shopify</div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main Scoreboard View ────────────────────────────────────────────────────
 export default function ScoreboardView() {
   const [metrics, setMetrics] = useState([]);
@@ -1061,239 +1250,7 @@ export default function ScoreboardView() {
         )}
 
         {/* Shopify SKU tab */}
-        {activeTab === "shopify" && (() => {
-          const [skuData, setSkuData] = useState([]);
-          const [skuLoading, setSkuLoading] = useState(true);
-          const [syncing, setSyncing] = useState(false);
-          const [syncProgress, setSyncProgress] = useState(null);
-          const [skuView, setSkuView] = useState("daily"); // daily, sku_summary, product
-          const [skuDateRange, setSkuDateRange] = useState(7); // days
-          const [skuSearch, setSkuSearch] = useState("");
-          const [skuCountry, setSkuCountry] = useState("all");
-
-          useEffect(() => {
-            const load = async () => {
-              setSkuLoading(true);
-              const since = new Date(Date.now() - skuDateRange * 86400000).toISOString().slice(0, 10);
-              const { data } = await supabase.from("shopify_sku_daily").select("*")
-                .gte("date", since).order("date", { ascending: false }).order("units_sold", { ascending: false });
-              setSkuData(data || []);
-              setSkuLoading(false);
-            };
-            load();
-          }, [skuDateRange]);
-
-          const runSync = async (daysBack, pageInfo) => {
-            setSyncing(true);
-            const since = new Date(Date.now() - daysBack * 86400000).toISOString().slice(0, 10);
-            const until = new Date().toISOString().slice(0, 10);
-            let totalOrders = 0;
-            let totalRows = 0;
-            let currentPage = pageInfo;
-            let pageNum = 0;
-
-            try {
-              let hasMore = true;
-              while (hasMore) {
-                pageNum++;
-                setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows });
-                const body = { action: "sku_sync", date_from: since, date_to: until };
-                if (currentPage) body.page_info = currentPage;
-                else body.days_back = daysBack;
-
-                const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-sync", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(body),
-                });
-                const data = await res.json();
-                if (!data.success) { console.error("Sync error:", data.error); break; }
-
-                totalOrders += data.orders_fetched || 0;
-                totalRows += data.sku_rows || 0;
-                hasMore = data.has_more && data.next_page_info;
-                currentPage = data.next_page_info;
-
-                setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows, hasMore });
-                // Small delay between pages to avoid rate limits
-                if (hasMore) await new Promise(r => setTimeout(r, 500));
-              }
-            } catch (e) { console.error("Sync failed:", e); }
-
-            setSyncing(false);
-            setSyncProgress({ page: pageNum, orders: totalOrders, rows: totalRows, done: true });
-            // Reload data
-            const sinceReload = new Date(Date.now() - skuDateRange * 86400000).toISOString().slice(0, 10);
-            const { data: fresh } = await supabase.from("shopify_sku_daily").select("*")
-              .gte("date", sinceReload).order("date", { ascending: false }).order("units_sold", { ascending: false });
-            setSkuData(fresh || []);
-          };
-
-          // Filter and aggregate
-          const filtered = skuData.filter(r => {
-            if (skuSearch && !r.sku.toLowerCase().includes(skuSearch.toLowerCase()) && !r.product_title?.toLowerCase().includes(skuSearch.toLowerCase())) return false;
-            if (skuCountry !== "all" && r.country_code !== skuCountry) return false;
-            return true;
-          });
-
-          const countries = [...new Set(skuData.map(r => r.country_code))].sort();
-
-          // SKU summary: aggregate across dates
-          const skuSummary = {};
-          for (const r of filtered) {
-            const key = r.sku;
-            if (!skuSummary[key]) skuSummary[key] = { sku: r.sku, product_title: r.product_title, variant_title: r.variant_title, units: 0, revenue: 0, orders: 0, days: new Set() };
-            skuSummary[key].units += r.units_sold;
-            skuSummary[key].revenue += parseFloat(r.net_revenue) || 0;
-            skuSummary[key].orders += r.orders_count;
-            skuSummary[key].days.add(r.date);
-          }
-          const skuSummaryArr = Object.values(skuSummary).map(s => ({ ...s, days: s.days.size, avg_daily: s.days.size > 0 ? Math.round(s.units / s.days.size * 10) / 10 : 0 })).sort((a, b) => b.units - a.units);
-
-          const totalUnits = filtered.reduce((s, r) => s + r.units_sold, 0);
-          const totalRev = filtered.reduce((s, r) => s + (parseFloat(r.net_revenue) || 0), 0);
-          const fmt = (v) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : String(Math.round(v));
-          const fmtD = (v) => `$${v >= 1000 ? (v/1000).toFixed(1) + "k" : v.toFixed(2)}`;
-
-          return (
-            <div style={{ flex: 1, overflow: "auto", padding: "16px 0" }}>
-              {/* Header */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Shopify SKU Sales</div>
-                <select value={skuDateRange} onChange={e => setSkuDateRange(Number(e.target.value))}
-                  style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer" }}>
-                  <option value={1}>Today</option>
-                  <option value={7}>Last 7 days</option>
-                  <option value={14}>Last 14 days</option>
-                  <option value={30}>Last 30 days</option>
-                  <option value={90}>Last 90 days</option>
-                  <option value={180}>Last 6 months</option>
-                </select>
-                <select value={skuCountry} onChange={e => setSkuCountry(e.target.value)}
-                  style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer" }}>
-                  <option value="all">All Countries</option>
-                  {countries.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <input value={skuSearch} onChange={e => setSkuSearch(e.target.value)} placeholder="Search SKU or product..."
-                  style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", width: 180 }} />
-                <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                  <button onClick={() => runSync(7)} disabled={syncing}
-                    style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>
-                    {syncing ? "Syncing..." : "Sync 7 days"}
-                  </button>
-                  <button onClick={() => runSync(30)} disabled={syncing}
-                    style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>
-                    Sync 30 days
-                  </button>
-                  <button onClick={() => runSync(180)} disabled={syncing}
-                    style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.accent, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer" }}>
-                    Sync 6 months
-                  </button>
-                </div>
-              </div>
-
-              {/* Sync progress */}
-              {syncProgress && (
-                <div style={{ padding: "10px 14px", borderRadius: 8, background: syncProgress.done ? "#22c55e15" : T.accentDim, border: `1px solid ${syncProgress.done ? "#22c55e40" : T.accent + "40"}`, marginBottom: 12, fontSize: 12 }}>
-                  {syncProgress.done
-                    ? `✅ Sync complete — ${syncProgress.orders.toLocaleString()} orders processed, ${syncProgress.rows.toLocaleString()} SKU-day rows stored (${syncProgress.page} pages)`
-                    : `⏳ Syncing page ${syncProgress.page}... ${syncProgress.orders.toLocaleString()} orders so far, ${syncProgress.rows.toLocaleString()} rows`}
-                </div>
-              )}
-
-              {/* Summary cards */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
-                {[
-                  { label: "Total Units", value: fmt(totalUnits), color: "#22c55e" },
-                  { label: "Net Revenue", value: fmtD(totalRev), color: "#3b82f6" },
-                  { label: "Unique SKUs", value: skuSummaryArr.length, color: "#8b5cf6" },
-                  { label: "Avg Units/Day", value: skuDateRange > 0 ? (totalUnits / Math.min(skuDateRange, skuSummaryArr[0]?.days || 1)).toFixed(0) : "—", color: "#f97316" },
-                ].map(({ label, value, color }) => (
-                  <div key={label} style={{ padding: "12px 14px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` }}>
-                    <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>{label}</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color, marginTop: 4 }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* View toggle */}
-              <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, marginBottom: 12 }}>
-                {[["sku_summary", "By SKU"], ["daily", "Daily Detail"]].map(([k, l]) => (
-                  <button key={k} onClick={() => setSkuView(k)}
-                    style={{ padding: "8px 14px", fontSize: 12, fontWeight: skuView === k ? 700 : 400, color: skuView === k ? T.accent : T.text3, background: "none", border: "none", borderBottom: skuView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer" }}>{l}</button>
-                ))}
-              </div>
-
-              {skuLoading ? <div style={{ color: T.text3, fontSize: 13 }}>Loading...</div> : (
-                <>
-                  {/* SKU Summary view */}
-                  {skuView === "sku_summary" && (
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                      <thead>
-                        <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                          {["SKU", "Product", "Variant", "Units", "Revenue", "Orders", "Days Active", "Avg/Day"].map(h => (
-                            <th key={h} style={{ padding: "6px 8px", textAlign: h === "SKU" || h === "Product" || h === "Variant" ? "left" : "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {skuSummaryArr.map(s => (
-                          <tr key={s.sku} style={{ borderBottom: `1px solid ${T.border}` }}>
-                            <td style={{ padding: "6px 8px", fontWeight: 600, fontFamily: "monospace", fontSize: 11, color: T.accent }}>{s.sku}</td>
-                            <td style={{ padding: "6px 8px", color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.product_title}</td>
-                            <td style={{ padding: "6px 8px", color: T.text3 }}>{s.variant_title || "—"}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: T.text }}>{s.units.toLocaleString()}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", color: "#22c55e", fontWeight: 600 }}>${s.revenue.toFixed(2)}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", color: T.text2 }}>{s.orders.toLocaleString()}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>{s.days}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: "#f97316" }}>{s.avg_daily}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-
-                  {/* Daily Detail view */}
-                  {skuView === "daily" && (
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                      <thead>
-                        <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                          {["Date", "SKU", "Product", "Country", "Units", "Gross $", "Discounts", "Net $", "Orders", "Avg Price"].map(h => (
-                            <th key={h} style={{ padding: "6px 8px", textAlign: ["Date", "SKU", "Product", "Country"].includes(h) ? "left" : "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtered.slice(0, 200).map((r, i) => (
-                          <tr key={i} style={{ borderBottom: `1px solid ${T.border}` }}>
-                            <td style={{ padding: "6px 8px", color: T.text3 }}>{r.date}</td>
-                            <td style={{ padding: "6px 8px", fontFamily: "monospace", fontSize: 11, color: T.accent, fontWeight: 600 }}>{r.sku}</td>
-                            <td style={{ padding: "6px 8px", color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.product_title}</td>
-                            <td style={{ padding: "6px 8px", color: T.text3 }}>{r.country_code}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{r.units_sold}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", color: T.text2 }}>${parseFloat(r.gross_revenue).toFixed(2)}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", color: "#ef4444" }}>${parseFloat(r.discounts).toFixed(2)}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", color: "#22c55e", fontWeight: 600 }}>${parseFloat(r.net_revenue).toFixed(2)}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>{r.orders_count}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>${parseFloat(r.avg_unit_price).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-
-                  {filtered.length === 0 && !skuLoading && (
-                    <div style={{ textAlign: "center", padding: "40px 0", color: T.text3 }}>
-                      <div style={{ fontSize: 32, marginBottom: 8 }}>🛒</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>No SKU data yet</div>
-                      <div style={{ fontSize: 12, marginBottom: 16 }}>Click a sync button above to pull order data from Shopify</div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          );
-        })()}
+        {activeTab === "shopify" && <ShopifySkuTab />}
 
         {/* AI Chat tab */}
         {activeTab === "chat" && (
