@@ -1466,7 +1466,16 @@ function ExperimentsTab({ programId }) {
                               </div>
                             )}
 
-                            {/* Notes */}
+                            {/* General notes */}
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>General Notes</div>
+                              <textarea value={run.notes || ""} onBlur={e => updateRun(run.id, "notes", e.target.value)}
+                                onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, notes: e.target.value } : r))}
+                                rows={3} placeholder="General notes, observations, learnings..."
+                                style={{ width: "100%", padding: "8px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+                            </div>
+
+                            {/* Specific notes */}
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                               {[["pre_run_notes","Pre-Run Notes","Setup notes before running..."],["in_process_notes","In-Process Notes","Observations during the trial..."],["post_run_notes","Post-Run Notes","Post-trial observations..."]].map(([field,label,ph]) => (
                                 <div key={field}>
