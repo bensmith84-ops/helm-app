@@ -1,8 +1,9 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import PLMLibraryView from "./PLMLibrary";
+const PrintBatchRecord = lazy(() => import("./PrintBatchRecord"));
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -1150,6 +1151,7 @@ function ExperimentsTab({ programId }) {
   const [trialRuns, setTrialRuns] = useState([]);
   const [trialsLoading, setTrialsLoading] = useState(false);
   const [expandedRun, setExpandedRun] = useState(null);
+  const [printingRun, setPrintingRun] = useState(null); // { experimentId, runId }
   useEffect(()=>{ supabase.from("plm_experiments").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setExperiments(data||[]);setLoading(false);}); },[programId]);
   // Load trial runs when experiment is selected
   useEffect(()=>{
@@ -1208,6 +1210,12 @@ function ExperimentsTab({ programId }) {
   const subTabs = ["design", "matrix", "trials", "analysis"];
 
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
+
+  if (printingRun) return (
+    <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading print view...</div>}>
+      <PrintBatchRecord experimentId={printingRun.experimentId} runId={printingRun.runId} onClose={() => setPrintingRun(null)} />
+    </Suspense>
+  );
   return (
     <div style={{ display:"grid",gridTemplateColumns:"220px 1fr",gap:16 }}>
       <div style={{ borderRight:"1px solid "+T.border,paddingRight:16 }}>
@@ -1385,6 +1393,7 @@ function ExperimentsTab({ programId }) {
                           <span style={{ fontSize: 11, color: T.text3, flex: 1 }}>
                             {Object.entries(fs).map(([k,v]) => `${k}: ${v}`).join(" · ")}
                           </span>
+                          <button onClick={e => { e.stopPropagation(); setPrintingRun({ experimentId: selected.id, runId: run.id }); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: T.text3, padding: "0 4px" }} title="Print batch record">🖨</button>
                           <span style={{ fontSize: 12, color: T.text3 }}>{isExpanded ? "▲" : "▼"}</span>
                         </div>
 
