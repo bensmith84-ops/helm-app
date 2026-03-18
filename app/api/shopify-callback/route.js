@@ -65,3 +65,4 @@ export async function GET(request) {
     return NextResponse.redirect(`${APP_URL}?shopify=error&msg=${encodeURIComponent(err.message)}`);
   }
 }
+// Shopify integration ready
