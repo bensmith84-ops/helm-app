@@ -1575,195 +1575,219 @@ function GateReviewsTab({ programId }) {
 // ─── AI ADVISOR TAB ──────────────────────────────────────────────────────────
 
 function AIAdvisorTab({ program }) {
-  const [advisorType, setAdvisorType] = useState("detergent_chemist");
+  const [conversations, setConversations] = useState([]);
+  const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingConvs, setLoadingConvs] = useState(true);
+  const [showShare, setShowShare] = useState(false);
   const chatRef = useRef(null);
 
-  const ADVISORS = [
-    { key:"detergent_chemist", label:"Detergent Chemist", icon:"\u{1F9EA}", desc:"PhD-level expertise in PVA sheets, surfactants, enzymes, dissolution, and scale-up" },
-    { key:"formulation_advisor", label:"Formulation", icon:"\u2697\uFE0F", desc:"Ingredient selection, compatibility, troubleshooting for sheet format" },
-    { key:"doe_advisor", label:"DOE / Experiments", icon:"\u{1F52C}", desc:"Design experiments, analyze results, optimize formulations" },
-    { key:"manufacturing_troubleshoot", label:"Manufacturing", icon:"\u{1F3ED}", desc:"Film casting, drying, scale-up, quality control" },
-    { key:"stability_predictor", label:"Stability", icon:"\u{1F4C8}", desc:"Shelf life prediction, accelerated aging, packaging" },
-    { key:"ingredient_advisor", label:"Ingredients", icon:"\u{1F33F}", desc:"Raw materials, natural alternatives, PVA substitutes, cost optimization" },
-    { key:"claim_support", label:"Claims", icon:"\u2705", desc:"Regulatory compliance, claim substantiation, green claims" },
-  ];
+  // Load conversations
+  useEffect(() => {
+    const load = async () => {
+      let q = supabase.from("plm_ai_conversations").select("*").order("updated_at", { ascending: false });
+      if (program) q = q.eq("program_id", program.id);
+      else q = q.is("program_id", null);
+      const { data } = await q;
+      setConversations(data || []);
+      setLoadingConvs(false);
+    };
+    load();
+  }, [program?.id]);
+
+  // Load messages when conversation selected
+  useEffect(() => {
+    if (!activeConvId) { setMessages([]); return; }
+    supabase.from("plm_ai_messages").select("*").eq("conversation_id", activeConvId)
+      .order("created_at").then(({ data }) => {
+        setMessages((data || []).map(m => ({ role: m.role, text: m.content, tokens: m.tokens_in ? { input_tokens: m.tokens_in, output_tokens: m.tokens_out } : null, duration: m.duration_ms })));
+        setTimeout(() => chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight }), 100);
+      });
+  }, [activeConvId]);
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
     const userMsg = input.trim();
     setInput("");
-    setMessages(p => [...p, { role:"user", text:userMsg }]);
+    setMessages(p => [...p, { role: "user", text: userMsg }]);
     setLoading(true);
-
-    const history = messages.map(m => `${m.role === "user" ? "USER" : "ASSISTANT"}: ${m.text}`).join("\n\n");
 
     try {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/plm-ai", {
-        method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
-        body:JSON.stringify({
-          action: advisorType,
-          program_id: program.id,
-          context: {
-            question: userMsg,
-            conversation_history: history || undefined,
-            store_result: false,
-          },
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({
+          question: userMsg,
+          conversation_id: activeConvId || undefined,
+          program_id: program?.id || undefined,
+          history: messages.map(m => ({ role: m.role, content: m.text })),
         }),
       });
       const data = await res.json();
       if (data.success) {
-        setMessages(p => [...p, { role:"assistant", text:data.response, tokens:data.usage, duration:data.duration_ms }]);
+        setMessages(p => [...p, { role: "assistant", text: data.response, tokens: data.usage, duration: data.duration_ms }]);
+        if (!activeConvId && data.conversation_id) {
+          setActiveConvId(data.conversation_id);
+          setConversations(p => [{ id: data.conversation_id, title: userMsg.slice(0, 80), updated_at: new Date().toISOString() }, ...p]);
+        }
       } else {
-        setMessages(p => [...p, { role:"assistant", text:`Error: ${data.error}`, isError:true }]);
+        setMessages(p => [...p, { role: "assistant", text: `Error: ${data.error}`, isError: true }]);
       }
-    } catch(e) {
-      setMessages(p => [...p, { role:"assistant", text:`Error: ${String(e)}`, isError:true }]);
+    } catch (e) {
+      setMessages(p => [...p, { role: "assistant", text: `Error: ${String(e)}`, isError: true }]);
     }
     setLoading(false);
-    setTimeout(() => chatRef.current?.scrollTo({ top:chatRef.current.scrollHeight, behavior:"smooth" }), 100);
+    setTimeout(() => chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" }), 100);
   };
 
-  const SUGGESTIONS = {
-    detergent_chemist: [
-      "Our sheets aren't dissolving fully in cold water. What should we try?",
-      "What are the best natural alternatives to PVA for our sheet format?",
-      "How can we increase surfactant loading without hurting dissolution?",
-      "Our sheets are getting brittle during shipping. What's causing this?",
-    ],
-    formulation_advisor: [
-      "Recommend a surfactant blend optimized for cold water cleaning in sheet format",
-      "We're getting white residue on dark clothes. How do we fix this?",
-      "What enzyme cocktail should we use for general laundry stain removal?",
-    ],
-    doe_advisor: [
-      "Help me design a DOE to optimize surfactant concentration vs dissolution time",
-      "I have 3 factors with 2 levels each. What design should I use?",
-    ],
-    manufacturing_troubleshoot: [
-      "We're getting air bubbles in our film during casting. How do we fix this?",
-      "Film thickness is inconsistent across the web width. What should we adjust?",
-    ],
-    stability_predictor: [
-      "Our sheets lose fragrance after 3 months. What's happening?",
-      "How do we predict shelf life from our 40C/75%RH accelerated data?",
-    ],
-    ingredient_advisor: [
-      "Compare pullulan vs HPMC vs modified starch as PVA alternatives",
-      "What biosurfactants could replace LAS in our sheets?",
-    ],
-    claim_support: [
-      "Can we claim 'plastic-free' if we use PVA film?",
-      "What testing do we need to support an 'eco-friendly' claim?",
-    ],
+  const startNew = () => { setActiveConvId(null); setMessages([]); };
+
+  const deleteConv = async (id) => {
+    await supabase.from("plm_ai_messages").delete().eq("conversation_id", id);
+    await supabase.from("plm_ai_conversations").delete().eq("id", id);
+    setConversations(p => p.filter(c => c.id !== id));
+    if (activeConvId === id) startNew();
   };
+
+  const SUGGESTIONS = [
+    "Our sheets aren't dissolving fully in cold water. What should we investigate?",
+    "What are the best natural alternatives to PVA for our sheet format?",
+    "Help me design a DOE to optimize surfactant loading vs dissolution time",
+    "We're getting white residue on dark clothes after wash. Root cause analysis?",
+    "What enzyme cocktail do you recommend for general laundry stain removal in sheet format?",
+    "How can we reduce COGS by 15% without hurting cleaning performance?",
+  ];
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 260px)" }}>
-      {/* Advisor selector */}
-      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12, flexShrink:0 }}>
-        {ADVISORS.map(a=>(
-          <button key={a.key} onClick={()=>{ setAdvisorType(a.key); setMessages([]); }}
-            title={a.desc}
-            style={{ padding:"6px 12px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:600,
-              background: advisorType===a.key ? T.accentDim : T.surface2,
-              border:`1px solid ${advisorType===a.key ? T.accent : T.border}`,
-              color: advisorType===a.key ? T.accent : T.text3,
-              display:"flex", alignItems:"center", gap:5, transition:"all 0.15s" }}>
-            <span>{a.icon}</span>{a.label}
+    <div style={{ display: "flex", height: "calc(100vh - 260px)", gap: 0 }}>
+      {/* Conversation sidebar */}
+      <div style={{ width: 220, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.border}` }}>
+          <button onClick={startNew} style={{ width: "100%", padding: "8px 12px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+            + New Conversation
           </button>
-        ))}
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: "8px" }}>
+          {loadingConvs ? <div style={{ fontSize: 12, color: T.text3, padding: 8 }}>Loading...</div> :
+            conversations.length === 0 ? <div style={{ fontSize: 12, color: T.text3, padding: 8, lineHeight: 1.5 }}>No conversations yet. Start one!</div> :
+            conversations.map(c => (
+              <div key={c.id} onClick={() => setActiveConvId(c.id)}
+                style={{ padding: "8px 10px", borderRadius: 6, cursor: "pointer", marginBottom: 3,
+                  background: activeConvId === c.id ? T.accentDim : "transparent",
+                  border: `1px solid ${activeConvId === c.id ? T.accent + "60" : "transparent"}` }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 3 }}>
+                  <span style={{ fontSize: 10, color: T.text3 }}>{new Date(c.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                  <button onClick={e => { e.stopPropagation(); deleteConv(c.id); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✕</button>
+                </div>
+              </div>
+            ))
+          }
+        </div>
       </div>
 
       {/* Chat area */}
-      <div ref={chatRef} style={{ flex:1, overflow:"auto", padding:"12px 0", display:"flex", flexDirection:"column", gap:12 }}>
-        {messages.length === 0 && (
-          <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:12 }}>
-            <div style={{ fontSize:48 }}>{ADVISORS.find(a=>a.key===advisorType)?.icon}</div>
-            <div style={{ fontSize:16, fontWeight:700, color:T.text }}>{ADVISORS.find(a=>a.key===advisorType)?.label}</div>
-            <div style={{ fontSize:13, color:T.text3, textAlign:"center", maxWidth:500, lineHeight:1.6 }}>
-              {ADVISORS.find(a=>a.key===advisorType)?.desc}
-            </div>
-            <div style={{ fontSize:12, color:T.text3, marginTop:8 }}>Try asking:</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:6, maxWidth:500, width:"100%" }}>
-              {(SUGGESTIONS[advisorType] || []).map((q,i) => (
-                <button key={i} onClick={()=>setInput(q)} style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${T.border}`,
-                  background:T.surface2, color:T.text2, fontSize:12, cursor:"pointer", textAlign:"left",
-                  lineHeight:1.4 }}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>{q}</button>
-              ))}
-            </div>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {/* Header */}
+        <div style={{ padding: "8px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 16 }}>{"\uD83E\uDDEA"}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Chief Scientist</span>
+            {program && <span style={{ fontSize: 11, color: T.text3 }}>· {program.name}</span>}
           </div>
-        )}
-
-        {messages.map((msg, i) => (
-          <div key={i} style={{ display:"flex", gap:10, alignItems:msg.role==="user"?"flex-end":"flex-start",
-            flexDirection:msg.role==="user"?"row-reverse":"row" }}>
-            <div style={{ width:28, height:28, borderRadius:14, background:msg.role==="user"?T.accent+"30":"#a855f720",
-              display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, flexShrink:0,
-              color:msg.role==="user"?T.accent:"#a855f7" }}>
-              {msg.role==="user"?"You":ADVISORS.find(a=>a.key===advisorType)?.icon}
-            </div>
-            <div style={{ maxWidth:"85%", padding:"10px 14px", borderRadius:12,
-              background:msg.role==="user"?T.accentDim:msg.isError?"#ef444415":T.surface2,
-              border:`1px solid ${msg.isError?"#ef444440":T.border}` }}>
-              <div style={{ fontSize:13, color:msg.isError?"#ef4444":T.text, lineHeight:1.7, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{msg.text}</div>
-              {msg.tokens && (
-                <div style={{ fontSize:10, color:T.text3, marginTop:6, display:"flex", gap:8 }}>
-                  <span>{msg.tokens.input_tokens + msg.tokens.output_tokens} tokens</span>
-                  <span>{(msg.duration/1000).toFixed(1)}s</span>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {loading && (
-          <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-            <div style={{ width:28, height:28, borderRadius:14, background:"#a855f720",
-              display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>{ADVISORS.find(a=>a.key===advisorType)?.icon}</div>
-            <div style={{ padding:"10px 14px", borderRadius:12, background:T.surface2, border:`1px solid ${T.border}` }}>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ fontSize:13, color:T.text3 }}>Thinking</span>
-                <span style={{ display:"inline-flex", gap:3 }}>
-                  {[0,1,2].map(j=><span key={j} style={{ width:4, height:4, borderRadius:2, background:T.text3, animation:`pulse 1.4s ease-in-out ${j*0.2}s infinite` }} />)}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Input */}
-      <div style={{ flexShrink:0, borderTop:`1px solid ${T.border}`, padding:"12px 0 0" }}>
-        <div style={{ display:"flex", gap:8 }}>
-          <input value={input} onChange={e=>setInput(e.target.value)}
-            onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            placeholder={`Ask the ${ADVISORS.find(a=>a.key===advisorType)?.label} anything...`}
-            style={{ flex:1, padding:"10px 14px", borderRadius:10, border:`1px solid ${T.border}`,
-              background:T.surface2, color:T.text, fontSize:13, outline:"none", fontFamily:"inherit" }} />
-          <button onClick={sendMessage} disabled={loading || !input.trim()}
-            style={{ padding:"10px 20px", borderRadius:10, border:"none", background:T.accent,
-              color:"#fff", fontSize:13, fontWeight:700, cursor:loading?"wait":"pointer",
-              opacity:!input.trim()?0.4:1 }}>
-            Send
-          </button>
-        </div>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:6 }}>
-          <div style={{ fontSize:10, color:T.text3 }}>
-            Context: {program.name} &middot; Switch advisors above for different expertise
-          </div>
-          {messages.length > 0 && (
-            <button onClick={()=>setMessages([])} style={{ fontSize:10, color:T.text3, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>
-              Clear chat
+          {activeConvId && (
+            <button onClick={() => setShowShare(!showShare)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>
+              Share
             </button>
           )}
+        </div>
+
+        {/* Messages */}
+        <div ref={chatRef} style={{ flex: 1, overflow: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 12 }}>
+          {messages.length === 0 && (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 48 }}>{"\uD83E\uDDEA"}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>Earth Breeze Chief Scientist</div>
+              <div style={{ fontSize: 13, color: T.text3, textAlign: "center", maxWidth: 500, lineHeight: 1.7 }}>
+                I'm your unified R&D advisor — formulation chemistry, manufacturing, stability, DOE, ingredients, regulatory, and cost engineering. I think through problems from every angle and debate tradeoffs internally before giving you a recommendation.
+                {program ? ` I have context on ${program.name}.` : " Ask me anything about detergent sheet science."}
+              </div>
+              <div style={{ fontSize: 12, color: T.text3, marginTop: 8 }}>Try asking:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 520, width: "100%" }}>
+                {SUGGESTIONS.slice(0, 4).map((q, i) => (
+                  <button key={i} onClick={() => setInput(q)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`,
+                    background: T.surface2, color: T.text2, fontSize: 12, cursor: "pointer", textAlign: "left", lineHeight: 1.5 }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>{q}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {messages.map((msg, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, flexDirection: msg.role === "user" ? "row-reverse" : "row" }}>
+              <div style={{ width: 28, height: 28, borderRadius: 14, background: msg.role === "user" ? T.accent + "30" : "#a855f720",
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0,
+                color: msg.role === "user" ? T.accent : "#a855f7" }}>
+                {msg.role === "user" ? "You" : "\uD83E\uDDEA"}
+              </div>
+              <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: 12,
+                background: msg.role === "user" ? T.accentDim : msg.isError ? "#ef444415" : T.surface2,
+                border: `1px solid ${msg.isError ? "#ef444440" : T.border}` }}>
+                <div style={{ fontSize: 13, color: msg.isError ? "#ef4444" : T.text, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{msg.text}</div>
+                {msg.tokens && (
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 6, display: "flex", gap: 8 }}>
+                    <span>{msg.tokens.input_tokens + msg.tokens.output_tokens} tokens</span>
+                    {msg.duration && <span>{(msg.duration / 1000).toFixed(1)}s</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <div style={{ width: 28, height: 28, borderRadius: 14, background: "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>{"\uD83E\uDDEA"}</div>
+              <div style={{ padding: "10px 14px", borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13, color: T.text3 }}>Consulting the panel</span>
+                  <span style={{ display: "inline-flex", gap: 3 }}>
+                    {[0, 1, 2].map(j => <span key={j} style={{ width: 4, height: 4, borderRadius: 2, background: T.text3, animation: `pulse 1.4s ease-in-out ${j * 0.2}s infinite` }} />)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Input */}
+        <div style={{ flexShrink: 0, borderTop: `1px solid ${T.border}`, padding: "12px 16px" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <textarea value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+              placeholder="Ask about formulation, manufacturing, stability, experiments, ingredients, regulatory, costs..."
+              rows={2}
+              style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.border}`,
+                background: T.surface2, color: T.text, fontSize: 13, outline: "none", fontFamily: "inherit", resize: "none" }} />
+            <button onClick={sendMessage} disabled={loading || !input.trim()}
+              style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: T.accent,
+                color: "#fff", fontSize: 13, fontWeight: 700, cursor: loading ? "wait" : "pointer",
+                opacity: !input.trim() ? 0.4 : 1, alignSelf: "flex-end" }}>
+              Send
+            </button>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+            <div style={{ fontSize: 10, color: T.text3 }}>
+              {program ? `Context: ${program.name}` : "General PLM"} · Shift+Enter for new line · All conversations saved
+            </div>
+            {messages.length > 0 && !activeConvId && (
+              <span style={{ fontSize: 10, color: T.text3 }}>Conversation will save on first response</span>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -2009,7 +2033,7 @@ export default function PLMView() {
         <div style={{ fontSize:18,fontWeight:700,color:T.text,flex:1 }}>Product Lifecycle</div>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs…" style={{ fontSize:12,padding:"6px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:7,color:T.text,width:200,outline:"none" }} />
         <div style={{ display:"flex",background:T.surface2,border:"1px solid "+T.border,borderRadius:6,overflow:"hidden" }}>
-          {[["pipeline","⬢ Pipeline"],["list","☰ List"],["library","🧪 Library"]].map(([k,label])=>(
+          {[["pipeline","⬢ Pipeline"],["list","☰ List"],["library","🧪 Library"],["ai","🧪 AI Advisor"]].map(([k,label])=>(
             <button key={k} onClick={()=>setView(k)} style={{ padding:"5px 12px",fontSize:12,fontWeight:600,background:view===k?T.accent:"transparent",color:view===k?"#fff":T.text3,border:"none",cursor:"pointer" }}>{label}</button>
           ))}
         </div>
@@ -2025,7 +2049,11 @@ export default function PLMView() {
         ))}
       </div>
 
-      {view==="library" ? (
+      {view==="ai" ? (
+        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column",padding:"0 24px 0 24px" }}>
+          <AIAdvisorTab program={null} />
+        </div>
+      ) : view==="library" ? (
         <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
           <PLMLibraryView />
         </div>
