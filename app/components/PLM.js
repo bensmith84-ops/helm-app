@@ -1738,6 +1738,96 @@ function GateReviewsTab({ programId }) {
 
 // ─── AI ADVISOR TAB ──────────────────────────────────────────────────────────
 
+// ── Share Dropdown for AI Conversations ─────────────────────────────────────
+function ShareDropdown({ conversationId, onClose }) {
+  const [users, setUsers] = useState([]);
+  const [shares, setShares] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const dropRef = useRef(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const myId = session?.user?.id;
+      const { data: profiles } = await supabase.from("profiles").select("id, display_name, email").not("id", "eq", myId);
+      setUsers(profiles || []);
+      const { data: existing } = await supabase.from("plm_ai_shares").select("*").eq("conversation_id", conversationId);
+      setShares(existing || []);
+      setLoading(false);
+    };
+    load();
+    const handleClick = (e) => { if (dropRef.current && !dropRef.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [conversationId]);
+
+  const shareWith = async (userId) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const myId = session?.user?.id;
+    if (shares.find(s => s.shared_with === userId)) return;
+    const { data } = await supabase.from("plm_ai_shares").insert({
+      conversation_id: conversationId, shared_with: userId, shared_by: myId,
+    }).select().single();
+    if (data) setShares(p => [...p, data]);
+  };
+
+  const removeShare = async (shareId) => {
+    await supabase.from("plm_ai_shares").delete().eq("id", shareId);
+    setShares(p => p.filter(s => s.id !== shareId));
+  };
+
+  const sharedUserIds = new Set(shares.map(s => s.shared_with));
+  const filtered = users.filter(u =>
+    !sharedUserIds.has(u.id) && (!search || u.display_name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  return (
+    <div ref={dropRef} style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 100, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", width: 280, padding: 0 }}>
+      <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.border}`, fontSize: 12, fontWeight: 700, color: T.text }}>Share Conversation</div>
+      
+      {/* Currently shared with */}
+      {shares.length > 0 && (
+        <div style={{ padding: "8px 12px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 6 }}>SHARED WITH</div>
+          {shares.map(s => {
+            const u = users.find(x => x.id === s.shared_with);
+            return (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
+                <span style={{ fontSize: 12, color: T.text }}>{u?.display_name || u?.email || "User"}</span>
+                <button onClick={() => removeShare(s.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 11, padding: "2px 6px" }}>Remove</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Search and add */}
+      <div style={{ padding: "8px 12px" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search team members..."
+          autoFocus style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+        <div style={{ maxHeight: 150, overflow: "auto" }}>
+          {loading ? <div style={{ fontSize: 11, color: T.text3 }}>Loading...</div> :
+            filtered.length === 0 ? <div style={{ fontSize: 11, color: T.text3, padding: "8px 0" }}>{users.length === 0 ? "No other team members" : "No matches"}</div> :
+            filtered.map(u => (
+              <div key={u.id} onClick={() => shareWith(u.id)}
+                style={{ padding: "6px 8px", borderRadius: 4, cursor: "pointer", fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <div>
+                  <div style={{ color: T.text, fontWeight: 500 }}>{u.display_name || "—"}</div>
+                  {u.email && <div style={{ fontSize: 10, color: T.text3 }}>{u.email}</div>}
+                </div>
+                <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>+ Share</span>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AIAdvisorTab({ program }) {
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
@@ -1873,9 +1963,12 @@ function AIAdvisorTab({ program }) {
             {program && <span style={{ fontSize: 11, color: T.text3 }}>· {program.name}</span>}
           </div>
           {activeConvId && (
-            <button onClick={() => setShowShare(!showShare)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>
-              Share
-            </button>
+            <div style={{ position: "relative" }}>
+              <button onClick={() => setShowShare(!showShare)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>
+                Share
+              </button>
+              {showShare && <ShareDropdown conversationId={activeConvId} onClose={() => setShowShare(false)} />}
+            </div>
           )}
         </div>
 
