@@ -1,7 +1,8 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+const ShopifySkuSetup = lazy(() => import("./ShopifySkuSetup"));
 
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4";
 const BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
@@ -248,6 +249,25 @@ const PROMPTS = [
   "Analyze our March performance so far",
 ];
 
+// ── Country code → name map ─────────────────────────────────────────────────
+const COUNTRY_NAMES = {
+  US:"United States",CA:"Canada",GB:"United Kingdom",AU:"Australia",DE:"Germany",FR:"France",
+  JP:"Japan",BR:"Brazil",MX:"Mexico",IN:"India",IT:"Italy",ES:"Spain",NL:"Netherlands",
+  SE:"Sweden",NO:"Norway",DK:"Denmark",FI:"Finland",CH:"Switzerland",AT:"Austria",BE:"Belgium",
+  PT:"Portugal",IE:"Ireland",NZ:"New Zealand",SG:"Singapore",HK:"Hong Kong",KR:"South Korea",
+  TW:"Taiwan",MY:"Malaysia",PH:"Philippines",TH:"Thailand",ID:"Indonesia",VN:"Vietnam",
+  PL:"Poland",CZ:"Czech Republic",RO:"Romania",HU:"Hungary",GR:"Greece",HR:"Croatia",
+  BG:"Bulgaria",SK:"Slovakia",SI:"Slovenia",LT:"Lithuania",LV:"Latvia",EE:"Estonia",
+  ZA:"South Africa",NG:"Nigeria",KE:"Kenya",EG:"Egypt",AE:"United Arab Emirates",
+  SA:"Saudi Arabia",IL:"Israel",TR:"Turkey",RU:"Russia",UA:"Ukraine",CO:"Colombia",
+  AR:"Argentina",CL:"Chile",PE:"Peru",EC:"Ecuador",VE:"Venezuela",DO:"Dominican Republic",
+  CR:"Costa Rica",PA:"Panama",GT:"Guatemala",PR:"Puerto Rico",JM:"Jamaica",TT:"Trinidad & Tobago",
+  IS:"Iceland",LU:"Luxembourg",MT:"Malta",CY:"Cyprus",RS:"Serbia",BA:"Bosnia",AL:"Albania",
+  MK:"North Macedonia",ME:"Montenegro",QA:"Qatar",KW:"Kuwait",BH:"Bahrain",OM:"Oman",
+  JO:"Jordan",LB:"Lebanon",PK:"Pakistan",BD:"Bangladesh",LK:"Sri Lanka",MM:"Myanmar",
+  KH:"Cambodia",LA:"Laos",NP:"Nepal",MN:"Mongolia",XX:"Unknown",
+};
+
 // ── Shopify SKU Tab ─────────────────────────────────────────────────────────
 function ShopifySkuTab() {
   const [skuData, setSkuData] = useState([]);
@@ -256,8 +276,11 @@ function ShopifySkuTab() {
   const [syncProgress, setSyncProgress] = useState(null);
   const [skuView, setSkuView] = useState("sku_summary");
   const [skuDateRange, setSkuDateRange] = useState(7);
+  const [showSetup, setShowSetup] = useState(false);
   const [skuSearch, setSkuSearch] = useState("");
-  const [skuCountry, setSkuCountry] = useState("all");
+  const [skuCountries, setSkuCountries] = useState([]); // empty = all
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
+  const [countrySearch, setCountrySearch] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -273,7 +296,7 @@ function ShopifySkuTab() {
 
   const runSync = async (daysBack) => {
     setSyncing(true);
-    let totalOrders = 0, totalRows = 0, daysComplete = 0;
+    let totalOrders = 0, totalRows = 0, daysComplete = 0, errors = 0;
     const totalDays = daysBack;
 
     try {
@@ -281,30 +304,46 @@ function ShopifySkuTab() {
       for (let d = 0; d < daysBack; d++) {
         const targetDate = new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
         daysComplete = d + 1;
-        setSyncProgress({ day: daysComplete, totalDays, date: targetDate, orders: totalOrders, rows: totalRows });
+        setSyncProgress({ day: daysComplete, totalDays, date: targetDate, orders: totalOrders, rows: totalRows, errors });
 
-        const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "day_sync", date: targetDate }),
-        });
-        const data = await res.json();
-        if (!data.success) {
-          console.error(`Sync error for ${targetDate}:`, data.error);
-          // Continue to next day instead of stopping
-          await new Promise(r => setTimeout(r, 1000));
-          continue;
+        let retries = 0;
+        let success = false;
+        while (retries < 2 && !success) {
+          try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 55000); // 55s timeout
+            const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "day_sync", date: targetDate }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            const data = await res.json();
+            if (data.success) {
+              totalOrders += data.orders || 0;
+              totalRows += data.rows || 0;
+              success = true;
+            } else {
+              console.error(`Sync error for ${targetDate}:`, data.error);
+              retries++;
+              if (retries < 2) await new Promise(r => setTimeout(r, 2000));
+            }
+          } catch (e) {
+            console.error(`Sync timeout/error for ${targetDate}:`, e.message);
+            retries++;
+            if (retries < 2) await new Promise(r => setTimeout(r, 2000));
+          }
         }
-        totalOrders += data.orders || 0;
-        totalRows += data.rows || 0;
-        setSyncProgress({ day: daysComplete, totalDays, date: targetDate, orders: totalOrders, rows: totalRows });
+        if (!success) errors++;
+        setSyncProgress({ day: daysComplete, totalDays, date: targetDate, orders: totalOrders, rows: totalRows, errors });
 
-        // Small delay between days to avoid rate limits
-        if (d < daysBack - 1) await new Promise(r => setTimeout(r, 300));
+        // Delay between days to respect Shopify rate limits
+        if (d < daysBack - 1) await new Promise(r => setTimeout(r, 500));
       }
     } catch (e) { console.error("Sync failed:", e); }
     setSyncing(false);
-    setSyncProgress({ day: daysComplete, totalDays: totalDays, orders: totalOrders, rows: totalRows, done: true });
+    setSyncProgress({ day: daysComplete, totalDays: totalDays, orders: totalOrders, rows: totalRows, errors, done: true });
     const sinceReload = new Date(Date.now() - skuDateRange * 86400000).toISOString().slice(0, 10);
     const { data: fresh } = await supabase.from("shopify_sku_daily").select("*")
       .gte("date", sinceReload).order("date", { ascending: false }).order("units_sold", { ascending: false });
@@ -313,7 +352,7 @@ function ShopifySkuTab() {
 
   const filtered = skuData.filter(r => {
     if (skuSearch && !r.sku.toLowerCase().includes(skuSearch.toLowerCase()) && !r.product_title?.toLowerCase().includes(skuSearch.toLowerCase())) return false;
-    if (skuCountry !== "all" && r.country_code !== skuCountry) return false;
+    if (skuCountries.length > 0 && !skuCountries.includes(r.country_code)) return false;
     return true;
   });
   const countries = [...new Set(skuData.map(r => r.country_code))].sort();
@@ -332,20 +371,65 @@ function ShopifySkuTab() {
   const fmt = (v) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : String(Math.round(v));
   const fmtD = (v) => `$${v >= 1000 ? (v/1000).toFixed(1) + "k" : v.toFixed(2)}`;
 
+  if (showSetup) return <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading...</div>}><ShopifySkuSetup onClose={() => setShowSetup(false)} /></Suspense>;
+
   return (
     <div style={{ flex: 1, overflow: "auto", padding: "16px 0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Shopify SKU Sales</div>
+        <button onClick={() => setShowSetup(true)}
+          style={{ padding: "4px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text3, cursor: "pointer" }}>⚙ SKU Setup</button>
         <select value={skuDateRange} onChange={e => setSkuDateRange(Number(e.target.value))}
           style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer" }}>
           <option value={1}>Today</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option>
           <option value={30}>Last 30 days</option><option value={90}>Last 90 days</option><option value={180}>Last 6 months</option>
         </select>
-        <select value={skuCountry} onChange={e => setSkuCountry(e.target.value)}
-          style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer" }}>
-          <option value="all">All Countries</option>
-          {countries.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setShowCountryPicker(!showCountryPicker)}
+            style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, minWidth: 120 }}>
+            🌍 {skuCountries.length === 0 ? "All Countries" : `${skuCountries.length} selected`}
+            <span style={{ fontSize: 8, marginLeft: 4 }}>▼</span>
+          </button>
+          {showCountryPicker && (
+            <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 100, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", width: 280, maxHeight: 360, display: "flex", flexDirection: "column" }}>
+              <div style={{ padding: 8, borderBottom: `1px solid ${T.border}` }}>
+                <input value={countrySearch} onChange={e => setCountrySearch(e.target.value)} placeholder="Search countries..."
+                  autoFocus style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none" }} />
+              </div>
+              <div style={{ padding: "4px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 6 }}>
+                <button onClick={() => setSkuCountries([])} style={{ fontSize: 10, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>All</button>
+                <button onClick={() => setSkuCountries([...countries])} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Select All</button>
+                <button onClick={() => setSkuCountries([])} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
+              </div>
+              <div style={{ flex: 1, overflow: "auto", padding: 4 }}>
+                {countries.filter(c => {
+                  if (!countrySearch) return true;
+                  const q = countrySearch.toLowerCase();
+                  const name = (COUNTRY_NAMES[c] || c).toLowerCase();
+                  return c.toLowerCase().includes(q) || name.includes(q);
+                }).map(c => (
+                  <label key={c} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <input type="checkbox" checked={skuCountries.length === 0 || skuCountries.includes(c)}
+                      onChange={() => {
+                        if (skuCountries.length === 0) { setSkuCountries(countries.filter(x => x !== c)); }
+                        else if (skuCountries.includes(c)) { const next = skuCountries.filter(x => x !== c); setSkuCountries(next.length === 0 ? [] : next); }
+                        else { setSkuCountries([...skuCountries, c]); }
+                      }}
+                      style={{ accentColor: T.accent }} />
+                    <span style={{ fontWeight: 600, width: 24, color: T.text }}>{c}</span>
+                    <span style={{ color: T.text3 }}>{COUNTRY_NAMES[c] || c}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ padding: 6, borderTop: `1px solid ${T.border}`, textAlign: "center" }}>
+                <button onClick={() => { setShowCountryPicker(false); setCountrySearch(""); }}
+                  style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Done</button>
+              </div>
+            </div>
+          )}
+        </div>
         <input value={skuSearch} onChange={e => setSkuSearch(e.target.value)} placeholder="Search SKU or product..."
           style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", width: 180 }} />
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -365,8 +449,8 @@ function ShopifySkuTab() {
       {syncProgress && (
         <div style={{ padding: "10px 14px", borderRadius: 8, background: syncProgress.done ? "#22c55e15" : T.accentDim, border: `1px solid ${syncProgress.done ? "#22c55e40" : T.accent + "40"}`, marginBottom: 12, fontSize: 12 }}>
           {syncProgress.done
-            ? `✅ Sync complete — ${syncProgress.day} days, ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} SKU rows`
-            : `⏳ Day ${syncProgress.day} of ${syncProgress.totalDays} (${syncProgress.date}) — ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows so far`}
+            ? `✅ Sync complete — ${syncProgress.day} days, ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} SKU rows${syncProgress.errors ? ` (${syncProgress.errors} days failed)` : ""}`
+            : `⏳ Day ${syncProgress.day} of ${syncProgress.totalDays} (${syncProgress.date}) — ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows${syncProgress.errors ? ` · ${syncProgress.errors} errors` : ""}`}
           {syncing && syncProgress.totalDays > 0 && (
             <div style={{ marginTop: 6, height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
               <div style={{ height: "100%", background: T.accent, borderRadius: 2, transition: "width 0.3s", width: `${Math.round((syncProgress.day / syncProgress.totalDays) * 100)}%` }} />
