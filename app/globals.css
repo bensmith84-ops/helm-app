@@ -54,5 +54,38 @@ html, body { overflow-x: hidden; }
   .mobile-only { display: none !important; }
 }
 
+/* PLM sidebar+content grids */
+.plm-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .plm-grid {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+  .plm-grid > div:first-child {
+    border-right: none !important;
+    padding-right: 0 !important;
+    max-height: 200px;
+    overflow: auto;
+  }
+}
+
+/* Detail pane field grid */
+.detail-fields-grid {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 10px 12px;
+  align-items: center;
+}
+@media (max-width: 768px) {
+  .detail-fields-grid {
+    grid-template-columns: 80px 1fr;
+    gap: 6px 8px;
+  }
+}
+
 /* Smooth transitions */
 * { -webkit-tap-highlight-color: transparent; }

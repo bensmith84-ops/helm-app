@@ -142,7 +142,7 @@ function NewProjectModal({ onClose, onCreate }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, width: 600, maxHeight: "85vh", overflow: "auto", padding: 24 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, width: "min(600px, 95vw)", maxHeight: "85vh", overflow: "auto", padding: 24 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 20 }}>New Sourcing Project</div>
 
         <div style={{ marginBottom: 14 }}>
@@ -194,7 +194,7 @@ function NewProjectModal({ onClose, onCreate }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10, marginBottom: 14 }}>
           <div><label style={lbl}>Min Capacity/mo</label><input type="number" value={form.min_capacity_units_month} onChange={e => set("min_capacity_units_month", e.target.value)} placeholder="units" style={inp} /></div>
           <div><label style={lbl}>Max MOQ</label><input type="number" value={form.max_moq} onChange={e => set("max_moq", e.target.value)} placeholder="units" style={inp} /></div>
           <div><label style={lbl}>Target Unit Cost</label><input type="number" step="0.01" value={form.target_unit_cost} onChange={e => set("target_unit_cost", e.target.value)} placeholder="$" style={inp} /></div>
@@ -495,7 +495,7 @@ function ProjectDetail({ project, onBack, onUpdate }) {
                       ))}
                     </div>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 12 }}>
                     <div><label style={lbl}>Min Capacity/mo</label><input type="number" value={form.min_capacity_units_month} onChange={e => set("min_capacity_units_month", e.target.value)} placeholder="units" style={inp} /></div>
                     <div><label style={lbl}>Max MOQ</label><input type="number" value={form.max_moq} onChange={e => set("max_moq", e.target.value)} placeholder="units" style={inp} /></div>
                     <div><label style={lbl}>Target Unit Cost</label><input type="number" step="0.01" value={form.target_unit_cost} onChange={e => set("target_unit_cost", e.target.value)} placeholder="$" style={inp} /></div>

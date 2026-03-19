@@ -1102,7 +1102,7 @@ function FormulationsTab({ programId }) {
   const totalPct=items.filter(i=>i.unit==="%").reduce((a,b)=>a+parseFloat(b.quantity||0),0);
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
-    <div style={{ display:"grid",gridTemplateColumns:"220px 1fr",gap:16 }}>
+    <div className="plm-grid">
       <div style={{ borderRight:"1px solid "+T.border,paddingRight:16 }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
           <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1 }}>Formulas</div>
@@ -1231,7 +1231,7 @@ function ExperimentsTab({ programId }) {
     </Suspense>
   );
   return (
-    <div style={{ display:"grid",gridTemplateColumns:"220px 1fr",gap:16 }}>
+    <div className="plm-grid">
       <div style={{ borderRight:"1px solid "+T.border,paddingRight:16 }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
           <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1 }}>Experiments</div>
@@ -1689,7 +1689,7 @@ function TrialsTab({ programId }) {
   const update=async(field,val)=>{ await supabase.from("plm_manufacturing_trials").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setTrials(p=>p.map(x=>x.id===u.id?u:x)); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
-    <div style={{ display:"grid",gridTemplateColumns:"220px 1fr",gap:16 }}>
+    <div className="plm-grid">
       <div style={{ borderRight:"1px solid "+T.border,paddingRight:16 }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
           <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1 }}>Trials</div>
@@ -1751,7 +1751,7 @@ function SKUsTab({ programId }) {
   const update=async(field,val)=>{ await supabase.from("plm_skus").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setSkus(p=>p.map(x=>x.id===u.id?u:x)); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
-    <div style={{ display:"grid",gridTemplateColumns:"220px 1fr",gap:16 }}>
+    <div className="plm-grid">
       <div style={{ borderRight:"1px solid "+T.border,paddingRight:16 }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
           <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1 }}>SKUs</div>
@@ -2292,7 +2292,7 @@ function ProgramDetail({ program, onBack, onUpdate }) {
           <button key={t.key} onClick={()=>setTab(t.key)} style={{ background:"none",border:"none",cursor:"pointer",padding:"10px 12px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",color:tab===t.key?T.accent:T.text3,borderBottom:"2px solid "+(tab===t.key?T.accent:"transparent"),transition:"color 0.15s" }}>{t.label}</button>
         ))}
       </div>
-      <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>{renderTab()}</div>
+      <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }} className="content-area">{renderTab()}</div>
     </div>
   );
 }
