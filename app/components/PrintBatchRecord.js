@@ -187,17 +187,31 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
 
         {/* Manufacturing Instructions */}
         <div style={sectionHeader}>MANUFACTURING INSTRUCTIONS</div>
-        {run.manufacturing_instructions ? (
-          <div style={{ whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.8, marginBottom: 20, padding: "12px 14px", border: "1px solid #ddd", borderRadius: 4 }}>
-            {run.manufacturing_instructions}
-          </div>
-        ) : formula?.manufacturing_process ? (
-          <div style={{ whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.8, marginBottom: 20, padding: "12px 14px", border: "1px solid #ddd", borderRadius: 4 }}>
-            {formula.manufacturing_process}
-          </div>
-        ) : (
-          <div style={{ fontSize: 12, color: "#999", marginBottom: 20, fontStyle: "italic" }}>No manufacturing instructions available</div>
-        )}
+        {(() => {
+          const text = run.manufacturing_instructions || formula?.manufacturing_process;
+          if (!text) return <div style={{ fontSize: 12, color: "#999", marginBottom: 20, fontStyle: "italic" }}>No manufacturing instructions available</div>;
+          const lines = text.split("\n").map((line, i) => {
+            const t = line.trim();
+            if (!t) return <div key={i} style={{ height: 6 }} />;
+            if (t.startsWith("###")) return <div key={i} style={{ fontSize: 12, fontWeight: 700, marginTop: 10, marginBottom: 3 }}>{t.replace(/^#+\s*/, "")}</div>;
+            if (t.startsWith("##")) return <div key={i} style={{ fontSize: 13, fontWeight: 700, marginTop: 14, marginBottom: 4, textTransform: "uppercase", borderBottom: "1px solid #ccc", paddingBottom: 2 }}>{t.replace(/^#+\s*/, "")}</div>;
+            const numMatch = t.match(/^(\d+)\.\s+(.*)$/);
+            if (numMatch) return (
+              <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4, padding: "3px 0" }}>
+                <span style={{ minWidth: 20, height: 20, borderRadius: 10, background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{numMatch[1]}</span>
+                <span style={{ fontSize: 12, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: numMatch[2].replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") }} />
+              </div>
+            );
+            if (t.startsWith("- ") || t.startsWith("• ")) return (
+              <div key={i} style={{ display: "flex", gap: 8, marginBottom: 2, paddingLeft: 28 }}>
+                <span style={{ fontWeight: 700, fontSize: 10, marginTop: 3 }}>•</span>
+                <span style={{ fontSize: 11, color: "#444", lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: t.slice(2).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") }} />
+              </div>
+            );
+            return <div key={i} style={{ fontSize: 12, lineHeight: 1.6, color: "#333" }} dangerouslySetInnerHTML={{ __html: t.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") }} />;
+          });
+          return <div style={{ marginBottom: 20, padding: "12px 14px", border: "1px solid #ddd", borderRadius: 4 }}>{lines}</div>;
+        })()}
 
         {/* In-Process Checks */}
         <div style={sectionHeader}>IN-PROCESS QUALITY CHECKS</div>

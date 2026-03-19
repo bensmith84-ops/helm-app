@@ -1151,13 +1151,26 @@ function ExperimentsTab({ programId }) {
   const [trialRuns, setTrialRuns] = useState([]);
   const [trialsLoading, setTrialsLoading] = useState(false);
   const [expandedRun, setExpandedRun] = useState(null);
-  const [printingRun, setPrintingRun] = useState(null); // { experimentId, runId }
+  const [printingRun, setPrintingRun] = useState(null);
+  const [trialFormula, setTrialFormula] = useState(null);
+  const [trialFormulaItems, setTrialFormulaItems] = useState([]);
   useEffect(()=>{ supabase.from("plm_experiments").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setExperiments(data||[]);setLoading(false);}); },[programId]);
-  // Load trial runs when experiment is selected
+  // Load trial runs + formula when experiment is selected
   useEffect(()=>{
-    if(!selected?.id){setTrialRuns([]);return;}
+    if(!selected?.id){setTrialRuns([]);setTrialFormula(null);setTrialFormulaItems([]);return;}
     setTrialsLoading(true);
-    supabase.from("plm_experiment_runs").select("*").eq("experiment_id",selected.id).order("run_number").then(({data})=>{setTrialRuns(data||[]);setTrialsLoading(false);});
+    const loadAll = async () => {
+      const { data: runs } = await supabase.from("plm_experiment_runs").select("*").eq("experiment_id",selected.id).order("run_number");
+      setTrialRuns(runs||[]);
+      if(selected.formulation_id) {
+        const { data: f } = await supabase.from("plm_formulations").select("*").eq("id",selected.formulation_id).single();
+        setTrialFormula(f||null);
+        if(f) { const { data: items } = await supabase.from("plm_formula_items").select("*").eq("formulation_id",f.id).order("sort_order"); setTrialFormulaItems(items||[]); }
+        else setTrialFormulaItems([]);
+      } else { setTrialFormula(null); setTrialFormulaItems([]); }
+      setTrialsLoading(false);
+    };
+    loadAll();
   },[selected?.id]);
   const add=async()=>{ const{data}=await supabase.from("plm_experiments").insert({program_id:programId,name:"New Experiment",experiment_type:"formulation",status:"planning",factors:[],responses:[],run_matrix:[]}).select().single(); if(data){setExperiments(p=>[...p,data]);setSelected(data);} };
   const update=async(field,val)=>{ await supabase.from("plm_experiments").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setExperiments(p=>p.map(x=>x.id===u.id?u:x)); };
@@ -1360,141 +1373,220 @@ function ExperimentsTab({ programId }) {
                 await supabase.from("plm_experiment_runs").update({ response_results: results, updated_at: new Date().toISOString() }).eq("id", runId);
                 setTrialRuns(p => p.map(r => r.id === runId ? { ...r, response_results: results } : r));
               };
-              const STATUS_OPTS = ["planned","in_progress","completed","failed","skipped"];
+              const SO = ["planned","in_progress","completed","failed","skipped"];
               const SC = { planned: T.text3, in_progress: "#eab308", completed: "#22c55e", failed: "#ef4444", skipped: "#8b93a8" };
+              // Format manufacturing instructions with basic markdown
+              const formatInstr = (text) => {
+                if (!text) return null;
+                return text.split("\n").map((line, i) => {
+                  const trimmed = line.trim();
+                  if (!trimmed) return <div key={i} style={{ height: 8 }} />;
+                  // Headers (### or **)
+                  if (trimmed.startsWith("###")) return <div key={i} style={{ fontSize: 12, fontWeight: 700, color: T.text, marginTop: 10, marginBottom: 4 }}>{trimmed.replace(/^#+\s*/, "")}</div>;
+                  if (trimmed.startsWith("##")) return <div key={i} style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginTop: 12, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{trimmed.replace(/^#+\s*/, "")}</div>;
+                  // Numbered steps
+                  const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+                  if (numMatch) return (
+                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4, padding: "4px 0" }}>
+                      <span style={{ minWidth: 22, height: 22, borderRadius: 11, background: T.accent + "15", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{numMatch[1]}</span>
+                      <span style={{ fontSize: 12, color: T.text, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: numMatch[2].replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
+                    </div>
+                  );
+                  // Bullet points
+                  if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) return (
+                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 2, paddingLeft: 4 }}>
+                      <span style={{ color: T.accent, fontWeight: 700, fontSize: 10, marginTop: 4 }}>•</span>
+                      <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: trimmed.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />
+                    </div>
+                  );
+                  // Regular text with bold support
+                  return <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: trimmed.replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />;
+                });
+              };
 
               if (trialsLoading) return <div style={{ color: T.text3, fontSize: 12, padding: 16 }}>Loading trials...</div>;
-
               if (trialRuns.length === 0) return (
                 <div style={{ textAlign: "center", padding: "40px 16px", color: T.text3 }}>
                   <div style={{ fontSize: 28, marginBottom: 8 }}>🔬</div>
                   <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>No trial runs yet</div>
-                  <div style={{ fontSize: 12, lineHeight: 1.6 }}>Use the AI Advisor to create an experiment with per-run manufacturing instructions, or add runs manually in the Matrix tab.</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.6 }}>Use the AI Advisor to create an experiment with manufacturing instructions, or add runs in the Matrix tab.</div>
                 </div>
               );
 
+              const completed = trialRuns.filter(r => r.status === "completed").length;
               return (
                 <div>
-                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
-                    {trialRuns.length} trials · Click a run to expand instructions, notes, and enter results
+                  {/* Summary bar */}
+                  <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{trialRuns.length} Trials</div>
+                    <div style={{ flex: 1, height: 6, borderRadius: 3, background: T.surface3 }}>
+                      <div style={{ width: `${(completed / trialRuns.length) * 100}%`, height: "100%", borderRadius: 3, background: "#22c55e", transition: "width 0.4s" }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>{completed}/{trialRuns.length} complete</div>
                   </div>
+
                   {trialRuns.map(run => {
-                    const isExpanded = expandedRun === run.id;
+                    const isExp = expandedRun === run.id;
                     const fs = run.factor_settings || {};
                     return (
-                      <div key={run.id} style={{ marginBottom: 8, borderRadius: 8, border: `1px solid ${isExpanded ? T.accent + "60" : T.border}`, background: isExpanded ? T.accentDim : T.surface2, overflow: "hidden" }}>
-                        {/* Run header */}
-                        <div onClick={() => setExpandedRun(isExpanded ? null : run.id)}
-                          style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: T.text, minWidth: 55 }}>Run {run.run_number}</span>
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: (SC[run.status] || T.text3) + "20", color: SC[run.status] || T.text3 }}>
-                            {run.status}
-                          </span>
-                          <span style={{ fontSize: 11, color: T.text3, flex: 1 }}>
-                            {Object.entries(fs).map(([k,v]) => `${k}: ${v}`).join(" · ")}
-                          </span>
-                          <button onClick={e => { e.stopPropagation(); setPrintingRun({ experimentId: selected.id, runId: run.id }); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: T.text3, padding: "0 4px" }} title="Print batch record">🖨</button>
-                          <span style={{ fontSize: 12, color: T.text3 }}>{isExpanded ? "▲" : "▼"}</span>
+                      <div key={run.id} style={{ marginBottom: 10, borderRadius: 10, border: `1px solid ${isExp ? T.accent + "50" : T.border}`, background: T.surface, overflow: "hidden", boxShadow: isExp ? `0 2px 12px ${T.accent}10` : "none" }}>
+                        {/* Header */}
+                        <div onClick={() => setExpandedRun(isExp ? null : run.id)}
+                          style={{ padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, background: isExp ? T.accent + "06" : "transparent" }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: (SC[run.status] || T.text3) + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: SC[run.status] || T.text3, flexShrink: 0 }}>{run.run_number}</div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: (SC[run.status] || T.text3) + "15", color: SC[run.status] || T.text3, textTransform: "uppercase" }}>{run.status?.replace(/_/g," ")}</span>
+                              {run.batch_id && <span style={{ fontSize: 10, color: T.text3 }}>Batch: {run.batch_id}</span>}
+                              {run.operator && <span style={{ fontSize: 10, color: T.text3 }}>Op: {run.operator}</span>}
+                              {run.run_date && <span style={{ fontSize: 10, color: T.text3 }}>{run.run_date}</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                              {Object.entries(fs).map(([k,v]) => (
+                                <span key={k} style={{ padding: "2px 7px", borderRadius: 4, background: T.accent + "10", fontSize: 10, color: T.accent, fontWeight: 600 }}>{k}: {String(v)}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <button onClick={e => { e.stopPropagation(); setPrintingRun({ experimentId: selected.id, runId: run.id }); }} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", fontSize: 12, color: T.text3, padding: "4px 10px", display: "flex", alignItems: "center", gap: 4 }} title="Print batch record">🖨 Print</button>
+                          <span style={{ fontSize: 14, color: T.text3, transition: "transform 0.2s", transform: isExp ? "rotate(180deg)" : "rotate(0)" }}>▼</span>
                         </div>
 
-                        {/* Expanded detail */}
-                        {isExpanded && (
-                          <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${T.border}` }}>
-                            {/* Status + batch info */}
-                            <div style={{ display: "flex", gap: 10, marginTop: 10, marginBottom: 12 }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3 }}>STATUS</div>
-                                <select value={run.status} onChange={e => updateRun(run.id, "status", e.target.value)}
-                                  style={{ width: "100%", padding: "5px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text }}>
-                                  {STATUS_OPTS.map(s => <option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
-                                </select>
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3 }}>BATCH ID</div>
-                                <input value={run.batch_id || ""} onBlur={e => updateRun(run.id, "batch_id", e.target.value)} onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, batch_id: e.target.value } : r))}
-                                  placeholder="e.g., LAB-2026-042" style={{ width: "100%", padding: "5px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3 }}>OPERATOR</div>
-                                <input value={run.operator || ""} onBlur={e => updateRun(run.id, "operator", e.target.value)} onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, operator: e.target.value } : r))}
-                                  placeholder="Who ran this?" style={{ width: "100%", padding: "5px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3 }}>RUN DATE</div>
-                                <input type="date" value={run.run_date || ""} onChange={e => updateRun(run.id, "run_date", e.target.value || null)}
-                                  style={{ width: "100%", padding: "5px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
-                              </div>
-                            </div>
-
-                            {/* Factor settings */}
-                            <div style={{ marginBottom: 12 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Factor Settings</div>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                {Object.entries(fs).map(([k,v]) => (
-                                  <span key={k} style={{ padding: "3px 8px", borderRadius: 4, background: "#3b82f620", border: "1px solid #3b82f640", fontSize: 11, color: "#3b82f6" }}>
-                                    <strong>{k}</strong>: {String(v)}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* Manufacturing instructions */}
-                            <div style={{ marginBottom: 12 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Manufacturing Instructions</div>
-                              <textarea value={run.manufacturing_instructions || ""} onBlur={e => updateRun(run.id, "manufacturing_instructions", e.target.value)}
-                                onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, manufacturing_instructions: e.target.value } : r))}
-                                rows={6} placeholder="Step-by-step instructions for this specific trial..."
-                                style={{ width: "100%", padding: "8px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} />
-                            </div>
-
-                            {/* Process deviations */}
-                            <div style={{ marginBottom: 12 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Process Deviations</div>
-                              <textarea value={run.process_deviations || ""} onBlur={e => updateRun(run.id, "process_deviations", e.target.value)}
-                                onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, process_deviations: e.target.value } : r))}
-                                rows={2} placeholder="What actually happened differently from the instructions..."
-                                style={{ width: "100%", padding: "8px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
-                            </div>
-
-                            {/* Response results */}
-                            {responses.length > 0 && (
-                              <div style={{ marginBottom: 12 }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Results</div>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
-                                  {responses.map(resp => (
-                                    <div key={resp.name || resp.id} style={{ padding: "8px 10px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
-                                      <div style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", marginBottom: 3 }}>{resp.name} {resp.unit ? `(${resp.unit})` : ""}</div>
-                                      <input type="number" step="any"
-                                        value={run.response_results?.[resp.name] ?? ""}
-                                        onChange={e => updateResult(run.id, resp.name, e.target.value)}
-                                        placeholder={`${resp.target === "maximize" ? "↑" : resp.target === "minimize" ? "↓" : "◎"} ${resp.target}${resp.target_value ? ` (${resp.target_value})` : ""}`}
-                                        style={{ width: "100%", padding: "5px 8px", fontSize: 13, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", boxSizing: "border-box" }} />
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* General notes */}
-                            <div style={{ marginBottom: 12 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>General Notes</div>
-                              <textarea value={run.notes || ""} onBlur={e => updateRun(run.id, "notes", e.target.value)}
-                                onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, notes: e.target.value } : r))}
-                                rows={3} placeholder="General notes, observations, learnings..."
-                                style={{ width: "100%", padding: "8px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
-                            </div>
-
-                            {/* Specific notes */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                              {[["pre_run_notes","Pre-Run Notes","Setup notes before running..."],["in_process_notes","In-Process Notes","Observations during the trial..."],["post_run_notes","Post-Run Notes","Post-trial observations..."]].map(([field,label,ph]) => (
-                                <div key={field}>
-                                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>{label}</div>
-                                  <textarea value={run[field] || ""} onBlur={e => updateRun(run.id, field, e.target.value)}
-                                    onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, [field]: e.target.value } : r))}
-                                    rows={3} placeholder={ph}
-                                    style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+                        {/* Expanded */}
+                        {isExp && (
+                          <div style={{ borderTop: `1px solid ${T.border}` }}>
+                            {/* Tracking row */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+                              {[["Status", <select value={run.status} onChange={e => updateRun(run.id, "status", e.target.value)} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: "transparent", border: "none", color: T.text, outline: "none" }}>{SO.map(s => <option key={s} value={s}>{s.replace(/_/g," ")}</option>)}</select>],
+                                ["Batch ID", <input value={run.batch_id || ""} onBlur={e => updateRun(run.id, "batch_id", e.target.value)} onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, batch_id: e.target.value } : r))} placeholder="LAB-2026-042" style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: "transparent", border: "none", color: T.text, outline: "none" }} />],
+                                ["Operator", <input value={run.operator || ""} onBlur={e => updateRun(run.id, "operator", e.target.value)} onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, operator: e.target.value } : r))} placeholder="Name" style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: "transparent", border: "none", color: T.text, outline: "none" }} />],
+                                ["Date", <input type="date" value={run.run_date || ""} onChange={e => updateRun(run.id, "run_date", e.target.value || null)} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: "transparent", border: "none", color: T.text, outline: "none" }} />]
+                              ].map(([label, input], i) => (
+                                <div key={label} style={{ padding: "8px 12px", borderRight: i < 3 ? `1px solid ${T.border}` : "none" }}>
+                                  <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>{label}</div>
+                                  {input}
                                 </div>
                               ))}
+                            </div>
+
+                            <div style={{ padding: "16px 16px 12px" }}>
+                              {/* Formula ingredient table (matching Formulations tab style) */}
+                              {trialFormulaItems.length > 0 && (
+                                <div style={{ marginBottom: 16 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>⚗️ Formula: {trialFormula?.name || "—"}</span>
+                                    <span style={{ fontSize: 10, color: T.text3 }}>{trialFormula?.version}</span>
+                                    {trialFormula?.target_batch_size && <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>Batch: {trialFormula.target_batch_size} {trialFormula.batch_size_unit || "kg"}</span>}
+                                  </div>
+                                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                    <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                                      {["#","Ingredient","Function","Phase","% w/w","Weight (g)","Temp °C"].map(h => (
+                                        <th key={h} style={{ padding: "5px 8px", textAlign: h === "% w/w" || h === "Weight (g)" || h === "Temp °C" ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
+                                      ))}
+                                    </tr></thead>
+                                    <tbody>
+                                      {trialFormulaItems.map((item, i) => {
+                                        const wt = trialFormula?.target_batch_size ? (item.quantity / 100 * trialFormula.target_batch_size * 1000).toFixed(1) : "—";
+                                        return (
+                                          <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                                            <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.addition_order || i + 1}</td>
+                                            <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 500, color: T.text }}>{item.ingredient_name}</td>
+                                            <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.function_in_formula || "—"}</td>
+                                            <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.phase || "—"}</td>
+                                            <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right" }}>{item.quantity}</td>
+                                            <td style={{ padding: "5px 8px", fontSize: 12, color: T.text2, textAlign: "right" }}>{wt}</td>
+                                            <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3, textAlign: "right" }}>{item.addition_temp_c || "—"}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                      <tr style={{ background: T.surface2 }}>
+                                        <td style={{ padding: "5px 8px" }}></td>
+                                        <td style={{ padding: "5px 8px", fontSize: 11, fontWeight: 700, color: T.text }}>TOTAL</td>
+                                        <td colSpan={2}></td>
+                                        <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right" }}>{trialFormulaItems.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0).toFixed(2)}%</td>
+                                        <td colSpan={2}></td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* Manufacturing Instructions — rendered with formatting */}
+                              <div style={{ marginBottom: 16 }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>📋 Manufacturing Instructions</span>
+                                  <button onClick={() => {
+                                    const el = document.getElementById(`mfg-edit-${run.id}`);
+                                    if (el) el.style.display = el.style.display === "none" ? "block" : "none";
+                                  }} style={{ fontSize: 10, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Edit ✎</button>
+                                </div>
+                                {run.manufacturing_instructions ? (
+                                  <div style={{ padding: "12px 16px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
+                                    {formatInstr(run.manufacturing_instructions)}
+                                  </div>
+                                ) : trialFormula?.manufacturing_process ? (
+                                  <div style={{ padding: "12px 16px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
+                                    <div style={{ fontSize: 10, color: T.accent, fontWeight: 600, marginBottom: 6 }}>From base formulation:</div>
+                                    {formatInstr(trialFormula.manufacturing_process)}
+                                  </div>
+                                ) : (
+                                  <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No instructions yet — click Edit to add</div>
+                                )}
+                                <textarea id={`mfg-edit-${run.id}`} value={run.manufacturing_instructions || ""} onBlur={e => updateRun(run.id, "manufacturing_instructions", e.target.value)}
+                                  onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, manufacturing_instructions: e.target.value } : r))}
+                                  rows={8} placeholder="Step-by-step manufacturing instructions..."
+                                  style={{ display: "none", width: "100%", padding: "10px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.accent}40`, borderRadius: 8, color: T.text, outline: "none", fontFamily: "monospace", lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", marginTop: 8 }} />
+                              </div>
+
+                              {/* Response Results */}
+                              {responses.length > 0 && (
+                                <div style={{ marginBottom: 16 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>📊 Results</div>
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+                                    {responses.map(resp => {
+                                      const val = run.response_results?.[resp.name];
+                                      return (
+                                        <div key={resp.name || resp.id} style={{ padding: "10px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${val != null ? "#22c55e40" : T.border}` }}>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>{resp.name}</div>
+                                          <input type="number" step="any" value={val ?? ""}
+                                            onChange={e => updateResult(run.id, resp.name, e.target.value)}
+                                            placeholder={`${resp.target === "maximize" ? "↑" : resp.target === "minimize" ? "↓" : "◎"} ${resp.target}`}
+                                            style={{ width: "100%", padding: "4px 0", fontSize: 16, fontWeight: 700, background: "none", border: "none", color: val != null ? "#22c55e" : T.text3, outline: "none", boxSizing: "border-box" }} />
+                                          {resp.unit && <div style={{ fontSize: 9, color: T.text3, marginTop: 2 }}>{resp.unit}{resp.target_value ? ` · target: ${resp.target_value}` : ""}</div>}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Process Deviations */}
+                              <div style={{ marginBottom: 16 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>⚠️ Process Deviations</div>
+                                <textarea value={run.process_deviations || ""} onBlur={e => updateRun(run.id, "process_deviations", e.target.value)}
+                                  onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, process_deviations: e.target.value } : r))}
+                                  rows={2} placeholder="What actually happened differently from the instructions..."
+                                  style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+                              </div>
+
+                              {/* Notes */}
+                              <div style={{ marginBottom: 12 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>📝 Notes</div>
+                                <textarea value={run.notes || ""} onBlur={e => updateRun(run.id, "notes", e.target.value)}
+                                  onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, notes: e.target.value } : r))}
+                                  rows={2} placeholder="General notes, observations, learnings..."
+                                  style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                                {[["pre_run_notes","Pre-Run","Setup notes..."],["in_process_notes","In-Process","Observations during trial..."],["post_run_notes","Post-Run","Post-trial observations..."]].map(([field,label,ph]) => (
+                                  <div key={field}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>{label}</div>
+                                    <textarea value={run[field] || ""} onBlur={e => updateRun(run.id, field, e.target.value)}
+                                      onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, [field]: e.target.value } : r))}
+                                      rows={2} placeholder={ph}
+                                      style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           </div>
                         )}
