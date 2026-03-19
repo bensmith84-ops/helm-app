@@ -47,7 +47,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [addingSubtaskTo, setAddingSubtaskTo] = useState(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [showProjectForm, setShowProjectForm] = useState(false);
-  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: "", start_date: "", target_end_date: "", default_view: "List", members: [] });
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: "", start_date: "", target_end_date: "", default_view: "List", plm_program_id: "", members: [] });
   const [teams, setTeams] = useState([]);
   const [objectives, setObjectives] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
@@ -90,6 +90,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [labelAssignments, setLabelAssignments] = useState([]); // task_id <-> label_id
   // Custom fields - uses existing customFields/customFieldValues state above
   const [showFieldSettings, setShowFieldSettings] = useState(false);
+  const [plmPrograms, setPlmPrograms] = useState([]); // PLM programs for linking
   // Templates & copy
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState([]);
@@ -170,6 +171,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         ]);
         setLabels(lblR.data || []);
         setLabelAssignments(lblAR.data || []);
+        // Load PLM programs for linking
+        supabase.from("plm_programs").select("id, name, category, current_stage, brand").is("deleted_at", null).order("name").then(({ data }) => setPlmPrograms(data || []));
         // Load templates and docs
         const [tmplR, docsR] = await Promise.all([
           supabase.from("project_templates").select("*").order("is_builtin", { ascending: false }).order("name"),
@@ -409,8 +412,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       supabase.from("sections").update({ sort_order: newOrderB }).eq("id", b.id),
     ]);
   };
-  const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: user?.id || "", start_date: "", target_end_date: "", default_view: "List", members: [] }); setFormStep(1); setShowProjectForm("new"); };
-  const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active", visibility: proj.visibility || "private", join_policy: proj.join_policy || "invite_only", team_id: proj.team_id || "", objective_id: proj.objective_id || "", owner_id: proj.owner_id || "", start_date: proj.start_date || "", target_end_date: proj.target_end_date || "", default_view: proj.default_view || "List", members: [] }); setFormStep(1); setShowProjectForm("edit"); };
+  const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: user?.id || "", start_date: "", target_end_date: "", default_view: "List", plm_program_id: "", members: [] }); setFormStep(1); setShowProjectForm("new"); };
+  const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active", visibility: proj.visibility || "private", join_policy: proj.join_policy || "invite_only", team_id: proj.team_id || "", objective_id: proj.objective_id || "", owner_id: proj.owner_id || "", start_date: proj.start_date || "", target_end_date: proj.target_end_date || "", default_view: proj.default_view || "List", plm_program_id: proj.plm_program_id || "", members: [] }); setFormStep(1); setShowProjectForm("edit"); };
   const createProjectFromTemplate = async (template) => {
     if (!profile?.org_id) return showToast("No organization found");
     const secs = template.sections || [];
@@ -536,7 +539,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     showToast(`"${srcProject.name}" saved as template`, "success");
   };
 
-  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List" }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
+  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
   const addComment = async () => { if (!newComment.trim() || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: newComment.trim() }).select().single(); if (!error && data) setComments(p => [...p, data]); setNewComment(""); };
   const uploadAttachment = async (file) => { if (!selectedTask) return; const path = `${profile.org_id}/${selectedTask.id}/${Date.now()}_${file.name}`; const { error: ue } = await supabase.storage.from("attachments").upload(path, file); if (ue) return showToast("Upload failed"); const { data, error } = await supabase.from("attachments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user.id }).select().single(); if (!error && data) setAttachments(p => [...p, data]); };
   const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
@@ -1566,6 +1569,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 <SearchableMultiSelect multi={false} placeholder="Select section"
                   options={projSections.map(s => ({ value: s.id, label: s.name }))}
                   selected={task.section_id || ""} onChange={val => updateField(task.id, "section_id", val)} />
+                <span style={FIELD_LABEL}>PLM Product</span>
+                <SearchableMultiSelect multi={false} placeholder="No product linked"
+                  options={[{ value: "", label: "None", icon: "" }, ...plmPrograms.map(p => ({ value: p.id, label: `${p.name}${p.category ? ` (${p.category})` : ""}`, icon: "⬢" }))]}
+                  selected={task.plm_program_id || ""} onChange={val => updateField(task.id, "plm_program_id", val || null)} />
               </div>
 
               {/* Effort tracking */}
@@ -1944,6 +1951,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
             </div>
             {/* Team assignment - show when visibility is team or always as optional */}
             <div style={{ marginBottom: 16 }}><label style={lbl}>Assign to Team</label><SearchableMultiSelect multi={false} placeholder="No team" options={teams.map(t => ({ value: t.id, label: t.name, icon: "👥" }))} selected={f.team_id||""} onChange={val => set("team_id", val)} />{teams.length === 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>No teams created yet</div>}</div>
+            <div style={{ marginBottom: 16 }}><label style={lbl}>Link to PLM Product</label><SearchableMultiSelect multi={false} placeholder="No product linked" options={plmPrograms.map(p => ({ value: p.id, label: `${p.name}${p.category ? ` (${p.category})` : ""}`, icon: "⬢" }))} selected={f.plm_program_id||""} onChange={val => set("plm_program_id", val)} />{f.plm_program_id && <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: "#8b5cf620", fontSize: 11, color: "#8b5cf6", display: "flex", alignItems: "center", gap: 6 }}>⬢ Linked to: {plmPrograms.find(p => p.id === f.plm_program_id)?.name}</div>}</div>
             {/* Join policy */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ ...lbl, marginBottom: 8 }}>Who can join?</label>
