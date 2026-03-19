@@ -108,6 +108,19 @@ export default function HelmApp() {
   _setTokens(tokens); // sync theme tokens to global singleton for T proxy
   const [active, setActive] = useState("dashboard");
   const [expanded, setExpanded] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  
+  useEffect(() => {
+    const check = () => {
+      const mobile = window.innerWidth < 769;
+      setIsMobile(mobile);
+      if (mobile) setExpanded(true); // Always expanded when shown on mobile (overlay)
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [pendingTaskId, setPendingTaskId] = useState(null);
   const [allowedModules, setAllowedModules] = useState(null); // null = loading, array = loaded
@@ -317,17 +330,36 @@ export default function HelmApp() {
         button:hover { opacity: 0.85; }
       `}</style>
       <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", background: T.bg }}>
-        <Sidebar active={active} setActive={setActive} expanded={expanded} setExpanded={setExpanded} badges={badges} profile={profile} allowedModules={allowedModules} isAdmin={isAdmin} />
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ height: 44, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 20px", gap: 12, flexShrink: 0 }}>
+        {/* Mobile sidebar backdrop */}
+        {isMobile && sidebarOpen && <div className="sidebar-mobile-backdrop" onClick={() => setSidebarOpen(false)} />}
+        {/* Sidebar — hidden on mobile unless toggled */}
+        {(!isMobile || sidebarOpen) && (
+          <div className={isMobile ? "sidebar-mobile-overlay" : ""}>
+            <Sidebar active={active} setActive={(v) => { setActive(v); if (isMobile) setSidebarOpen(false); }} expanded={isMobile ? true : expanded} setExpanded={isMobile ? () => setSidebarOpen(false) : setExpanded} badges={badges} profile={profile} allowedModules={allowedModules} isAdmin={isAdmin} />
+          </div>
+        )}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", width: 0 }}>
+          <div style={{ height: 44, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: isMobile ? "0 12px" : "0 20px", gap: isMobile ? 8 : 12, flexShrink: 0 }}>
+            {/* Mobile hamburger */}
+            {isMobile && (
+              <button onClick={() => setSidebarOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+              </button>
+            )}
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 14, color: T.text3 }}>{viewIcon}</span>
               <span style={{ fontSize: 13, fontWeight: 600 }}>{viewTitle}</span>
             </div>
             <div style={{ flex: 1 }} />
-            <div onClick={() => setCmdOpen(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3, cursor: "pointer" }}>
+            <div onClick={() => setCmdOpen(true)} className="desktop-only" style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3, cursor: "pointer" }}>
               ⌘K Search...
             </div>
+            {/* Mobile search icon */}
+            {isMobile && (
+              <button onClick={() => setCmdOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              </button>
+            )}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <NotificationBell setActive={setActive} />
               <span style={{ fontSize: 12, color: T.text2, fontWeight: 500 }}>{profile?.display_name || user?.email?.split("@")[0]}</span>

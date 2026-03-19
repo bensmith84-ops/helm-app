@@ -1,0 +1,58 @@
+/* ═══ Responsive / Mobile styles ═══ */
+
+/* Prevent horizontal overflow */
+html, body { overflow-x: hidden; }
+
+/* Touch-friendly sizing */
+@media (max-width: 768px) {
+  /* Sidebar: overlay on mobile */
+  .sidebar-mobile-overlay {
+    position: fixed !important;
+    z-index: 9000 !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.3) !important;
+  }
+  .sidebar-mobile-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 8999;
+  }
+  
+  /* Make inputs/buttons touch-friendly */
+  input, select, textarea, button { 
+    min-height: 36px; 
+    font-size: 16px !important; /* Prevents iOS zoom */
+  }
+  
+  /* Smaller padding on mobile */
+  .content-area { padding: 12px !important; }
+  
+  /* Stack grids vertically on mobile */
+  .responsive-grid { 
+    grid-template-columns: 1fr !important; 
+  }
+  
+  /* Hide desktop-only elements */
+  .desktop-only { display: none !important; }
+  
+  /* Full-width tables */
+  table { font-size: 11px; }
+  th, td { padding: 4px 6px !important; }
+}
+
+/* Tablet */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .responsive-grid-3 { grid-template-columns: 1fr 1fr !important; }
+  .responsive-grid-4 { grid-template-columns: 1fr 1fr !important; }
+}
+
+/* Hide mobile-only elements on desktop */
+@media (min-width: 769px) {
+  .mobile-only { display: none !important; }
+}
+
+/* Smooth transitions */
+* { -webkit-tap-highlight-color: transparent; }

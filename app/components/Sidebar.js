@@ -58,7 +58,7 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
   });
   return (
     <div style={{
-      width: w, background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex",
+      width: w, height: "100vh", background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex",
       flexDirection: "column", paddingTop: 12, flexShrink: 0,
       transition: "width 0.2s ease", overflow: "hidden",
     }}>
