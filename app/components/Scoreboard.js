@@ -284,6 +284,21 @@ function ShopifySkuTab() {
   const [dateFrom, setDateFrom] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [countryMode, setCountryMode] = useState("all"); // "all" | "selected"
+  const [skuMode, setSkuMode] = useState("all"); // "all" | "primary"
+  const [primarySkus, setPrimarySkus] = useState([]); // [{id, name, display_sku, category, members: [{sku, unit_multiplier}]}]
+
+  useEffect(() => {
+    const loadPrimary = async () => {
+      const { data: groups } = await supabase.from("shopify_primary_skus").select("*").order("name");
+      const { data: members } = await supabase.from("shopify_primary_sku_members").select("*");
+      const ps = (groups || []).map(g => ({
+        ...g,
+        members: (members || []).filter(m => m.primary_sku_id === g.id),
+      }));
+      setPrimarySkus(ps);
+    };
+    loadPrimary();
+  }, []);
 
   const setQuickRange = (days, label) => {
     const to = new Date();
@@ -372,11 +387,37 @@ function ShopifySkuTab() {
     return true;
   });
   const countries = [...new Set(skuData.map(r => r.country_code))].sort();
+
+  // Build SKU-to-primary mapping
+  const skuToPrimary = {};
+  for (const pg of primarySkus) {
+    for (const m of pg.members) {
+      skuToPrimary[m.sku] = { name: pg.name, display_sku: pg.display_sku, category: pg.category, multiplier: m.unit_multiplier || 1 };
+    }
+  }
+
+  // Aggregate data
   const skuSummary = {};
   for (const r of filtered) {
-    const key = r.sku;
-    if (!skuSummary[key]) skuSummary[key] = { sku: r.sku, product_title: r.product_title, variant_title: r.variant_title, units: 0, revenue: 0, orders: 0, days: new Set() };
-    skuSummary[key].units += r.units_sold;
+    let key, label, productTitle;
+    if (skuMode === "primary" && skuToPrimary[r.sku]) {
+      const pg = skuToPrimary[r.sku];
+      key = pg.name;
+      label = pg.display_sku || pg.name;
+      productTitle = pg.category || r.product_title;
+    } else if (skuMode === "primary" && !skuToPrimary[r.sku]) {
+      // SKU not in any primary group — show as-is under "Other"
+      key = r.sku;
+      label = r.sku;
+      productTitle = r.product_title;
+    } else {
+      key = r.sku;
+      label = r.sku;
+      productTitle = r.product_title;
+    }
+    if (!skuSummary[key]) skuSummary[key] = { sku: label, product_title: productTitle, variant_title: r.variant_title, units: 0, revenue: 0, orders: 0, days: new Set(), is_primary: skuMode === "primary" && !!skuToPrimary[r.sku] };
+    const mult = (skuMode === "primary" && skuToPrimary[r.sku]) ? skuToPrimary[r.sku].multiplier : 1;
+    skuSummary[key].units += r.units_sold * mult;
     skuSummary[key].revenue += parseFloat(r.net_revenue) || 0;
     skuSummary[key].orders += r.orders_count;
     skuSummary[key].days.add(r.date);
@@ -509,11 +550,18 @@ function ShopifySkuTab() {
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, marginBottom: 12, alignItems: "center" }}>
         {[["sku_summary", "By SKU"], ["daily", "Daily Detail"]].map(([k, l]) => (
           <button key={k} onClick={() => setSkuView(k)}
             style={{ padding: "8px 14px", fontSize: 12, fontWeight: skuView === k ? 700 : 400, color: skuView === k ? T.accent : T.text3, background: "none", border: "none", borderBottom: skuView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer" }}>{l}</button>
         ))}
+        {/* Primary / All SKU toggle */}
+        <div style={{ marginLeft: "auto", display: "flex", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
+          <button onClick={() => setSkuMode("all")}
+            style={{ padding: "4px 12px", fontSize: 11, fontWeight: 600, background: skuMode === "all" ? T.accent : "transparent", color: skuMode === "all" ? "#fff" : T.text3, border: "none", cursor: "pointer" }}>All SKUs</button>
+          <button onClick={() => setSkuMode("primary")}
+            style={{ padding: "4px 12px", fontSize: 11, fontWeight: 600, background: skuMode === "primary" ? T.accent : "transparent", color: skuMode === "primary" ? "#fff" : T.text3, border: "none", cursor: "pointer" }}>Primary SKUs</button>
+        </div>
       </div>
       {skuLoading ? <div style={{ color: T.text3, fontSize: 13 }}>Loading...</div> : (
         <>
