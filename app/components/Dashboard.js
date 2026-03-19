@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import SearchableMultiSelect from "./SearchableSelect";
 import { useAuth } from "../lib/auth";
 import { notifySlack } from "../lib/slack";
@@ -695,7 +696,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
                     <button onClick={() => setShowConnect(!showConnect)} style={{ width:"100%", padding:"5px 0", borderRadius:5, border:`1px dashed ${T.border2}`, background:"transparent", color:T.accent, fontSize:10, fontWeight:600, cursor:"pointer" }}>+ Connect calendar</button>
                     {showConnect && (
                       <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:4 }}>
-                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:4 }}>
+                        <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:4 }}>
                           {[{p:"google",l:"Google",c:"#4285f4"},{p:"outlook",l:"Outlook",c:"#0078d4"}].map(p => (
                             <button key={p.p} onClick={() => alert(`${p.l} OAuth coming soon`)} style={{ padding:"5px 6px", borderRadius:4, border:`1px solid ${T.border}`, background:T.surface2, cursor:"pointer", color:T.text, fontSize:9, fontWeight:600 }}>{p.l}</button>
                           ))}
@@ -830,6 +831,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
    ═══════════════════════════════════════════════════════ */
 export default function DashboardView({ setActive }) {
   const { profile } = useAuth();
+  const { isMobile, isTablet } = useResponsive();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pendingApprovals, setPendingApprovals] = useState([]);
@@ -976,7 +978,7 @@ export default function DashboardView({ setActive }) {
   return (
     <div style={{ display:"flex", height:"100%", overflow:"hidden" }}>
       {/* Main content */}
-      <div style={{ flex:1, overflow:"auto", padding:"28px 32px", boxSizing:"border-box" }}>
+      <div style={{ flex:1, overflow:"auto", padding: isMobile ? "16px 12px" : "28px 32px", boxSizing:"border-box" }}>
         {/* ── Header ── */}
         <div style={{ marginBottom:20, display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
           <div>
@@ -1037,7 +1039,7 @@ export default function DashboardView({ setActive }) {
                     placeholder="What needs to be done?"
                     style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface2, color:T.text, fontSize:14, outline:"none", boxSizing:"border-box" }} />
                 </div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+                <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:10, marginBottom:14 }}>
                   <div>
                     <label style={{ fontSize:11, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Project</label>
                     <SearchableMultiSelect multi={false} placeholder="Personal Task (no project)"
@@ -1131,7 +1133,7 @@ export default function DashboardView({ setActive }) {
         </div>
 
         {/* ── Revenue trend + OKRs ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+        <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
           <Card>
             <SectionHeader title="Revenue This Year" icon="📊" action={
               <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View metrics →</button>
@@ -1212,7 +1214,7 @@ export default function DashboardView({ setActive }) {
         </div>
 
         {/* ── My Tasks + PLM Pipeline ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+        <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
           <Card>
             <SectionHeader title="My Tasks" icon="👤" action={
               <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
@@ -1362,7 +1364,7 @@ export default function DashboardView({ setActive }) {
               <div style={{ fontSize:12, color:T.text3, marginBottom:12 }}>
                 These Key Results haven't been updated in 7+ days. A quick check-in keeps everyone aligned.
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+              <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:8 }}>
                 {staleKRs.map(kr => {
                   const last = lastCheckInByKR[kr.id];
                   const daysSince = last ? Math.floor((Date.now() - new Date(last.created_at).getTime()) / 86400000) : null;
@@ -1396,7 +1398,7 @@ export default function DashboardView({ setActive }) {
         )}
 
         {/* ── Recent Activity + Approvals ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+        <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20 }}>
           <Card>
             <SectionHeader title="Recent Activity" icon="🕐" action={
               <button onClick={() => setActive("activity")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>

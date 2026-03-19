@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+import { useResponsive } from "../lib/responsive";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import { useModal } from "../lib/modal";
 
@@ -84,6 +85,7 @@ function generatePeriods(startStr, endStr, freq) {
 export default function OKRsView() {
   const { user, profile } = useAuth();
   const { showPrompt, showConfirm } = useModal();
+  const { isMobile } = useResponsive();
   const [cycles, setCycles] = useState([]);
   const [activeCycle, setActiveCycle] = useState(null);
   const [objectives, setObjectives] = useState([]);
@@ -894,7 +896,7 @@ export default function OKRsView() {
             {type === "objective" && <>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Title</label><input value={d.title || ""} onChange={e => editSet("title", e.target.value)} style={_einp} /></div>
               <div style={{ marginBottom: 12 }}><label style={_elbl}>Description</label><textarea value={d.description || ""} onChange={e => editSet("description", e.target.value)} rows={2} style={{ ..._einp, resize: "vertical" }} /></div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
                 <div><label style={_elbl}>Health</label>
                   <select value={d.health || "on_track"} onChange={e => editSet("health", e.target.value)} style={{ ..._einp, cursor: "pointer" }}>
@@ -950,7 +952,7 @@ export default function OKRsView() {
                   {(d.target_direction || "above") === "above" ? "Green when value meets or exceeds target" : "Green when value is at or below target"}
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Owner</label><OwnerPicker profiles={profiles} value={d.owner_id || ""} onChange={v => editSet("owner_id", v)} /></div>
                 <div>
                   <label style={_elbl}>Progress</label>
@@ -962,7 +964,7 @@ export default function OKRsView() {
                   </div>
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <div><label style={_elbl}>Start Date</label><input type="date" value={d.start_date || ""} onChange={e => editSet("start_date", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>End Date</label><input type="date" value={d.end_date || ""} onChange={e => editSet("end_date", e.target.value)} style={_einp} /></div>
               </div>
@@ -1127,7 +1129,7 @@ export default function OKRsView() {
                   {objKRs.map(kr => <option key={kr.id} value={kr.id}>{kr.title}</option>)}
                 </select>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Start Date</label><input type="date" value={d.start_date || ""} onChange={e => editSet("start_date", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>End Date</label><input type="date" value={d.end_date || ""} onChange={e => editSet("end_date", e.target.value)} style={_einp} /></div>
               </div>
@@ -1553,7 +1555,7 @@ export default function OKRsView() {
             </div>
 
             {/* Progress & confidence */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 18 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 18 }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 6 }}>
                   Current Value <span style={{ color: T.text3, fontWeight: 400 }}>/ {kr.target_value} {kr.unit || ""}</span>
@@ -1765,7 +1767,7 @@ export default function OKRsView() {
         </div>
         {showForm && (
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: "22px 24px", marginBottom: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 14 }}>
               <div>
                 <label style={_lbl}>Objective</label>
                 <select value={localForm.objective_id} onChange={e => setLocalForm(p => ({ ...p, objective_id: e.target.value }))} style={{ ..._inp, cursor: "pointer", resize: "none", minHeight: "auto", padding: "8px 10px" }}>
@@ -1970,7 +1972,7 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
           <div style={{ marginBottom: 14 }}><label style={_lbl}>Description</label>
             <textarea value={f.description} onChange={e => set("description", e.target.value)} rows={2} placeholder="Optional context or details" style={{ ..._inp, resize: "vertical", minHeight: 48 }} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 14 }}>
             <div><label style={_lbl}>Owner</label><OwnerPicker profiles={profiles} value={f.owner_id} onChange={v => set("owner_id", v)} /></div>
             <div><label style={_lbl}>Health</label>
               <select value={f.health} onChange={e => set("health", e.target.value)} style={{ ..._inp, cursor: "pointer" }}>
@@ -2009,7 +2011,7 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
                   <div><label style={{ ..._lbl, fontSize: 10 }}>Unit</label><input value={kr.unit} onChange={e => setKR(idx, "unit", e.target.value)} placeholder="e.g. $, %, users" style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>KR Owner</label><OwnerPicker profiles={profiles} value={kr.owner_id} onChange={v => setKR(idx, "owner_id", v)} /></div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>Start Date</label><input type="date" value={kr.start_date || ""} onChange={e => setKR(idx, "start_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>End Date</label><input type="date" value={kr.end_date || ""} onChange={e => setKR(idx, "end_date", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
                 </div>
