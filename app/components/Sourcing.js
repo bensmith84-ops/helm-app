@@ -362,12 +362,44 @@ function ProjectDetail({ project, onBack, onUpdate }) {
         )}
 
         {/* AI Discovery tab */}
-        {tab === "discovery" && (
+        {tab === "discovery" && (() => {
+          const [editing, setEditing] = useState(false);
+          const [form, setForm] = useState({
+            sourcing_type: project.sourcing_type || [],
+            target_geographies: project.target_geographies || [],
+            required_certifications: project.required_certifications || [],
+            min_capacity_units_month: project.min_capacity_units_month || "",
+            max_moq: project.max_moq || "",
+            target_unit_cost: project.target_unit_cost || "",
+            target_lead_time_days: project.target_lead_time_days || "",
+            additional_requirements: project.additional_requirements || "",
+          });
+          const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+          const toggleArr = (k, v) => set(k, form[k].includes(v) ? form[k].filter(x => x !== v) : [...form[k], v]);
+          const saveCriteria = async () => {
+            const payload = {
+              ...form,
+              min_capacity_units_month: form.min_capacity_units_month ? parseInt(form.min_capacity_units_month) : null,
+              max_moq: form.max_moq ? parseInt(form.max_moq) : null,
+              target_unit_cost: form.target_unit_cost ? parseFloat(form.target_unit_cost) : null,
+              target_lead_time_days: form.target_lead_time_days ? parseInt(form.target_lead_time_days) : null,
+              additional_requirements: form.additional_requirements || null,
+              updated_at: new Date().toISOString(),
+            };
+            await supabase.from("sourcing_projects").update(payload).eq("id", project.id);
+            onUpdate({ ...project, ...payload });
+            setEditing(false);
+          };
+
+          const inp = { width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
+          const lbl = { fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3, display: "block", textTransform: "uppercase", letterSpacing: 0.5 };
+
+          return (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>AI-Powered CM Discovery</div>
-                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>The AI will search the web for contract manufacturers matching your requirements</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>The AI will search for contract manufacturers matching your criteria below</div>
               </div>
               <button onClick={runDiscovery} disabled={discovering}
                 style={{ padding: "10px 24px", fontSize: 13, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>
@@ -375,15 +407,101 @@ function ProjectDetail({ project, onBack, onUpdate }) {
               </button>
             </div>
 
-            <div style={{ padding: 16, borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 8 }}>Search Criteria</div>
-              <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.8 }}>
-                {(project.sourcing_type || []).length > 0 && <div>• Type: {project.sourcing_type.map(t => t.replace(/_/g, " ")).join(", ")}</div>}
-                {(project.target_geographies || []).length > 0 && <div>• Geography: {project.target_geographies.join(", ")}</div>}
-                {(project.required_certifications || []).length > 0 && <div>• Certifications: {project.required_certifications.join(", ")}</div>}
-                {project.min_capacity_units_month && <div>• Min capacity: {project.min_capacity_units_month.toLocaleString()} units/month</div>}
-                {project.additional_requirements && <div>• Additional: {project.additional_requirements}</div>}
+            {/* Editable Search Criteria */}
+            <div style={{ padding: 16, borderRadius: 10, background: T.surface2, border: `1px solid ${T.border}`, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Search Criteria</div>
+                {!editing ? (
+                  <button onClick={() => setEditing(true)} style={{ fontSize: 11, color: T.accent, background: "none", border: `1px solid ${T.accent}40`, borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontWeight: 600 }}>✎ Edit Criteria</button>
+                ) : (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => setEditing(false)} style={{ fontSize: 11, color: T.text3, background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 12px", cursor: "pointer" }}>Cancel</button>
+                    <button onClick={saveCriteria} style={{ fontSize: 11, color: "#fff", background: T.accent, border: "none", borderRadius: 6, padding: "4px 14px", cursor: "pointer", fontWeight: 700 }}>Save & Update</button>
+                  </div>
+                )}
               </div>
+
+              {!editing ? (
+                /* Read-only display */
+                <div style={{ fontSize: 12, color: T.text2, lineHeight: 2 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, minWidth: 80 }}>TYPE:</span>
+                    {(project.sourcing_type || []).length > 0 ? project.sourcing_type.map(t => (
+                      <span key={t} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.accent + "15", color: T.accent, fontWeight: 600 }}>{t.replace(/_/g, " ")}</span>
+                    )) : <span style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>Not set</span>}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, minWidth: 80 }}>GEOGRAPHY:</span>
+                    {(project.target_geographies || []).length > 0 ? project.target_geographies.map(g => (
+                      <span key={g} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "#06b6d415", color: "#06b6d4", fontWeight: 600 }}>📍 {g}</span>
+                    )) : <span style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>Any</span>}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, minWidth: 80 }}>CERTS:</span>
+                    {(project.required_certifications || []).length > 0 ? project.required_certifications.map(c => (
+                      <span key={c} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "#22c55e15", color: "#22c55e", fontWeight: 600 }}>{c}</span>
+                    )) : <span style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>None required</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
+                    {project.min_capacity_units_month && <span style={{ fontSize: 11 }}><strong style={{ color: T.text }}>Min Capacity:</strong> {project.min_capacity_units_month.toLocaleString()} units/mo</span>}
+                    {project.max_moq && <span style={{ fontSize: 11 }}><strong style={{ color: T.text }}>Max MOQ:</strong> {project.max_moq.toLocaleString()}</span>}
+                    {project.target_unit_cost && <span style={{ fontSize: 11 }}><strong style={{ color: T.text }}>Target Cost:</strong> ${project.target_unit_cost}</span>}
+                    {project.target_lead_time_days && <span style={{ fontSize: 11 }}><strong style={{ color: T.text }}>Lead Time:</strong> {project.target_lead_time_days} days</span>}
+                  </div>
+                  {project.additional_requirements && <div style={{ fontSize: 11, color: T.text2, padding: "6px 10px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}><strong style={{ color: T.text }}>Additional:</strong> {project.additional_requirements}</div>}
+                </div>
+              ) : (
+                /* Editing form */
+                <div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={lbl}>Sourcing Type</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {SOURCING_TYPES.map(t => (
+                        <button key={t.value} onClick={() => toggleArr("sourcing_type", t.value)}
+                          style={{ padding: "4px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", fontWeight: 600,
+                            background: form.sourcing_type.includes(t.value) ? T.accent + "20" : T.surface,
+                            border: `1px solid ${form.sourcing_type.includes(t.value) ? T.accent : T.border}`,
+                            color: form.sourcing_type.includes(t.value) ? T.accent : T.text3 }}>{t.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={lbl}>Target Geographies</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {["US", "Canada", "Mexico", "EU", "UK", "China", "India", "Southeast Asia", "Japan", "South Korea", "Australia"].map(g => (
+                        <button key={g} onClick={() => toggleArr("target_geographies", g)}
+                          style={{ padding: "3px 9px", fontSize: 11, borderRadius: 6, cursor: "pointer",
+                            background: form.target_geographies.includes(g) ? "#06b6d420" : T.surface,
+                            border: `1px solid ${form.target_geographies.includes(g) ? "#06b6d4" : T.border}`,
+                            color: form.target_geographies.includes(g) ? "#06b6d4" : T.text3 }}>{g}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={lbl}>Required Certifications</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                      {CERTIFICATIONS.map(c => (
+                        <button key={c} onClick={() => toggleArr("required_certifications", c)}
+                          style={{ padding: "3px 8px", fontSize: 10, borderRadius: 6, cursor: "pointer",
+                            background: form.required_certifications.includes(c) ? "#22c55e20" : T.surface,
+                            border: `1px solid ${form.required_certifications.includes(c) ? "#22c55e" : T.border}`,
+                            color: form.required_certifications.includes(c) ? "#22c55e" : T.text3 }}>{c}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                    <div><label style={lbl}>Min Capacity/mo</label><input type="number" value={form.min_capacity_units_month} onChange={e => set("min_capacity_units_month", e.target.value)} placeholder="units" style={inp} /></div>
+                    <div><label style={lbl}>Max MOQ</label><input type="number" value={form.max_moq} onChange={e => set("max_moq", e.target.value)} placeholder="units" style={inp} /></div>
+                    <div><label style={lbl}>Target Unit Cost</label><input type="number" step="0.01" value={form.target_unit_cost} onChange={e => set("target_unit_cost", e.target.value)} placeholder="$" style={inp} /></div>
+                    <div><label style={lbl}>Target Lead Time</label><input type="number" value={form.target_lead_time_days} onChange={e => set("target_lead_time_days", e.target.value)} placeholder="days" style={inp} /></div>
+                  </div>
+                  <div>
+                    <label style={lbl}>Additional Requirements</label>
+                    <textarea value={form.additional_requirements} onChange={e => set("additional_requirements", e.target.value)} rows={2} placeholder="Sustainability needs, specific equipment, product types..."
+                      style={{ ...inp, resize: "vertical" }} />
+                  </div>
+                </div>
+              )}
             </div>
 
             {projectCms.length > 0 && (
@@ -423,7 +541,7 @@ function ProjectDetail({ project, onBack, onUpdate }) {
               </div>
             )}
           </div>
-        )}
+        );})()}
 
         {/* Placeholder tabs */}
         {tab === "outreach" && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>📧 Outreach management coming next — draft, approve, and track emails to CMs</div>}
