@@ -112,78 +112,93 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
         )}
 
         {/* Factor Settings for this run */}
-        <div style={sectionHeader}>FACTOR SETTINGS FOR THIS RUN</div>
-        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20, fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: "#f0f0f0" }}>
-              <th style={thStyle}>Factor</th>
-              <th style={thStyle}>Setting</th>
-              <th style={thStyle}>Unit</th>
-              <th style={{ ...thStyle, width: 120 }}>Actual (fill in)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(factors).map(([name, value]) => {
-              const factorDef = (experiment.factors || []).find(f => f.name === name);
-              return (
-                <tr key={name}>
-                  <td style={tdStyle}><strong>{name}</strong></td>
-                  <td style={{ ...tdStyle, fontWeight: 700, fontSize: 14 }}>{String(value)}</td>
-                  <td style={tdStyle}>{factorDef?.unit || "—"}</td>
-                  <td style={tdStyle}><div style={fillLine}></div></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        {/* Ingredient Table */}
-        {formulaItems.length > 0 && (
-          <>
-            <div style={sectionHeader}>INGREDIENT WEIGHTS</div>
-            <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20, fontSize: 11 }}>
-              <thead>
-                <tr style={{ background: "#f0f0f0" }}>
-                  <th style={{ ...thStyle, width: 30 }}>#</th>
-                  <th style={thStyle}>Ingredient</th>
-                  <th style={thStyle}>Function</th>
-                  <th style={{ ...thStyle, width: 65 }}>% w/w</th>
-                  <th style={{ ...thStyle, width: 80 }}>Weight (g)</th>
-                  <th style={{ ...thStyle, width: 50 }}>Phase</th>
-                  <th style={{ ...thStyle, width: 50 }}>Temp °C</th>
-                  <th style={{ ...thStyle, width: 30 }}>✓</th>
-                </tr>
-              </thead>
-              <tbody>
-                {formulaItems.map((item, i) => {
-                  const batchG = formula?.target_batch_size ? (item.quantity / 100 * formula.target_batch_size * 1000).toFixed(1) : "—";
-                  return (
-                    <tr key={item.id}>
-                      <td style={{ ...tdStyle, textAlign: "center", color: "#999" }}>{item.addition_order || i + 1}</td>
-                      <td style={{ ...tdStyle, fontWeight: 600 }}>{item.ingredient_name}</td>
-                      <td style={{ ...tdStyle, fontSize: 10, color: "#555" }}>{item.function_in_formula || "—"}</td>
-                      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{item.quantity}</td>
-                      <td style={{ ...tdStyle, textAlign: "right" }}>{batchG}</td>
-                      <td style={{ ...tdStyle, textAlign: "center" }}>{item.phase || "—"}</td>
-                      <td style={{ ...tdStyle, textAlign: "center" }}>{item.addition_temp_c || "—"}</td>
-                      <td style={{ ...tdStyle, textAlign: "center" }}>☐</td>
-                    </tr>
-                  );
-                })}
-                <tr style={{ background: "#f0f0f0", fontWeight: 700 }}>
-                  <td style={tdStyle}></td>
-                  <td style={tdStyle}>TOTAL</td>
-                  <td style={tdStyle}></td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>{formulaItems.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0).toFixed(2)}%</td>
-                  <td style={tdStyle}></td>
-                  <td style={tdStyle}></td>
-                  <td style={tdStyle}></td>
-                  <td style={tdStyle}></td>
-                </tr>
-              </tbody>
-            </table>
-          </>
-        )}
+        {/* Ingredient Table with DOE factor highlights */}
+        {formulaItems.length > 0 && (() => {
+          const factorNames = Object.keys(factors).map(k => k.toLowerCase());
+          const isAffected = (item) => {
+            const name = (item.ingredient_name || "").toLowerCase();
+            const fn = (item.function_in_formula || "").toLowerCase();
+            return factorNames.some(fk => name.includes(fk.split(" ")[0]) || fk.includes(name.split(" ")[0]) || fn.includes(fk.split(" ")[0]));
+          };
+          return (
+            <>
+              <div style={sectionHeader}>FORMULA & INGREDIENT WEIGHTS</div>
+              {formula && <div style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>{formula.name} ({formula.version}) — Batch: {formula.target_batch_size || "—"} {formula.batch_size_unit || "kg"} — <strong style={{ color: "#e65100" }}>🔸 = modified by DOE factors</strong></div>}
+              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 10, fontSize: 11 }}>
+                <thead>
+                  <tr style={{ background: "#f0f0f0" }}>
+                    <th style={{ ...thStyle, width: 16 }}></th>
+                    <th style={{ ...thStyle, width: 24 }}>#</th>
+                    <th style={thStyle}>Ingredient</th>
+                    <th style={thStyle}>Function</th>
+                    <th style={{ ...thStyle, width: 50 }}>Phase</th>
+                    <th style={{ ...thStyle, width: 55 }}>Base %</th>
+                    <th style={{ ...thStyle, width: 55 }}>Trial %</th>
+                    <th style={{ ...thStyle, width: 70 }}>Weight (g)</th>
+                    <th style={{ ...thStyle, width: 40 }}>Temp</th>
+                    <th style={{ ...thStyle, width: 24 }}>✓</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {formulaItems.map((item, i) => {
+                    const affected = isAffected(item);
+                    const batchG = formula?.target_batch_size ? (item.quantity / 100 * formula.target_batch_size * 1000).toFixed(1) : "—";
+                    return (
+                      <tr key={item.id} style={{ background: affected ? "#fff3e0" : "transparent" }}>
+                        <td style={{ ...tdStyle, textAlign: "center", width: 16 }}>{affected ? "🔸" : ""}</td>
+                        <td style={{ ...tdStyle, textAlign: "center", color: "#999" }}>{item.addition_order || i + 1}</td>
+                        <td style={{ ...tdStyle, fontWeight: affected ? 700 : 600, color: affected ? "#e65100" : "#111" }}>{item.ingredient_name}</td>
+                        <td style={{ ...tdStyle, fontSize: 10, color: "#555" }}>{item.function_in_formula || "—"}</td>
+                        <td style={{ ...tdStyle, textAlign: "center" }}>{item.phase || "—"}</td>
+                        <td style={{ ...tdStyle, textAlign: "right", textDecoration: affected ? "line-through" : "none", color: affected ? "#999" : "#111" }}>{item.quantity}</td>
+                        <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: affected ? "#e65100" : "#111" }}>{affected ? "adj." : item.quantity}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{batchG}</td>
+                        <td style={{ ...tdStyle, textAlign: "center" }}>{item.addition_temp_c || "—"}</td>
+                        <td style={{ ...tdStyle, textAlign: "center" }}>☐</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ background: "#f0f0f0", fontWeight: 700 }}>
+                    <td style={tdStyle}></td>
+                    <td style={tdStyle}></td>
+                    <td style={tdStyle}>TOTAL</td>
+                    <td style={tdStyle}></td>
+                    <td style={tdStyle}></td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>{formulaItems.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0).toFixed(2)}%</td>
+                    <td style={tdStyle}></td>
+                    <td style={tdStyle}></td>
+                    <td style={tdStyle}></td>
+                    <td style={tdStyle}></td>
+                  </tr>
+                </tbody>
+              </table>
+              {/* Factor adjustment callout box */}
+              {Object.keys(factors).length > 0 && (
+                <div style={{ padding: "10px 14px", border: "2px solid #e65100", borderRadius: 6, marginBottom: 20, background: "#fff8f0" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#e65100", textTransform: "uppercase", marginBottom: 6 }}>⚠ DOE Factor Adjustments for Run {run.run_number}</div>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr><th style={{ ...thStyle, border: "none", color: "#e65100" }}>Factor</th><th style={{ ...thStyle, border: "none", color: "#e65100" }}>Setting</th><th style={{ ...thStyle, border: "none", color: "#e65100" }}>Unit</th><th style={{ ...thStyle, border: "none", color: "#e65100", width: 100 }}>Actual</th></tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(factors).map(([name, value]) => {
+                        const fd = (experiment?.factors || []).find(f => f.name === name);
+                        return (
+                          <tr key={name}>
+                            <td style={{ padding: "4px 8px", fontWeight: 700 }}>{name}</td>
+                            <td style={{ padding: "4px 8px", fontSize: 14, fontWeight: 800, color: "#e65100" }}>{String(value)}</td>
+                            <td style={{ padding: "4px 8px" }}>{fd?.unit || "—"}</td>
+                            <td style={{ padding: "4px 8px" }}><div style={fillLine}></div></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* Manufacturing Instructions */}
         <div style={sectionHeader}>MANUFACTURING INSTRUCTIONS</div>

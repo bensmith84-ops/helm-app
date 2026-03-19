@@ -1469,46 +1469,90 @@ function ExperimentsTab({ programId }) {
                             </div>
 
                             <div style={{ padding: "16px 16px 12px" }}>
-                              {/* Formula ingredient table (matching Formulations tab style) */}
-                              {trialFormulaItems.length > 0 && (
-                                <div style={{ marginBottom: 16 }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>⚗️ Formula: {trialFormula?.name || "—"}</span>
-                                    <span style={{ fontSize: 10, color: T.text3 }}>{trialFormula?.version}</span>
-                                    {trialFormula?.target_batch_size && <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>Batch: {trialFormula.target_batch_size} {trialFormula.batch_size_unit || "kg"}</span>}
-                                  </div>
-                                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                                    <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
-                                      {["#","Ingredient","Function","Phase","% w/w","Weight (g)","Temp °C"].map(h => (
-                                        <th key={h} style={{ padding: "5px 8px", textAlign: h === "% w/w" || h === "Weight (g)" || h === "Temp °C" ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
-                                      ))}
-                                    </tr></thead>
-                                    <tbody>
-                                      {trialFormulaItems.map((item, i) => {
-                                        const wt = trialFormula?.target_batch_size ? (item.quantity / 100 * trialFormula.target_batch_size * 1000).toFixed(1) : "—";
-                                        return (
-                                          <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                                            <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.addition_order || i + 1}</td>
-                                            <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 500, color: T.text }}>{item.ingredient_name}</td>
-                                            <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.function_in_formula || "—"}</td>
-                                            <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.phase || "—"}</td>
-                                            <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right" }}>{item.quantity}</td>
-                                            <td style={{ padding: "5px 8px", fontSize: 12, color: T.text2, textAlign: "right" }}>{wt}</td>
-                                            <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3, textAlign: "right" }}>{item.addition_temp_c || "—"}</td>
+                              {/* Formula ingredient table with DOE factor highlights */}
+                              {(() => {
+                                const hasFormula = trialFormulaItems.length > 0;
+                                const factorNames = Object.keys(fs).map(k => k.toLowerCase());
+                                // Determine which ingredients are affected by factors
+                                const isAffected = (item) => {
+                                  const name = (item.ingredient_name || "").toLowerCase();
+                                  const fn = (item.function_in_formula || "").toLowerCase();
+                                  return factorNames.some(fk => name.includes(fk.split(" ")[0]) || fk.includes(name.split(" ")[0]) || fn.includes(fk.split(" ")[0]));
+                                };
+                                return (
+                                  <div style={{ marginBottom: 16 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>⚗️ {hasFormula ? `Formula: ${trialFormula?.name || "—"}` : "Ingredient Table"}</span>
+                                      {trialFormula?.version && <span style={{ fontSize: 10, color: T.text3 }}>{trialFormula.version}</span>}
+                                      {trialFormula?.target_batch_size && <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>Batch: {trialFormula.target_batch_size} {trialFormula.batch_size_unit || "kg"}</span>}
+                                      {hasFormula && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "#f9731620", color: "#f97316", fontWeight: 600 }}>🔸 = changed by DOE factors</span>}
+                                    </div>
+                                    {hasFormula ? (
+                                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                        <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                                          {["","#","Ingredient","Function","Phase","Base %","Trial %","Weight (g)","Temp °C"].map(h => (
+                                            <th key={h} style={{ padding: "5px 8px", textAlign: ["Base %","Trial %","Weight (g)","Temp °C"].includes(h) ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", width: h === "" ? 8 : undefined }}>{h}</th>
+                                          ))}
+                                        </tr></thead>
+                                        <tbody>
+                                          {trialFormulaItems.map((item, i) => {
+                                            const affected = isAffected(item);
+                                            const wt = trialFormula?.target_batch_size ? (item.quantity / 100 * trialFormula.target_batch_size * 1000).toFixed(1) : "—";
+                                            return (
+                                              <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}`, background: affected ? "#f9731608" : "transparent" }}>
+                                                <td style={{ padding: "5px 2px", width: 8 }}>{affected && <span style={{ color: "#f97316", fontSize: 12 }}>🔸</span>}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.addition_order || i + 1}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: affected ? 700 : 500, color: affected ? "#f97316" : T.text }}>{item.ingredient_name}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.function_in_formula || "—"}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.phase || "—"}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 12, color: affected ? T.text3 : T.text, textAlign: "right", textDecoration: affected ? "line-through" : "none" }}>{item.quantity}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 700, color: affected ? "#f97316" : T.text, textAlign: "right" }}>{affected ? "→ see factors" : item.quantity}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 12, color: T.text2, textAlign: "right" }}>{wt}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3, textAlign: "right" }}>{item.addition_temp_c || "—"}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                          <tr style={{ background: T.surface2 }}>
+                                            <td></td>
+                                            <td style={{ padding: "5px 8px" }}></td>
+                                            <td style={{ padding: "5px 8px", fontSize: 11, fontWeight: 700, color: T.text }}>TOTAL</td>
+                                            <td colSpan={2}></td>
+                                            <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right" }}>{trialFormulaItems.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0).toFixed(2)}%</td>
+                                            <td colSpan={3}></td>
                                           </tr>
-                                        );
-                                      })}
-                                      <tr style={{ background: T.surface2 }}>
-                                        <td style={{ padding: "5px 8px" }}></td>
-                                        <td style={{ padding: "5px 8px", fontSize: 11, fontWeight: 700, color: T.text }}>TOTAL</td>
-                                        <td colSpan={2}></td>
-                                        <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right" }}>{trialFormulaItems.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0).toFixed(2)}%</td>
-                                        <td colSpan={2}></td>
-                                      </tr>
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
+                                        </tbody>
+                                      </table>
+                                    ) : (
+                                      <div style={{ padding: "12px 16px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3 }}>
+                                        No base formulation linked to this experiment. Link a formulation in the Design tab to see ingredients here.
+                                      </div>
+                                    )}
+                                    {/* Factor adjustments callout */}
+                                    {hasFormula && Object.keys(fs).length > 0 && (
+                                      <div style={{ marginTop: 8, padding: "10px 14px", borderRadius: 8, background: "#f9731608", border: "1px solid #f9731630" }}>
+                                        <div style={{ fontSize: 10, fontWeight: 700, color: "#f97316", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>DOE Factor Adjustments for Run {run.run_number}</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6 }}>
+                                          {Object.entries(fs).map(([k,v]) => {
+                                            const factorDef = (selected.factors || []).find(f => f.name === k);
+                                            return (
+                                              <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
+                                                <span style={{ fontSize: 14 }}>🔸</span>
+                                                <div>
+                                                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{k}</div>
+                                                  <div style={{ fontSize: 13, fontWeight: 800, color: "#f97316" }}>{String(v)} {factorDef?.unit || ""}</div>
+                                                  {factorDef && (factorDef.low != null || factorDef.high != null) && (
+                                                    <div style={{ fontSize: 9, color: T.text3 }}>Range: {factorDef.low} – {factorDef.high} {factorDef.unit || ""}</div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
 
                               {/* Manufacturing Instructions — rendered with formatting */}
                               <div style={{ marginBottom: 16 }}>
