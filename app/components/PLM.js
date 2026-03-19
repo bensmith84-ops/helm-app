@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import PLMLibraryView from "./PLMLibrary";
 const PrintBatchRecord = lazy(() => import("./PrintBatchRecord"));
 

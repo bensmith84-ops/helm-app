@@ -108,15 +108,12 @@ export default function HelmApp() {
   _setTokens(tokens); // sync theme tokens to global singleton for T proxy
   const [active, setActive] = useState("dashboard");
   const [expanded, setExpanded] = useState(true);
-  const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
+  // Import and use responsive context (falls back to false during SSR)
+  const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
-    const check = () => {
-      const mobile = window.innerWidth < 769;
-      setIsMobile(mobile);
-      if (mobile) setExpanded(true); // Always expanded when shown on mobile (overlay)
-    };
+    const check = () => setIsMobile(window.innerWidth < 769);
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
