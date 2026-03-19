@@ -337,7 +337,7 @@ function ProjectDetail({ project, onBack, onUpdate }) {
                   <div style={{ fontSize: 12, marginBottom: 16 }}>Use AI Discovery to find contract manufacturers, or add them manually</div>
                   <button onClick={runDiscovery} disabled={discovering}
                     style={{ padding: "10px 24px", fontSize: 13, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>
-                    {discovering ? "🔍 Searching..." : "🤖 Run AI Discovery"}
+                    {discovering ? "🔍 Searching the web... (30-60s)" : "🤖 Run AI Discovery"}
                   </button>
                 </div>
               ) : (
@@ -405,11 +405,11 @@ function ProjectDetail({ project, onBack, onUpdate }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>AI-Powered CM Discovery</div>
-                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>The AI will search for contract manufacturers matching your criteria below</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>The AI will search the web for real contract manufacturers, verify their websites, and confirm capabilities match your criteria</div>
               </div>
               <button onClick={runDiscovery} disabled={discovering}
                 style={{ padding: "10px 24px", fontSize: 13, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>
-                {discovering ? "🔍 Searching..." : "🤖 Find CMs"}
+                {discovering ? "🔍 Searching the web... (30-60s)" : "🤖 Find CMs"}
               </button>
             </div>
 
