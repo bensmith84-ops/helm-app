@@ -626,6 +626,7 @@ function ShopifySkuTab() {
 
 // ── Main Scoreboard View ────────────────────────────────────────────────────
 export default function ScoreboardView() {
+  const { isMobile } = useResponsive();
   const [metrics, setMetrics] = useState([]);
   const [monthly, setMonthly] = useState({});
   const [monthlyPrev, setMonthlyPrev] = useState({});
@@ -1074,7 +1075,7 @@ export default function ScoreboardView() {
                     </div>
 
                     {/* Two-column section: 7-day revenue trend + subscription health */}
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                    <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:12, marginBottom:12 }}>
                       {/* Revenue 7-day trend */}
                       <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:16 }}>
                         <div style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>Revenue — Last 7 Days</div>

@@ -1,4 +1,5 @@
 "use client";
+import { useResponsive } from "../lib/responsive";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
@@ -11,6 +12,7 @@ const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATA
 export default function MessagesView() {
   const { user, profile } = useAuth();
   const { showPrompt } = useModal();
+  const { isMobile } = useResponsive();
   const [channels, setChannels] = useState([]);
   const [activeCh, setActiveCh] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -316,7 +318,7 @@ export default function MessagesView() {
                   onKeyDown={e => { if (e.key === "Enter" && taskTitle.trim()) document.getElementById("msg-create-task-btn")?.click(); }}
                   style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 12 }}>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Project</label>
                   <select value={taskProject} onChange={e => { setTaskProject(e.target.value); setTaskSection(""); }}

@@ -1,4 +1,5 @@
 "use client";
+import { useResponsive } from "../lib/responsive";
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
@@ -31,6 +32,7 @@ const cvr  = (clicks, conv) => clicks > 0 ? ((Number(conv)/Number(clicks))*100).
 export default function CampaignsView() {
   const { user, profile } = useAuth();
   const { showPrompt, showConfirm } = useModal();
+  const { isMobile } = useResponsive();
   const [campaigns, setCampaigns] = useState([]);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");

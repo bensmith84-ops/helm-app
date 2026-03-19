@@ -1,4 +1,5 @@
 "use client";
+import { useResponsive } from "../lib/responsive";
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
@@ -46,6 +47,7 @@ const StatusPill = ({ status }) => {
 
 export default function FinanceView() {
   const { user, profile } = useAuth();
+  const { isMobile } = useResponsive();
   const [tab, setTab] = useState("Dashboard");
   const [budgets, setBudgets] = useState([]);
   const [budgetLines, setBudgetLines] = useState([]);
@@ -382,7 +384,7 @@ export default function FinanceView() {
 
           {/* Budget form */}
           {type === "budget" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={_lbl}>Name *</label><input value={f.name || ""} onChange={e => set("name", e.target.value)} style={_inp} placeholder="e.g. Q2 Marketing Budget" /></div>
               <div><label style={_lbl}>Fiscal Year</label><input type="number" value={f.fiscal_year || ""} onChange={e => set("fiscal_year", e.target.value)} style={_inp} placeholder="2026" /></div>
             </div>
@@ -391,7 +393,7 @@ export default function FinanceView() {
               <div><label style={_lbl}>Period</label><select value={f.period || ""} onChange={e => set("period", e.target.value)} style={_sel}><option value="">Select</option><option>annual</option><option>quarterly</option><option>monthly</option><option>custom</option></select></div>
               <div><label style={_lbl}>Status</label><select value={f.status || "draft"} onChange={e => set("status", e.target.value)} style={_sel}><option>draft</option><option>active</option><option>frozen</option><option>closed</option></select></div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={_lbl}>Start Date</label><input type="date" value={f.start_date || ""} onChange={e => set("start_date", e.target.value)} style={_inp} /></div>
               <div><label style={_lbl}>End Date</label><input type="date" value={f.end_date || ""} onChange={e => set("end_date", e.target.value)} style={_inp} /></div>
             </div>
@@ -400,7 +402,7 @@ export default function FinanceView() {
 
           {/* Vendor form */}
           {type === "vendor" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={_lbl}>Name *</label><input value={f.name || ""} onChange={e => set("name", e.target.value)} style={_inp} /></div>
               <div><label style={_lbl}>Code</label><input value={f.code || ""} onChange={e => set("code", e.target.value)} style={_inp} placeholder="Internal code" /></div>
             </div>
@@ -409,7 +411,7 @@ export default function FinanceView() {
               <div><label style={_lbl}>Email</label><input value={f.contact_email || ""} onChange={e => set("contact_email", e.target.value)} style={_inp} /></div>
               <div><label style={_lbl}>Phone</label><input value={f.contact_phone || ""} onChange={e => set("contact_phone", e.target.value)} style={_inp} /></div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={_lbl}>Payment Terms</label><select value={f.payment_terms || "net_30"} onChange={e => set("payment_terms", e.target.value)} style={_sel}><option value="immediate">Immediate</option><option value="net_15">Net 15</option><option value="net_30">Net 30</option><option value="net_45">Net 45</option><option value="net_60">Net 60</option><option value="net_90">Net 90</option></select></div>
               <div><label style={_lbl}>Category</label><input value={f.category || ""} onChange={e => set("category", e.target.value)} style={_inp} placeholder="e.g. Raw Materials" /></div>
             </div>
@@ -428,7 +430,7 @@ export default function FinanceView() {
 
           {/* PO form */}
           {type === "po" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={_lbl}>Title *</label><input value={f.title || ""} onChange={e => set("title", e.target.value)} style={_inp} /></div>
               <div><label style={_lbl}>Vendor</label><select value={f.vendor_id || ""} onChange={e => set("vendor_id", e.target.value)} style={_sel}><option value="">Select vendor</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
             </div>
@@ -456,7 +458,7 @@ export default function FinanceView() {
 
           {/* Expense form */}
           {type === "expense" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={_lbl}>Title *</label><input value={f.title || ""} onChange={e => set("title", e.target.value)} style={_inp} placeholder="e.g. Q1 Travel Expenses" /></div>
               <div><label style={_lbl}>Budget</label><select value={f.budget_id || ""} onChange={e => set("budget_id", e.target.value)} style={_sel}><option value="">None</option>{budgets.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
             </div>
@@ -481,7 +483,7 @@ export default function FinanceView() {
 
           {/* Invoice form */}
           {type === "invoice" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={_lbl}>Vendor Invoice # *</label><input value={f.invoice_number || ""} onChange={e => set("invoice_number", e.target.value)} style={_inp} /></div>
               <div><label style={_lbl}>Vendor</label><select value={f.vendor_id || ""} onChange={e => set("vendor_id", e.target.value)} style={_sel}><option value="">Select</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
             </div>
@@ -613,7 +615,7 @@ export default function FinanceView() {
               </div>
             )}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 24 }}>
               {/* P&L by Category - clickable rows */}
               <div>
                 <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>P&L by Category</h3>
@@ -673,7 +675,7 @@ export default function FinanceView() {
                     <div style={{ fontSize: 13, color: T.text, lineHeight: 1.6 }}>{aiAnalysis.summary}</div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                     {/* Trends */}
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Trends & Observations</div>
@@ -1767,7 +1769,7 @@ export default function FinanceView() {
               <div style={{ background: T.surface, borderRadius: 8, padding: 16, border: `1px solid ${T.border}`, marginBottom: 16 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Map Columns</div>
                 <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Match your CSV columns to Helm fields. Required fields are marked with *</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
                   {cfg.fields.map(f => (
                     <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 12, color: T.text2, minWidth: 160, fontWeight: f.required ? 600 : 400 }}>{f.label}{f.required ? " *" : ""}</span>

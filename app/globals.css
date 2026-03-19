@@ -89,3 +89,63 @@ html, body { overflow-x: hidden; }
 
 /* Smooth transitions */
 * { -webkit-tap-highlight-color: transparent; }
+
+/* Scrollable containers on mobile */
+@media (max-width: 768px) {
+  /* Make wide tables scrollable */
+  .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  
+  /* Full-width modals on mobile */
+  .modal-content { 
+    width: 95vw !important; 
+    max-width: 95vw !important;
+    margin: 8px !important;
+    max-height: 90vh !important;
+  }
+  
+  /* Reduce gap in flex/grid containers */
+  .gap-responsive { gap: 8px !important; }
+  
+  /* Stack horizontal layouts */
+  .flex-stack-mobile { flex-direction: column !important; }
+  
+  /* Summary card grids */
+  .summary-cards {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  
+  /* Tab bars should scroll */
+  .tab-bar {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-bar::-webkit-scrollbar { display: none; }
+  
+  /* Kanban board scroll */
+  .board-container {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+  }
+  .board-column {
+    scroll-snap-align: start;
+    min-width: 260px !important;
+  }
+}
+
+/* Animation for slide-in panels */
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Print styles */
+@media print {
+  .no-print { display: none !important; }
+  .sidebar-mobile-overlay, .sidebar-mobile-backdrop { display: none !important; }
+}
