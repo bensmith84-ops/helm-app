@@ -230,6 +230,18 @@ function ProjectDetail({ project, onBack, onUpdate }) {
   const [cms, setCms] = useState({});
   const [loading, setLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
+  // Criteria editing state
+  const [editingCriteria, setEditingCriteria] = useState(false);
+  const [criteriaForm, setCriteriaForm] = useState({
+    sourcing_type: project.sourcing_type || [],
+    target_geographies: project.target_geographies || [],
+    required_certifications: project.required_certifications || [],
+    min_capacity_units_month: project.min_capacity_units_month || "",
+    max_moq: project.max_moq || "",
+    target_unit_cost: project.target_unit_cost || "",
+    target_lead_time_days: project.target_lead_time_days || "",
+    additional_requirements: project.additional_requirements || "",
+  });
 
   useEffect(() => {
     const load = async () => {
@@ -363,33 +375,27 @@ function ProjectDetail({ project, onBack, onUpdate }) {
 
         {/* AI Discovery tab */}
         {tab === "discovery" && (() => {
-          const [editing, setEditing] = useState(false);
-          const [form, setForm] = useState({
-            sourcing_type: project.sourcing_type || [],
-            target_geographies: project.target_geographies || [],
-            required_certifications: project.required_certifications || [],
-            min_capacity_units_month: project.min_capacity_units_month || "",
-            max_moq: project.max_moq || "",
-            target_unit_cost: project.target_unit_cost || "",
-            target_lead_time_days: project.target_lead_time_days || "",
-            additional_requirements: project.additional_requirements || "",
-          });
-          const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
-          const toggleArr = (k, v) => set(k, form[k].includes(v) ? form[k].filter(x => x !== v) : [...form[k], v]);
+          const set = (k, v) => setCriteriaForm(p => ({ ...p, [k]: v }));
+          const toggleArr = (k, v) => set(k, criteriaForm[k].includes(v) ? criteriaForm[k].filter(x => x !== v) : [...criteriaForm[k], v]);
           const saveCriteria = async () => {
             const payload = {
-              ...form,
-              min_capacity_units_month: form.min_capacity_units_month ? parseInt(form.min_capacity_units_month) : null,
-              max_moq: form.max_moq ? parseInt(form.max_moq) : null,
-              target_unit_cost: form.target_unit_cost ? parseFloat(form.target_unit_cost) : null,
-              target_lead_time_days: form.target_lead_time_days ? parseInt(form.target_lead_time_days) : null,
-              additional_requirements: form.additional_requirements || null,
+              sourcing_type: criteriaForm.sourcing_type,
+              target_geographies: criteriaForm.target_geographies,
+              required_certifications: criteriaForm.required_certifications,
+              min_capacity_units_month: criteriaForm.min_capacity_units_month ? parseInt(criteriaForm.min_capacity_units_month) : null,
+              max_moq: criteriaForm.max_moq ? parseInt(criteriaForm.max_moq) : null,
+              target_unit_cost: criteriaForm.target_unit_cost ? parseFloat(criteriaForm.target_unit_cost) : null,
+              target_lead_time_days: criteriaForm.target_lead_time_days ? parseInt(criteriaForm.target_lead_time_days) : null,
+              additional_requirements: criteriaForm.additional_requirements || null,
               updated_at: new Date().toISOString(),
             };
             await supabase.from("sourcing_projects").update(payload).eq("id", project.id);
             onUpdate({ ...project, ...payload });
-            setEditing(false);
+            setEditingCriteria(false);
           };
+          const form = criteriaForm;
+          const editing = editingCriteria;
+          const setEditing = setEditingCriteria;
 
           const inp = { width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
           const lbl = { fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 3, display: "block", textTransform: "uppercase", letterSpacing: 0.5 };
