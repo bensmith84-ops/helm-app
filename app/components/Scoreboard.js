@@ -281,18 +281,34 @@ function ShopifySkuTab() {
   const [skuCountries, setSkuCountries] = useState([]); // empty = all
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [countrySearch, setCountrySearch] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [countryMode, setCountryMode] = useState("all"); // "all" | "selected"
+
+  const setQuickRange = (days, label) => {
+    const to = new Date();
+    const from = new Date(Date.now() - days * 86400000);
+    setDateFrom(from.toISOString().slice(0, 10));
+    setDateTo(to.toISOString().slice(0, 10));
+    setSkuDateRange(days);
+  };
+  const setYesterday = () => {
+    const y = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    setDateFrom(y);
+    setDateTo(y);
+    setSkuDateRange(1);
+  };
 
   useEffect(() => {
     const load = async () => {
       setSkuLoading(true);
-      const since = new Date(Date.now() - skuDateRange * 86400000).toISOString().slice(0, 10);
       const { data } = await supabase.from("shopify_sku_daily").select("*")
-        .gte("date", since).order("date", { ascending: false }).order("units_sold", { ascending: false });
+        .gte("date", dateFrom).lte("date", dateTo).order("date", { ascending: false }).order("units_sold", { ascending: false });
       setSkuData(data || []);
       setSkuLoading(false);
     };
     load();
-  }, [skuDateRange]);
+  }, [dateFrom, dateTo]);
 
   const runSync = async (daysBack) => {
     setSyncing(true);
@@ -344,15 +360,15 @@ function ShopifySkuTab() {
     } catch (e) { console.error("Sync failed:", e); }
     setSyncing(false);
     setSyncProgress({ day: daysComplete, totalDays: totalDays, orders: totalOrders, rows: totalRows, errors, done: true });
-    const sinceReload = new Date(Date.now() - skuDateRange * 86400000).toISOString().slice(0, 10);
     const { data: fresh } = await supabase.from("shopify_sku_daily").select("*")
-      .gte("date", sinceReload).order("date", { ascending: false }).order("units_sold", { ascending: false });
+      .gte("date", dateFrom).lte("date", dateTo).order("date", { ascending: false }).order("units_sold", { ascending: false });
     setSkuData(fresh || []);
   };
 
   const filtered = skuData.filter(r => {
     if (skuSearch && !r.sku.toLowerCase().includes(skuSearch.toLowerCase()) && !r.product_title?.toLowerCase().includes(skuSearch.toLowerCase())) return false;
-    if (skuCountries.length > 0 && !skuCountries.includes(r.country_code)) return false;
+    if (countryMode === "selected" && skuCountries.length > 0 && !skuCountries.includes(r.country_code)) return false;
+    if (countryMode === "selected" && skuCountries.length === 0) return false; // deselect all = show nothing
     return true;
   });
   const countries = [...new Set(skuData.map(r => r.country_code))].sort();
@@ -379,15 +395,29 @@ function ShopifySkuTab() {
         <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Shopify SKU Sales</div>
         <button onClick={() => setShowSetup(true)}
           style={{ padding: "4px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text3, cursor: "pointer" }}>⚙ SKU Setup</button>
-        <select value={skuDateRange} onChange={e => setSkuDateRange(Number(e.target.value))}
-          style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer" }}>
-          <option value={1}>Today</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option>
-          <option value={30}>Last 30 days</option><option value={90}>Last 90 days</option><option value={180}>Last 6 months</option>
-        </select>
+        {/* Date range quick buttons */}
+        <div style={{ display: "flex", gap: 0, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
+          {[["Yesterday", () => setYesterday()], ["7d", () => setQuickRange(7)], ["14d", () => setQuickRange(14)], ["30d", () => setQuickRange(30)], ["90d", () => setQuickRange(90)], ["YTD", () => { const yr = new Date().getFullYear(); setDateFrom(`${yr}-01-01`); setDateTo(new Date().toISOString().slice(0,10)); setSkuDateRange(Math.floor((Date.now() - new Date(yr,0,1).getTime()) / 86400000)); }]].map(([label, fn]) => (
+            <button key={label} onClick={fn}
+              style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "transparent", border: "none", borderRight: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}
+              onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {/* Custom date range */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setSkuDateRange(0); }}
+            style={{ padding: "4px 8px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none" }} />
+          <span style={{ fontSize: 11, color: T.text3 }}>→</span>
+          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setSkuDateRange(0); }}
+            style={{ padding: "4px 8px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none" }} />
+        </div>
         <div style={{ position: "relative" }}>
           <button onClick={() => setShowCountryPicker(!showCountryPicker)}
             style={{ padding: "5px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, minWidth: 120 }}>
-            🌍 {skuCountries.length === 0 ? "All Countries" : `${skuCountries.length} selected`}
+            🌍 {countryMode === "all" ? "All Countries" : `${skuCountries.length} selected`}
             <span style={{ fontSize: 8, marginLeft: 4 }}>▼</span>
           </button>
           {showCountryPicker && (
@@ -397,9 +427,9 @@ function ShopifySkuTab() {
                   autoFocus style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none" }} />
               </div>
               <div style={{ padding: "4px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 6 }}>
-                <button onClick={() => setSkuCountries([])} style={{ fontSize: 10, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>All</button>
-                <button onClick={() => setSkuCountries([...countries])} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Select All</button>
-                <button onClick={() => setSkuCountries([])} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
+                <button onClick={() => { setCountryMode("all"); setSkuCountries([]); }} style={{ fontSize: 10, color: countryMode === "all" ? T.accent : T.text3, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>All Countries</button>
+                <button onClick={() => { setCountryMode("selected"); setSkuCountries([...countries]); }} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Select All</button>
+                <button onClick={() => { setCountryMode("selected"); setSkuCountries([]); }} style={{ fontSize: 10, color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Deselect All</button>
               </div>
               <div style={{ flex: 1, overflow: "auto", padding: 4 }}>
                 {countries.filter(c => {
@@ -411,11 +441,19 @@ function ShopifySkuTab() {
                   <label key={c} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
                     onMouseEnter={e => e.currentTarget.style.background = T.surface2}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    <input type="checkbox" checked={skuCountries.length === 0 || skuCountries.includes(c)}
+                    <input type="checkbox" checked={countryMode === "all" ? true : skuCountries.includes(c)}
                       onChange={() => {
-                        if (skuCountries.length === 0) { setSkuCountries(countries.filter(x => x !== c)); }
-                        else if (skuCountries.includes(c)) { const next = skuCountries.filter(x => x !== c); setSkuCountries(next.length === 0 ? [] : next); }
-                        else { setSkuCountries([...skuCountries, c]); }
+                        if (countryMode === "all") {
+                          // Switching from all to selective — deselect this one
+                          setCountryMode("selected");
+                          setSkuCountries(countries.filter(x => x !== c));
+                        } else if (skuCountries.includes(c)) {
+                          setSkuCountries(skuCountries.filter(x => x !== c));
+                        } else {
+                          const next = [...skuCountries, c];
+                          if (next.length === countries.length) { setCountryMode("all"); setSkuCountries([]); }
+                          else setSkuCountries(next);
+                        }
                       }}
                       style={{ accentColor: T.accent }} />
                     <span style={{ fontWeight: 600, width: 24, color: T.text }}>{c}</span>
