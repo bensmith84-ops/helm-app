@@ -1,1815 +1,1534 @@
 "use client";
-import { useResponsive } from "../lib/responsive";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
-import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
+import { useAuth } from "../lib/auth";
+import { useResponsive } from "../lib/responsive";
 
-const TABS = ["Dashboard", "Forecast", "Chart of Accounts", "Expenses", "Budgets", "Purchase Orders", "Invoices", "Vendors", "QBO", "Import"];
-const CURR = "$";
-const fmt = (n) => n != null ? CURR + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "$0.00";
-const fmtK = (n) => { const v = Number(n) || 0; return v >= 1000000 ? CURR + (v/1000000).toFixed(1) + "M" : v >= 1000 ? CURR + (v/1000).toFixed(1) + "K" : fmt(v); };
-const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : 0;
-const _lbl = { fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 };
-const _inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: "inherit" };
-const _sel = { ..._inp, cursor: "pointer" };
-const _btn = { padding: "8px 16px", borderRadius: 6, border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" };
-const _pill = (bg, fg) => ({ display: "inline-flex", padding: "3px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, background: bg, color: fg });
+// ═══════════════════════════════════════════════════════════════════════════════
+// FINANCE MODULE — ApproveFlow merged into Helm
+// Spend requests, budgets, departments, rules engine, integrations
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const APPROVAL_CHAINS = {
+  standard:   [{ role: "Manager", label: "Manager" }, { role: "Finance", label: "Finance" }],
+  high_value: [{ role: "Manager", label: "Manager" }, { role: "Finance", label: "Finance" }, { role: "CFO", label: "CFO" }],
+  executive:  [{ role: "CFO", label: "CFO" }],
+};
 
 const STATUS_COLORS = {
-  draft: { bg: T.surface3, fg: T.text3 },
-  active: { bg: T.greenDim || "#dcfce7", fg: T.green || "#22c55e" },
-  pending_approval: { bg: "#fef3c7", fg: "#d97706" },
-  submitted: { bg: "#fef3c7", fg: "#d97706" },
-  approved: { bg: T.greenDim || "#dcfce7", fg: T.green || "#22c55e" },
-  rejected: { bg: T.redDim || "#fecaca", fg: T.red || "#ef4444" },
-  paid: { bg: "#dbeafe", fg: "#3b82f6" },
-  partially_paid: { bg: "#e0e7ff", fg: "#6366f1" },
-  received: { bg: "#f3e8ff", fg: "#a855f7" },
-  overdue: { bg: T.redDim || "#fecaca", fg: T.red || "#ef4444" },
-  closed: { bg: T.surface3, fg: T.text3 },
-  cancelled: { bg: T.surface3, fg: T.text3 },
-  frozen: { bg: "#e0e7ff", fg: "#6366f1" },
-  under_review: { bg: "#fef3c7", fg: "#d97706" },
-  scheduled: { bg: "#dbeafe", fg: "#3b82f6" },
-  disputed: { bg: T.redDim || "#fecaca", fg: T.red || "#ef4444" },
-  void: { bg: T.surface3, fg: T.text3 },
-  returned: { bg: "#fef3c7", fg: "#d97706" },
-  partially_received: { bg: "#f3e8ff", fg: "#a855f7" },
-  invoiced: { bg: "#dbeafe", fg: "#3b82f6" },
-  in_progress: { bg: "#fef3c7", fg: "#d97706" },
+  pending:               { bg: T.surface2, text: "#856404", dot: "#FFC107" },
+  approved:              { bg: "#D1FAE520", text: "#065F46", dot: "#10B981" },
+  rejected:              { bg: "#FEE2E220", text: "#991B1B", dot: "#EF4444" },
+  conditionally_approved:{ bg: "#FEF3C720", text: "#92400E", dot: "#F59E0B" },
+  conditionally_approved_info_added: { bg: "#EFF6FF20", text: "#1D4ED8", dot: "#3B82F6" },
+  removal_requested:     { bg: "#FDF2F820", text: "#9D174D", dot: "#EC4899" },
+  removed:               { bg: T.surface2, text: T.text3, dot: "#94A3B8" },
 };
 
-const StatusPill = ({ status }) => {
-  const s = STATUS_COLORS[status] || STATUS_COLORS.draft;
-  return <span style={_pill(s.bg, s.fg)}>{(status || "draft").replace(/_/g, " ")}</span>;
+const STATUS_LABELS = {
+  pending: "Pending", approved: "Approved", rejected: "Rejected",
+  conditionally_approved: "Info Required", conditionally_approved_info_added: "Info Added",
+  removal_requested: "Removal Requested", removed: "Removed",
 };
 
+const ROLE_LABELS = { admin: "Admin", approver: "Approver", requester: "Requester" };
+
+const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n || 0);
+const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : 0;
+
+const annualiseAmount = (r) => {
+  if (r.cost_type !== "recurring") return r.amount || 0;
+  const perPeriod = r.recurring_amount || r.amount || 0;
+  const firstAmt = (r.first_amount && r.first_amount !== perPeriod) ? r.first_amount : perPeriod;
+  const freq = r.recurring_frequency;
+  const periods = { weekly: 52, monthly: 12, quarterly: 4, annually: 1 }[freq] || 12;
+  if (r.recurring_end_date) {
+    const end = new Date(r.recurring_end_date);
+    const today = new Date();
+    const msPerPeriod = { weekly: 7, monthly: 30.44, quarterly: 91.31, annually: 365.25 }[freq] || 30.44;
+    const days = Math.max(0, (end - today) / 86400000);
+    const count = Math.ceil(days / msPerPeriod);
+    return firstAmt + (Math.max(0, count - 1) * perPeriod);
+  }
+  return firstAmt + ((periods - 1) * perPeriod);
+};
+
+// ── Shared UI Components ─────────────────────────────────────────────────────
+const Badge = ({ status }) => {
+  const c = STATUS_COLORS[status] || STATUS_COLORS.pending;
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: c.bg, color: c.text, padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600 }}>
+    <span style={{ width: 6, height: 6, borderRadius: "50%", background: c.dot }} />{STATUS_LABELS[status] || status}
+  </span>;
+};
+
+const Card = ({ children, style = {}, onClick }) => (
+  <div onClick={onClick} style={{ background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 20, cursor: onClick ? "pointer" : "default", transition: "box-shadow 0.15s", position: "relative", ...style }}
+    onMouseEnter={e => { if (onClick) e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.1)"; }}
+    onMouseLeave={e => { if (onClick) e.currentTarget.style.boxShadow = "none"; }}>
+    {children}
+  </div>
+);
+
+const ProgressBar = ({ value, max, color = T.accent, height = 6 }) => {
+  const ratio = max > 0 ? value / max : 0;
+  const barColor = ratio > 1 ? "#EF4444" : ratio > 0.85 ? "#F59E0B" : color;
+  return (
+    <div style={{ height, background: T.surface2, borderRadius: height, overflow: "hidden" }}>
+      <div style={{ height: "100%", background: barColor, borderRadius: height, width: `${Math.min(100, pct(value, max))}%`, transition: "width 0.5s" }} />
+    </div>
+  );
+};
+
+
+// ── Approval Chain Stepper ───────────────────────────────────────────────────
+const ApprovalChain = ({ req, employees }) => {
+  const isPersonChain = (req.approval_chain || "").startsWith("person_");
+  const chain = isPersonChain
+    ? [{ role: "Specific", label: req.require_person_name || "Named Approver" }]
+    : (APPROVAL_CHAINS[req.approval_chain] || APPROVAL_CHAINS.standard);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+      {chain.map((step, idx) => {
+        const done = idx < req.approval_step || req.status === "approved";
+        const current = idx === req.approval_step && req.status === "pending";
+        const approval = (req.approvals || []).find(a => a.step === idx);
+        const approver = approval ? employees.find(e => e.user_id === approval.by) : null;
+        return (
+          <div key={idx} style={{ display: "flex", alignItems: "center" }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700,
+                background: done ? "#10B981" : current ? T.accent : T.surface2,
+                color: done || current ? "#fff" : T.text3,
+                border: current ? `2px solid ${T.accent}40` : "2px solid transparent",
+              }}>{done ? "✓" : idx + 1}</div>
+              <div style={{ fontSize: 9, fontWeight: 600, color: done ? "#10B981" : current ? T.accent : T.text3, marginTop: 2, whiteSpace: "nowrap" }}>{step.label}</div>
+              {approver && <div style={{ fontSize: 8, color: T.text3 }}>{approver.display_name?.split(" ")[0]}</div>}
+            </div>
+            {idx < chain.length - 1 && <div style={{ width: 24, height: 2, background: done ? "#10B981" : T.border, margin: "0 2px", marginBottom: 14 }} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN EXPORT
+// ═══════════════════════════════════════════════════════════════════════════════
 export default function FinanceView() {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
-  const [tab, setTab] = useState("Dashboard");
-  const [budgets, setBudgets] = useState([]);
-  const [budgetLines, setBudgetLines] = useState([]);
-  const [pos, setPOs] = useState([]);
-  const [poLines, setPOLines] = useState([]);
-  const [expenses, setExpenses] = useState([]);
-  const [expenseItems, setExpenseItems] = useState([]);
-  const [invoices, setInvoices] = useState([]);
-  const [invoiceLines, setInvoiceLines] = useState([]);
-  const [vendors, setVendors] = useState([]);
-  const [accounts, setAccounts] = useState([]);
-  const [approvals, setApprovals] = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [profiles, setProfiles] = useState({});
+  const [view, setView] = useState("dashboard");
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(null); // {type, mode, data}
-  const [toast, setToast] = useState(null);
-  const [importType, setImportType] = useState("vendors");
-  const [csvData, setCsvData] = useState(null); // {headers, rows}
-  const [colMap, setColMap] = useState({});
-  const [importPreview, setImportPreview] = useState(null);
-  const [importing, setImporting] = useState(false);
-  const [glSearch, setGlSearch] = useState("");
-  const [expSearch, setExpSearch] = useState("");
-  const [expSort, setExpSort] = useState("amount"); // amount, name, count
-  const [selectedReport, setSelectedReport] = useState(null);
-  const [selectedItems, setSelectedItems] = useState([]);
-  const [vendorSearch, setVendorSearch] = useState("");
-  const [drillCategory, setDrillCategory] = useState(null); // which P&L category is expanded
-  const [aiAnalysis, setAiAnalysis] = useState(null); // AI insights
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiReclassifying, setAiReclassifying] = useState({});
-  // QBO state
-  const [qboConn, setQboConn] = useState(null);
-  const [qboAccounts, setQboAccounts] = useState([]);
-  const [qboVendors, setQboVendors] = useState([]);
-  const [qboBills, setQboBills] = useState([]);
-  const [qboCustomers, setQboCustomers] = useState([]);
-  const [qboInvoices, setQboInvoices] = useState([]);
-  const [qboPlRows, setQboPlRows] = useState([]);
-  const [qboSyncing, setQboSyncing] = useState(false);
-  const [qboLoaded, setQboLoaded] = useState(false);
-  const [qboTab, setQboTab] = useState("pl");
-  const [fcDrivers, setFcDrivers] = useState({
-    dtcAdSpend: 2300000, dtcCAC: 65, dtcAOV1st: 44.52, dtcAOV2nd: 49.15,
-    amznAdSpend: 400000, amznCAC: 12.4, amznAOV: 19.3,
-    walmartDoors: 4000, walmartVel: 1.2, targetDoors: 1800, targetVel: 0.9, krogerDoors: 1785, krogerVel: 0.95,
-    discountRate: -0.0924, chargebackRate: -0.0192, ccRate: 0.04,
-    inflator27: 0.02, inflator28: 0.02, decayCurve: 2,
-  });
 
-  const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), type === "error" ? 8000 : 3000); }, []);
-  const orgId = profile?.org_id;
+  // Core data
+  const [requests, setRequests] = useState([]);
+  const [glCategories, setGlCategories] = useState([]);
+  const [glCodes, setGlCodes] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [employees, setEmployees] = useState([]); // af_employee_settings joined with profiles
+  const [rules, setRules] = useState([]);
+  const [auditLog, setAuditLog] = useState([]);
+  const [budgetVersions, setBudgetVersions] = useState([]);
+  const [activeBudget, setActiveBudget] = useState(null); // current budget version data
+  const [activeBudgetName, setActiveBudgetName] = useState(null);
+
+  // My employee settings
+  const [mySettings, setMySettings] = useState(null);
 
   useEffect(() => {
-    if (!orgId) return;
-    (async () => {
-      const [b, bl, po, pol, ex, inv, il, v, a, ap, pay, pr] = await Promise.all([
-        supabase.from("fin_budgets").select("*").eq("org_id", orgId),
-        supabase.from("fin_budget_lines").select("*"),
-        supabase.from("fin_purchase_orders").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
-        supabase.from("fin_po_lines").select("*"),
-        supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("total_amount", { ascending: false }),
-        supabase.from("fin_invoices").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
-        supabase.from("fin_invoice_lines").select("*"),
-        supabase.from("fin_vendors").select("*").eq("org_id", orgId),
-        supabase.from("fin_accounts").select("*").eq("org_id", orgId).order("code"),
-        supabase.from("fin_approvals").select("*").eq("org_id", orgId),
-        supabase.from("fin_payments").select("*").eq("org_id", orgId),
-        supabase.from("profiles").select("id, display_name, email, avatar_url"),
+    const load = async () => {
+      const [
+        { data: reqs }, { data: cats }, { data: codes }, { data: depts },
+        { data: emps }, { data: rls }, { data: audit }, { data: bv },
+        { data: mySett },
+      ] = await Promise.all([
+        supabase.from("af_requests").select("*").order("created_at", { ascending: false }),
+        supabase.from("af_gl_categories").select("*").order("sort_order"),
+        supabase.from("af_gl_codes").select("*").order("code"),
+        supabase.from("af_departments").select("*").order("name"),
+        supabase.from("af_employee_settings").select("*, profiles(display_name, avatar_url, email)").order("created_at"),
+        supabase.from("af_rules").select("*").order("sort_order"),
+        supabase.from("af_audit_log").select("*").order("created_at", { ascending: false }).limit(100),
+        supabase.from("af_budget_versions").select("*").order("saved_at", { ascending: false }),
+        supabase.from("af_employee_settings").select("*").eq("user_id", user?.id).maybeSingle(),
       ]);
-      setBudgets(b.data || []);
-      setBudgetLines(bl.data || []);
-      setPOs(po.data || []);
-      setPOLines(pol.data || []);
-      setExpenses(ex.data || []);
-      setExpenseItems([]); // Load on demand per report
-      setInvoices(inv.data || []);
-      setInvoiceLines(il.data || []);
-      setVendors(v.data || []);
-      setAccounts(a.data || []);
-      setApprovals(ap.data || []);
-      setPayments(pay.data || []);
-      const pm = {};
-      (pr.data || []).forEach(p => pm[p.id] = p);
-      setProfiles(pm);
+      setRequests(reqs || []);
+      setGlCategories(cats || []);
+      setGlCodes(codes || []);
+      setDepartments(depts || []);
+      setEmployees(emps || []);
+      setRules(rls || []);
+      setAuditLog(audit || []);
+      setBudgetVersions(bv || []);
+      setMySettings(mySett);
+
+      // Load default budget
+      const defaultBv = (bv || []).find(b => b.is_default);
+      if (defaultBv) { setActiveBudget(defaultBv.data); setActiveBudgetName(defaultBv.name); }
+
       setLoading(false);
-    })();
-  }, [orgId]);
-
-  const uname = (id) => profiles[id]?.display_name || "";
-  const vname = (id) => vendors.find(v => v.id === id)?.name || "";
-  const acctName = (id) => { const a = accounts.find(a => a.id === id); return a ? `${a.code} ${a.name}` : ""; };
-  
-  // Load expense items on demand for a selected report
-  const loadReportItems = async (reportId) => {
-    setSelectedReport(reportId);
-    const { data } = await supabase.from("fin_expense_items").select("*").eq("report_id", reportId).order("date", { ascending: false }).limit(500);
-    setSelectedItems(data || []);
-  };
-
-  const runAiAnalysis = async () => {
-    setAiLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const resp = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/fin-analyze`, {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` },
-        body: JSON.stringify({ action: "analyze" })
-      });
-      const result = await resp.json();
-      if (result.error) { showToast("AI error: " + result.error, "error"); setAiAnalysis({ summary: "Error: " + result.error, trends: [], misclassifications: [], recommendations: [] }); }
-      else setAiAnalysis(result);
-    } catch (err) { showToast("AI analysis failed: " + err.message, "error"); }
-    setAiLoading(false);
-  };
-
-  const approveReclassify = async (misclass, idx) => {
-    setAiReclassifying(p => ({ ...p, [idx]: "loading" }));
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const resp = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/fin-analyze`, {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` },
-        body: JSON.stringify({ action: "reclassify", data: { vendor: misclass.vendor, from_account: misclass.current_account, to_account: misclass.suggested_account } })
-      });
-      const result = await resp.json();
-      if (result.error) { showToast("Reclassify error: " + result.error, "error"); setAiReclassifying(p => ({ ...p, [idx]: "error" })); }
-      else { showToast(`Moved ${result.moved} transactions ($${result.amount?.toLocaleString()}) to ${misclass.suggested_account}`); setAiReclassifying(p => ({ ...p, [idx]: "done" })); 
-        // Refresh reports
-        const { data: er } = await supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("total_amount", { ascending: false });
-        setExpenses(er || []);
-      }
-    } catch (err) { showToast("Failed: " + err.message, "error"); setAiReclassifying(p => ({ ...p, [idx]: "error" })); }
-  };
-
-  // ──── CRUD helpers ────
-  const saveRecord = async (table, data, list, setList, idField = "id") => {
-    if (data[idField]) {
-      const { id, created_at, updated_at, ...rest } = data;
-      const { data: upd, error } = await supabase.from(table).update(rest).eq("id", id).select().single();
-      if (error) { showToast(error.message, "error"); return null; }
-      setList(p => p.map(r => r.id === id ? upd : r));
-      return upd;
-    } else {
-      const { data: ins, error } = await supabase.from(table).insert({ ...data, org_id: orgId }).select().single();
-      if (error) { showToast(error.message, "error"); return null; }
-      setList(p => [ins, ...p]);
-      return ins;
-    }
-  };
-
-  const deleteRecord = async (table, id, list, setList) => {
-    if (!window.confirm("Delete this item permanently?")) return;
-    await supabase.from(table).delete().eq("id", id);
-    setList(p => p.filter(r => r.id !== id));
-    showToast("Deleted");
-  };
-
-  // ──── Auto-number generators ────
-  const nextPO = async () => { const { data } = await supabase.rpc("fin_next_po_number", { org: orgId }); return data || "PO-" + Date.now(); };
-  const nextEXP = async () => { const { data } = await supabase.rpc("fin_next_exp_number", { org: orgId }); return data || "EXP-" + Date.now(); };
-  const nextINV = async () => { const { data } = await supabase.rpc("fin_next_inv_number", { org: orgId }); return data || "INV-" + Date.now(); };
-
-  // ──── SUBMIT FOR APPROVAL ────
-  const submitForApproval = async (type, id, amount) => {
-    // Find matching approval chain
-    const { data: chains } = await supabase.from("fin_approval_chains").select("*, fin_approval_steps(*)").eq("org_id", orgId).eq("is_active", true).or(`applies_to.eq.${type},applies_to.eq.any`);
-    let chain = (chains || []).find(c => (!c.min_amount || amount >= c.min_amount) && (!c.max_amount || amount <= c.max_amount)) || (chains || [])[0];
-    if (!chain) {
-      // No chain configured — auto-approve
-      const statusTable = type === "purchase_order" ? "fin_purchase_orders" : type === "expense" ? "fin_expense_reports" : "fin_invoices";
-      await supabase.from(statusTable).update({ status: "approved" }).eq("id", id);
-      if (type === "purchase_order") setPOs(p => p.map(r => r.id === id ? { ...r, status: "approved" } : r));
-      if (type === "expense") setExpenses(p => p.map(r => r.id === id ? { ...r, status: "approved" } : r));
-      if (type === "invoice") setInvoices(p => p.map(r => r.id === id ? { ...r, status: "approved" } : r));
-      showToast("Auto-approved (no approval chain configured)");
-      return;
-    }
-    const steps = (chain.fin_approval_steps || []).sort((a, b) => a.step_order - b.step_order);
-    const { data: approval } = await supabase.from("fin_approvals").insert({
-      org_id: orgId, chain_id: chain.id, approvable_type: type, approvable_id: id,
-      current_step: 1, total_steps: steps.length, status: "in_progress", submitted_by: user?.id
-    }).select().single();
-    if (approval) {
-      setApprovals(p => [...p, approval]);
-      // Create placeholder decisions for each step
-      for (const s of steps) {
-        await supabase.from("fin_approval_decisions").insert({ approval_id: approval.id, step_order: s.step_order, step_id: s.id, approver_id: s.approver_id });
-      }
-    }
-    // Update source status
-    const statusTable = type === "purchase_order" ? "fin_purchase_orders" : type === "expense" ? "fin_expense_reports" : "fin_invoices";
-    await supabase.from(statusTable).update({ status: "pending_approval" }).eq("id", id);
-    if (type === "purchase_order") setPOs(p => p.map(r => r.id === id ? { ...r, status: "pending_approval" } : r));
-    if (type === "expense") setExpenses(p => p.map(r => r.id === id ? { ...r, status: "pending_approval", submitted_at: new Date().toISOString() } : r));
-    if (type === "invoice") setInvoices(p => p.map(r => r.id === id ? { ...r, status: "pending_approval" } : r));
-    showToast("Submitted for approval");
-  };
-
-  // ──── APPROVE / REJECT ────
-  const handleApprovalDecision = async (approvalId, decision, comment) => {
-    const appr = approvals.find(a => a.id === approvalId);
-    if (!appr) return;
-    // Record decision for current step
-    await supabase.from("fin_approval_decisions").update({ decision, comment, approver_id: user?.id, decided_at: new Date().toISOString() }).eq("approval_id", approvalId).eq("step_order", appr.current_step);
-    if (decision === "rejected") {
-      await supabase.from("fin_approvals").update({ status: "rejected", completed_at: new Date().toISOString() }).eq("id", approvalId);
-      setApprovals(p => p.map(a => a.id === approvalId ? { ...a, status: "rejected" } : a));
-      const statusTable = appr.approvable_type === "purchase_order" ? "fin_purchase_orders" : appr.approvable_type === "expense" ? "fin_expense_reports" : "fin_invoices";
-      await supabase.from(statusTable).update({ status: "rejected" }).eq("id", appr.approvable_id);
-      showToast("Rejected");
-    } else if (appr.current_step >= appr.total_steps) {
-      // Final step — fully approved
-      await supabase.from("fin_approvals").update({ status: "approved", completed_at: new Date().toISOString() }).eq("id", approvalId);
-      setApprovals(p => p.map(a => a.id === approvalId ? { ...a, status: "approved" } : a));
-      const statusTable = appr.approvable_type === "purchase_order" ? "fin_purchase_orders" : appr.approvable_type === "expense" ? "fin_expense_reports" : "fin_invoices";
-      await supabase.from(statusTable).update({ status: "approved" }).eq("id", appr.approvable_id);
-      if (appr.approvable_type === "purchase_order") setPOs(p => p.map(r => r.id === appr.approvable_id ? { ...r, status: "approved" } : r));
-      if (appr.approvable_type === "expense") setExpenses(p => p.map(r => r.id === appr.approvable_id ? { ...r, status: "approved" } : r));
-      if (appr.approvable_type === "invoice") setInvoices(p => p.map(r => r.id === appr.approvable_id ? { ...r, status: "approved" } : r));
-      showToast("Approved!");
-    } else {
-      // Advance to next step
-      await supabase.from("fin_approvals").update({ current_step: appr.current_step + 1 }).eq("id", approvalId);
-      setApprovals(p => p.map(a => a.id === approvalId ? { ...a, current_step: a.current_step + 1 } : a));
-      showToast(`Step ${appr.current_step} approved — moved to step ${appr.current_step + 1}`);
-    }
-  };
-
-  // ──── TABLE COMPONENT ────
-  const Table = ({ columns, data, onRowClick, emptyMsg }) => (
-    <div style={{ overflow: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-        <thead><tr style={{ background: T.surface2 }}>
-          {columns.map((c, i) => <th key={i} style={{ padding: "10px 12px", textAlign: c.align || "left", fontWeight: 600, color: T.text2, borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap", fontSize: 12 }}>{c.label}</th>)}
-        </tr></thead>
-        <tbody>
-          {data.length === 0 ? <tr><td colSpan={columns.length} style={{ padding: 40, textAlign: "center", color: T.text3, fontStyle: "italic" }}>{emptyMsg || "No records yet"}</td></tr> :
-          data.map((row, ri) => <tr key={row.id || ri} onClick={() => onRowClick?.(row)} style={{ cursor: onRowClick ? "pointer" : "default", borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-            {columns.map((c, ci) => <td key={ci} style={{ padding: "10px 12px", textAlign: c.align || "left", color: T.text, whiteSpace: c.nowrap ? "nowrap" : "normal" }}>{c.render ? c.render(row) : row[c.key]}</td>)}
-          </tr>)}
-        </tbody>
-      </table>
-    </div>
-  );
-
-  // ──── MODAL FORM ────
-  const ModalForm = () => {
-    if (!modal) return null;
-    const { type, mode, data: initialData } = modal;
-    const [f, setF] = useState(initialData || {});
-    const [lines, setLines] = useState([]);
-    const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-
-    useEffect(() => {
-      if (mode === "edit" && f.id) {
-        if (type === "po") supabase.from("fin_po_lines").select("*").eq("po_id", f.id).order("sort_order").then(r => setLines(r.data || []));
-        if (type === "expense") supabase.from("fin_expense_items").select("*").eq("report_id", f.id).order("sort_order").then(r => setLines(r.data || []));
-        if (type === "invoice") supabase.from("fin_invoice_lines").select("*").eq("invoice_id", f.id).order("sort_order").then(r => setLines(r.data || []));
-      }
-    }, []);
-
-    const save = async () => {
-      if (type === "budget") {
-        const rec = await saveRecord("fin_budgets", { ...f, total_amount: Number(f.total_amount) || 0 }, budgets, setBudgets);
-        if (rec) setModal(null);
-      } else if (type === "vendor") {
-        const rec = await saveRecord("fin_vendors", f, vendors, setVendors);
-        if (rec) setModal(null);
-      } else if (type === "po") {
-        if (!f.title) return showToast("Title required", "error");
-        let num = f.po_number;
-        if (!num && mode === "new") num = await nextPO();
-        const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 1) * (Number(l.unit_price) || 0), 0);
-        const taxAmt = lines.reduce((s, l) => s + ((Number(l.quantity) || 1) * (Number(l.unit_price) || 0) * (Number(l.tax_rate) || 0) / 100), 0);
-        const total = subtotal + taxAmt + (Number(f.shipping_amount) || 0);
-        const rec = await saveRecord("fin_purchase_orders", { ...f, po_number: num, subtotal, tax_amount: taxAmt, total_amount: total, requested_by: f.requested_by || user?.id }, pos, setPOs);
-        if (rec) {
-          // Save lines
-          if (f.id) await supabase.from("fin_po_lines").delete().eq("po_id", f.id);
-          if (lines.length > 0) {
-            const lineData = lines.map((l, i) => ({ po_id: rec.id, line_number: i + 1, description: l.description, quantity: Number(l.quantity) || 1, unit_price: Number(l.unit_price) || 0, unit: l.unit || "ea", tax_rate: Number(l.tax_rate) || 0, sort_order: i, account_id: l.account_id || null }));
-            await supabase.from("fin_po_lines").insert(lineData);
-            setPOLines(p => [...p.filter(l => l.po_id !== rec.id), ...lineData.map((l, i) => ({ ...l, id: `temp-${i}` }))]);
-          }
-          setModal(null);
-        }
-      } else if (type === "expense") {
-        if (!f.title) return showToast("Title required", "error");
-        let num = f.report_number;
-        if (!num && mode === "new") num = await nextEXP();
-        const total = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
-        const rec = await saveRecord("fin_expense_reports", { ...f, report_number: num, total_amount: total, submitted_by: f.submitted_by || user?.id }, expenses, setExpenses);
-        if (rec) {
-          if (f.id) await supabase.from("fin_expense_items").delete().eq("report_id", f.id);
-          if (lines.length > 0) {
-            const lineData = lines.map((l, i) => ({ report_id: rec.id, date: l.date || new Date().toISOString().slice(0, 10), category: l.category || "other", description: l.description, amount: Number(l.amount) || 0, vendor_name: l.vendor_name, receipt_url: l.receipt_url, sort_order: i }));
-            await supabase.from("fin_expense_items").insert(lineData);
-          }
-          setModal(null);
-        }
-      } else if (type === "invoice") {
-        if (!f.invoice_number) return showToast("Invoice number required", "error");
-        let ref = f.internal_ref;
-        if (!ref && mode === "new") ref = await nextINV();
-        const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 1) * (Number(l.unit_price) || 0), 0);
-        const rec = await saveRecord("fin_invoices", { ...f, internal_ref: ref, subtotal, total_amount: subtotal + (Number(f.tax_amount) || 0) }, invoices, setInvoices);
-        if (rec) {
-          if (f.id) await supabase.from("fin_invoice_lines").delete().eq("invoice_id", f.id);
-          if (lines.length > 0) {
-            const lineData = lines.map((l, i) => ({ invoice_id: rec.id, description: l.description, quantity: Number(l.quantity) || 1, unit_price: Number(l.unit_price) || 0, sort_order: i }));
-            await supabase.from("fin_invoice_lines").insert(lineData);
-          }
-          setModal(null);
-        }
-      } else if (type === "account") {
-        const rec = await saveRecord("fin_accounts", f, accounts, setAccounts);
-        if (rec) setModal(null);
-      }
-      showToast(mode === "new" ? "Created" : "Updated");
     };
+    if (user) load();
+  }, [user]);
 
-    const addLine = () => setLines(p => [...p, { description: "", quantity: 1, unit_price: 0, amount: 0, category: "other", date: new Date().toISOString().slice(0, 10) }]);
-    const setLine = (idx, k, v) => setLines(p => p.map((l, i) => i === idx ? { ...l, [k]: v } : l));
-    const removeLine = (idx) => setLines(p => p.filter((_, i) => i !== idx));
-    const lineTotal = lines.reduce((s, l) => s + ((Number(l.quantity) || 1) * (Number(l.unit_price) || 0) + (Number(l.amount) || 0)), 0);
-
-    return (
-      <div onClick={() => setModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 12, padding: 24, width: 680, maxHeight: "90vh", overflow: "auto", boxShadow: "0 16px 48px rgba(0,0,0,0.3)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>{mode === "new" ? "New" : "Edit"} {type === "po" ? "Purchase Order" : type === "expense" ? "Expense Report" : type === "account" ? "Account" : type.charAt(0).toUpperCase() + type.slice(1)}</h3>
-            <button onClick={() => setModal(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: T.text3 }}>×</button>
-          </div>
-
-          {/* Budget form */}
-          {type === "budget" && <>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Name *</label><input value={f.name || ""} onChange={e => set("name", e.target.value)} style={_inp} placeholder="e.g. Q2 Marketing Budget" /></div>
-              <div><label style={_lbl}>Fiscal Year</label><input type="number" value={f.fiscal_year || ""} onChange={e => set("fiscal_year", e.target.value)} style={_inp} placeholder="2026" /></div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Total Amount *</label><input type="number" value={f.total_amount || ""} onChange={e => set("total_amount", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Period</label><select value={f.period || ""} onChange={e => set("period", e.target.value)} style={_sel}><option value="">Select</option><option>annual</option><option>quarterly</option><option>monthly</option><option>custom</option></select></div>
-              <div><label style={_lbl}>Status</label><select value={f.status || "draft"} onChange={e => set("status", e.target.value)} style={_sel}><option>draft</option><option>active</option><option>frozen</option><option>closed</option></select></div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Start Date</label><input type="date" value={f.start_date || ""} onChange={e => set("start_date", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>End Date</label><input type="date" value={f.end_date || ""} onChange={e => set("end_date", e.target.value)} style={_inp} /></div>
-            </div>
-            <div><label style={_lbl}>Description</label><textarea value={f.description || ""} onChange={e => set("description", e.target.value)} rows={2} style={{ ..._inp, resize: "vertical" }} /></div>
-          </>}
-
-          {/* Vendor form */}
-          {type === "vendor" && <>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Name *</label><input value={f.name || ""} onChange={e => set("name", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Code</label><input value={f.code || ""} onChange={e => set("code", e.target.value)} style={_inp} placeholder="Internal code" /></div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Contact Name</label><input value={f.contact_name || ""} onChange={e => set("contact_name", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Email</label><input value={f.contact_email || ""} onChange={e => set("contact_email", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Phone</label><input value={f.contact_phone || ""} onChange={e => set("contact_phone", e.target.value)} style={_inp} /></div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Payment Terms</label><select value={f.payment_terms || "net_30"} onChange={e => set("payment_terms", e.target.value)} style={_sel}><option value="immediate">Immediate</option><option value="net_15">Net 15</option><option value="net_30">Net 30</option><option value="net_45">Net 45</option><option value="net_60">Net 60</option><option value="net_90">Net 90</option></select></div>
-              <div><label style={_lbl}>Category</label><input value={f.category || ""} onChange={e => set("category", e.target.value)} style={_inp} placeholder="e.g. Raw Materials" /></div>
-            </div>
-            <div><label style={_lbl}>Tax ID</label><input value={f.tax_id || ""} onChange={e => set("tax_id", e.target.value)} style={_inp} /></div>
-          </>}
-
-          {/* Account form */}
-          {type === "account" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Code *</label><input value={f.code || ""} onChange={e => set("code", e.target.value)} style={_inp} placeholder="5100" /></div>
-              <div><label style={_lbl}>Name *</label><input value={f.name || ""} onChange={e => set("name", e.target.value)} style={_inp} placeholder="Marketing Expenses" /></div>
-            </div>
-            <div style={{ marginBottom: 12 }}><label style={_lbl}>Type</label><select value={f.type || "expense"} onChange={e => set("type", e.target.value)} style={_sel}><option>expense</option><option>revenue</option><option>asset</option><option>liability</option></select></div>
-            <div><label style={_lbl}>Description</label><input value={f.description || ""} onChange={e => set("description", e.target.value)} style={_inp} /></div>
-          </>}
-
-          {/* PO form */}
-          {type === "po" && <>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Title *</label><input value={f.title || ""} onChange={e => set("title", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Vendor</label><select value={f.vendor_id || ""} onChange={e => set("vendor_id", e.target.value)} style={_sel}><option value="">Select vendor</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Priority</label><select value={f.priority || "normal"} onChange={e => set("priority", e.target.value)} style={_sel}><option>low</option><option>normal</option><option>high</option><option>urgent</option></select></div>
-              <div><label style={_lbl}>Required By</label><input type="date" value={f.required_by || ""} onChange={e => set("required_by", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Budget</label><select value={f.budget_id || ""} onChange={e => set("budget_id", e.target.value)} style={_sel}><option value="">None</option>{budgets.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-            </div>
-            <div style={{ marginBottom: 8 }}><label style={_lbl}>Notes</label><textarea value={f.notes || ""} onChange={e => set("notes", e.target.value)} rows={2} style={{ ..._inp, resize: "vertical" }} /></div>
-            <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Line Items</span>
-              <button onClick={addLine} style={{ ..._btn, background: T.accent, color: "#fff", padding: "4px 12px", fontSize: 12 }}>+ Add Line</button>
-            </div>
-            {lines.map((l, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 60px 90px 60px 24px", gap: 6, marginBottom: 4, alignItems: "end" }}>
-                <input value={l.description || ""} onChange={e => setLine(i, "description", e.target.value)} placeholder="Description" style={{ ..._inp, padding: "6px 8px", fontSize: 12 }} />
-                <input type="number" value={l.quantity || ""} onChange={e => setLine(i, "quantity", e.target.value)} placeholder="Qty" style={{ ..._inp, padding: "6px 8px", fontSize: 12 }} />
-                <input type="number" value={l.unit_price || ""} onChange={e => setLine(i, "unit_price", e.target.value)} placeholder="Price" style={{ ..._inp, padding: "6px 8px", fontSize: 12 }} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: T.accent, textAlign: "right" }}>{fmt((Number(l.quantity) || 1) * (Number(l.unit_price) || 0))}</span>
-                <button onClick={() => removeLine(i)} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 14 }}>×</button>
-              </div>
-            ))}
-            {lines.length > 0 && <div style={{ textAlign: "right", fontSize: 14, fontWeight: 700, color: T.text, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>Total: {fmt(lineTotal + (Number(f.shipping_amount) || 0))}</div>}
-          </>}
-
-          {/* Expense form */}
-          {type === "expense" && <>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Title *</label><input value={f.title || ""} onChange={e => set("title", e.target.value)} style={_inp} placeholder="e.g. Q1 Travel Expenses" /></div>
-              <div><label style={_lbl}>Budget</label><select value={f.budget_id || ""} onChange={e => set("budget_id", e.target.value)} style={_sel}><option value="">None</option>{budgets.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-            </div>
-            <div style={{ marginBottom: 8 }}><label style={_lbl}>Description</label><textarea value={f.description || ""} onChange={e => set("description", e.target.value)} rows={2} style={{ ..._inp, resize: "vertical" }} /></div>
-            <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Expense Items</span>
-              <button onClick={addLine} style={{ ..._btn, background: T.accent, color: "#fff", padding: "4px 12px", fontSize: 12 }}>+ Add Item</button>
-            </div>
-            {lines.map((l, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "90px 100px 2fr 90px 24px", gap: 6, marginBottom: 4, alignItems: "end" }}>
-                <input type="date" value={l.date || ""} onChange={e => setLine(i, "date", e.target.value)} style={{ ..._inp, padding: "6px 4px", fontSize: 11 }} />
-                <select value={l.category || "other"} onChange={e => setLine(i, "category", e.target.value)} style={{ ..._inp, padding: "6px 4px", fontSize: 11 }}>
-                  {["travel","meals","lodging","transport","office_supplies","software","equipment","phone","internet","training","entertainment","subscriptions","shipping","other"].map(c => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
-                </select>
-                <input value={l.description || ""} onChange={e => setLine(i, "description", e.target.value)} placeholder="Description" style={{ ..._inp, padding: "6px 8px", fontSize: 12 }} />
-                <input type="number" value={l.amount || ""} onChange={e => setLine(i, "amount", e.target.value)} placeholder="Amount" style={{ ..._inp, padding: "6px 8px", fontSize: 12 }} />
-                <button onClick={() => removeLine(i)} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 14 }}>×</button>
-              </div>
-            ))}
-            {lines.length > 0 && <div style={{ textAlign: "right", fontSize: 14, fontWeight: 700, color: T.text, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>Total: {fmt(lines.reduce((s, l) => s + (Number(l.amount) || 0), 0))}</div>}
-          </>}
-
-          {/* Invoice form */}
-          {type === "invoice" && <>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Vendor Invoice # *</label><input value={f.invoice_number || ""} onChange={e => set("invoice_number", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Vendor</label><select value={f.vendor_id || ""} onChange={e => set("vendor_id", e.target.value)} style={_sel}><option value="">Select</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={_lbl}>Invoice Date</label><input type="date" value={f.invoice_date || ""} onChange={e => set("invoice_date", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Due Date</label><input type="date" value={f.due_date || ""} onChange={e => set("due_date", e.target.value)} style={_inp} /></div>
-              <div><label style={_lbl}>Linked PO</label><select value={f.po_id || ""} onChange={e => set("po_id", e.target.value)} style={_sel}><option value="">None</option>{pos.map(p => <option key={p.id} value={p.id}>{p.po_number} — {p.title}</option>)}</select></div>
-            </div>
-            <div style={{ marginBottom: 8 }}><label style={_lbl}>Title</label><input value={f.title || ""} onChange={e => set("title", e.target.value)} style={_inp} /></div>
-            <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Line Items</span>
-              <button onClick={addLine} style={{ ..._btn, background: T.accent, color: "#fff", padding: "4px 12px", fontSize: 12 }}>+ Add Line</button>
-            </div>
-            {lines.map((l, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 60px 90px 60px 24px", gap: 6, marginBottom: 4, alignItems: "end" }}>
-                <input value={l.description || ""} onChange={e => setLine(i, "description", e.target.value)} placeholder="Description" style={{ ..._inp, padding: "6px 8px", fontSize: 12 }} />
-                <input type="number" value={l.quantity || ""} onChange={e => setLine(i, "quantity", e.target.value)} placeholder="Qty" style={{ ..._inp, padding: "6px 8px", fontSize: 12 }} />
-                <input type="number" value={l.unit_price || ""} onChange={e => setLine(i, "unit_price", e.target.value)} placeholder="Price" style={{ ..._inp, padding: "6px 8px", fontSize: 12 }} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: T.accent, textAlign: "right" }}>{fmt((Number(l.quantity) || 1) * (Number(l.unit_price) || 0))}</span>
-                <button onClick={() => removeLine(i)} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 14 }}>×</button>
-              </div>
-            ))}
-            {lines.length > 0 && <div style={{ textAlign: "right", fontSize: 14, fontWeight: 700, color: T.text, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>Total: {fmt(lineTotal)}</div>}
-          </>}
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
-            <button onClick={() => setModal(null)} style={{ ..._btn, background: T.surface3, color: T.text3 }}>Cancel</button>
-            <button onClick={save} style={{ ..._btn, background: T.accent, color: "#fff" }}>Save</button>
-          </div>
-        </div>
-      </div>
-    );
+  // ── CRUD helpers ───────────────────────────────────────────────────────────
+  const addRequest = async (req) => {
+    const { data } = await supabase.from("af_requests").insert(req).select().single();
+    if (data) setRequests(p => [data, ...p]);
+    return data;
   };
 
-  // ──── DASHBOARD TAB ────
-  const totalBudget = budgets.reduce((s, b) => s + Number(b.total_amount || 0), 0);
-  const totalPO = pos.reduce((s, p) => s + Number(p.total_amount || 0), 0);
-  const totalExp = expenses.reduce((s, e) => s + Number(e.total_amount || 0), 0);
-  const totalInv = invoices.reduce((s, i) => s + Number(i.total_amount || 0), 0);
-  const totalPaid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
-  const pendingApprovals = approvals.filter(a => a.status === "in_progress" || a.status === "pending");
-  const overdueInvoices = invoices.filter(i => i.due_date && new Date(i.due_date) < new Date() && !["paid", "void"].includes(i.status));
+  const updateRequest = async (id, patch) => {
+    await supabase.from("af_requests").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+    setRequests(p => p.map(r => r.id === id ? { ...r, ...patch } : r));
+  };
 
-  const StatCard = ({ label, value, sub, color, onClick }) => (
-    <div onClick={onClick} style={{ background: T.surface, borderRadius: 10, padding: 20, border: `1px solid ${T.border}`, flex: 1, cursor: onClick ? "pointer" : "default", transition: "all 0.15s" }} onMouseEnter={e => onClick && (e.currentTarget.style.borderColor = T.accent)} onMouseLeave={e => onClick && (e.currentTarget.style.borderColor = T.border)}>
-      <div style={{ fontSize: 12, color: T.text3, fontWeight: 500, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: color || T.text }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
+  const deleteRequest = async (id) => {
+    await supabase.from("af_requests").delete().eq("id", id);
+    setRequests(p => p.filter(r => r.id !== id));
+  };
 
-  if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: T.text3 }}>Loading finance data…</div>;
+  const addAuditEntry = async (action, detail, requestId) => {
+    const entry = {
+      action, detail, request_id: requestId || null,
+      user_name: profile?.display_name || "Unknown",
+      user_id: user?.id,
+    };
+    const { data } = await supabase.from("af_audit_log").insert(entry).select().single();
+    if (data) setAuditLog(p => [data, ...p]);
+  };
+
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const isAdmin = mySettings?.af_role === "admin" || !mySettings; // default to admin if no settings
+  const isApprover = mySettings?.af_role === "approver" || isAdmin;
+  const isRequester = mySettings?.af_role === "requester";
+  const mySpendLimit = mySettings?.spend_limit || 500;
+
+  const approved = requests.filter(r => r.status === "approved");
+  const pending = requests.filter(r => r.status === "pending");
+
+  const getDeptSpend = (deptName) => ({
+    approved: requests.filter(r => r.status === "approved" && r.department === deptName).reduce((s, r) => s + annualiseAmount(r), 0),
+    pending: requests.filter(r => r.status === "pending" && r.department === deptName).reduce((s, r) => s + annualiseAmount(r), 0),
+  });
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  const NAV = [
+    { id: "dashboard",    label: "Dashboard",    icon: "◉" },
+    { id: "requests",     label: "Requests",     icon: "📋" },
+    { id: "budgets",      label: "Budgets",      icon: "💰" },
+    { id: "departments",  label: "Departments",  icon: "🏢" },
+    { id: "rules",        label: "Rules",        icon: "⚡" },
+    { id: "reports",      label: "Reports",      icon: "📊" },
+    { id: "employees",   label: "Employees",    icon: "👥" },
+    { id: "integrations",label: "Integrations", icon: "🔗" },
+    { id: "audit",        label: "Audit Log",    icon: "🗂" },
+  ];
+
+  if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: T.text3, fontSize: 13 }}>Loading ApproveFlow…</div>;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: T.bg, overflow: "hidden" }}>
-      {toast && <div style={{ position: "fixed", top: 16, right: 16, zIndex: 200, padding: "10px 16px", borderRadius: 8, background: toast.type === "error" ? (T.redDim || "#fecaca") : (T.greenDim || "#dcfce7"), color: toast.type === "error" ? (T.red || "#ef4444") : (T.green || "#22c55e"), fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.2)" }}>{toast.msg}</div>}
-      {/* Header */}
-      <div style={{ borderBottom: `1px solid ${T.border}`, background: T.surface, padding: "12px 24px 0" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text }}>Finance</h2>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setModal({ type: "account", mode: "new", data: { type: "expense" } })} style={{ ..._btn, background: T.surface3, color: T.text2, padding: "6px 12px", fontSize: 12 }}>+ Account</button>
-            <button onClick={() => setModal({ type: "vendor", mode: "new", data: {} })} style={{ ..._btn, background: T.surface3, color: T.text2, padding: "6px 12px", fontSize: 12 }}>+ Vendor</button>
-          </div>
+    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+      {/* Left nav */}
+      {!isMobile && (
+        <div style={{ width: 180, borderRight: `1px solid ${T.border}`, padding: "12px 8px", flexShrink: 0, overflow: "auto" }}>
+          {NAV.map(n => (
+            <button key={n.id} onClick={() => setView(n.id)}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: view === n.id ? T.accentDim : "transparent", border: "none", borderRadius: 6, cursor: "pointer", color: view === n.id ? T.accent : T.text3, fontSize: 12, fontWeight: view === n.id ? 700 : 500, textAlign: "left", marginBottom: 2 }}>
+              <span style={{ fontSize: 13 }}>{n.icon}</span>{n.label}
+              {n.id === "requests" && pending.length > 0 && <span style={{ marginLeft: "auto", background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8 }}>{pending.length}</span>}
+            </button>
+          ))}
         </div>
-        <div style={{ display: "flex", gap: 0 }}>
-          {TABS.map(t => <button key={t} onClick={() => setTab(t)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: tab === t ? 600 : 400, color: tab === t ? T.accent : T.text3, background: "none", border: "none", borderBottom: tab === t ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer" }}>{t}</button>)}
+      )}
+
+      {/* Mobile nav */}
+      {isMobile && (
+        <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0, position: "absolute", top: 0, left: 0, right: 0, zIndex: 10, background: T.bg }}>
+          {NAV.map(n => (
+            <button key={n.id} onClick={() => setView(n.id)}
+              style={{ padding: "10px 12px", background: "none", border: "none", borderBottom: view === n.id ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: view === n.id ? T.accent : T.text3, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
+              {n.icon} {n.label}
+            </button>
+          ))}
         </div>
+      )}
+
+      {/* Main content */}
+      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "52px 12px 12px" : "20px 24px" }}>
+        {view === "dashboard" && <DashboardView requests={requests} employees={employees} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
+        {view === "requests" && <RequestsView requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} employees={employees} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} mySettings={mySettings} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
+        {view === "budgets" && <BudgetsView glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
+        {view === "departments" && <DepartmentsView departments={departments} setDepartments={setDepartments} employees={employees} requests={requests} getDeptSpend={getDeptSpend} />}
+        {view === "rules" && <RulesView rules={rules} setRules={setRules} glCodes={glCodes} employees={employees} user={user} />}
+        {view === "reports" && <ReportsView requests={requests} employees={employees} departments={departments} glCodes={glCodes} glCategories={glCategories} />}
+        {view === "employees" && <EmployeesView employees={employees} setEmployees={setEmployees} departments={departments} />}
+        {view === "integrations" && <IntegrationsView integrations={integrations} setIntegrations={setIntegrations} />}
+        {view === "audit" && <AuditLogView auditLog={auditLog} />}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+function DashboardView({ requests, employees, departments, glCategories, glCodes, activeBudget, activeBudgetName, getDeptSpend, pending, approved, onNavigate }) {
+  const totalApproved = approved.reduce((s, r) => s + r.amount, 0);
+  const totalPending = pending.reduce((s, r) => s + r.amount, 0);
+
+  const deptStats = departments.filter(d => !d.parent_id).map(d => {
+    const { approved: spent, pending: pend } = getDeptSpend(d.name);
+    const budget = activeBudget ? (activeBudget.find(b => b.allocations?.find(a => a.department === d.name))?.allocations?.find(a => a.department === d.name)?.amount || 0) : 0;
+    return { ...d, spent, pending: pend, budget, utilPct: pct(spent, budget || 1) };
+  });
+
+  const byGL = glCodes.map(gl => ({
+    ...gl, total: approved.filter(r => r.gl_code === gl.code).reduce((s, r) => s + annualiseAmount(r), 0),
+  })).filter(g => g.total > 0).sort((a, b) => b.total - a.total);
+  const maxGL = byGL[0]?.total || 1;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>Finance Dashboard</div>
+        <div style={{ fontSize: 12, color: T.text3 }}>Spend approval overview{activeBudgetName ? ` · Budget: ${activeBudgetName}` : ""}</div>
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        {tab === "Dashboard" && (() => {
-          const expByType = {};
-          expenses.forEach(e => {
-            const code = (e.title || "").match(/^(\d+)/)?.[1] || "0";
-            const prefix = code.substring(0, 1);
-            const typeMap = { "1": "Assets", "2": "Liabilities", "3": "Equity", "4": "Revenue", "5": "COGS", "6": "Operating Expenses" };
-            const type = typeMap[prefix] || "Other";
-            if (!expByType[type]) expByType[type] = { total: 0, count: 0, reports: [] };
-            expByType[type].total += Number(e.total_amount || 0);
-            expByType[type].count++;
-            expByType[type].reports.push(e);
-          });
-          const topSpend = expenses.filter(e => Number(e.total_amount || 0) > 0).sort((a, b) => Number(b.total_amount) - Number(a.total_amount)).slice(0, 10);
-          const totalRevenue = expByType["Revenue"]?.total || 0;
-          const totalCOGS = expByType["COGS"]?.total || 0;
-          const totalOpex = expByType["Operating Expenses"]?.total || 0;
-          const grossProfit = totalRevenue - totalCOGS;
-          const netIncome = grossProfit - totalOpex;
-          const txnTotal = expenses.reduce((s, e) => { const m = e.description?.match(/(\d+) txns/); return s + (m ? parseInt(m[1]) : 0); }, 0);
-          const drillToCategory = (cat) => { setDrillCategory(drillCategory === cat ? null : cat); };
-          const sevColor = (s) => s === "critical" ? (T.red || "#ef4444") : s === "warning" ? "#f97316" : T.accent;
-          const prioColor = (p) => p === "high" ? (T.red || "#ef4444") : p === "medium" ? "#f97316" : (T.green || "#22c55e");
-          
-          return <>
-            {/* P&L Summary Cards - clickable */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
-              <StatCard label="Revenue" value={fmtK(totalRevenue)} sub={`${expByType["Revenue"]?.count || 0} accounts`} color={T.green || "#22c55e"} onClick={() => drillToCategory("Revenue")} />
-              <StatCard label="COGS" value={fmtK(totalCOGS)} sub={`${expByType["COGS"]?.count || 0} accounts`} color="#f97316" onClick={() => drillToCategory("COGS")} />
-              <StatCard label="Gross Profit" value={fmtK(grossProfit)} sub={totalRevenue > 0 ? `${Math.round(grossProfit/totalRevenue*100)}% margin` : ""} color={grossProfit > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444")} />
-              <StatCard label="OpEx" value={fmtK(totalOpex)} sub={`${expByType["Operating Expenses"]?.count || 0} accounts`} color={T.accent} onClick={() => drillToCategory("Operating Expenses")} />
-              <StatCard label="Net Income" value={fmtK(netIncome)} sub={totalRevenue > 0 ? `${Math.round(netIncome/totalRevenue*100)}% margin` : ""} color={netIncome > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444")} />
-            </div>
+      {/* KPI Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
+        {[
+          { label: "Pending", value: pending.length, sub: fmt(totalPending), color: "#FFC107" },
+          { label: "Approved", value: approved.length, sub: fmt(totalApproved), color: "#10B981" },
+          { label: "Employees", value: employees.length, sub: "in system", color: "#3B82F6" },
+          { label: "Departments", value: departments.filter(d => !d.parent_id).length, sub: `${departments.filter(d => d.parent_id).length} sub-depts`, color: "#8B5CF6" },
+        ].map(s => (
+          <Card key={s.label}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: T.text }}>{s.value}</div>
+            <div style={{ fontSize: 11, color: T.text3 }}>{s.sub}</div>
+            <div style={{ position: "absolute", top: 14, right: 14, width: 8, height: 8, borderRadius: "50%", background: s.color }} />
+          </Card>
+        ))}
+      </div>
 
-            {/* Drill-down panel when a card is clicked */}
-            {drillCategory && expByType[drillCategory] && (
-              <div style={{ marginBottom: 24, borderRadius: 8, border: `1px solid ${T.accent}`, overflow: "hidden" }}>
-                <div style={{ padding: "10px 14px", background: T.accentDim || "#dbeafe", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: T.accent }}>{drillCategory} — {expByType[drillCategory].reports.length} accounts, {fmtK(expByType[drillCategory].total)} total</span>
-                  <button onClick={() => setDrillCategory(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 16, fontWeight: 700 }}>×</button>
+      {/* Department Spend */}
+      <Card>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>Department Spend vs Budget</div>
+        {deptStats.length === 0 ? <div style={{ color: T.text3, fontSize: 12 }}>No departments set up yet</div> :
+          deptStats.map(d => (
+            <div key={d.id} style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color || T.accent }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{d.name}</span>
+                  {d.budget > 0 && d.spent > d.budget && <span style={{ fontSize: 10, fontWeight: 700, color: "#991B1B", background: "#FEE2E2", padding: "1px 6px", borderRadius: 8 }}>Over</span>}
                 </div>
-                <div style={{ maxHeight: 300, overflow: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead><tr style={{ background: T.surface2 }}>
-                      <th style={{ padding: "6px 12px", textAlign: "left", fontWeight: 600, color: T.text2, fontSize: 11 }}>Account</th>
-                      <th style={{ padding: "6px 12px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 11 }}>Transactions</th>
-                      <th style={{ padding: "6px 12px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 11 }}>Amount</th>
-                    </tr></thead>
-                    <tbody>{expByType[drillCategory].reports.sort((a, b) => Math.abs(Number(b.total_amount)) - Math.abs(Number(a.total_amount))).map(r => (
-                      <tr key={r.id} onClick={() => { setTab("Expenses"); loadReportItems(r.id); }} style={{ cursor: "pointer", borderBottom: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <td style={{ padding: "6px 12px", color: T.text }}>{r.title}</td>
-                        <td style={{ padding: "6px 12px", textAlign: "right", color: T.text3, fontSize: 12 }}>{r.description?.match(/(\d+) txns/)?.[1] || "—"}</td>
-                        <td style={{ padding: "6px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: Number(r.total_amount) < 0 ? (T.red || "#ef4444") : T.text }}>{fmt(r.total_amount)}</td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                </div>
+                <span style={{ fontSize: 12, color: T.text3 }}>{fmt(d.spent)} / {d.budget > 0 ? fmt(d.budget) : "no budget"}</span>
               </div>
-            )}
-
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 24 }}>
-              {/* P&L by Category - clickable rows */}
-              <div>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>P&L by Category</h3>
-                <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                  {Object.entries(expByType).sort((a, b) => { const o = { Revenue: 0, COGS: 1, "Operating Expenses": 2, Assets: 3, Liabilities: 4, Equity: 5 }; return (o[a[0]] ?? 9) - (o[b[0]] ?? 9); }).map(([type, data]) => (
-                    <div key={type} onClick={() => drillToCategory(type)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: drillCategory === type ? (T.accentDim || "#dbeafe") : T.surface, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = drillCategory === type ? (T.accentDim || "#dbeafe") : T.surface2} onMouseLeave={e => e.currentTarget.style.background = drillCategory === type ? (T.accentDim || "#dbeafe") : T.surface}>
-                      <div><div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{type}</div><div style={{ fontSize: 11, color: T.text3 }}>{data.count} accounts</div></div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: data.total >= 0 ? (T.green || "#22c55e") : (T.red || "#ef4444"), fontVariantNumeric: "tabular-nums" }}>{fmtK(data.total)}</div>
-                        <span style={{ fontSize: 10, color: T.text3 }}>▶</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Top Accounts */}
-              <div>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top Accounts by Amount</h3>
-                <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                  {topSpend.map((r, i) => (
-                    <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, cursor: "pointer" }} onClick={() => { setTab("Expenses"); loadReportItems(r.id); }} onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = T.surface}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 11, fontWeight: 600, color: T.text3, width: 18, textAlign: "right" }}>{i + 1}.</span><span style={{ fontSize: 13, color: T.text }}>{r.title}</span></div>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: T.accent, fontVariantNumeric: "tabular-nums" }}>{fmtK(r.total_amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {d.budget > 0 && <ProgressBar value={d.spent} max={d.budget} color={d.color || T.accent} />}
             </div>
+          ))
+        }
+      </Card>
 
-            {/* AI Insights */}
-            <div style={{ marginTop: 24 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: T.text, margin: 0 }}>AI Insights</h3>
-                <button onClick={runAiAnalysis} disabled={aiLoading} style={{ ..._btn, background: aiLoading ? T.surface3 : "linear-gradient(135deg, #8b5cf6, #6366f1)", color: aiLoading ? T.text3 : "#fff", padding: "6px 16px", fontSize: 12, opacity: aiLoading ? 0.7 : 1 }}>
-                  {aiLoading ? "Analyzing..." : aiAnalysis ? "Re-analyze" : "✦ Analyze Finances"}
-                </button>
+      {/* GL Spend + Recent Requests */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>Spend by GL Category</div>
+          {byGL.length === 0 ? <div style={{ fontSize: 12, color: T.text3 }}>No approved spend yet</div> :
+            byGL.slice(0, 8).map(gl => (
+              <div key={gl.code} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, color: T.text2 }}>{gl.name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{fmt(gl.total)}</span>
+                </div>
+                <ProgressBar value={gl.total} max={maxGL} height={4} />
               </div>
-
-              {!aiAnalysis && !aiLoading && (
-                <div style={{ padding: 32, textAlign: "center", borderRadius: 8, border: `1px dashed ${T.border}`, color: T.text3, fontSize: 13 }}>
-                  Click "Analyze Finances" to get AI-powered trend analysis, misclassification detection, and recommendations
-                </div>
-              )}
-
-              {aiLoading && (
-                <div style={{ padding: 32, textAlign: "center", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
-                  <div style={{ fontSize: 14, color: T.accent, fontWeight: 600, marginBottom: 8 }}>Analyzing {txnTotal.toLocaleString()} transactions across {accounts.length} GL accounts...</div>
-                  <div style={{ fontSize: 12, color: T.text3 }}>AI is reviewing trends, checking classifications, and generating recommendations</div>
-                </div>
-              )}
-
-              {aiAnalysis && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                  {/* Summary */}
-                  <div style={{ padding: 16, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
-                    <div style={{ fontSize: 13, color: T.text, lineHeight: 1.6 }}>{aiAnalysis.summary}</div>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-                    {/* Trends */}
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Trends & Observations</div>
-                      {(aiAnalysis.trends || []).map((t, i) => (
-                        <div key={i} style={{ padding: "10px 12px", marginBottom: 6, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, borderLeft: `3px solid ${sevColor(t.severity)}` }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 2 }}>{t.title}</div>
-                          <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.5 }}>{t.description}</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Recommendations */}
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Recommendations</div>
-                      {(aiAnalysis.recommendations || []).map((r, i) => (
-                        <div key={i} style={{ padding: "10px 12px", marginBottom: 6, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, borderLeft: `3px solid ${prioColor(r.priority)}` }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{r.title}</span>
-                            <span style={{ ..._pill(prioColor(r.priority) + "22", prioColor(r.priority)), fontSize: 10 }}>{r.priority}</span>
-                          </div>
-                          <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.5, marginTop: 2 }}>{r.description}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Misclassifications - actionable */}
-                  {(aiAnalysis.misclassifications || []).length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Potential Misclassifications</div>
-                      <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                        {aiAnalysis.misclassifications.map((m, i) => (
-                          <div key={i} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{m.vendor}</div>
-                                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
-                                  Currently in: <span style={{ color: T.red || "#ef4444" }}>{m.current_account}</span> → Suggested: <span style={{ color: T.green || "#22c55e" }}>{m.suggested_account}</span>
-                                </div>
-                                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{m.reason}{m.impact ? ` • ${m.impact}` : ""}</div>
-                              </div>
-                              <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 12 }}>
-                                {aiReclassifying[i] === "done" ? (
-                                  <span style={{ ..._pill(T.greenDim || "#dcfce7", T.green || "#22c55e"), fontSize: 11 }}>✓ Moved</span>
-                                ) : aiReclassifying[i] === "loading" ? (
-                                  <span style={{ ..._pill(T.surface3, T.text3), fontSize: 11 }}>Moving...</span>
-                                ) : aiReclassifying[i] === "error" ? (
-                                  <span style={{ ..._pill(T.redDim || "#fecaca", T.red || "#ef4444"), fontSize: 11 }}>Failed</span>
-                                ) : (
-                                  <>
-                                    <button onClick={() => approveReclassify(m, i)} style={{ ..._btn, background: T.green || "#22c55e", color: "#fff", padding: "4px 10px", fontSize: 11 }}>Approve</button>
-                                    <button onClick={() => setAiReclassifying(p => ({ ...p, [i]: "done" }))} style={{ ..._btn, background: T.surface3, color: T.text3, padding: "4px 10px", fontSize: 11 }}>Dismiss</button>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Data Snapshot */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginTop: 24 }}>
-              <StatCard label="GL Accounts" value={accounts.length} sub="Chart of Accounts" onClick={() => setTab("Chart of Accounts")} />
-              <StatCard label="Transactions" value={txnTotal.toLocaleString()} sub="Expense items" onClick={() => setTab("Expenses")} />
-              <StatCard label="Vendors" value={vendors.length.toLocaleString()} sub="Active vendors" onClick={() => setTab("Vendors")} />
-              <StatCard label="Purchase Orders" value={pos.length} sub={`${pos.filter(p => p.status === "pending_approval").length} pending`} onClick={() => setTab("Purchase Orders")} />
-            </div>
-          </>;
-        })()}
-
-        {tab === "Forecast" && (() => {
-          const d = fcDrivers;
-          const setD = (k, v) => setFcDrivers(p => ({ ...p, [k]: Number(v) }));
-          const CURVES = { 1: [1,.68,.25,.23,.21,.19,.17,.15,.13,.11,.09,.07], 2: [1,.79,.33,.15,.10,.08,.08,.05,.05,.05,.05,.05], 3: [1,.68,.25,.10,.08,.06,.04,.02,.02,.02,.02,.02] };
-          const curve = CURVES[d.decayCurve] || CURVES[2];
-          const BASE = { grossDTC: 86556924, grossAMZN: 22490523, grossRetail: 11786801, grossIntl: 1021663, productCost: 16913242, gwpCOGS: 2030379, donatedProduct: 930826, processingFees: 7124462, amazonFBA: 4317034, warehouseStorage: 867607, otherCOGS: 2305598, personnel: 8311906, freightOut: 13759334, warehouseFulfill: 733812, otherMarketing: 1920191, travelMeals: 269742, gaOH: 1710298, proFees: 578541, otherFixed: 283779, ofsTNT: 1229123, depreciation: 498889, interestExpense: 402411, otherExpense: 1618757, otherIncome: 301873 };
-          const fc = {};
-          for (const yr of [2026, 2027, 2028]) {
-            const inf = yr === 2026 ? 1 : yr === 2027 ? (1 + d.inflator27) : (1 + d.inflator27) * (1 + d.inflator28);
-            const dtcNew = (d.dtcAdSpend * 12) / d.dtcCAC;
-            let ltv = d.dtcAOV1st; for (let m = 1; m < 12; m++) ltv += (curve[m] || 0.02) * d.dtcAOV2nd;
-            const dtcGross = yr === 2026 ? BASE.grossDTC : dtcNew * ltv * inf;
-            const amznGross = yr === 2026 ? BASE.grossAMZN : ((d.amznAdSpend * 12) / d.amznCAC) * d.amznAOV * 12 * 0.055 * inf * (yr === 2027 ? 0.815 : 0.707);
-            const retailGross = yr === 2026 ? BASE.grossRetail : (d.walmartDoors * d.walmartVel * 52 * 8.6 + d.targetDoors * d.targetVel * 52 * 8.4 + d.krogerDoors * d.krogerVel * 52 * 8.6) * inf;
-            const intlGross = yr === 2026 ? BASE.grossIntl : BASE.grossIntl * inf * (yr === 2027 ? 0.88 : 0.76);
-            const totalGross = dtcGross + amznGross + retailGross + intlGross;
-            const disc = totalGross * d.discountRate;
-            const cb = totalGross * d.chargebackRate;
-            const netSales = totalGross + disc + cb;
-            const rr = totalGross / (BASE.grossDTC + BASE.grossAMZN + BASE.grossRetail + BASE.grossIntl);
-            const productCost = BASE.productCost * rr * (yr === 2026 ? 1 : inf * 0.95);
-            const totalCOGS = productCost + BASE.gwpCOGS * rr * inf + BASE.donatedProduct * inf + netSales * d.ccRate * 1.6 + amznGross * 0.192 + BASE.warehouseStorage * rr * inf + BASE.otherCOGS * rr * inf;
-            const grossProfit = netSales - totalCOGS;
-            const adSpend = (d.dtcAdSpend + d.amznAdSpend) * 12 + d.dtcAdSpend * 0.004; // + intl
-            const totalGA = BASE.personnel * inf + adSpend + BASE.freightOut * rr * inf + (yr === 2026 ? BASE.warehouseFulfill : BASE.warehouseFulfill * rr * inf) + (yr === 2026 ? BASE.otherMarketing : BASE.otherMarketing * 0.05 * inf) + BASE.travelMeals * inf + (yr === 2026 ? BASE.gaOH : BASE.gaOH * 0.4 * inf) + (yr === 2026 ? BASE.proFees : 278100 * inf) + BASE.otherFixed * inf + BASE.ofsTNT * inf;
-            const ebitda = grossProfit - totalGA;
-            const netIncome = ebitda - BASE.depreciation * inf - BASE.interestExpense * inf - BASE.otherExpense * inf + BASE.otherIncome * inf;
-            fc[yr] = { dtcGross, amznGross, retailGross, intlGross, totalGross, disc, cb, netSales, productCost, totalCOGS, grossProfit, adSpend, totalGA, ebitda, netIncome, grossMargin: grossProfit / netSales, ebitdaMargin: ebitda / netSales, netMargin: netIncome / netSales };
+            ))
           }
-          const FcInput = ({ label, dk, prefix = "$", step = 1 }) => (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-              <span style={{ fontSize: 11, color: T.text3, width: 120, flexShrink: 0 }}>{label}</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>{prefix && <span style={{ fontSize: 10, color: T.text3 }}>{prefix}</span>}<input type="number" step={step} value={d[dk]} onChange={e => setD(dk, e.target.value)} style={{ ..._inp, width: 100, padding: "4px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }} /></div>
+        </Card>
+
+        <Card>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>Recent Requests</div>
+          {requests.slice(0, 6).map(req => (
+            <div key={req.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{req.title}</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>{req.department} · {req.date}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(req.amount)}</span>
+                <Badge status={req.status} />
+              </div>
             </div>
+          ))}
+          {requests.length > 6 && <button onClick={() => onNavigate("requests")} style={{ marginTop: 8, fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>View all →</button>}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REQUESTS VIEW — Full approval workflow
+// ═══════════════════════════════════════════════════════════════════════════════
+function RequestsView({ requests, addRequest, updateRequest, deleteRequest, employees, departments, glCodes, glCategories, rules, activeBudget, mySettings, mySpendLimit, isAdmin, isApprover, user, profile, addAuditEntry, getDeptSpend }) {
+  const [showNew, setShowNew] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const [selected, setSelected] = useState(null);
+  const [rejectNote, setRejectNote] = useState("");
+  const [showReject, setShowReject] = useState(false);
+  const [conditionalNote, setConditionalNote] = useState("");
+  const [showConditional, setShowConditional] = useState(false);
+  const [showResubmit, setShowResubmit] = useState(false);
+  const [resubEdits, setResubEdits] = useState({});
+  const [showRemoval, setShowRemoval] = useState(false);
+  const [removalReason, setRemovalReason] = useState("");
+
+  const FORM_INIT = { title: "", amount: "", gl_code: "", description: "", cost_type: "one_time", recurring_frequency: "monthly", recurring_amount: "", first_amount: "", recurring_end_date: "", department: "", budget_accounted_for: "", quotes_obtained: "" };
+  const [form, setForm] = useState(FORM_INIT);
+
+  const filtered = requests.filter(r => filter === "all" || r.status === filter);
+  const selReq = requests.find(r => r.id === selected);
+
+  const evaluateRules = (req) => {
+    const hits = [];
+    for (const rule of rules) {
+      if (!rule.is_active) continue;
+      const conds = rule.conditions || [];
+      let result = null;
+      for (let i = 0; i < conds.length; i++) {
+        const c = conds[i];
+        let pass = false;
+        if (c.field === "amount") {
+          const a = parseFloat(req.amount);
+          if (c.operator === ">") pass = a > parseFloat(c.value);
+          if (c.operator === "<") pass = a < parseFloat(c.value);
+          if (c.operator === "==") pass = a === parseFloat(c.value);
+          if (c.operator === ">=") pass = a >= parseFloat(c.value);
+        }
+        if (c.field === "gl") pass = req.gl_code === c.value;
+        if (c.field === "department") pass = req.department === c.value;
+        if (result === null) result = pass;
+        else if (conds[i - 1]?.join === "AND") result = result && pass;
+        else if (conds[i - 1]?.join === "OR") result = result || pass;
+      }
+      if (result) hits.push(rule);
+    }
+    return hits;
+  };
+
+  const submitRequest = async () => {
+    if (!form.title || !form.amount) return;
+    const amt = parseFloat(form.amount);
+    const glEntry = glCodes.find(g => g.code === form.gl_code);
+    const candidateReq = { amount: amt, gl_code: form.gl_code, department: form.department };
+    const ruleHits = evaluateRules(candidateReq);
+    const matchedRule = ruleHits[0] || null;
+
+    let chain = amt > 10000 ? "high_value" : "standard";
+    let requirePersonId = null, requirePersonName = null;
+    if (matchedRule?.action === "require_cfo") chain = "high_value";
+    if (matchedRule?.action === "require_person" && matchedRule.require_person_id) {
+      requirePersonId = matchedRule.require_person_id;
+      requirePersonName = matchedRule.require_person_name || null;
+      chain = "person_" + requirePersonId;
+    }
+    if (matchedRule?.action === "block") { alert(`Blocked by rule: "${matchedRule.name}"`); return; }
+
+    const ruleRequiresApproval = matchedRule && matchedRule.action !== "auto_approve";
+    const isAuto = !ruleRequiresApproval && amt <= mySpendLimit;
+    const req = {
+      requester_id: user.id, title: form.title, amount: amt,
+      gl_code: form.gl_code, budget_category_id: glEntry?.budget_category_id || null,
+      department: form.department, description: form.description,
+      cost_type: form.cost_type,
+      recurring_frequency: form.cost_type === "recurring" ? form.recurring_frequency : null,
+      recurring_amount: form.cost_type === "recurring" ? parseFloat(form.recurring_amount || form.amount) : null,
+      first_amount: form.cost_type === "recurring" && form.first_amount ? parseFloat(form.first_amount) : null,
+      recurring_end_date: form.cost_type === "recurring" && form.recurring_end_date ? form.recurring_end_date : null,
+      status: isAuto ? "approved" : "pending",
+      approval_step: isAuto ? 2 : 0,
+      approval_chain: chain,
+      matched_rule_id: matchedRule?.id || null,
+      matched_rule_name: matchedRule?.name || null,
+      require_person_id: requirePersonId,
+      require_person_name: requirePersonName,
+      budget_accounted_for: form.budget_accounted_for || null,
+      quotes_obtained: form.quotes_obtained || null,
+      date: new Date().toISOString().slice(0, 10),
+    };
+    const data = await addRequest(req);
+    addAuditEntry("Request submitted", `"${form.title}" for ${fmt(amt)}${matchedRule ? ` — rule: ${matchedRule.name}` : ""}`, data?.id);
+    setForm(FORM_INIT);
+    setShowNew(false);
+  };
+
+  const doApprove = async () => {
+    if (!selReq) return;
+    const isPersonChain = (selReq.approval_chain || "").startsWith("person_");
+    const chain = isPersonChain ? [{ role: "Approver" }] : (APPROVAL_CHAINS[selReq.approval_chain] || APPROVAL_CHAINS.standard);
+    const newStep = selReq.approval_step + 1;
+    const done = isPersonChain || newStep >= chain.length;
+    const patch = {
+      approval_step: newStep,
+      status: done ? "approved" : "pending",
+      approvals: [...(selReq.approvals || []), { step: selReq.approval_step, by: user.id, at: new Date().toISOString().slice(0, 10) }],
+    };
+    await updateRequest(selReq.id, patch);
+    addAuditEntry(done ? "Request approved" : `Approval step ${newStep} completed`, `"${selReq.title}" ${done ? "fully approved" : "step approved"}`, selReq.id);
+    setSelected(null);
+  };
+
+  const doReject = async () => {
+    if (!selReq) return;
+    await updateRequest(selReq.id, { status: "rejected", rejection_note: rejectNote, rejected_by: user.id, rejected_at: new Date().toISOString().slice(0, 10) });
+    addAuditEntry("Request rejected", `"${selReq.title}" — ${rejectNote || "no reason"}`, selReq.id);
+    setRejectNote(""); setShowReject(false); setSelected(null);
+  };
+
+  const doConditional = async () => {
+    if (!selReq) return;
+    await updateRequest(selReq.id, { status: "conditionally_approved", conditional_note: conditionalNote, conditional_by: user.id, conditional_at: new Date().toISOString().slice(0, 10) });
+    addAuditEntry("Additional info required", `"${selReq.title}" — ${conditionalNote}`, selReq.id);
+    setConditionalNote(""); setShowConditional(false); setSelected(null);
+  };
+
+  const doResubmit = async () => {
+    if (!selReq || !resubEdits.added_info?.trim()) return;
+    const patch = { status: "conditionally_approved_info_added", added_info: resubEdits.added_info, resubmitted_at: new Date().toISOString().slice(0, 10), title: resubEdits.title || selReq.title, amount: resubEdits.amount ? parseFloat(resubEdits.amount) : selReq.amount, gl_code: resubEdits.gl_code || selReq.gl_code, description: resubEdits.description ?? selReq.description, department: resubEdits.department || selReq.department };
+    await updateRequest(selReq.id, patch);
+    addAuditEntry("Info added — resubmitted", `"${selReq.title}"`, selReq.id);
+    setShowResubmit(false); setResubEdits({}); setSelected(null);
+  };
+
+  const doReinstate = async () => {
+    if (!selReq) return;
+    await updateRequest(selReq.id, { status: "pending", approval_step: 0, rejection_note: null, rejected_by: null, rejected_at: null });
+    addAuditEntry("Reinstated to pending", `"${selReq.title}"`, selReq.id);
+    setSelected(null);
+  };
+
+  const doRequestRemoval = async () => {
+    if (!selReq) return;
+    await updateRequest(selReq.id, { status: "removal_requested", removal_reason: removalReason, removal_requested_by: user.id, removal_requested_at: new Date().toISOString().slice(0, 10) });
+    addAuditEntry("Removal requested", `"${selReq.title}" — ${removalReason || "no reason"}`, selReq.id);
+    setRemovalReason(""); setShowRemoval(false); setSelected(null);
+  };
+
+  const doApproveRemoval = async () => {
+    if (!selReq) return;
+    await updateRequest(selReq.id, { status: "removed", removed_by: user.id, removed_at: new Date().toISOString().slice(0, 10) });
+    addAuditEntry("Removal approved", `"${selReq.title}" removed — budget reversed`, selReq.id);
+    setSelected(null);
+  };
+
+  const doDenyRemoval = async () => {
+    if (!selReq) return;
+    await updateRequest(selReq.id, { status: "approved", removal_reason: null, removal_requested_by: null, removal_requested_at: null });
+    addAuditEntry("Removal denied", `"${selReq.title}" stays approved`, selReq.id);
+    setSelected(null);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Spend Requests</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>{filtered.length} requests</div>
+        </div>
+        <button onClick={() => setShowNew(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Request</button>
+      </div>
+
+      {/* Status filters */}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {["all", "pending", "approved", "conditionally_approved", "rejected", "removed"].map(s => (
+          <button key={s} onClick={() => setFilter(s)}
+            style={{ padding: "5px 12px", borderRadius: 16, border: `1px solid ${filter === s ? T.accent : T.border}`, background: filter === s ? T.accentDim : "transparent", color: filter === s ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+            {s === "all" ? "All" : STATUS_LABELS[s] || s}
+          </button>
+        ))}
+      </div>
+
+      {/* Request list */}
+      {filtered.length === 0 ? <div style={{ textAlign: "center", padding: 32, color: T.text3, fontSize: 13 }}>No requests match these filters</div> :
+        filtered.map(req => {
+          const gl = glCodes.find(g => g.code === req.gl_code);
+          const freqShort = { monthly: "mo", quarterly: "qtr", weekly: "wk", annually: "yr" }[req.recurring_frequency] || "";
+          return (
+            <Card key={req.id} onClick={() => setSelected(req.id)} style={{ padding: "14px 16px", cursor: "pointer" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{req.title}</span>
+                    {req.matched_rule_name && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 6px", borderRadius: 8, fontWeight: 600 }}>⚡ Rule</span>}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text3, flexWrap: "wrap" }}>
+                    <span>{req.department}</span>
+                    {gl && <span>· {gl.name}</span>}
+                    <span>· {req.date}</span>
+                    {req.cost_type === "recurring" && <span style={{ fontSize: 10, fontWeight: 700, background: "#EDE9FE", color: "#5B21B6", padding: "1px 6px", borderRadius: 8 }}>↻ {req.recurring_frequency}</span>}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>
+                    {fmt(req.amount)}{req.cost_type === "recurring" && freqShort && <span style={{ fontSize: 10, color: T.text3, fontWeight: 500 }}>/{freqShort}</span>}
+                  </div>
+                  <Badge status={req.status} />
+                </div>
+              </div>
+              {req.status === "pending" && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+                  <ApprovalChain req={req} employees={employees} />
+                </div>
+              )}
+            </Card>
           );
-          const FcRow = ({ label, vals, bold, neg, indent }) => (
-            <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr", padding: `${bold ? 5 : 2}px 0`, borderTop: bold ? `1px solid ${T.border}` : "none" }}>
-              <div style={{ fontSize: 12, fontWeight: bold ? 700 : 400, color: bold ? T.text : T.text2, paddingLeft: indent ? 12 : 0 }}>{label}</div>
-              {[2026, 2027, 2028].map(y => <div key={y} style={{ fontSize: 12, fontWeight: bold ? 700 : 400, textAlign: "right", fontFamily: "monospace", color: neg ? (T.red || "#ef4444") : bold ? (T.accent || "#3b82f6") : T.text, paddingRight: 8 }}>{fmtK(vals[y])}</div>)}
-            </div>
-          );
-          const FcPctRow = ({ label, vals }) => (
-            <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr", padding: "2px 0" }}>
-              <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>{label}</div>
-              {[2026, 2027, 2028].map(y => <div key={y} style={{ fontSize: 11, textAlign: "right", fontFamily: "monospace", color: vals[y] >= 0 ? (T.green || "#22c55e") : (T.red || "#ef4444"), paddingRight: 8 }}>{(vals[y] * 100).toFixed(1)}%</div>)}
-            </div>
-          );
-          return <>
-            <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
-              {/* Driver Panel */}
-              <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, padding: 14, overflow: "auto", maxHeight: "calc(100vh - 180px)" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginBottom: 10 }}>Forecast Drivers</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: T.text2, marginBottom: 6 }}>DTC / GWP</div>
-                <FcInput label="Monthly Ad Spend" dk="dtcAdSpend" step={50000} />
-                <FcInput label="CAC" dk="dtcCAC" />
-                <FcInput label="1st Order AOV" dk="dtcAOV1st" step={0.5} />
-                <FcInput label="Rebill AOV" dk="dtcAOV2nd" step={0.5} />
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, color: T.text3, width: 120 }}>Decay Curve</span>
-                  <select value={d.decayCurve} onChange={e => setD("decayCurve", e.target.value)} style={{ ..._sel, width: 100, padding: "4px 6px", fontSize: 11 }}>
-                    <option value={1}>Optimistic</option><option value={2}>Base</option><option value={3}>Conservative</option>
+        })
+      }
+
+      {/* New Request Modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, width: "min(560px, 95vw)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: 24 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Spend Request</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Title *</div>
+                <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Software subscription renewal"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+
+              {/* Cost type toggle */}
+              <div style={{ display: "flex", gap: 0, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                {[["one_time", "1× One-time"], ["recurring", "↻ Recurring"]].map(([v, l]) => (
+                  <button key={v} onClick={() => setForm(f => ({ ...f, cost_type: v }))}
+                    style={{ flex: 1, padding: "9px 0", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, background: form.cost_type === v ? T.accent : "transparent", color: form.cost_type === v ? "#fff" : T.text3 }}>{l}</button>
+                ))}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Amount (USD) *</div>
+                  <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00"
+                    style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>GL Code</div>
+                  <select value={form.gl_code} onChange={e => setForm(f => ({ ...f, gl_code: e.target.value }))}
+                    style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
+                    <option value="">Select GL code…</option>
+                    {glCodes.map(g => <option key={g.code} value={g.code}>{g.code} · {g.name}</option>)}
                   </select>
                 </div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: T.text2, marginBottom: 6, marginTop: 10 }}>Amazon</div>
-                <FcInput label="Monthly Ad Spend" dk="amznAdSpend" step={25000} />
-                <FcInput label="CAC" dk="amznCAC" step={0.5} />
-                <FcInput label="AOV" dk="amznAOV" step={0.5} />
-                <div style={{ fontSize: 11, fontWeight: 600, color: T.text2, marginBottom: 6, marginTop: 10 }}>Retail</div>
-                <FcInput label="Walmart Doors" dk="walmartDoors" prefix="" step={100} />
-                <FcInput label="Walmart Vel/wk" dk="walmartVel" prefix="" step={0.1} />
-                <FcInput label="Target Doors" dk="targetDoors" prefix="" step={100} />
-                <FcInput label="Target Vel/wk" dk="targetVel" prefix="" step={0.1} />
-                <FcInput label="Kroger Doors" dk="krogerDoors" prefix="" step={100} />
-                <FcInput label="Kroger Vel/wk" dk="krogerVel" prefix="" step={0.1} />
-                <div style={{ fontSize: 11, fontWeight: 600, color: T.text2, marginBottom: 6, marginTop: 10 }}>Economics</div>
-                <FcInput label="Discount Rate" dk="discountRate" prefix="" step={0.005} />
-                <FcInput label="Chargeback Rate" dk="chargebackRate" prefix="" step={0.001} />
-                <FcInput label="CC Processing %" dk="ccRate" prefix="" step={0.005} />
-                <FcInput label="2027 Inflator" dk="inflator27" prefix="" step={0.005} />
-                <FcInput label="2028 Inflator" dk="inflator28" prefix="" step={0.005} />
-                <button onClick={() => setFcDrivers({ dtcAdSpend: 2300000, dtcCAC: 65, dtcAOV1st: 44.52, dtcAOV2nd: 49.15, amznAdSpend: 400000, amznCAC: 12.4, amznAOV: 19.3, walmartDoors: 4000, walmartVel: 1.2, targetDoors: 1800, targetVel: 0.9, krogerDoors: 1785, krogerVel: 0.95, discountRate: -0.0924, chargebackRate: -0.0192, ccRate: 0.04, inflator27: 0.02, inflator28: 0.02, decayCurve: 2 })} style={{ ..._btn, width: "100%", background: T.surface3, color: T.text3, fontSize: 11, marginTop: 8 }}>Reset to Base</button>
               </div>
-              {/* P&L Output */}
-              <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, padding: 16, overflow: "auto", maxHeight: "calc(100vh - 180px)" }}>
-                {/* KPIs */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
-                  {[
-                    { label: "2026 Net Sales", val: fmtK(fc[2026]?.netSales), color: T.accent },
-                    { label: "Gross Margin", val: (fc[2026]?.grossMargin * 100).toFixed(1) + "%", color: (fc[2026]?.grossMargin || 0) > 0.65 ? (T.green || "#22c55e") : "#f97316" },
-                    { label: "EBITDA", val: fmtK(fc[2026]?.ebitda), color: (fc[2026]?.ebitda || 0) > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444") },
-                    { label: "Net Income", val: fmtK(fc[2026]?.netIncome), color: (fc[2026]?.netIncome || 0) > 0 ? (T.green || "#22c55e") : (T.red || "#ef4444") },
-                  ].map(kpi => (
-                    <div key={kpi.label} style={{ padding: 12, borderRadius: 8, background: T.surface2 || T.bg, border: `1px solid ${T.border}` }}>
-                      <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>{kpi.label}</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: kpi.color, fontFamily: "monospace" }}>{kpi.val}</div>
-                    </div>
-                  ))}
-                </div>
-                {/* P&L Table */}
-                <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr", padding: "6px 0", borderBottom: `1px solid ${T.border}`, marginBottom: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: T.accent }}>P&L Forecast</div>
-                  {[2026, 2027, 2028].map(y => <div key={y} style={{ fontSize: 13, fontWeight: 700, textAlign: "right", color: T.text, paddingRight: 8 }}>{y}</div>)}
-                </div>
-                <FcRow label="DTC Gross Sales" vals={{ 2026: fc[2026]?.dtcGross, 2027: fc[2027]?.dtcGross, 2028: fc[2028]?.dtcGross }} indent />
-                <FcRow label="Amazon Gross Sales" vals={{ 2026: fc[2026]?.amznGross, 2027: fc[2027]?.amznGross, 2028: fc[2028]?.amznGross }} indent />
-                <FcRow label="Retail Gross Sales" vals={{ 2026: fc[2026]?.retailGross, 2027: fc[2027]?.retailGross, 2028: fc[2028]?.retailGross }} indent />
-                <FcRow label="Int'l Gross Sales" vals={{ 2026: fc[2026]?.intlGross, 2027: fc[2027]?.intlGross, 2028: fc[2028]?.intlGross }} indent />
-                <FcRow label="Total Gross Sales" vals={{ 2026: fc[2026]?.totalGross, 2027: fc[2027]?.totalGross, 2028: fc[2028]?.totalGross }} bold />
-                <FcRow label="Discounts" vals={{ 2026: fc[2026]?.disc, 2027: fc[2027]?.disc, 2028: fc[2028]?.disc }} indent neg />
-                <FcRow label="Chargebacks" vals={{ 2026: fc[2026]?.cb, 2027: fc[2027]?.cb, 2028: fc[2028]?.cb }} indent neg />
-                <FcRow label="Net Sales" vals={{ 2026: fc[2026]?.netSales, 2027: fc[2027]?.netSales, 2028: fc[2028]?.netSales }} bold />
-                <FcRow label="Total COGS" vals={{ 2026: fc[2026]?.totalCOGS, 2027: fc[2027]?.totalCOGS, 2028: fc[2028]?.totalCOGS }} bold />
-                <FcRow label="Gross Profit" vals={{ 2026: fc[2026]?.grossProfit, 2027: fc[2027]?.grossProfit, 2028: fc[2028]?.grossProfit }} bold />
-                <FcPctRow label="  Gross Margin" vals={{ 2026: fc[2026]?.grossMargin, 2027: fc[2027]?.grossMargin, 2028: fc[2028]?.grossMargin }} />
-                <FcRow label="Ad Spend" vals={{ 2026: fc[2026]?.adSpend, 2027: fc[2027]?.adSpend, 2028: fc[2028]?.adSpend }} indent />
-                <FcRow label="Total G&A" vals={{ 2026: fc[2026]?.totalGA, 2027: fc[2027]?.totalGA, 2028: fc[2028]?.totalGA }} bold />
-                <FcRow label="EBITDA" vals={{ 2026: fc[2026]?.ebitda, 2027: fc[2027]?.ebitda, 2028: fc[2028]?.ebitda }} bold />
-                <FcPctRow label="  EBITDA Margin" vals={{ 2026: fc[2026]?.ebitdaMargin, 2027: fc[2027]?.ebitdaMargin, 2028: fc[2028]?.ebitdaMargin }} />
-                <FcRow label="Net Income" vals={{ 2026: fc[2026]?.netIncome, 2027: fc[2027]?.netIncome, 2028: fc[2028]?.netIncome }} bold />
-                <FcPctRow label="  Net Margin" vals={{ 2026: fc[2026]?.netMargin, 2027: fc[2027]?.netMargin, 2028: fc[2028]?.netMargin }} />
-                {/* Revenue Mix Bars */}
-                <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Revenue Mix — 2026</div>
-                  {[
-                    { label: "DTC", val: fc[2026]?.dtcGross, color: T.accent || "#3b82f6" },
-                    { label: "Amazon", val: fc[2026]?.amznGross, color: "#f59e0b" },
-                    { label: "Retail", val: fc[2026]?.retailGross, color: "#f97316" },
-                    { label: "Int'l", val: fc[2026]?.intlGross, color: "#a855f7" },
-                  ].map(ch => { const p = ch.val / (fc[2026]?.totalGross || 1); return (
-                    <div key={ch.label} style={{ marginBottom: 6 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                        <span style={{ fontSize: 11, color: T.text2 }}>{ch.label}</span>
-                        <span style={{ fontSize: 11, fontFamily: "monospace", color: ch.color }}>{fmtK(ch.val)} ({(p * 100).toFixed(1)}%)</span>
-                      </div>
-                      <div style={{ height: 5, borderRadius: 3, background: T.surface3 || T.border }}>
-                        <div style={{ width: `${p * 100}%`, height: "100%", borderRadius: 3, background: ch.color, transition: "width 0.3s" }} />
-                      </div>
-                    </div>
-                  ); })}
-                </div>
-                {/* Retention Curve */}
-                <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>GWP Retention Curve</div>
-                  <div style={{ display: "flex", gap: 3, alignItems: "end", height: 50 }}>
-                    {curve.map((v, i) => <div key={i} style={{ flex: 1, background: T.accent || "#3b82f6", opacity: i === 0 ? 1 : 0.5 + v * 0.5, height: `${v * 100}%`, borderRadius: 2, minHeight: 2 }} title={`M${i}: ${(v*100).toFixed(0)}%`} />)}
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}><span style={{ fontSize: 9, color: T.text3 }}>M0</span><span style={{ fontSize: 9, color: T.text3 }}>M11</span></div>
-                </div>
-              </div>
-            </div>
-          </>;
-        })()}
 
-        {tab === "Chart of Accounts" && (() => {
-          const filtered = accounts.filter(a => { if (!glSearch) return true; const s = glSearch.toLowerCase(); return (a.code || "").toLowerCase().includes(s) || (a.name || "").toLowerCase().includes(s); });
-          const grouped = {};
-          const typeMap = { "1": "Assets (1xxxx)", "2": "Liabilities (2xxxx)", "3": "Equity (3xxxx)", "4": "Revenue (4xxxx)", "5": "Cost of Goods Sold (5xxxx)", "6": "Operating Expenses (6xxxx)" };
-          filtered.forEach(a => { const prefix = (a.code || "0").substring(0, 1); const group = typeMap[prefix] || `Other (${prefix}xxxx)`; if (!grouped[group]) grouped[group] = []; grouped[group].push(a); });
-          const acctBalances = {};
-          expenses.forEach(e => { const m = accounts.find(a => e.title === `${a.code} ${a.name}` || e.title?.startsWith(a.code + " ")); if (m) acctBalances[m.id] = { bal: Number(e.total_amount || 0), txns: e.description?.match(/(\d+) txns/)?.[1] || "0", reportId: e.id }; });
-          return <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Chart of Accounts ({filtered.length})</h3>
-              <input value={glSearch} onChange={e => setGlSearch(e.target.value)} placeholder="Search accounts..." style={{ ..._inp, width: 280 }} />
-            </div>
-            {Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0])).map(([group, accts]) => (
-              <div key={group} style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginBottom: 8, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>{group} ({accts.length})</div>
-                <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                  {accts.map(a => { const info = acctBalances[a.id] || {}; return (
-                    <div key={a.id} style={{ display: "grid", gridTemplateColumns: "80px 1fr 80px 120px", alignItems: "center", padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, cursor: info.reportId ? "pointer" : "default" }} onClick={() => info.reportId && (setTab("Expenses"), loadReportItems(info.reportId))} onMouseEnter={e => info.reportId && (e.currentTarget.style.background = T.surface2)} onMouseLeave={e => e.currentTarget.style.background = T.surface}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: T.accent, fontFamily: "monospace" }}>{a.code}</span>
-                      <span style={{ fontSize: 13, color: T.text }}>{a.name}</span>
-                      <span style={{ fontSize: 11, color: T.text3, textAlign: "right" }}>{info.txns || "0"} txns</span>
-                      <span style={{ fontSize: 13, fontWeight: 600, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (info.bal || 0) >= 0 ? T.text : (T.red || "#ef4444") }}>{info.bal ? fmt(info.bal) : "—"}</span>
-                    </div>
-                  ); })}
-                </div>
-              </div>
-            ))}
-          </>;
-        })()}
-
-        {tab === "Expenses" && (() => {
-          const filtered = expenses.filter(e => { if (!expSearch) return true; const s = expSearch.toLowerCase(); return (e.title || "").toLowerCase().includes(s); });
-          const sorted = [...filtered].sort((a, b) => {
-            if (expSort === "amount") return Math.abs(Number(b.total_amount)) - Math.abs(Number(a.total_amount));
-            if (expSort === "name") return (a.title || "").localeCompare(b.title || "");
-            if (expSort === "count") { const ca = parseInt(a.description?.match(/(\d+) txns/)?.[1] || "0"); const cb = parseInt(b.description?.match(/(\d+) txns/)?.[1] || "0"); return cb - ca; }
-            return 0;
-          });
-          return <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Expense Reports ({filtered.length})</h3>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input value={expSearch} onChange={e => setExpSearch(e.target.value)} placeholder="Search..." style={{ ..._inp, width: 200 }} />
-                <select value={expSort} onChange={e => setExpSort(e.target.value)} style={{ ..._sel, width: 140 }}><option value="amount">Sort: Amount</option><option value="name">Sort: Name</option><option value="count">Sort: Txn Count</option></select>
-                <button onClick={() => setModal({ type: "expense", mode: "new", data: { status: "draft" } })} style={{ ..._btn, background: T.accent, color: "#fff", whiteSpace: "nowrap" }}>+ New</button>
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: selectedReport ? "1fr 1fr" : "1fr", gap: 16 }}>
-              <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "auto", maxHeight: "calc(100vh - 220px)" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead><tr style={{ background: T.surface2, position: "sticky", top: 0, zIndex: 1 }}>
-                    <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: T.text2, fontSize: 12 }}>Account</th>
-                    <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 12 }}>Txns</th>
-                    <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 12 }}>Amount</th>
-                  </tr></thead>
-                  <tbody>{sorted.map(r => { const isSelected = selectedReport === r.id; return (
-                    <tr key={r.id} onClick={() => loadReportItems(r.id)} style={{ cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: isSelected ? (T.accentDim || "#dbeafe") : "transparent" }} onMouseEnter={e => !isSelected && (e.currentTarget.style.background = T.surface2)} onMouseLeave={e => !isSelected && (e.currentTarget.style.background = "transparent")}>
-                      <td style={{ padding: "8px 12px", color: T.text }}>{r.title}</td>
-                      <td style={{ padding: "8px 12px", textAlign: "right", color: T.text3, fontSize: 12 }}>{r.description?.match(/(\d+) txns/)?.[1] || "—"}</td>
-                      <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: Number(r.total_amount) < 0 ? (T.red || "#ef4444") : T.text }}>{fmt(r.total_amount)}</td>
-                    </tr>
-                  ); })}</tbody>
-                </table>
-              </div>
-              {selectedReport && <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, overflow: "auto", maxHeight: "calc(100vh - 220px)" }}>
-                <div style={{ padding: "10px 14px", background: T.surface2, borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 1 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{expenses.find(e => e.id === selectedReport)?.title} — {selectedItems.length} txns</span>
-                  <button onClick={() => { setSelectedReport(null); setSelectedItems([]); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>×</button>
-                </div>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead><tr style={{ background: T.surface2, position: "sticky", top: 41, zIndex: 1 }}>
-                    <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, color: T.text2, fontSize: 11 }}>Date</th>
-                    <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, color: T.text2, fontSize: 11 }}>Description</th>
-                    <th style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600, color: T.text2, fontSize: 11 }}>Amount</th>
-                  </tr></thead>
-                  <tbody>{selectedItems.map((item, i) => { let meta = {}; try { meta = JSON.parse(item.notes || "{}"); } catch(e) {} return (
-                    <tr key={item.id || i} style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <td style={{ padding: "6px 10px", color: T.text3, whiteSpace: "nowrap", fontSize: 12 }}>{item.date}</td>
-                      <td style={{ padding: "6px 10px", color: T.text }}><div style={{ fontSize: 12 }}>{item.vendor_name || item.description}</div>{meta.txn_type && <div style={{ fontSize: 10, color: T.text3 }}>{meta.txn_type}{meta.split ? ` → ${meta.split}` : ""}</div>}</td>
-                      <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: Number(item.amount) < 0 ? (T.red || "#ef4444") : T.text }}>{fmt(item.amount)}</td>
-                    </tr>
-                  ); })}</tbody>
-                </table>
-              </div>}
-            </div>
-          </>;
-        })()}
-
-        {tab === "Budgets" && <>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Budgets</h3>
-            <button onClick={() => setModal({ type: "budget", mode: "new", data: { status: "draft", fiscal_year: new Date().getFullYear() } })} style={{ ..._btn, background: T.accent, color: "#fff" }}>+ New Budget</button>
-          </div>
-          <Table columns={[
-            { label: "Name", key: "name" },
-            { label: "Year", key: "fiscal_year", nowrap: true },
-            { label: "Total", align: "right", render: r => fmt(r.total_amount), nowrap: true },
-            { label: "Spent", align: "right", render: r => { const bl = budgetLines.filter(l => l.budget_id === r.id); const spent = bl.reduce((s, l) => s + Number(l.spent_amount || 0), 0); return fmt(spent); }, nowrap: true },
-            { label: "Remaining", align: "right", render: r => { const bl = budgetLines.filter(l => l.budget_id === r.id); const spent = bl.reduce((s, l) => s + Number(l.spent_amount || 0), 0); return fmt(Number(r.total_amount || 0) - spent); }, nowrap: true },
-            { label: "Utilization", render: r => { const bl = budgetLines.filter(l => l.budget_id === r.id); const spent = bl.reduce((s, l) => s + Number(l.spent_amount || 0), 0); const p = pct(spent, r.total_amount); return (<div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 60, height: 6, borderRadius: 3, background: T.surface3 }}><div style={{ width: `${Math.min(100, p)}%`, height: "100%", borderRadius: 3, background: p > 90 ? (T.red || "#ef4444") : p > 70 ? "#f97316" : (T.green || "#22c55e") }} /></div><span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>{p}%</span></div>); } },
-            { label: "Status", render: r => <StatusPill status={r.status} /> },
-            { label: "", align: "right", render: r => <button onClick={e => { e.stopPropagation(); deleteRecord("fin_budgets", r.id, budgets, setBudgets); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, opacity: 0.4 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button> }
-          ]} data={budgets} onRowClick={r => setModal({ type: "budget", mode: "edit", data: r })} emptyMsg="No budgets — create your first budget to start tracking" />
-        </>}
-
-        {tab === "Purchase Orders" && <>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Purchase Orders</h3>
-            <button onClick={() => setModal({ type: "po", mode: "new", data: { status: "draft", priority: "normal" } })} style={{ ..._btn, background: T.accent, color: "#fff" }}>+ New PO</button>
-          </div>
-          <Table columns={[
-            { label: "PO #", key: "po_number", nowrap: true },
-            { label: "Title", key: "title" },
-            { label: "Vendor", render: r => vname(r.vendor_id) },
-            { label: "Amount", align: "right", render: r => fmt(r.total_amount), nowrap: true },
-            { label: "Required By", render: r => r.required_by || "—", nowrap: true },
-            { label: "Status", render: r => <StatusPill status={r.status} /> },
-            { label: "", align: "right", render: r => (
-              <div style={{ display: "flex", gap: 4 }}>
-                {r.status === "draft" && <button onClick={e => { e.stopPropagation(); submitForApproval("purchase_order", r.id, r.total_amount); }} style={{ ..._btn, background: "#f97316", color: "#fff", padding: "3px 8px", fontSize: 11 }}>Submit</button>}
-                <button onClick={e => { e.stopPropagation(); deleteRecord("fin_purchase_orders", r.id, pos, setPOs); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, opacity: 0.4 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button>
-              </div>
-            )}
-          ]} data={pos} onRowClick={r => setModal({ type: "po", mode: "edit", data: r })} emptyMsg="No purchase orders yet" />
-        </>}
-
-        {tab === "Invoices" && <>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Invoices</h3>
-            <button onClick={() => setModal({ type: "invoice", mode: "new", data: { status: "received" } })} style={{ ..._btn, background: T.accent, color: "#fff" }}>+ New Invoice</button>
-          </div>
-          <Table columns={[
-            { label: "Ref", render: r => r.internal_ref || r.invoice_number, nowrap: true },
-            { label: "Vendor Invoice #", key: "invoice_number" },
-            { label: "Vendor", render: r => vname(r.vendor_id) },
-            { label: "Amount", align: "right", render: r => fmt(r.total_amount), nowrap: true },
-            { label: "Due", render: r => r.due_date || "—", nowrap: true },
-            { label: "Paid", align: "right", render: r => fmt(r.amount_paid), nowrap: true },
-            { label: "Status", render: r => <StatusPill status={r.status} /> },
-            { label: "", align: "right", render: r => (
-              <div style={{ display: "flex", gap: 4 }}>
-                {["received", "under_review"].includes(r.status) && <button onClick={e => { e.stopPropagation(); submitForApproval("invoice", r.id, r.total_amount); }} style={{ ..._btn, background: "#f97316", color: "#fff", padding: "3px 8px", fontSize: 11 }}>Submit</button>}
-                <button onClick={e => { e.stopPropagation(); deleteRecord("fin_invoices", r.id, invoices, setInvoices); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, opacity: 0.4 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button>
-              </div>
-            )}
-          ]} data={invoices} onRowClick={r => setModal({ type: "invoice", mode: "edit", data: r })} emptyMsg="No invoices yet" />
-        </>}
-
-        {tab === "Vendors" && <>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Vendors</h3>
-            <button onClick={() => setModal({ type: "vendor", mode: "new", data: { payment_terms: "net_30" } })} style={{ ..._btn, background: T.accent, color: "#fff" }}>+ New Vendor</button>
-          </div>
-          <Table columns={[
-            { label: "Name", key: "name" },
-            { label: "Code", key: "code" },
-            { label: "Contact", key: "contact_name" },
-            { label: "Email", key: "contact_email" },
-            { label: "Terms", render: r => (r.payment_terms || "").replace(/_/g, " ") },
-            { label: "Category", key: "category" },
-            { label: "POs", render: r => pos.filter(p => p.vendor_id === r.id).length },
-            { label: "Total Spend", align: "right", render: r => fmt(invoices.filter(i => i.vendor_id === r.id).reduce((s, i) => s + Number(i.total_amount || 0), 0)), nowrap: true },
-            { label: "", align: "right", render: r => <button onClick={e => { e.stopPropagation(); deleteRecord("fin_vendors", r.id, vendors, setVendors); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, opacity: 0.4 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>×</button> }
-          ]} data={vendors} onRowClick={r => setModal({ type: "vendor", mode: "edit", data: r })} emptyMsg="No vendors yet — add your first vendor" />
-        </>}
-
-        {tab === "QBO" && (
-          <div style={{ padding: "20px 24px" }}>
-            {/* QBO Header */}
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
-              <div>
-                <h2 style={{ fontSize:18, fontWeight:700, marginBottom:4 }}>QuickBooks Online</h2>
-                {qboConn ? (
-                  <div style={{ fontSize:12, color:"#22c55e", display:"flex", alignItems:"center", gap:6 }}>
-                    <span>● Connected</span>
-                    <span style={{ color:T.text3 }}>·</span>
-                    <span style={{ color:T.text3 }}>{qboConn.company_name}</span>
-                    {qboConn.last_synced_at && <span style={{ color:T.text3 }}>· Last sync: {new Date(qboConn.last_synced_at).toLocaleString()}</span>}
-                  </div>
-                ) : (
-                  <div style={{ fontSize:12, color:T.text3 }}>Not connected — go to Settings → Integrations to connect</div>
-                )}
-              </div>
-              {qboConn && (
-                <div style={{ display:"flex", gap:8 }}>
-                  {["pl","accounts","vendors","bills","customers","invoices"].map(what => (
-                    <button key={what} onClick={()=>syncQBO(what)} disabled={qboSyncing}
-                      style={{ padding:"5px 12px", fontSize:11, fontWeight:600, background:T.surface2, color:T.text2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer", opacity:qboSyncing?0.5:1 }}>
-                      ↻ {what === "pl" ? "P&L" : what.charAt(0).toUpperCase()+what.slice(1)}
-                    </button>
-                  ))}
-                  <button onClick={()=>syncQBO("all")} disabled={qboSyncing}
-                    style={{ padding:"5px 14px", fontSize:12, fontWeight:700, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", opacity:qboSyncing?0.5:1 }}>
-                    {qboSyncing ? "Syncing…" : "↻ Sync All"}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Sub-tabs */}
-            <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:20 }}>
-              {[["pl","P&L"],["accounts","Chart of Accounts"],["vendors","Vendors"],["bills","Bills"],["customers","Customers"],["invoices","Invoices"]].map(([k,l])=>(
-                <button key={k} onClick={()=>setQboTab(k)} style={{ padding:"8px 16px", fontSize:12, fontWeight:qboTab===k?600:400, color:qboTab===k?T.accent:T.text3, background:"none", border:"none", borderBottom:qboTab===k?`2px solid ${T.accent}`:"2px solid transparent", cursor:"pointer" }}>{l}</button>
-              ))}
-            </div>
-
-            {!qboLoaded && <div style={{ color:T.text3, fontSize:13 }}>Loading QBO data…</div>}
-
-            {/* P&L */}
-            {qboTab==="pl" && qboLoaded && (
-              <div>
-                {qboPlRows.length === 0 ? (
-                  <div style={{ textAlign:"center", padding:"40px 0", color:T.text3 }}>
-                    <div style={{ fontSize:32, marginBottom:8 }}>📒</div>
-                    <div style={{ fontSize:14, fontWeight:600, marginBottom:4 }}>No P&L data yet</div>
-                    <div style={{ fontSize:12 }}>Connect QBO and click "↻ P&L" to import</div>
-                  </div>
-                ) : (
-                  <div>
-                    {["Revenue","Expense"].map(cls => {
-                      const rows = qboPlRows.filter(r=>r.classification===cls);
-                      if (!rows.length) return null;
-                      const total = rows.reduce((s,r)=>s+Number(r.amount),0);
-                      return (
-                        <div key={cls} style={{ marginBottom:24 }}>
-                          <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 12px", background:T.surface2, borderRadius:"8px 8px 0 0", borderBottom:`1px solid ${T.border}` }}>
-                            <span style={{ fontSize:13, fontWeight:700, color:cls==="Revenue"?"#22c55e":"#ef4444" }}>{cls}</span>
-                            <span style={{ fontSize:13, fontWeight:700, color:cls==="Revenue"?"#22c55e":"#ef4444" }}>{fmt(total)}</span>
-                          </div>
-                          {rows.map(r=>(
-                            <div key={r.id} style={{ display:"flex", justifyContent:"space-between", padding:"7px 12px", borderBottom:`1px solid ${T.border}`, background:T.surface }}>
-                              <span style={{ fontSize:12, color:T.text2 }}>{r.account_name}</span>
-                              <span style={{ fontSize:12, fontWeight:500, color:T.text }}>{fmt(r.amount)}</span>
-                            </div>
-                          ))}
-                          <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 12px", background:T.surface3, borderRadius:"0 0 8px 8px" }}>
-                            <span style={{ fontSize:12, fontWeight:700, color:T.text2 }}>Total {cls}</span>
-                            <span style={{ fontSize:12, fontWeight:700 }}>{fmt(total)}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {/* Net Income */}
-                    {(() => {
-                      const rev = qboPlRows.filter(r=>r.classification==="Revenue").reduce((s,r)=>s+Number(r.amount),0);
-                      const exp = qboPlRows.filter(r=>r.classification==="Expense").reduce((s,r)=>s+Number(r.amount),0);
-                      const net = rev - exp;
-                      return (
-                        <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 16px", background:net>=0?"#22c55e18":"#ef444418", borderRadius:8, border:`1px solid ${net>=0?"#22c55e40":"#ef444440"}` }}>
-                          <span style={{ fontSize:14, fontWeight:800, color:net>=0?"#22c55e":"#ef4444" }}>Net Income</span>
-                          <span style={{ fontSize:14, fontWeight:800, color:net>=0?"#22c55e":"#ef4444" }}>{fmt(net)}</span>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Chart of Accounts */}
-            {qboTab==="accounts" && qboLoaded && (
-              <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
-                  {["Name","Type","Sub-Type","Classification","Balance"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>{qboAccounts.map(a=>(
-                  <tr key={a.id} style={{ borderBottom:`1px solid ${T.border}` }}>
-                    <td style={{ padding:"8px 10px", fontSize:13 }}>{a.name}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{a.account_type}</td>
-                    <td style={{ padding:"8px 10px", fontSize:11, color:T.text3 }}>{a.account_sub_type}</td>
-                    <td style={{ padding:"8px 10px" }}><span style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:4, background:{Revenue:"#22c55e18",Expense:"#ef444418",Asset:"#3b82f618",Liability:"#a855f618"}[a.classification]||T.surface2, color:{Revenue:"#22c55e",Expense:"#ef4444",Asset:"#3b82f6",Liability:"#a855f6"}[a.classification]||T.text3 }}>{a.classification}</span></td>
-                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:500, textAlign:"right" }}>{fmt(a.current_balance)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            )}
-
-            {/* Vendors */}
-            {qboTab==="vendors" && qboLoaded && (
-              <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
-                  {["Vendor","Email","Phone","Balance"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>{qboVendors.map(v=>(
-                  <tr key={v.id} style={{ borderBottom:`1px solid ${T.border}` }}>
-                    <td style={{ padding:"8px 10px" }}><div style={{ fontSize:13, fontWeight:500 }}>{v.display_name}</div>{v.company_name&&v.company_name!==v.display_name&&<div style={{ fontSize:11, color:T.text3 }}>{v.company_name}</div>}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{v.email||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text3 }}>{v.phone||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:v.balance>0?600:400, color:v.balance>0?"#ef4444":T.text3, textAlign:"right" }}>{fmt(v.balance)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            )}
-
-            {/* Bills */}
-            {qboTab==="bills" && qboLoaded && (
-              <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
-                  {["Vendor","Date","Due","Amount","Balance","Status"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>{qboBills.map(b=>(
-                  <tr key={b.id} style={{ borderBottom:`1px solid ${T.border}` }}>
-                    <td style={{ padding:"8px 10px", fontSize:13 }}>{b.vendor_name||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{b.txn_date||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text3 }}>{b.due_date||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:500, textAlign:"right" }}>{fmt(b.total_amount)}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:b.balance>0?"#ef4444":T.text3, fontWeight:b.balance>0?600:400, textAlign:"right" }}>{fmt(b.balance)}</td>
-                    <td style={{ padding:"8px 10px" }}><StatusPill status={b.payment_status||"open"} /></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            )}
-
-            {/* Customers */}
-            {qboTab==="customers" && qboLoaded && (
-              <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
-                  {["Customer","Email","Phone","Balance"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>{qboCustomers.map(c=>(
-                  <tr key={c.id} style={{ borderBottom:`1px solid ${T.border}` }}>
-                    <td style={{ padding:"8px 10px" }}><div style={{ fontSize:13, fontWeight:500 }}>{c.display_name}</div>{c.company_name&&c.company_name!==c.display_name&&<div style={{ fontSize:11, color:T.text3 }}>{c.company_name}</div>}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{c.email||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text3 }}>{c.phone||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:c.balance>0?600:400, textAlign:"right" }}>{fmt(c.balance)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            )}
-
-            {/* Invoices */}
-            {qboTab==="invoices" && qboLoaded && (
-              <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                <thead><tr style={{ borderBottom:`2px solid ${T.border}` }}>
-                  {["Customer","Date","Due","Amount","Balance","Status"].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>{qboInvoices.map(inv=>(
-                  <tr key={inv.id} style={{ borderBottom:`1px solid ${T.border}` }}>
-                    <td style={{ padding:"8px 10px", fontSize:13 }}>{inv.customer_name||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text2 }}>{inv.txn_date||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:T.text3 }}>{inv.due_date||"—"}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, fontWeight:500, textAlign:"right" }}>{fmt(inv.total_amount)}</td>
-                    <td style={{ padding:"8px 10px", fontSize:12, color:inv.balance>0?"#ef4444":T.text3, fontWeight:inv.balance>0?600:400, textAlign:"right" }}>{fmt(inv.balance)}</td>
-                    <td style={{ padding:"8px 10px" }}><StatusPill status={inv.balance<=0?"paid":"open"} /></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            )}
-          </div>
-        )}
-        {tab === "Import" && (() => {
-          const IMPORT_TYPES = {
-            vendors: { table: "fin_vendors", label: "Vendors", fields: [
-              { key: "name", label: "Vendor Name", required: true },
-              { key: "code", label: "Vendor Code" },
-              { key: "contact_name", label: "Contact Name" },
-              { key: "contact_email", label: "Contact Email" },
-              { key: "contact_phone", label: "Phone" },
-              { key: "payment_terms", label: "Payment Terms" },
-              { key: "category", label: "Category" },
-              { key: "tax_id", label: "Tax ID / EIN" },
-              { key: "notes", label: "Notes" },
-            ]},
-            accounts: { table: "fin_accounts", label: "Chart of Accounts", fields: [
-              { key: "name", label: "Account Name", required: true },
-              { key: "code", label: "Account Code / Number" },
-              { key: "type", label: "Type (expense/revenue/asset/liability)" },
-              { key: "description", label: "Description" },
-            ]},
-            purchase_orders: { table: "fin_purchase_orders", label: "Purchase Orders", fields: [
-              { key: "po_number", label: "PO Number", required: true },
-              { key: "title", label: "Title / Memo", required: true },
-              { key: "vendor_name", label: "Vendor Name (will match existing)", lookup: "vendor" },
-              { key: "total_amount", label: "Total Amount", numeric: true },
-              { key: "subtotal", label: "Subtotal", numeric: true },
-              { key: "tax_amount", label: "Tax Amount", numeric: true },
-              { key: "status", label: "Status" },
-              { key: "order_date", label: "Order Date" },
-              { key: "required_by", label: "Required By Date" },
-              { key: "notes", label: "Notes / Memo" },
-            ]},
-            expenses: { table: "fin_expense_reports", label: "Expense Reports", fields: [
-              { key: "report_number", label: "Report Number", required: true },
-              { key: "title", label: "Title", required: true },
-              { key: "total_amount", label: "Total Amount", numeric: true },
-              { key: "status", label: "Status" },
-              { key: "description", label: "Description" },
-              { key: "notes", label: "Notes" },
-            ]},
-            expense_items: { table: "fin_expense_items", label: "Expense Line Items", fields: [
-              { key: "report_number", label: "Report Number (to match parent)", lookup: "expense" },
-              { key: "date", label: "Date" },
-              { key: "category", label: "Category" },
-              { key: "description", label: "Description", required: true },
-              { key: "amount", label: "Amount", required: true, numeric: true },
-              { key: "vendor_name", label: "Vendor / Payee" },
-            ]},
-            invoices: { table: "fin_invoices", label: "Invoices (Bills)", fields: [
-              { key: "invoice_number", label: "Invoice / Bill Number", required: true },
-              { key: "title", label: "Title / Memo" },
-              { key: "vendor_name", label: "Vendor Name (will match existing)", lookup: "vendor" },
-              { key: "total_amount", label: "Total Amount", required: true, numeric: true },
-              { key: "tax_amount", label: "Tax", numeric: true },
-              { key: "invoice_date", label: "Invoice Date" },
-              { key: "due_date", label: "Due Date" },
-              { key: "status", label: "Status" },
-              { key: "notes", label: "Notes / Memo" },
-            ]},
-            payments: { table: "fin_payments", label: "Payments", fields: [
-              { key: "invoice_number", label: "Invoice # (to match)", lookup: "invoice" },
-              { key: "amount", label: "Amount", required: true, numeric: true },
-              { key: "payment_date", label: "Payment Date" },
-              { key: "payment_method", label: "Method (ach/wire/check/credit_card)" },
-              { key: "reference_number", label: "Reference / Check #" },
-              { key: "notes", label: "Notes" },
-            ]},
-          };
-
-          const cfg = IMPORT_TYPES[importType];
-
-          const parseCSV = (text, delim = ",") => {
-            const lines = text.split(/\r?\n/).filter(l => l.trim());
-            if (lines.length < 2) return null;
-            const parseLine = (line) => {
-              if (delim === "\t") return line.split("\t").map(c => c.trim().replace(/^"|"$/g, ""));
-              const result = []; let current = ""; let inQuotes = false;
-              for (let i = 0; i < line.length; i++) {
-                const c = line[i];
-                if (c === '"') { inQuotes = !inQuotes; }
-                else if (c === delim && !inQuotes) { result.push(current.trim()); current = ""; }
-                else { current += c; }
-              }
-              result.push(current.trim());
-              return result;
-            };
-            const headers = parseLine(lines[0]);
-            const rows = lines.slice(1).map(parseLine).filter(r => r.some(c => c));
-            return { headers, rows };
-          };
-
-          const handleFile = (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            const ext = file.name.split(".").pop().toLowerCase();
-
-            if (ext === "xlsx" || ext === "xls") {
-              setImporting(true);
-              showToast("Processing Excel file...");
-              const reader = new FileReader();
-              reader.onload = async (ev) => {
-                try {
-                  // Load SheetJS if not already loaded
-                  if (!window.XLSX) {
-                    await new Promise((resolve, reject) => {
-                      const script = document.createElement("script");
-                      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-                      script.onload = resolve;
-                      script.onerror = reject;
-                      document.head.appendChild(script);
-                    });
-                  }
-                  const wb = window.XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
-                  const ws = wb.Sheets[wb.SheetNames[0]];
-                  
-                  const A2 = ws["A2"]?.v || "";
-                  if (A2?.toString().includes("Transaction Detail")) {
-                    await handleTxnDetailImport(ws);
-                    return;
-                  }
-                  
-                  const csv = window.XLSX.utils.sheet_to_csv(ws);
-                  processCSVText(csv);
-                  setImporting(false);
-                } catch (err) {
-                  console.error("XLSX parse error:", err);
-                  showToast("Could not parse Excel file: " + err.message, "error");
-                  setImporting(false);
-                }
-              };
-              reader.readAsArrayBuffer(file);
-              return;
-            }
-
-            // CSV/TSV — try multiple encodings
-            const tryRead = (encoding) => {
-              const reader = new FileReader();
-              reader.onload = (ev) => {
-                let text = ev.target.result;
-                // Strip BOM
-                if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-                // Check for garbled characters (replacement char or lots of nulls)
-                const garbled = (text.match(/\uFFFD/g) || []).length > 5 || (text.match(/\x00/g) || []).length > 5;
-                if (garbled && encoding === "UTF-8") {
-                  // Retry with UTF-16LE (common QBO encoding)
-                  tryRead("UTF-16LE");
-                  return;
-                }
-                if (garbled && encoding === "UTF-16LE") {
-                  tryRead("windows-1252");
-                  return;
-                }
-                processCSVText(text);
-              };
-              reader.readAsText(file, encoding);
-            };
-            tryRead("UTF-8");
-          };
-
-          const handleTxnDetailImport = async (ws) => {
-            showToast("Detected QBO Transaction Detail by Account — parsing...");
-            try {
-              const range = window.XLSX.utils.decode_range(ws["!ref"]);
-              const accounts = [];
-              const transactions = [];
-              let currentAccount = null;
-              
-              for (let r = 5; r <= range.e.r; r++) {
-                const cellA = ws[window.XLSX.utils.encode_cell({ r, c: 0 })]?.v;
-                const cellB = ws[window.XLSX.utils.encode_cell({ r, c: 1 })]?.v;
-                
-                // Account header row: col A has value, col B empty
-                if (cellA && !cellB) {
-                  const acct = String(cellA).trim();
-                  if (acct && !acct.startsWith("Total") && !acct.startsWith("TOTAL")) {
-                    currentAccount = acct;
-                    if (!accounts.includes(acct)) accounts.push(acct);
-                  }
-                  continue;
-                }
-                
-                // Transaction row: col B has date
-                if (cellB && currentAccount) {
-                  const dateVal = cellB;
-                  let dateStr = "";
-                  if (typeof dateVal === "number") {
-                    // Excel serial date
-                    const d = new Date((dateVal - 25569) * 86400000);
-                    dateStr = `${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
-                  } else {
-                    dateStr = String(dateVal);
-                  }
-                  
-                  transactions.push({
-                    account: currentAccount,
-                    date: dateStr,
-                    type: String(ws[window.XLSX.utils.encode_cell({ r, c: 2 })]?.v || ""),
-                    num: String(ws[window.XLSX.utils.encode_cell({ r, c: 3 })]?.v || ""),
-                    name: String(ws[window.XLSX.utils.encode_cell({ r, c: 4 })]?.v || ""),
-                    cls: String(ws[window.XLSX.utils.encode_cell({ r, c: 5 })]?.v || ""),
-                    memo: String(ws[window.XLSX.utils.encode_cell({ r, c: 6 })]?.v || ""),
-                    split: String(ws[window.XLSX.utils.encode_cell({ r, c: 7 })]?.v || ""),
-                    amount: Number(ws[window.XLSX.utils.encode_cell({ r, c: 8 })]?.v) || 0,
-                  });
-                }
-              }
-              
-              showToast(`Parsed ${accounts.length} GL accounts, ${transactions.length} transactions — importing in batches...`);
-              
-              const { data: { session } } = await supabase.auth.getSession();
-              const hdrs = { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` };
-              const url = `https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/import-expenses`;
-              
-              // Step 1: Send accounts only
-              const r1 = await (await fetch(url, { method: "POST", headers: hdrs, body: JSON.stringify({ import_type: "txn_detail", accounts, transactions: [] }) })).json();
-              if (r1.error) { showToast("Account import error: " + r1.error, "error"); setImporting(false); return; }
-              showToast(`Created ${r1.accounts} GL accounts — importing ${transactions.length} transactions...`);
-              
-              // Step 2: Send transactions in batches of 2000
-              const TBATCH = 2000;
-              let totalReports = 0, totalItems = 0;
-              for (let i = 0; i < transactions.length; i += TBATCH) {
-                const chunk = transactions.slice(i, i + TBATCH);
-                const rn = await (await fetch(url, { method: "POST", headers: hdrs, body: JSON.stringify({ import_type: "txn_detail", accounts: [], transactions: chunk }) })).json();
-                if (rn.error) { showToast(`Batch ${Math.floor(i/TBATCH)+1} error: ${rn.error}`, "error"); continue; }
-                totalReports += rn.reports || 0;
-                totalItems += rn.items || 0;
-                showToast(`Batch ${Math.floor(i/TBATCH)+1}/${Math.ceil(transactions.length/TBATCH)} done — ${totalItems} items so far...`);
-              }
-              
-              showToast(`Done! ${r1.accounts} GL accounts, ${totalReports} reports, ${totalItems} transactions imported`);
-              const [er, ea] = await Promise.all([
-                supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
-                supabase.from("fin_accounts").select("*").eq("org_id", orgId),
-              ]);
-              setExpenses(er.data || []);
-              setAccounts(ea.data || []);
-            } catch (err) {
-              console.error("Txn detail import error:", err);
-              showToast("Import failed: " + err.message, "error");
-            }
-            setImporting(false);
-          };
-
-          const handlePivotImport = async (text, delimiter) => {
-            setImporting(true);
-            showToast("Detected QBO Expenses by Vendor Summary — unpivoting and importing...");
-            try {
-              const lines = text.split(/\r?\n/).filter(l => l.trim());
-              const parseLine = (line) => {
-                const result = []; let current = ""; let inQ = false;
-                for (let i = 0; i < line.length; i++) {
-                  const c = line[i];
-                  if (c === '"') inQ = !inQ;
-                  else if (c === ',' && !inQ) { result.push(current.trim()); current = ""; }
-                  else current += c;
-                }
-                result.push(current.trim());
-                return result;
-              };
-              // Find header row (the one starting with "Vendor" and having dates)
-              let headerIdx = -1;
-              for (let i = 0; i < Math.min(10, lines.length); i++) {
-                if (lines[i].startsWith("Vendor,")) { headerIdx = i; break; }
-              }
-              if (headerIdx < 0) { showToast("Could not find Vendor header row", "error"); setImporting(false); return; }
-              const headers = parseLine(lines[headerIdx]);
-              const dates = headers.slice(1, -1); // skip Vendor and Total
-              // Parse data rows
-              const expenses = [];
-              for (let i = headerIdx + 1; i < lines.length; i++) {
-                const cells = parseLine(lines[i]);
-                const vendor = cells[0];
-                if (!vendor || vendor === "TOTAL" || vendor.startsWith("Accrual")) continue;
-                for (let d = 0; d < dates.length; d++) {
-                  const raw = (cells[d + 1] || "").replace(/[\$,]/g, "").trim();
-                  const amount = parseFloat(raw);
-                  if (!raw || isNaN(amount) || amount === 0) continue;
-                  const parts = dates[d].split("/");
-                  const isoDate = parts.length === 3 ? `${parts[2]}-${parts[0].padStart(2,"0")}-${parts[1].padStart(2,"0")}` : dates[d];
-                  expenses.push({ vendor_name: vendor, date: isoDate, amount });
-                }
-              }
-              showToast(`Parsed ${expenses.length} expense items from ${new Set(expenses.map(e => e.vendor_name)).size} vendors — sending to server...`);
-              // Call edge function
-              const { data: { session } } = await supabase.auth.getSession();
-              const resp = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/import-expenses`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token || ""}` },
-                body: JSON.stringify({ expenses })
-              });
-              const result = await resp.json();
-              if (result.error) { showToast("Import error: " + result.error, "error"); }
-              else {
-                showToast(`Imported ${result.reports} expense reports with ${result.items} line items!`);
-                // Refresh
-                const { data: er } = await supabase.from("fin_expense_reports").select("*").eq("org_id", orgId).order("created_at", { ascending: false });
-                setExpenses(er || []);
-              }
-            } catch (err) {
-              console.error("Pivot import error:", err);
-              showToast("Import failed: " + err.message, "error");
-            }
-            setImporting(false);
-          };
-
-          const processCSVText = (text) => {
-            // Detect delimiter (tab vs comma)
-            const firstLine = text.split(/\r?\n/)[0] || "";
-            const tabCount = (firstLine.match(/\t/g) || []).length;
-            const commaCount = (firstLine.match(/,/g) || []).length;
-            const delimiter = tabCount > commaCount ? "\t" : ",";
-
-            // Detect QBO pivot table format (Expenses by Vendor Summary)
-            const lines = text.split(/\r?\n/).filter(l => l.trim());
-            if (lines[0]?.includes("Expenses by Vendor") || (lines.length > 4 && lines[4]?.match(/^Vendor,\d{2}\/\d{2}\/\d{4}/))) {
-              handlePivotImport(text, delimiter);
-              return;
-            }
-
-            const parsed = parseCSV(text, delimiter);
-            if (!parsed || parsed.rows.length === 0) return showToast("Could not parse file — check the format", "error");
-            setCsvData(parsed);
-            const autoMap = {};
-            const usedCols = new Set();
-            cfg.fields.forEach(f => {
-              const fk = f.key.toLowerCase().replace(/_/g, "");
-              const fl = f.label.toLowerCase();
-              let bestMatch = -1; let bestScore = 0;
-              parsed.headers.forEach((h, i) => {
-                if (usedCols.has(i)) return;
-                const hl = h.toLowerCase().trim();
-                const hc = hl.replace(/[^a-z0-9]/g, "");
-                let score = 0;
-                if (hc === fk) score = 100;                           // exact: "vendor" == "vendor"
-                else if (hl === fl) score = 95;                        // exact label match
-                else if (hc === fk.replace(/name$/, "")) score = 80;   // "vendor" matches "vendorname"
-                else if (hl.replace(/[^a-z0-9 ]/g, "") === fl.replace(/[^a-z0-9 ]/g, "")) score = 75;
-                else if (hc === "name" && fk === "name") score = 90;
-                else if (hc === "email" && fk.includes("email")) score = 85;
-                else if (hc === "phone" && fk.includes("phone")) score = 85;
-                else if (hc === "vendor" && fk === "name") score = 70;  // QBO "Vendor" column = vendor name
-                else if (hc === "companyname" && fk === "contactname") score = 60;
-                else if (hl.includes("company") && fk === "contactname") score = 55;
-                if (score > bestScore) { bestScore = score; bestMatch = i; }
-              });
-              if (bestMatch >= 0 && bestScore >= 55) {
-                autoMap[f.key] = bestMatch;
-                usedCols.add(bestMatch);
-              }
-            });
-            setColMap(autoMap);
-            // Auto-generate preview
-            const previewRows = parsed.rows.slice(0, 5).map(row => {
-              const obj = {};
-              cfg.fields.forEach(fld => {
-                const ci = autoMap[fld.key];
-                if (ci !== undefined && ci !== "" && ci !== -1) {
-                  let val = row[ci] || "";
-                  if (fld.numeric) val = parseFloat(String(val).replace(/[^0-9.\-]/g, "")) || 0;
-                  obj[fld.key] = val;
-                }
-              });
-              return obj;
-            });
-            setImportPreview(previewRows);
-          };
-
-          const buildPreview = () => {
-            if (!csvData) return;
-            const rows = csvData.rows.slice(0, 5).map(row => {
-              const obj = {};
-              cfg.fields.forEach(f => {
-                const ci = colMap[f.key];
-                if (ci !== undefined && ci !== "" && ci !== -1) {
-                  let val = row[ci] || "";
-                  if (f.numeric) val = parseFloat(val.replace(/[^0-9.\-]/g, "")) || 0;
-                  obj[f.key] = val;
-                }
-              });
-              return obj;
-            });
-            setImportPreview(rows);
-          };
-
-          const runImport = async () => {
-            if (!csvData || importing) return;
-            setImporting(true);
-            let imported = 0; let errors = 0;
-            const vendorMap = {}; vendors.forEach(v => vendorMap[v.name.toLowerCase()] = v.id);
-            const expMap = {}; expenses.forEach(e => expMap[e.report_number?.toLowerCase()] = e.id);
-            const invMap = {}; invoices.forEach(i => invMap[i.invoice_number?.toLowerCase()] = i.id);
-
-            // Build all records first
-            const records = [];
-            for (const row of csvData.rows) {
-              const obj = { org_id: orgId };
-              let skip = false;
-              cfg.fields.forEach(f => {
-                const ci = colMap[f.key];
-                if (ci !== undefined && ci !== "" && ci !== -1) {
-                  let val = row[ci] || "";
-                  if (f.numeric) val = parseFloat(String(val).replace(/[^0-9.\-]/g, "")) || 0;
-                  if (f.required && !val && val !== 0) skip = true;
-                  if (f.key === "vendor_name" && f.lookup === "vendor") {
-                    const vid = vendorMap[String(val).toLowerCase()];
-                    if (vid) obj.vendor_id = vid;
-                    return;
-                  }
-                  if (f.key === "report_number" && f.lookup === "expense") {
-                    const eid = expMap[String(val).toLowerCase()];
-                    if (eid) obj.report_id = eid;
-                    return;
-                  }
-                  if (f.key === "invoice_number" && f.lookup === "invoice") {
-                    const iid = invMap[String(val).toLowerCase()];
-                    if (iid) obj.invoice_id = iid;
-                    return;
-                  }
-                  obj[f.key] = val;
-                }
-              });
-              if (skip) { errors++; continue; }
-              if (cfg.table === "fin_purchase_orders" && !obj.status) obj.status = "draft";
-              if (cfg.table === "fin_expense_reports" && !obj.status) obj.status = "draft";
-              if (cfg.table === "fin_invoices" && !obj.status) obj.status = "received";
-              if (cfg.table === "fin_accounts" && !obj.type) obj.type = "expense";
-              if (cfg.table === "fin_accounts" && !obj.code) obj.code = String(imported + errors + 1).padStart(4, "0");
-              if (cfg.table === "fin_accounts" && obj.name) {
-                // Skip QBO report sub-headers
-                const skip_names = ["full name", "name", "account", "type", "detail type", "description", "balance", ""];
-                if (skip_names.includes(obj.name.toLowerCase().trim())) { errors++; continue; }
-              }
-              if (cfg.table === "fin_expense_items" && !obj.category) obj.category = "other";
-              if (cfg.table === "fin_payments" && !obj.status) obj.status = "completed";
-              if (["fin_expense_items"].includes(cfg.table)) delete obj.org_id;
-              // Skip rows where all values are empty (blank separator rows in reports)
-              const vals = Object.entries(obj).filter(([k]) => k !== "org_id" && k !== "status" && k !== "type" && k !== "category" && k !== "code");
-              if (vals.length === 0 || vals.every(([_, v]) => !v && v !== 0)) { errors++; continue; }
-              records.push(obj);
-            }
-
-            // Batch insert in chunks of 500
-            const BATCH = 500;
-            for (let i = 0; i < records.length; i += BATCH) {
-              const chunk = records.slice(i, i + BATCH);
-              const { data, error } = await supabase.from(cfg.table).insert(chunk).select("id");
-              if (error) {
-                console.error("Batch insert error at offset", i, error);
-                // Fallback: try inserting one by one for this chunk
-                for (const obj of chunk) {
-                  const { error: e2 } = await supabase.from(cfg.table).insert(obj);
-                  if (e2) errors++;
-                  else imported++;
-                }
-              } else {
-                imported += (data || chunk).length;
-              }
-            }
-
-            // Refresh data
-            if (cfg.table === "fin_vendors") { const { data } = await supabase.from("fin_vendors").select("*").eq("org_id", orgId); setVendors(data || []); }
-            if (cfg.table === "fin_accounts") { const { data } = await supabase.from("fin_accounts").select("*").eq("org_id", orgId); setAccounts(data || []); }
-            if (cfg.table === "fin_purchase_orders") { const { data } = await supabase.from("fin_purchase_orders").select("*").eq("org_id", orgId); setPOs(data || []); }
-            if (cfg.table === "fin_expense_reports") { const { data } = await supabase.from("fin_expense_reports").select("*").eq("org_id", orgId); setExpenses(data || []); }
-            if (cfg.table === "fin_invoices") { const { data } = await supabase.from("fin_invoices").select("*").eq("org_id", orgId); setInvoices(data || []); }
-            if (cfg.table === "fin_payments") { const { data } = await supabase.from("fin_payments").select("*").eq("org_id", orgId); setPayments(data || []); }
-
-            setImporting(false);
-            setCsvData(null); setColMap({}); setImportPreview(null);
-            showToast(`Imported ${imported} records${errors > 0 ? ` (${errors} skipped/errors)` : ""}`);
-          };
-
-          return <>
-            <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 700, color: T.text }}>Import from CSV</h3>
-            <p style={{ fontSize: 13, color: T.text3, marginBottom: 16, marginTop: 0 }}>
-              Export your data from QuickBooks Online as CSV/Excel, then upload it here. Map columns to Helm fields and import.
-            </p>
-
-            {/* Step 1: Choose type */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-              {Object.entries(IMPORT_TYPES).map(([k, v]) => (
-                <button key={k} onClick={() => { setImportType(k); setCsvData(null); setColMap({}); setImportPreview(null); }}
-                  style={{ ..._btn, padding: "8px 14px", fontSize: 12, background: importType === k ? T.accent : T.surface2, color: importType === k ? "#fff" : T.text2, border: importType === k ? "none" : `1px solid ${T.border}` }}>{v.label}</button>
-              ))}
-            </div>
-
-            {/* QBO export tips */}
-            <div style={{ background: T.surface2, borderRadius: 8, padding: 16, marginBottom: 16, border: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>QuickBooks Online Export Tips for {cfg.label}</div>
-              <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.6 }}>
-                {importType === "vendors" && "In QBO: Go to Expenses → Vendors → Export to Excel. The CSV will include vendor name, email, phone, and terms."}
-                {importType === "accounts" && "In QBO: Go to Settings (⚙) → Chart of Accounts → Export to Excel (icon next to Print). If the export has a single 'Account List' column, map it to Account Name — codes will be auto-generated. For separate columns, try Reports → Account List → Export."}
-                {importType === "purchase_orders" && "In QBO: Go to Reports → Transaction List → filter by Transaction Type = 'Purchase Order' → Export to Excel."}
-                {importType === "expenses" && "In QBO: Go to Reports → Expenses by Vendor Summary/Detail → Export to Excel. Or use Transaction List filtered to Expense type."}
-                {importType === "expense_items" && "In QBO: Go to Reports → Transaction Detail → filter to Expenses → Export to Excel. Each row will be one expense line."}
-                {importType === "invoices" && "In QBO: Go to Reports → Transaction List → filter by Transaction Type = 'Bill' → Export to Excel. Bills in QBO = vendor invoices."}
-                {importType === "payments" && "In QBO: Go to Reports → Transaction List → filter by Transaction Type = 'Bill Payment' → Export to Excel."}
-              </div>
-            </div>
-
-            {/* Step 2: Upload */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ ..._btn, background: T.accent, color: "#fff", display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
-                Upload CSV
-                <input type="file" accept=".csv,.tsv,.txt,.xls,.xlsx" onChange={handleFile} style={{ display: "none" }} />
-              </label>
-              {csvData && <span style={{ marginLeft: 12, fontSize: 13, color: T.green || "#22c55e", fontWeight: 600 }}>✓ {csvData.rows.length} rows loaded ({csvData.headers.length} columns)</span>}
-            </div>
-
-            {/* Step 3: Map columns */}
-            {csvData && <>
-              <div style={{ background: T.surface, borderRadius: 8, padding: 16, border: `1px solid ${T.border}`, marginBottom: 16 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Map Columns</div>
-                <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Match your CSV columns to Helm fields. Required fields are marked with *</div>
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
-                  {cfg.fields.map(f => (
-                    <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: T.text2, minWidth: 160, fontWeight: f.required ? 600 : 400 }}>{f.label}{f.required ? " *" : ""}</span>
-                      <select value={colMap[f.key] ?? ""} onChange={e => setColMap(p => ({ ...p, [f.key]: e.target.value === "" ? "" : Number(e.target.value) }))}
-                        style={{ ..._sel, flex: 1, fontSize: 12, padding: "5px 8px" }}>
-                        <option value="">— skip —</option>
-                        {csvData.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+              {form.cost_type === "recurring" && (
+                <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", marginBottom: 10 }}>↻ Recurring Schedule</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Frequency</div>
+                      <select value={form.recurring_frequency} onChange={e => setForm(f => ({ ...f, recurring_frequency: e.target.value }))}
+                        style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}>
+                        {["weekly", "monthly", "quarterly", "annually"].map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>First Payment (if different)</div>
+                      <input type="number" value={form.first_amount} onChange={e => setForm(f => ({ ...f, first_amount: e.target.value }))} placeholder="Same as amount"
+                        style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Department</div>
+                <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
+                  <option value="">Select department…</option>
+                  {departments.filter(d => !d.parent_id).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Description</div>
+                <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} placeholder="Context for the approver…"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+              </div>
+
+              {/* Budget Accountability */}
+              <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>📋 Budget Accountability</div>
+                <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>Is this spend already reflected in your approved budget?</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  {[["yes_exact","✓ Yes, at this cost"],["yes_lower","↑ Higher than budgeted"],["yes_higher","↓ Lower than budgeted"],["no","✗ Not in budget"],["unsure","? Unsure"]].map(([v,l]) => (
+                    <button key={v} type="button" onClick={() => setForm(f => ({ ...f, budget_accounted_for: v }))}
+                      style={{ padding: "8px 10px", borderRadius: 8, border: `2px solid ${form.budget_accounted_for === v ? T.accent : T.border}`, background: form.budget_accounted_for === v ? T.accent + "15" : "transparent", color: form.budget_accounted_for === v ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>{l}</button>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                  <button onClick={buildPreview} style={{ ..._btn, background: T.surface3, color: T.text2, fontSize: 12 }}>Preview</button>
-                  <button onClick={runImport} disabled={importing} style={{ ..._btn, background: T.accent, color: "#fff", fontSize: 12, opacity: importing ? 0.5 : 1 }}>
-                    {importing ? "Importing…" : `Import ${csvData.rows.length} Records`}
-                  </button>
+              </div>
+
+              {/* Alternative Quotes */}
+              <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>📊 Alternative Quotes</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[["yes","Yes, I have quotes"],["no","No / N/A"]].map(([v,l]) => (
+                    <button key={v} type="button" onClick={() => setForm(f => ({ ...f, quotes_obtained: v }))}
+                      style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${form.quotes_obtained === v ? T.accent : T.border}`, background: form.quotes_obtained === v ? T.accent + "15" : "transparent", color: form.quotes_obtained === v ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+                  ))}
                 </div>
               </div>
 
-              {/* Preview table */}
-              {importPreview && <div style={{ overflow: "auto", borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: T.text3, padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}` }}>Preview (first 5 rows)</div>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead><tr>{cfg.fields.filter(f => colMap[f.key] !== undefined && colMap[f.key] !== "").map(f => <th key={f.key} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, color: T.text2, borderBottom: `1px solid ${T.border}`, fontSize: 11, background: T.surface2 }}>{f.label}</th>)}</tr></thead>
-                  <tbody>{importPreview.map((row, i) => <tr key={i}>{cfg.fields.filter(f => colMap[f.key] !== undefined && colMap[f.key] !== "").map(f => <td key={f.key} style={{ padding: "6px 10px", borderBottom: `1px solid ${T.border}`, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(row[f.key] ?? "")}</td>)}</tr>)}</tbody>
-                </table>
-              </div>}
+              {/* Routing preview */}
+              {form.amount && (() => {
+                const amt = parseFloat(form.amount);
+                const ruleHits = evaluateRules({ amount: amt, gl_code: form.gl_code, department: form.department });
+                const hit = ruleHits[0];
+                const isAuto = !hit && amt <= mySpendLimit;
+                const msg = hit?.action === "block" ? `⛔ Rule "${hit.name}" will block this`
+                  : hit ? `⚡ Rule: "${hit.name}" — ${hit.action.replace(/_/g, " ")}`
+                  : isAuto ? `✓ Within your limit (${fmt(mySpendLimit)}) — auto-approved`
+                  : `⚠ Requires ${amt > 10000 ? "high-value chain (3-step)" : "standard chain (2-step)"}`;
+                const bg = hit?.action === "block" ? "#FEE2E220" : isAuto ? "#D1FAE520" : "#FEF3C720";
+                return <div style={{ padding: "10px 14px", borderRadius: 8, background: bg, fontSize: 12, fontWeight: 600, color: T.text2 }}>{msg}</div>;
+              })()}
 
-              {/* Raw data peek */}
-              <div style={{ background: T.surface2, borderRadius: 8, padding: 12, border: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 8 }}>Raw CSV Headers</div>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {csvData.headers.map((h, i) => <span key={i} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, background: T.surface3, color: T.text2 }}>{i}: {h}</span>)}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => { setShowNew(false); setForm(FORM_INIT); }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={submitRequest} disabled={!form.title || !form.amount} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.title || !form.amount ? 0.5 : 1 }}>Submit Request</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Request Detail Modal */}
+      {selReq && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => { setSelected(null); setShowReject(false); setShowConditional(false); setShowResubmit(false); setShowRemoval(false); setResubEdits({}); setRemovalReason(""); }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, width: "min(600px, 95vw)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{selReq.title}</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>{selReq.department} · {selReq.date}</div>
+              </div>
+              <Badge status={selReq.status} />
+            </div>
+
+            {/* Approval chain */}
+            <div style={{ background: T.surface2, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 10 }}>Approval Chain</div>
+              <ApprovalChain req={selReq} employees={employees} />
+            </div>
+
+            {/* Details grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+              {[
+                { l: "Amount", v: fmt(selReq.amount) },
+                { l: "GL", v: glCodes.find(g => g.code === selReq.gl_code)?.name || selReq.gl_code || "—" },
+                { l: "Type", v: selReq.cost_type === "recurring" ? `↻ ${selReq.recurring_frequency}` : "One-time" },
+              ].map(f => (
+                <div key={f.l} style={{ background: T.surface2, borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{f.l}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginTop: 3 }}>{f.v}</div>
+                </div>
+              ))}
+            </div>
+
+            {selReq.description && <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.6, marginBottom: 16 }}>{selReq.description}</div>}
+
+            {/* Budget accountability display */}
+            {selReq.budget_accounted_for && (
+              <div style={{ background: T.surface2, borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>📋 Budget Accountability</div>
+                <div style={{ fontSize: 12, color: T.text }}>{{ yes_exact: "✅ Yes, budgeted at this cost", yes_lower: "⚠️ Yes, but higher than budgeted", yes_higher: "✅ Yes, lower than budgeted", no: "❌ Not in current budget", unsure: "❓ Unsure" }[selReq.budget_accounted_for] || selReq.budget_accounted_for}</div>
+              </div>
+            )}
+
+            {/* Quotes display */}
+            {selReq.quotes_obtained && (
+              <div style={{ background: T.surface2, borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>📊 Alternative Quotes</div>
+                <div style={{ fontSize: 12, color: T.text }}>{selReq.quotes_obtained === "yes" ? `✅ ${(selReq.quotes || []).length} quote(s) obtained` : "❌ No quotes obtained"}</div>
+                {(selReq.quotes || []).map((q, i) => (
+                  <div key={i} style={{ marginTop: 6, padding: "6px 8px", background: T.surface, borderRadius: 6, fontSize: 11, display: "flex", justifyContent: "space-between" }}>
+                    <span><strong>{q.supplier || "Vendor"}</strong>{q.notes ? ` — ${q.notes}` : ""}</span>
+                    <span style={{ fontWeight: 700 }}>{q.amount ? fmt(parseFloat(q.amount)) : "—"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Trade-offs display */}
+            {(selReq.trade_offs || []).length > 0 && (
+              <div style={{ background: "#F0FDF420", border: "1px solid #BBF7D0", borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#065F46", textTransform: "uppercase", marginBottom: 4 }}>✅ Budget Trade-Off</div>
+                {selReq.trade_offs.map((t, i) => (
+                  <div key={i} style={{ fontSize: 12, color: T.text }}>Take <strong>{fmt(parseFloat(t.amount))}</strong> from <strong>{t.fromBudgetCategoryId}</strong></div>
+                ))}
+              </div>
+            )}
+
+            {/* Conditional note display */}
+            {selReq.conditional_note && (
+              <div style={{ background: "#FEF3C720", border: `1px solid #FDE68A`, borderLeft: "4px solid #F59E0B", borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", marginBottom: 4 }}>Info Required</div>
+                <div style={{ fontSize: 13, color: T.text }}>{selReq.conditional_note}</div>
+                {selReq.added_info && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #FDE68A" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, textTransform: "uppercase", marginBottom: 4 }}>Response</div>
+                    <div style={{ fontSize: 13, color: T.text }}>{selReq.added_info}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Rejection note */}
+            {selReq.rejection_note && (
+              <div style={{ background: "#FEE2E220", border: "1px solid #FECACA", borderLeft: "4px solid #EF4444", borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#991B1B", textTransform: "uppercase", marginBottom: 4 }}>Rejection Reason</div>
+                <div style={{ fontSize: 13, color: T.text }}>{selReq.rejection_note}</div>
+              </div>
+            )}
+
+            {/* Approver actions */}
+            {isApprover && (selReq.status === "pending" || selReq.status === "conditionally_approved_info_added") && (
+              <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                {!showReject && !showConditional ? (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={doApprove} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Approve</button>
+                    <button onClick={() => setShowConditional(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#F59E0B", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>⚠ Request Info</button>
+                    <button onClick={() => setShowReject(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#EF4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✗ Reject</button>
+                  </div>
+                ) : showConditional ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, background: T.surface2, borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E" }}>What info is needed?</div>
+                    <textarea value={conditionalNote} onChange={e => setConditionalNote(e.target.value)} rows={3} placeholder="e.g. Please provide 3 vendor quotes…"
+                      style={{ width: "100%", padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box", background: T.surface }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={doConditional} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: "#F59E0B", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Send</button>
+                      <button onClick={() => { setShowConditional(false); setConditionalNote(""); }} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#FEE2E220", borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#991B1B" }}>Rejection reason</div>
+                    <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)} rows={3} placeholder="e.g. Budget exceeded for Q2…"
+                      style={{ width: "100%", padding: "8px 10px", border: "1px solid #FECACA", borderRadius: 8, fontSize: 12, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box", background: T.surface }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={doReject} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: "#EF4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Confirm Reject</button>
+                      <button onClick={() => { setShowReject(false); setRejectNote(""); }} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Requester: resubmit when info was requested */}
+            {selReq.requester_id === user?.id && selReq.status === "conditionally_approved" && !selReq.added_info && (
+              <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                {!showResubmit ? (
+                  <button onClick={() => { setShowResubmit(true); setResubEdits({ title: selReq.title, amount: String(selReq.amount), gl_code: selReq.gl_code, description: selReq.description || "", department: selReq.department || "", added_info: "" }); }}
+                    style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✏️ Edit & Resubmit</button>
+                ) : (
+                  <div style={{ background: T.surface2, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.accent }}>✏️ Edit & Resubmit</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Title</div><input value={resubEdits.title || ""} onChange={e => setResubEdits(p => ({ ...p, title: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
+                      <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Amount</div><input type="number" value={resubEdits.amount || ""} onChange={e => setResubEdits(p => ({ ...p, amount: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>GL Code</div><select value={resubEdits.gl_code || ""} onChange={e => setResubEdits(p => ({ ...p, gl_code: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{glCodes.map(g => <option key={g.code} value={g.code}>{g.code} · {g.name}</option>)}</select></div>
+                      <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Department</div><select value={resubEdits.department || ""} onChange={e => setResubEdits(p => ({ ...p, department: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{departments.filter(d => !d.parent_id).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></div>
+                    </div>
+                    <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Description</div><textarea value={resubEdits.description || ""} onChange={e => setResubEdits(p => ({ ...p, description: e.target.value }))} rows={2} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }} /></div>
+                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginBottom: 2 }}>Note to approver — what changed? *</div><textarea value={resubEdits.added_info || ""} onChange={e => setResubEdits(p => ({ ...p, added_info: e.target.value }))} rows={3} placeholder="Explain what you updated…" style={{ width: "100%", padding: "6px 8px", border: `1px solid ${resubEdits.added_info?.trim() ? T.accent : "#FECACA"}`, borderRadius: 6, fontSize: 12, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box", background: T.surface }} /></div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={doResubmit} disabled={!resubEdits.added_info?.trim()} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !resubEdits.added_info?.trim() ? 0.5 : 1 }}>↑ Resubmit</button>
+                      <button onClick={() => { setShowResubmit(false); setResubEdits({}); }} style={{ padding: "7px 14px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Approver: reinstate rejected request */}
+            {isApprover && selReq.status === "rejected" && (
+              <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                <button onClick={doReinstate} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: "#F59E0B20", border: "1px solid #F59E0B40", borderRadius: 8, color: "#92400E", cursor: "pointer" }}>↩ Reinstate to Pending</button>
+              </div>
+            )}
+
+            {/* Requester: request removal of approved item */}
+            {selReq.requester_id === user?.id && selReq.status === "approved" && (
+              <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                {!showRemoval ? (
+                  <button onClick={() => setShowRemoval(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: "#FDF2F820", border: "1px solid #FBCFE8", borderRadius: 8, color: "#9D174D", cursor: "pointer" }}>🗑 Request Removal</button>
+                ) : (
+                  <div style={{ background: "#FDF2F820", border: "1px solid #FBCFE8", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#9D174D" }}>🗑 Request Removal</div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>If approved, the request will be removed and budget impact reversed.</div>
+                    <textarea value={removalReason} onChange={e => setRemovalReason(e.target.value)} rows={3} placeholder="e.g. Vendor cancelled, project shelved, duplicate…"
+                      style={{ width: "100%", padding: "8px 10px", border: "1px solid #FBCFE8", borderRadius: 8, fontSize: 12, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box", background: T.surface }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={doRequestRemoval} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: "#BE185D", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Submit Removal</button>
+                      <button onClick={() => { setShowRemoval(false); setRemovalReason(""); }} style={{ padding: "7px 14px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Removal reason display */}
+            {selReq.removal_reason && selReq.status === "removal_requested" && (
+              <div style={{ background: "#FDF2F820", border: "1px solid #FBCFE8", borderLeft: "4px solid #EC4899", borderRadius: 8, padding: "12px 16px", marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#9D174D", textTransform: "uppercase", marginBottom: 4 }}>Removal Requested</div>
+                <div style={{ fontSize: 13, color: T.text }}>{selReq.removal_reason}</div>
+              </div>
+            )}
+
+            {/* Approver: approve or deny removal */}
+            {isApprover && selReq.status === "removal_requested" && (
+              <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Removal Request — Action Required</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={doApproveRemoval} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#BE185D", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Approve Removal</button>
+                  <button onClick={doDenyRemoval} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>✗ Deny — Keep Approved</button>
                 </div>
               </div>
-            </>}
-          </>;
-        })()}
+            )}
+
+            {/* Removed status */}
+            {selReq.status === "removed" && (
+              <div style={{ background: T.surface2, borderLeft: "4px solid #94A3B8", borderRadius: 8, padding: "12px 16px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Removed</div>
+                <div style={{ fontSize: 12, color: T.text3 }}>This request has been removed. Budget impact reversed.</div>
+              </div>
+            )}
+
+            {/* Admin delete */}
+            {isAdmin && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                <button onClick={async () => { if (window.confirm(`Delete "${selReq.title}"?`)) { await deleteRequest(selReq.id); addAuditEntry("Request deleted", `"${selReq.title}" deleted`, selReq.id); setSelected(null); }}}
+                  style={{ padding: "6px 12px", fontSize: 11, color: "#EF4444", background: "none", border: "1px solid #ef444440", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}>🗑 Delete</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLACEHOLDER VIEWS (to be built in subsequent sessions)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUDGETS VIEW — G&A category budgets with department allocations
+// ═══════════════════════════════════════════════════════════════════════════════
+function BudgetsView({ glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user }) {
+  const [budgetData, setBudgetData] = useState(activeBudget || glCategories.map(c => ({ ...c, companyBudget: 0, allocations: [] })));
+  const [editingCat, setEditingCat] = useState(null);
+  const [companyAmt, setCompanyAmt] = useState("");
+  const [saveName, setSaveName] = useState("");
+  const [showSave, setShowSave] = useState(false);
+  const [showLoad, setShowLoad] = useState(false);
+
+  const getSpend = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "approved").reduce((s, r) => s + annualiseAmount(r), 0);
+  const getPending = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "pending").reduce((s, r) => s + annualiseAmount(r), 0);
+
+  const totalBudget = budgetData.reduce((s, b) => s + (b.companyBudget || 0), 0);
+  const totalSpent = budgetData.reduce((s, b) => s + getSpend(b.id), 0);
+  const totalPending = budgetData.reduce((s, b) => s + getPending(b.id), 0);
+
+  const saveVersion = async () => {
+    if (!saveName.trim()) return;
+    const { data } = await supabase.from("af_budget_versions").insert({
+      name: saveName, data: budgetData, total_budget: totalBudget, saved_by: user?.id,
+    }).select().single();
+    if (data) { setBudgetVersions(p => [data, ...p]); setActiveBudgetName(saveName); }
+    setShowSave(false); setSaveName("");
+  };
+
+  const loadVersion = (bv) => {
+    setBudgetData(bv.data || []);
+    setActiveBudget(bv.data);
+    setActiveBudgetName(bv.name);
+    setShowLoad(false);
+  };
+
+  const saveCompanyBudget = () => {
+    const cleaned = Number(String(companyAmt).replace(/[$,\s]/g, ""));
+    setBudgetData(prev => prev.map(b => b.id === editingCat.id ? { ...b, companyBudget: cleaned } : b));
+    setEditingCat(null);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>G&A Budgets</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>{activeBudgetName ? `Active: ${activeBudgetName}` : "Unsaved budget"} · {glCategories.length} categories</div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowLoad(true)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>↓ Load</button>
+          <button onClick={() => { setSaveName(activeBudgetName || ""); setShowSave(true); }} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>💾 Save</button>
+        </div>
       </div>
-      <ModalForm />
+
+      {/* Summary bar */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+        {[
+          { l: "Total Budget", v: fmt(totalBudget), c: T.text },
+          { l: "Spent", v: fmt(totalSpent), c: "#10B981" },
+          { l: "Pending", v: fmt(totalPending), c: "#F59E0B" },
+          { l: "Remaining", v: fmt(totalBudget - totalSpent), c: totalSpent > totalBudget ? "#EF4444" : T.text },
+        ].map(f => (
+          <div key={f.l} style={{ background: T.surface2, borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{f.l}</div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: f.c, marginTop: 4 }}>{f.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Category cards */}
+      {budgetData.map(cat => {
+        const spent = getSpend(cat.id);
+        const pend = getPending(cat.id);
+        const utilPct = cat.companyBudget > 0 ? pct(spent, cat.companyBudget) : 0;
+        const isOver = cat.companyBudget > 0 && spent > cat.companyBudget;
+        return (
+          <Card key={cat.id} style={{ borderLeft: `4px solid ${cat.color || T.accent}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 18 }}>{cat.icon}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{cat.name}</div>
+                  {isOver && <span style={{ fontSize: 10, fontWeight: 700, color: "#991B1B", background: "#FEE2E2", padding: "1px 6px", borderRadius: 8 }}>🚨 Over budget</span>}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Company Budget</div>
+                {editingCat?.id === cat.id ? (
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <input autoFocus type="number" value={companyAmt} onChange={e => setCompanyAmt(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") saveCompanyBudget(); if (e.key === "Escape") setEditingCat(null); }}
+                      style={{ width: 100, padding: "4px 8px", border: `1px solid ${T.accent}`, borderRadius: 6, fontSize: 13, color: T.text, background: T.surface, outline: "none" }} />
+                    <button onClick={saveCompanyBudget} style={{ background: "#10B981", color: "#fff", border: "none", borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}>✓</button>
+                  </div>
+                ) : (
+                  <div onClick={() => { setEditingCat(cat); setCompanyAmt(cat.companyBudget || 0); }}
+                    style={{ fontSize: 16, fontWeight: 800, color: cat.companyBudget ? T.text : T.text3, cursor: "pointer" }}>
+                    {cat.companyBudget ? fmt(cat.companyBudget) : "Click to set"}{cat.companyBudget > 0 && <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>✎</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+            {cat.companyBudget > 0 && (
+              <>
+                <div style={{ height: 8, background: T.surface2, borderRadius: 4, overflow: "hidden", display: "flex", marginBottom: 8 }}>
+                  <div style={{ height: "100%", background: isOver ? "#EF4444" : cat.color || T.accent, width: `${Math.min(100, utilPct)}%`, transition: "width 0.5s" }} />
+                  <div style={{ height: "100%", background: (cat.color || T.accent) + "40", width: `${Math.min(100 - Math.min(100, utilPct), pct(pend, cat.companyBudget))}%` }} />
+                </div>
+                <div style={{ display: "flex", gap: 16, fontSize: 11, color: T.text3 }}>
+                  <span>Spent: <strong style={{ color: isOver ? "#EF4444" : "#10B981" }}>{fmt(spent)}</strong></span>
+                  <span>Pending: <strong style={{ color: "#F59E0B" }}>{fmt(pend)}</strong></span>
+                  <span>Remaining: <strong style={{ color: isOver ? "#EF4444" : T.text }}>{fmt(cat.companyBudget - spent)}</strong></span>
+                  <span>{utilPct}% used</span>
+                </div>
+              </>
+            )}
+          </Card>
+        );
+      })}
+
+      {/* Save modal */}
+      {showSave && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowSave(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: 24, width: "min(400px, 90vw)" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>💾 Save Budget Version</div>
+            <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="e.g. Q2 2026 Budget"
+              onKeyDown={e => { if (e.key === "Enter") saveVersion(); }}
+              style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowSave(false)} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+              <button onClick={saveVersion} disabled={!saveName.trim()} style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load modal */}
+      {showLoad && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowLoad(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: 24, width: "min(400px, 90vw)", maxHeight: "60vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>↓ Load Budget Version</div>
+            {budgetVersions.length === 0 ? <div style={{ color: T.text3, fontSize: 13 }}>No saved versions yet</div> :
+              budgetVersions.map(bv => (
+                <div key={bv.id} onClick={() => loadVersion(bv)}
+                  style={{ padding: "12px 14px", borderRadius: 8, border: `1px solid ${activeBudgetName === bv.name ? T.accent : T.border}`, background: activeBudgetName === bv.name ? T.accentDim : "transparent", cursor: "pointer", marginBottom: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{bv.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text3 }}>{fmt(bv.total_budget)}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{new Date(bv.saved_at).toLocaleString()}</div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEPARTMENTS VIEW — CRUD with hierarchy
+// ═══════════════════════════════════════════════════════════════════════════════
+function DepartmentsView({ departments, setDepartments, employees, requests, getDeptSpend }) {
+  const [showNew, setShowNew] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: "", color: "#3B82F6", parent_id: null });
+  const COLORS = ["#7C3AED","#0EA5E9","#F59E0B","#10B981","#EC4899","#EF4444","#8B5CF6","#14B8A6","#F97316","#6366F1"];
+
+  const save = async () => {
+    if (!form.name.trim()) return;
+    if (editing) {
+      await supabase.from("af_departments").update({ name: form.name, color: form.color, parent_id: form.parent_id }).eq("id", editing.id);
+      setDepartments(p => p.map(d => d.id === editing.id ? { ...d, ...form } : d));
+    } else {
+      const { data } = await supabase.from("af_departments").insert({ name: form.name, color: form.color, parent_id: form.parent_id }).select().single();
+      if (data) setDepartments(p => [...p, data]);
+    }
+    setShowNew(false); setEditing(null); setForm({ name: "", color: "#3B82F6", parent_id: null });
+  };
+
+  const remove = async (d) => {
+    if (!window.confirm(`Delete "${d.name}"?`)) return;
+    // Also delete sub-departments
+    const subIds = departments.filter(s => s.parent_id === d.id).map(s => s.id);
+    for (const sid of subIds) await supabase.from("af_departments").delete().eq("id", sid);
+    await supabase.from("af_departments").delete().eq("id", d.id);
+    setDepartments(p => p.filter(x => x.id !== d.id && x.parent_id !== d.id));
+  };
+
+  const topLevel = departments.filter(d => !d.parent_id);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Departments</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>{topLevel.length} departments · {departments.length - topLevel.length} sub-departments</div>
+        </div>
+        <button onClick={() => { setForm({ name: "", color: "#3B82F6", parent_id: null }); setEditing(null); setShowNew(true); }}
+          style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Department</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {topLevel.map(d => {
+          const { approved: spent, pending: pend } = getDeptSpend(d.name);
+          const subs = departments.filter(s => s.parent_id === d.id);
+          const headcount = employees.filter(e => e.department_id === d.id).length;
+          return (
+            <Card key={d.id} style={{ borderLeft: `4px solid ${d.color || T.accent}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{d.name}</div>
+                  <div style={{ fontSize: 11, color: T.text3 }}>{headcount} employees{subs.length > 0 ? ` · ${subs.length} sub-depts` : ""}</div>
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button onClick={() => { setForm({ name: "", color: d.color, parent_id: d.id }); setEditing(null); setShowNew(true); }}
+                    style={{ padding: "4px 8px", fontSize: 10, background: "#F0FDF4", border: "none", borderRadius: 6, color: "#16A34A", cursor: "pointer", fontWeight: 700 }}>+ Sub</button>
+                  <button onClick={() => { setForm({ name: d.name, color: d.color, parent_id: d.parent_id }); setEditing(d); setShowNew(true); }}
+                    style={{ padding: "4px 8px", fontSize: 10, background: T.surface2, border: "none", borderRadius: 6, color: T.accent, cursor: "pointer", fontWeight: 700 }}>✎</button>
+                  <button onClick={() => remove(d)}
+                    style={{ padding: "4px 8px", fontSize: 10, background: "#FEE2E2", border: "none", borderRadius: 6, color: "#DC2626", cursor: "pointer", fontWeight: 700 }}>✕</button>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16, fontSize: 11, color: T.text3 }}>
+                <span>Spent: <strong style={{ color: "#10B981" }}>{fmt(spent)}</strong></span>
+                <span>Pending: <strong style={{ color: "#F59E0B" }}>{fmt(pend)}</strong></span>
+              </div>
+              {subs.map(s => {
+                const { approved: sSp } = getDeptSpend(s.name);
+                return <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingLeft: 16, marginTop: 6, fontSize: 12, color: T.text2 }}>
+                  <span>↳ {s.name}</span>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: T.text3 }}>{fmt(sSp)}</span>
+                    <button onClick={() => remove(s)} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 10, fontWeight: 700 }}>✕</button>
+                  </div>
+                </div>;
+              })}
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* New/Edit modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: 24, width: "min(400px, 90vw)" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 14 }}>{editing ? `Edit ${editing.name}` : form.parent_id ? "Add Sub-department" : "New Department"}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder={form.parent_id ? "e.g. Paid Social" : "e.g. Marketing"}
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Color</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {COLORS.map(c => <div key={c} onClick={() => setForm(f => ({ ...f, color: c }))} style={{ width: 28, height: 28, borderRadius: "50%", background: c, cursor: "pointer", border: form.color === c ? `3px solid ${T.text}` : "3px solid transparent" }} />)}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => { setShowNew(false); setEditing(null); }} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={save} disabled={!form.name.trim()} style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>{editing ? "Save" : "Add"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RULES ENGINE — IF/THEN approval routing
+// ═══════════════════════════════════════════════════════════════════════════════
+function RulesView({ rules, setRules, glCodes, employees, user }) {
+  const [showNew, setShowNew] = useState(false);
+  const FORM_DEFAULT = { name: "", description: "", action: "require_manager", conditions: [{ field: "amount", operator: ">", value: "", join: null }] };
+  const [form, setForm] = useState(FORM_DEFAULT);
+
+  const addCond = () => setForm(f => ({ ...f, conditions: [...f.conditions, { field: "amount", operator: ">", value: "", join: "AND" }] }));
+  const updCond = (i, k, v) => setForm(f => { const c = [...f.conditions]; c[i] = { ...c[i], [k]: v }; return { ...f, conditions: c }; });
+  const remCond = i => setForm(f => ({ ...f, conditions: f.conditions.filter((_, idx) => idx !== i) }));
+
+  const saveRule = async () => {
+    if (!form.name.trim()) return;
+    const payload = { name: form.name, description: form.description, action: form.action, conditions: form.conditions, is_active: true, sort_order: rules.length, created_by: user?.id };
+    const { data } = await supabase.from("af_rules").insert(payload).select().single();
+    if (data) setRules(p => [...p, data]);
+    setShowNew(false); setForm(FORM_DEFAULT);
+  };
+
+  const toggleRule = async (id) => {
+    const rule = rules.find(r => r.id === id);
+    if (!rule) return;
+    await supabase.from("af_rules").update({ is_active: !rule.is_active }).eq("id", id);
+    setRules(p => p.map(r => r.id === id ? { ...r, is_active: !r.is_active } : r));
+  };
+
+  const deleteRule = async (id) => {
+    await supabase.from("af_rules").delete().eq("id", id);
+    setRules(p => p.filter(r => r.id !== id));
+  };
+
+  const ACTION_LABELS = { require_manager: "Require Manager", require_cfo: "Require CFO", require_cmo: "Require CMO", require_person: "Require Specific Person", auto_approve: "Auto-Approve", block: "Block Request" };
+  const FIELD_LABELS = { amount: "Amount ($)", gl: "GL Code", department: "Department" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Approval Rules Engine</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>IF → THEN logic for automated approval routing</div>
+        </div>
+        <button onClick={() => setShowNew(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Rule</button>
+      </div>
+
+      <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: T.text3 }}>
+        Rules evaluate top-to-bottom on every request. First match wins. Conditions support AND / OR chaining.
+      </div>
+
+      {rules.map((rule, idx) => (
+        <Card key={rule.id} style={{ opacity: rule.is_active ? 1 : 0.5 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ background: T.accent, color: "#fff", borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>Rule {idx + 1}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{rule.name}</span>
+                {!rule.is_active && <span style={{ fontSize: 10, color: T.text3 }}>DISABLED</span>}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>IF</span>
+                {(rule.conditions || []).map((cond, ci) => (
+                  <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    {ci > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#7C3AED", background: "#EDE9FE", padding: "2px 6px", borderRadius: 4 }}>{cond.join}</span>}
+                    <span style={{ background: T.surface2, padding: "3px 8px", borderRadius: 6, fontSize: 11 }}>
+                      {FIELD_LABELS[cond.field] || cond.field} {cond.operator} {cond.value}
+                    </span>
+                  </span>
+                ))}
+                <span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>→ THEN</span>
+                <span style={{ background: T.accent, color: "#fff", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{ACTION_LABELS[rule.action] || rule.action}</span>
+              </div>
+              {rule.description && <div style={{ fontSize: 11, color: T.text3 }}>{rule.description}</div>}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <button onClick={() => toggleRule(rule.id)} style={{ padding: "5px 10px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: rule.is_active ? T.surface2 : "#D1FAE5", color: rule.is_active ? T.text3 : "#065F46", cursor: "pointer", fontWeight: 600 }}>{rule.is_active ? "Disable" : "Enable"}</button>
+              <button onClick={() => deleteRule(rule.id)} style={{ padding: "5px 8px", fontSize: 11, border: "1px solid #ef444440", borderRadius: 6, background: "transparent", color: "#EF4444", cursor: "pointer" }}>✕</button>
+            </div>
+          </div>
+        </Card>
+      ))}
+
+      {/* New rule modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, padding: 24, width: "min(600px, 95vw)", maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Approval Rule</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Rule Name *</div>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. High Value Auto-Escalate"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Description</div>
+                <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Explain when this fires…"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+
+              {/* Conditions */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 8 }}>Conditions (IF)</div>
+                {form.conditions.map((cond, idx) => (
+                  <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                    {idx > 0 && <select value={cond.join} onChange={e => updCond(idx, "join", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: "#EDE9FE", color: "#5B21B6", fontWeight: 700, width: 60 }}><option value="AND">AND</option><option value="OR">OR</option></select>}
+                    <select value={cond.field} onChange={e => updCond(idx, "field", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
+                      <option value="amount">Amount ($)</option><option value="gl">GL Code</option><option value="department">Department</option>
+                    </select>
+                    {cond.field === "amount" && <select value={cond.operator} onChange={e => updCond(idx, "operator", e.target.value)} style={{ padding: "6px 6px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, width: 50, background: T.surface2, color: T.text }}>
+                      {["==","!=",">","<",">=","<="].map(op => <option key={op} value={op}>{op}</option>)}
+                    </select>}
+                    <input value={cond.value} onChange={e => updCond(idx, "value", e.target.value)} placeholder="Value…"
+                      style={{ flex: 1, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, outline: "none" }} />
+                    {form.conditions.length > 1 && <button onClick={() => remCond(idx)} style={{ background: "#FEE2E2", border: "none", borderRadius: 6, padding: "6px 8px", cursor: "pointer", color: "#991B1B", fontSize: 10, fontWeight: 700 }}>✕</button>}
+                  </div>
+                ))}
+                <button onClick={addCond} style={{ fontSize: 12, color: T.text3, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}>+ Add Condition</button>
+              </div>
+
+              {/* Action */}
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Action (THEN)</div>
+                <select value={form.action} onChange={e => setForm(f => ({ ...f, action: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
+                  {Object.entries(ACTION_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNew(false)} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveRule} disabled={!form.name.trim() || form.conditions.some(c => !c.value)} style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Save Rule</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REPORTS VIEW — Spend analysis
+// ═══════════════════════════════════════════════════════════════════════════════
+function ReportsView({ requests, employees, departments, glCodes, glCategories }) {
+  const approved = requests.filter(r => r.status === "approved");
+  const totalApproved = approved.reduce((s, r) => s + r.amount, 0);
+  const totalPending = requests.filter(r => r.status === "pending").reduce((s, r) => s + r.amount, 0);
+  const approvalRate = requests.length > 0 ? Math.round((approved.length / requests.length) * 100) : 0;
+
+  const byGL = glCodes.map(gl => ({
+    ...gl,
+    count: requests.filter(r => r.gl_code === gl.code).length,
+    approved: approved.filter(r => r.gl_code === gl.code).reduce((s, r) => s + r.amount, 0),
+    pending: requests.filter(r => r.gl_code === gl.code && r.status === "pending").reduce((s, r) => s + r.amount, 0),
+    rejected: requests.filter(r => r.gl_code === gl.code && r.status === "rejected").length,
+  })).filter(g => g.count > 0).sort((a, b) => b.approved - a.approved);
+
+  const byDept = departments.filter(d => !d.parent_id).map(d => ({
+    ...d,
+    count: requests.filter(r => r.department === d.name).length,
+    approved: approved.filter(r => r.department === d.name).reduce((s, r) => s + r.amount, 0),
+  })).filter(d => d.count > 0).sort((a, b) => b.approved - a.approved);
+
+  const exportCSV = () => {
+    const rows = [["GL Code","Category","Requests","Approved","Pending","Rejected"]];
+    byGL.forEach(gl => rows.push([gl.code, gl.name, gl.count, gl.approved, gl.pending, gl.rejected]));
+    const csv = rows.map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "spend-report.csv"; a.click();
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Spend Reports</div>
+        <button onClick={exportCSV} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>↓ Export CSV</button>
+      </div>
+
+      {/* KPI row */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        {[
+          { l: "Total Approved", v: fmt(totalApproved), c: "#10B981" },
+          { l: "Pending Value", v: fmt(totalPending), c: "#F59E0B" },
+          { l: "Approval Rate", v: `${approvalRate}%`, c: T.accent },
+        ].map(s => (
+          <Card key={s.l} style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 28, fontWeight: 900, color: s.c }}>{s.v}</div>
+            <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>{s.l}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* By department + By GL side by side */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>Spend by Department</div>
+          {byDept.length === 0 ? <div style={{ fontSize: 12, color: T.text3 }}>No spend data yet</div> :
+            byDept.map(d => {
+              const maxAmt = byDept[0].approved || 1;
+              return (
+                <div key={d.id} style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color || T.accent }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{d.name}</span>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{fmt(d.approved)}</span>
+                  </div>
+                  <ProgressBar value={d.approved} max={maxAmt} color={d.color || T.accent} height={5} />
+                </div>
+              );
+            })
+          }
+        </Card>
+
+        <Card>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>Spend by GL Category</div>
+          {byGL.length === 0 ? <div style={{ fontSize: 12, color: T.text3 }}>No spend data yet</div> :
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  {["GL","Category","#","Approved","Pending"].map(h => <th key={h} style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {byGL.slice(0, 12).map(gl => (
+                  <tr key={gl.code} style={{ borderBottom: `1px solid ${T.border}` }}>
+                    <td style={{ padding: "6px 8px", color: T.text3, fontWeight: 600, fontSize: 11 }}>{gl.code}</td>
+                    <td style={{ padding: "6px 8px", fontWeight: 600, color: T.text }}>{gl.name}</td>
+                    <td style={{ padding: "6px 8px", color: T.text3 }}>{gl.count}</td>
+                    <td style={{ padding: "6px 8px", fontWeight: 700, color: "#10B981" }}>{fmt(gl.approved)}</td>
+                    <td style={{ padding: "6px 8px", fontWeight: 700, color: "#F59E0B" }}>{fmt(gl.pending)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          }
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUDIT LOG VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+function AuditLogView({ auditLog }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Audit Log</div>
+      {auditLog.length === 0 ? <div style={{ color: T.text3, fontSize: 13, padding: 20 }}>No audit events yet</div> :
+        auditLog.map(log => (
+          <div key={log.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: log.action.includes("approved") ? "#D1FAE5" : log.action.includes("rejected") ? "#FEE2E2" : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0, color: T.text3 }}>
+              {log.action.includes("approved") ? "✓" : log.action.includes("rejected") ? "✗" : "·"}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{log.action}</div>
+              {log.detail && <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{log.detail}</div>}
+            </div>
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.text2 }}>{log.user_name}</div>
+              <div style={{ fontSize: 10, color: T.text3 }}>{new Date(log.created_at).toLocaleString()}</div>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EMPLOYEES — Spend limits, roles, levels
+// ═══════════════════════════════════════════════════════════════════════════════
+function EmployeesView({ employees, setEmployees, departments }) {
+  const [editId, setEditId] = useState(null);
+  const [editField, setEditField] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const LEVELS = ["IC","Senior IC","Lead","Manager","Director","VP","C-Suite","Contractor"];
+  const ROLES = ["requester","approver","admin"];
+  const saveField = async (empId, field, value) => { const parsed = field === "spend_limit" ? parseFloat(value) || 0 : value; await supabase.from("af_employee_settings").update({ [field]: parsed }).eq("id", empId); setEmployees(p => p.map(e => e.id === empId ? { ...e, [field]: parsed } : e)); setEditId(null); setEditField(null); };
+  const filtered = employees.filter(e => roleFilter === "all" || e.af_role === roleFilter);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Employee Settings</div><div style={{ fontSize: 12, color: T.text3 }}>{employees.length} employees</div></div>
+      <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2 }}>{["all","requester","approver","admin"].map(r => <button key={r} onClick={() => setRoleFilter(r)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: roleFilter === r ? T.surface : "transparent", color: roleFilter === r ? T.text : T.text3 }}>{r === "all" ? "All" : ROLE_LABELS[r]}</button>)}</div>
+      {filtered.map(emp => (
+        <Card key={emp.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px" }}>
+          <div style={{ width: 36, height: 36, borderRadius: "50%", background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{emp.avatar || emp.profiles?.display_name?.slice(0,2)?.toUpperCase() || "?"}</div>
+          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{emp.profiles?.display_name || "Unknown"}</div><div style={{ fontSize: 11, color: T.text3 }}>{emp.profiles?.email} · {emp.title || emp.level}</div></div>
+          <div style={{ textAlign: "center", minWidth: 70 }}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Level</div>{editId === emp.id && editField === "level" ? <select autoFocus value={editVal} onChange={e => saveField(emp.id, "level", e.target.value)} onBlur={() => setEditId(null)} style={{ padding: "3px 6px", fontSize: 11, border: `1px solid ${T.accent}`, borderRadius: 5, background: T.surface, color: T.text }}>{LEVELS.map(l => <option key={l} value={l}>{l}</option>)}</select> : <div onClick={() => { setEditId(emp.id); setEditField("level"); setEditVal(emp.level); }} style={{ fontSize: 12, fontWeight: 600, color: T.text, cursor: "pointer" }}>{emp.level} <span style={{ fontSize: 9, color: T.text3 }}>✎</span></div>}</div>
+          <div style={{ textAlign: "center", minWidth: 100 }}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Auto-Approve</div>{editId === emp.id && editField === "spend_limit" ? <div style={{ display: "flex", gap: 3, alignItems: "center" }}><input autoFocus type="number" value={editVal} onChange={e => setEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveField(emp.id, "spend_limit", editVal); if (e.key === "Escape") setEditId(null); }} style={{ width: 70, padding: "3px 6px", border: `1px solid ${T.accent}`, borderRadius: 5, fontSize: 12, color: T.text, background: T.surface, outline: "none" }} /><button onClick={() => saveField(emp.id, "spend_limit", editVal)} style={{ background: "#10B981", color: "#fff", border: "none", borderRadius: 4, padding: "3px 6px", cursor: "pointer", fontSize: 10 }}>✓</button></div> : <div onClick={() => { setEditId(emp.id); setEditField("spend_limit"); setEditVal(emp.spend_limit || 0); }} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>{fmt(emp.spend_limit || 0)} <span style={{ fontSize: 9, color: T.text3 }}>✎</span></div>}</div>
+          <div style={{ minWidth: 90, textAlign: "center" }}>{editId === emp.id && editField === "af_role" ? <select autoFocus value={editVal} onChange={e => saveField(emp.id, "af_role", e.target.value)} onBlur={() => setEditId(null)} style={{ padding: "3px 6px", fontSize: 11, border: `1px solid ${T.accent}`, borderRadius: 5, background: T.surface, color: T.text }}>{ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select> : <span onClick={() => { setEditId(emp.id); setEditField("af_role"); setEditVal(emp.af_role); }} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 14, cursor: "pointer", background: emp.af_role === "admin" ? "#EDE9FE" : emp.af_role === "approver" ? "#DBEAFE" : T.surface2, color: emp.af_role === "admin" ? "#5B21B6" : emp.af_role === "approver" ? "#1D4ED8" : T.text3 }}>{ROLE_LABELS[emp.af_role] || emp.af_role} <span style={{ fontSize: 8, opacity: 0.5 }}>✎</span></span>}</div>
+        </Card>
+      ))}
+      {employees.length === 0 && <div style={{ textAlign: "center", padding: 24, color: T.text3, fontSize: 12 }}>No employee settings configured yet.</div>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INTEGRATIONS — QBO, Ramp, Brex, Rippling, Slack
+// ═══════════════════════════════════════════════════════════════════════════════
+function IntegrationsView({ integrations, setIntegrations }) {
+  const [showSlack, setShowSlack] = useState(false);
+  const [slackUrl, setSlackUrl] = useState("");
+  const META = [
+    { key: "quickbooks", name: "QuickBooks", logo: "QB", color: "#2CA01C", desc: "P&L actuals, transaction matching, GL mapping.", features: ["P&L sync","Txn matching","GL mapping","Journal entries"] },
+    { key: "ramp", name: "Ramp", logo: "RM", color: "#FF5757", desc: "Card transactions, spend matching, policy alerts.", features: ["Card import","Spend matching","Policy alerts","Virtual cards"] },
+    { key: "brex", name: "Brex", logo: "BX", color: "#F5A623", desc: "Cards, budgets, auto-reconciliation.", features: ["Card sync","Reconcile","Merchant controls","Alerts"] },
+    { key: "rippling", name: "Rippling", logo: "RP", color: "#FF6B4A", desc: "Employees, departments, org structure.", features: ["Employees","Departments","Levels","Real-time"] },
+  ];
+  const getI = (k) => integrations.find(i => i.provider === k);
+  const toggle = async (k) => { const ex = getI(k); if (ex) { const ns = !ex.is_connected; await supabase.from("af_integrations").update({ is_connected: ns, last_sync_at: ns ? new Date().toISOString() : null }).eq("id", ex.id); setIntegrations(p => p.map(i => i.id === ex.id ? { ...i, is_connected: ns } : i)); } else { const { data } = await supabase.from("af_integrations").insert({ provider: k, is_connected: true, last_sync_at: new Date().toISOString() }).select().single(); if (data) setIntegrations(p => [...p, data]); } };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Integrations</div><div style={{ fontSize: 12, color: T.text3 }}>Finance & HR stack</div></div><button onClick={() => setShowSlack(true)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>🔔 Slack</button></div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>{META.map(m => { const s = getI(m.key); const on = s?.is_connected; return (
+        <Card key={m.key} style={{ borderTop: `3px solid ${m.color}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}><div style={{ width: 38, height: 38, borderRadius: 8, background: m.color + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, color: m.color }}>{m.logo}</div><div><div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{m.name}</div><div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 1 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: on ? "#10B981" : "#D1D5DB" }} /><span style={{ fontSize: 10, color: on ? "#10B981" : T.text3, fontWeight: 600 }}>{on ? "Connected" : "Not connected"}</span></div></div></div>
+          <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.5, marginBottom: 10 }}>{m.desc}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>{m.features.map(f => <span key={f} style={{ fontSize: 9, padding: "2px 7px", background: T.surface2, borderRadius: 10, color: T.text3, fontWeight: 600 }}>{f}</span>)}</div>
+          {on ? <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 10, color: T.text3 }}>Synced {s?.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : "—"}</span><button onClick={() => toggle(m.key)} style={{ padding: "4px 10px", fontSize: 10, border: "1px solid #FECACA", borderRadius: 6, background: "#FEE2E2", color: "#991B1B", cursor: "pointer", fontWeight: 600 }}>Disconnect</button></div>
+          : <button onClick={() => toggle(m.key)} style={{ width: "100%", padding: "8px", background: m.color, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Connect {m.name}</button>}
+        </Card>
+      ); })}</div>
+      {showSlack && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowSlack(false)}><div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: 24, width: "min(440px, 90vw)" }}><div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>🔔 Slack Notifications</div><div style={{ fontSize: 12, color: T.text3, marginBottom: 12 }}>Get alerts for: 📋 Submitted · ✅ Approved · ⚠️ Info Needed · ❌ Rejected · 🔄 Resubmitted · ↩️ Reinstated</div><div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Webhook URL</div><input value={slackUrl} onChange={e => setSlackUrl(e.target.value)} placeholder="https://hooks.slack.com/services/..." style={{ width: "100%", padding: "8px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text, outline: "none", boxSizing: "border-box" }} /></div><div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 14 }}><button onClick={() => setShowSlack(false)} style={{ padding: "7px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text3, cursor: "pointer" }}>Cancel</button><button onClick={() => setShowSlack(false)} style={{ padding: "7px 12px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button></div></div></div>}
     </div>
   );
 }
