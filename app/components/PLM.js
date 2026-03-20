@@ -1048,6 +1048,300 @@ function CMSourcingView({ program }) {
   );
 }
 
+// ─── STANDALONE SOURCING VIEW (all programs) ──────────────────────────────────
+function SourcingStandalone({ programs }) {
+  const { user } = useAuth();
+  const [subTab, setSubTab] = useState("ingredients");
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [suppliers, setSuppliers] = useState([]);
+  const [showNew, setShowNew] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [form, setForm] = useState({ search_type: "exact", ingredient_name: "", desired_function: "", desired_outcome: "", claims_compatibility: [], restrictions: [], target_cost_per_kg: "", additional_requirements: "", program_id: "" });
+
+  useEffect(() => {
+    supabase.from("ingredient_sourcing_requests").select("*, plm_programs(name)").order("created_at", { ascending: false })
+      .then(({ data }) => { setRequests(data || []); setLoading(false); });
+  }, []);
+
+  useEffect(() => {
+    if (!selected) { setSuppliers([]); return; }
+    supabase.from("ingredient_suppliers").select("*").eq("request_id", selected.id).order("ai_fit_score", { ascending: false })
+      .then(({ data }) => setSuppliers(data || []));
+  }, [selected]);
+
+  const CLAIMS = ["EPA Safer Choice", "EU Ecolabel", "USDA BioPreferred", "Vegan", "Cruelty-Free", "Non-GMO", "Organic", "Biodegradable", "EWG Verified", "C2C Certified"];
+  const RESTRICTIONS = ["No sulfates (SLS/SLES)", "No parabens", "No phosphates", "No 1,4-dioxane", "No optical brighteners", "No synthetic fragrance", "No PFAS", "No palm oil derivatives", "No formaldehyde donors", "No chlorine/bleach"];
+
+  const createRequest = async () => {
+    const payload = {
+      program_id: form.program_id || null,
+      search_type: form.search_type,
+      ingredient_name: form.search_type === "exact" ? form.ingredient_name : null,
+      desired_function: form.search_type === "function" ? form.desired_function : null,
+      desired_outcome: form.search_type === "outcome" ? form.desired_outcome : null,
+      claims_compatibility: form.claims_compatibility,
+      restrictions: form.restrictions,
+      target_cost_per_kg: form.target_cost_per_kg ? parseFloat(form.target_cost_per_kg) : null,
+      additional_requirements: form.additional_requirements || null,
+      status: "draft", created_by: user?.id || null,
+    };
+    const { data } = await supabase.from("ingredient_sourcing_requests").insert(payload).select("*, plm_programs(name)").single();
+    if (data) { setRequests(p => [data, ...p]); setSelected(data); setShowNew(false); }
+  };
+
+  const runAISearch = async (req) => {
+    setSearching(true);
+    try {
+      const searchDesc = req.search_type === "exact" ? `Find ingredient: ${req.ingredient_name}` :
+        req.search_type === "function" ? `Find ingredients with function: ${req.desired_function}` :
+        `Find ingredients for outcome: ${req.desired_outcome}`;
+      const prompt = `You are a raw materials sourcing specialist for Earth Breeze (eco-friendly cleaning products).
+Search: ${searchDesc}
+Claims: ${(req.claims_compatibility || []).join(", ") || "none"}
+Restrictions: ${(req.restrictions || []).join(", ") || "none"}
+Target cost: ${req.target_cost_per_kg ? "$" + req.target_cost_per_kg + "/kg" : "not specified"}
+Additional: ${req.additional_requirements || "none"}
+
+${req.search_type === "exact" ? `Find suppliers for "${req.ingredient_name}". Include INCI, CAS, grades, multiple suppliers.` :
+  req.search_type === "function" ? `Suggest 5-8 ingredients for function: "${req.desired_function}". Explain fit, cost, suppliers. Consider claims/restrictions.` :
+  `Suggest 5-8 ingredients to achieve: "${req.desired_outcome}". Explain mechanism, usage level, cost, compatibility.`}
+
+JSON array only:
+[{"ingredient_name":"string","inci_name":"string","trade_name":"string or null","supplier_name":"string","supplier_website":"string or null","cas_number":"string or null","purity_pct":null,"grade":"string","origin_country":"string or null","certifications":[],"price_per_kg":null,"moq_kg":null,"lead_time_days":null,"claims_compatible":[],"ai_fit_score":0,"ai_reasoning":"string"}]`;
+
+      const resp = await fetch(supabase.supabaseUrl + "/functions/v1/plm-ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (await supabase.auth.getSession()).data.session?.access_token },
+        body: JSON.stringify({ question: prompt, program_id: req.program_id }),
+      });
+      const result = await resp.json();
+      let found = [];
+      try {
+        const jsonMatch = (result.response || "").match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (jsonMatch) found = JSON.parse(jsonMatch[0]);
+      } catch (e) { console.error("Parse error:", e); }
+
+      if (found.length > 0) {
+        const rows = found.map(s => ({
+          request_id: req.id, org_id: "a0000000-0000-0000-0000-000000000001",
+          ingredient_name: s.ingredient_name || "Unknown", inci_name: s.inci_name,
+          trade_name: s.trade_name, supplier_name: s.supplier_name || "Unknown",
+          supplier_website: s.supplier_website, cas_number: s.cas_number,
+          purity_pct: s.purity_pct, grade: s.grade, origin_country: s.origin_country,
+          certifications: s.certifications || [], price_per_kg: s.price_per_kg,
+          moq_kg: s.moq_kg, lead_time_days: s.lead_time_days,
+          claims_compatible: s.claims_compatible || [], ai_fit_score: s.ai_fit_score,
+          ai_reasoning: s.ai_reasoning, source: "ai_search",
+        }));
+        const { data: created } = await supabase.from("ingredient_suppliers").insert(rows).select();
+        if (created) setSuppliers(created);
+      }
+
+      await supabase.from("ingredient_sourcing_requests").update({
+        ai_suggestions: found, ai_searched_at: new Date().toISOString(), status: "results_ready",
+      }).eq("id", req.id);
+      setRequests(p => p.map(r => r.id === req.id ? { ...r, ai_suggestions: found, status: "results_ready" } : r));
+      if (selected?.id === req.id) setSelected(p => ({ ...p, ai_suggestions: found, status: "results_ready" }));
+    } catch (e) { console.error("AI search error:", e); }
+    setSearching(false);
+  };
+
+  const deleteRequest = async (id) => {
+    if (!window.confirm("Delete this sourcing request?")) return;
+    await supabase.from("ingredient_suppliers").delete().eq("request_id", id);
+    await supabase.from("ingredient_sourcing_requests").delete().eq("id", id);
+    setRequests(p => p.filter(r => r.id !== id));
+    if (selected?.id === id) setSelected(null);
+  };
+
+  const typeIcon = { exact: "🔍", function: "⚙", outcome: "🎯" };
+  const statusColor = { draft: T.text3, searching: "#f59e0b", results_ready: "#22c55e", sourcing: T.accent };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>Ingredient Sourcing</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>Find ingredients by name, function, or desired outcome — AI suggests options considering claims and restrictions</div>
+        </div>
+        <button onClick={() => setShowNew(true)} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Search</button>
+      </div>
+
+      {/* New search form */}
+      {showNew && (
+        <div style={{ background: T.surface2, border: "1px solid " + T.accent + "40", borderRadius: 10, padding: 18, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>What are you looking for?</div>
+
+          {/* Program selector */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Link to Product (optional)</div>
+            <select value={form.program_id} onChange={e => setForm(p => ({ ...p, program_id: e.target.value }))}
+              style={{ padding: "6px 10px", fontSize: 12, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, cursor: "pointer", minWidth: 200 }}>
+              <option value="">No product linked</option>
+              {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+
+          {/* Search type toggle */}
+          <div style={{ display: "flex", gap: 0, marginBottom: 14, background: T.surface, border: "1px solid " + T.border, borderRadius: 8, overflow: "hidden" }}>
+            {[["exact", "🔍 Exact Ingredient"], ["function", "⚙ By Function"], ["outcome", "🎯 By Outcome"]].map(([k, l]) => (
+              <button key={k} onClick={() => setForm(p => ({ ...p, search_type: k }))}
+                style={{ flex: 1, padding: "10px 8px", fontSize: 12, fontWeight: 600, background: form.search_type === k ? T.accent : "transparent", color: form.search_type === k ? "#fff" : T.text3, border: "none", cursor: "pointer" }}>{l}</button>
+            ))}
+          </div>
+
+          {form.search_type === "exact" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Ingredient Name / INCI</div>
+              <input value={form.ingredient_name} onChange={e => setForm(p => ({ ...p, ingredient_name: e.target.value }))}
+                placeholder="e.g., Sodium Lauryl Sulfate, Polyvinyl Alcohol, Citric Acid"
+                style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          )}
+          {form.search_type === "function" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>What function should the ingredient serve?</div>
+              <input value={form.desired_function} onChange={e => setForm(p => ({ ...p, desired_function: e.target.value }))}
+                placeholder="e.g., primary surfactant, film-forming polymer, chelating agent"
+                style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          )}
+          {form.search_type === "outcome" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>What outcome do you need?</div>
+              <input value={form.desired_outcome} onChange={e => setForm(p => ({ ...p, desired_outcome: e.target.value }))}
+                placeholder="e.g., improve sheet dissolution speed, reduce raw material cost 20%"
+                style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          )}
+
+          {/* Claims & restrictions — compact */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Must be compatible with:</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {CLAIMS.map(c => <button key={c} onClick={() => setForm(p => ({ ...p, claims_compatibility: p.claims_compatibility.includes(c) ? p.claims_compatibility.filter(x => x !== c) : [...p.claims_compatibility, c] }))} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.claims_compatibility.includes(c) ? "#22c55e" : T.border), background: form.claims_compatibility.includes(c) ? "#22c55e15" : "transparent", color: form.claims_compatibility.includes(c) ? "#22c55e" : T.text3 }}>{c}</button>)}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Restrictions (avoid):</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {RESTRICTIONS.map(r => <button key={r} onClick={() => setForm(p => ({ ...p, restrictions: p.restrictions.includes(r) ? p.restrictions.filter(x => x !== r) : [...p.restrictions, r] }))} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.restrictions.includes(r) ? "#ef4444" : T.border), background: form.restrictions.includes(r) ? "#ef444415" : "transparent", color: form.restrictions.includes(r) ? "#ef4444" : T.text3 }}>{r}</button>)}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setShowNew(false)} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text3, cursor: "pointer" }}>Cancel</button>
+            <button onClick={async () => { await createRequest(); }} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Create Search</button>
+          </div>
+        </div>
+      )}
+
+      {/* Request list + detail grid */}
+      {loading ? <div style={{ color: T.text3, fontSize: 13 }}>Loading…</div> : (
+        <div className="plm-grid">
+          {/* Left: request list */}
+          <div style={{ borderRight: "1px solid " + T.border, paddingRight: 12 }}>
+            {requests.length === 0 && <EmptyState icon="🧪" text="No ingredient searches yet — click + New Search" />}
+            {requests.map(r => (
+              <div key={r.id} onClick={() => setSelected(r)}
+                style={{ padding: "10px 12px", borderRadius: 8, marginBottom: 4, cursor: "pointer", border: "1px solid " + (selected?.id === r.id ? T.accent : "transparent"), background: selected?.id === r.id ? T.accentDim : "transparent" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                  <span>{typeIcon[r.search_type]}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.search_type === "exact" ? r.ingredient_name : r.search_type === "function" ? r.desired_function : r.desired_outcome}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 10, color: statusColor[r.status] || T.text3, fontWeight: 600, textTransform: "uppercase" }}>{r.status?.replace("_", " ")}</span>
+                  {r.plm_programs?.name && <span style={{ fontSize: 10, color: T.text3 }}>• ⬢ {r.plm_programs.name}</span>}
+                  {r.ai_suggestions?.length > 0 && <span style={{ fontSize: 10, color: T.text3 }}>• {r.ai_suggestions.length} results</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Right: detail */}
+          <div>
+            {!selected && <div style={{ padding: 20, textAlign: "center", color: T.text3, fontSize: 13 }}>Select a search to view results</div>}
+            {selected && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
+                      {typeIcon[selected.search_type]} {selected.search_type === "exact" ? selected.ingredient_name : selected.search_type === "function" ? selected.desired_function : selected.desired_outcome}
+                    </div>
+                    {selected.plm_programs?.name && <div style={{ fontSize: 11, color: T.text3 }}>⬢ {selected.plm_programs.name}</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => runAISearch(selected)} disabled={searching}
+                      style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", opacity: searching ? 0.6 : 1 }}>
+                      {searching ? "🔍 Searching..." : "🤖 AI Search"}
+                    </button>
+                    <button onClick={() => deleteRequest(selected.id)}
+                      style={{ padding: "6px 10px", fontSize: 12, background: "none", border: "1px solid #ef444440", borderRadius: 6, color: "#ef4444", cursor: "pointer" }}>✕</button>
+                  </div>
+                </div>
+
+                {/* Constraints */}
+                {((selected.claims_compatibility?.length > 0) || (selected.restrictions?.length > 0)) && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
+                    {(selected.claims_compatibility || []).map(c => <span key={c} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#22c55e15", color: "#22c55e", border: "1px solid #22c55e40" }}>✓ {c}</span>)}
+                    {(selected.restrictions || []).map(r => <span key={r} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440" }}>✕ {r}</span>)}
+                  </div>
+                )}
+
+                {/* Results */}
+                {suppliers.length > 0 ? (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead><tr style={{ background: T.surface2 }}>
+                      <th style={{ textAlign: "left", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>Ingredient</th>
+                      <th style={{ textAlign: "left", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>Supplier</th>
+                      <th style={{ textAlign: "right", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>$/kg</th>
+                      <th style={{ textAlign: "center", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>Fit</th>
+                      <th style={{ textAlign: "left", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>Why</th>
+                    </tr></thead>
+                    <tbody>{suppliers.map(s => (
+                      <tr key={s.id} style={{ borderBottom: "1px solid " + T.border }}>
+                        <td style={{ padding: "8px 10px" }}>
+                          <div style={{ fontWeight: 600, color: T.text }}>{s.ingredient_name}</div>
+                          {s.inci_name && s.inci_name !== s.ingredient_name && <div style={{ fontSize: 10, color: T.text3 }}>{s.inci_name}</div>}
+                          {s.cas_number && <div style={{ fontSize: 10, color: T.text3 }}>CAS: {s.cas_number}</div>}
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginTop: 2 }}>
+                            {(s.certifications || []).map(c => <span key={c} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: "#22c55e15", color: "#22c55e" }}>{c}</span>)}
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <div style={{ fontWeight: 600, color: T.text }}>{s.supplier_name}</div>
+                          {s.origin_country && <div style={{ fontSize: 10, color: T.text3 }}>📍 {s.origin_country}</div>}
+                          {s.moq_kg && <div style={{ fontSize: 10, color: T.text3 }}>MOQ: {s.moq_kg}kg</div>}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: T.text }}>{s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "—"}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>{s.ai_fit_score || "—"}</span>
+                        </td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 240, lineHeight: 1.5 }}>{s.ai_reasoning}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                ) : selected.status === "draft" ? (
+                  <div style={{ padding: "24px 16px", borderRadius: 10, border: "2px dashed " + T.border, textAlign: "center" }}>
+                    <div style={{ fontSize: 24, marginBottom: 6 }}>🤖</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text3 }}>Ready to search — click AI Search above</div>
+                  </div>
+                ) : <div style={{ color: T.text3, fontSize: 12 }}>No results yet</div>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── TAB: GM% SCENARIOS ───────────────────────────────────────────────────────
 
 function GMScenarioTab({ program }) {
@@ -2724,7 +3018,7 @@ export default function PLMView() {
         <div style={{ fontSize:18,fontWeight:700,color:T.text,flex:1 }}>Product Lifecycle</div>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs…" style={{ fontSize:12,padding:"6px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:7,color:T.text,width:200,outline:"none" }} />
         <div style={{ display:"flex",background:T.surface2,border:"1px solid "+T.border,borderRadius:6,overflow:"hidden" }}>
-          {[["pipeline","⬢ Pipeline"],["list","☰ List"],["library","🧪 Library"],["ai","🧪 AI Advisor"]].map(([k,label])=>(
+          {[["pipeline","⬢ Pipeline"],["list","☰ List"],["library","🧪 Library"],["sourcing","🔍 Sourcing"],["ai","🧪 AI Advisor"]].map(([k,label])=>(
             <button key={k} onClick={()=>setView(k)} style={{ padding:"5px 12px",fontSize:12,fontWeight:600,background:view===k?T.accent:"transparent",color:view===k?"#fff":T.text3,border:"none",cursor:"pointer" }}>{label}</button>
           ))}
         </div>
@@ -2747,6 +3041,10 @@ export default function PLMView() {
       ) : view==="library" ? (
         <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
           <PLMLibraryView />
+        </div>
+      ) : view==="sourcing" ? (
+        <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
+          <SourcingStandalone programs={programs} />
         </div>
       ) : (
         <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
