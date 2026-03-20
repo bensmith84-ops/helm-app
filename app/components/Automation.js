@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 
 const TRIGGERS = [
@@ -97,6 +98,7 @@ const relTime = (d) => {
 };
 
 export default function AutomationView() {
+  const { isMobile } = useResponsive();
   const { user, profile } = useAuth();
   const [rules, setRules] = useState([]);
   const [selectedRule, setSelectedRule] = useState(null);
@@ -343,7 +345,7 @@ export default function AutomationView() {
       {showCreate && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowCreate(false)}>
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 480, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 28, zIndex: 201, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: "min(480px, 95vw)", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 28, zIndex: 201, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
             <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>New Automation Rule</h3>
 
             <div style={{ marginBottom: 14 }}>

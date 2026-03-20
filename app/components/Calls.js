@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import { useModal } from "../lib/modal";
 
@@ -21,6 +22,7 @@ const TYPE_CFG = {
 };
 
 export default function CallsView() {
+  const { isMobile } = useResponsive();
   const { user, profile } = useAuth();
   const { showConfirm } = useModal();
   const [calls, setCalls] = useState([]);
@@ -195,7 +197,7 @@ export default function CallsView() {
                   {Object.entries(TYPE_CFG).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
                 </select>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 16 }}>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Scheduled</label>
                   <input type="datetime-local" value={selected.scheduled_at ? new Date(selected.scheduled_at).toISOString().slice(0, 16) : ""}
@@ -255,7 +257,7 @@ export default function CallsView() {
       {showCreate && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowCreate(false)}>
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 420, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 28, zIndex: 201, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: "min(420px, 95vw)", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, padding: 28, zIndex: 201, boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
             <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Schedule Call</h3>
             {[
               { l: "Title *",    k: "title",            t: "text" },

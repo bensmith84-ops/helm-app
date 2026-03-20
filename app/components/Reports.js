@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 
 const fmt$ = (v) => { if(!v&&v!==0) return "—"; const abs=Math.abs(v); const s=v<0?"-":""; return abs>=1e6?s+"$"+(abs/1e6).toFixed(1)+"M":abs>=1e3?s+"$"+(abs/1e3).toFixed(0)+"K":s+"$"+abs.toFixed(0); };
@@ -55,6 +56,7 @@ function Card({ title, children, action }) {
 }
 
 export default function ReportsView() {
+  const { isMobile } = useResponsive();
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState("Executive Summary");
   const [loading, setLoading] = useState(true);
@@ -209,7 +211,7 @@ export default function ReportsView() {
               <StatCard icon="⚠️" label="Open Issues" value={plmIssues.length} sub="PLM issues" color={plmIssues.length>5?"#ef4444":T.text} />
             </div>
 
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+            <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
               {/* Monthly Revenue Chart */}
               <Card title="Monthly Revenue">
                 {revMetric&&Object.keys(finMonthly[revMetric.id]||{}).length>0 ? (
@@ -327,7 +329,7 @@ export default function ReportsView() {
               <StatCard icon="✓" label="Completed" value={fmtN(doneTasks.length)} sub={`${completionPct}% completion`} color="#22c55e" />
               <StatCard icon="⚠️" label="Overdue" value={fmtN(overdueTasks.length)} color={overdueTasks.length>0?"#ef4444":T.text3} />
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+            <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
               <Card title="Task Completion Velocity (8 weeks)">
                 <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:80, marginBottom:8 }}>
                   {weeks8.map((w, i) => {
@@ -358,7 +360,7 @@ export default function ReportsView() {
                 ))}
               </Card>
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+            <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
               <Card title="Priority Breakdown">
                 {[{k:"urgent",l:"Urgent",c:"#ef4444"},{k:"high",l:"High",c:"#f97316"},{k:"medium",l:"Medium",c:"#eab308"},{k:"low",l:"Low",c:"#22c55e"}].map(p=>{
                   const open = openTasks.filter(t=>t.priority===p.k).length;
@@ -447,7 +449,7 @@ export default function ReportsView() {
               }).length} color={T.accent} />
             </div>
 
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+            <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
               {/* Check-in activity */}
               <Card title="Check-in Activity (8 weeks)">
                 <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:80, marginBottom:8 }}>
@@ -590,7 +592,7 @@ export default function ReportsView() {
               <StatCard icon="🚀" label="Launch Ready" value={plmPrograms.filter(p=>p.current_stage==="launch_ready").length} color="#f97316" />
               <StatCard icon="⚠️" label="Open Issues" value={plmIssues.length} color={plmIssues.length>0?"#ef4444":T.text3} />
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+            <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20 }}>
               <Card title="Programs by Stage">
                 {["ideation","concept","feasibility","development","optimization","validation","scale_up","regulatory","launch_ready","launched"].map(stage=>{
                   const count = plmPrograms.filter(p=>p.current_stage===stage).length;
@@ -638,7 +640,7 @@ export default function ReportsView() {
               <StatCard icon="☐" label="Open Tasks" value={openTasks.length} />
               <StatCard icon="⚠️" label="Overdue" value={overdueTasks.length} color={overdueTasks.length>0?"#ef4444":T.text3} />
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+            <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20 }}>
               <Card title="Workload by Assignee">
                 {topAssignees.map(([uid,count])=>(
                   <div key={uid} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>

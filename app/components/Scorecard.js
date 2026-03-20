@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
@@ -121,6 +122,7 @@ function SparkTrend({ values }) {
 }
 
 export default function ScorecardView() {
+  const { isMobile } = useResponsive();
   const { user, profile } = useAuth();
   const [metrics, setMetrics] = useState([]);
   const [entries, setEntries] = useState({}); // { metricId: { weekStart: value } }
@@ -652,7 +654,7 @@ export default function ScorecardView() {
           return (
             <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={() => setEditingGoals(null)} />
-              <div style={{ position: "relative", width: 480, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201, maxHeight: "80vh", overflow: "auto" }}>
+              <div style={{ position: "relative", width: "min(480px, 95vw)", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201, maxHeight: "80vh", overflow: "auto" }}>
                 <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
                     <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Goal Periods — {m.name}</h3>
@@ -700,7 +702,7 @@ export default function ScorecardView() {
             return (
               <div onClick={() => setCommentModal(null)} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-                <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 400, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201 }}>
+                <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: "min(400px, 95vw)", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201 }}>
                   <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700 }}>{existing ? "Edit Comment" : "Add Comment"}</div>

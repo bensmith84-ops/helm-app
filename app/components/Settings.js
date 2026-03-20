@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { notifySlack } from "../lib/slack";
@@ -40,6 +41,7 @@ const inp = {
 };
 
 export default function SettingsView({ isAdmin }) {
+  const { isMobile } = useResponsive();
   const { user, profile, signOut } = useAuth();
   const { mode, toggle, accentKey, setAccent, ACCENT_PRESETS } = useTheme();
   const [activeTab, setActiveTab] = useState("Profile");
@@ -686,7 +688,7 @@ export default function SettingsView({ isAdmin }) {
               <div style={{ fontSize:13, color:T.text2, lineHeight:1.8, marginBottom:20 }}>
                 Helm brings together your OKRs, Projects, PLM, Finance, and operations into a single platform — giving you real-time visibility across every part of your business.
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:10 }}>
                 {[
                   { label:"OKRs & Key Results", icon:"◎" },
                   { label:"Project Management", icon:"◫" },

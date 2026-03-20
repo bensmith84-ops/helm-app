@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import { useResizableColumns } from "../lib/useResizableColumns";
 
@@ -13,6 +14,7 @@ const MODULES = ["dashboard", "projects", "messages", "calendar", "docs", "okrs"
 const TEAM_COLORS = ["#3b82f6","#22c55e","#a855f7","#f97316","#ec4899","#06b6d4","#eab308","#ef4444"];
 
 export default function PeopleView() {
+  const { isMobile } = useResponsive();
   const { user, profile } = useAuth();
   const [members, setMembers] = useState([]);
   const [memberships, setMemberships] = useState([]);
@@ -456,7 +458,7 @@ export default function PeopleView() {
   // === MODALS ===
   const inviteModal = showInvite && (
     <div onClick={() => setShowInvite(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 400, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: "min(400px, 95vw)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>Add Team Member</h3>
         <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Name</label><input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="Full name" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
         <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Email</label><input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="email@company.com" type="email" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
@@ -467,7 +469,7 @@ export default function PeopleView() {
 
   const teamFormModal = showTeamForm && (
     <div onClick={() => setShowTeamForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 400, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: "min(400px, 95vw)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>{teamForm.parent_team_id ? "New Sub-team" : "New Team"}</h3>
         {teamForm.parent_team_id && (() => { const parent = teams.find(t => t.id === teamForm.parent_team_id); return parent ? (
           <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 6, background: T.accentDim, fontSize: 12, color: T.accent, display: "flex", alignItems: "center", gap: 6 }}>
