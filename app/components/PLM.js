@@ -54,6 +54,31 @@ function PriorityBadge({ priority }) {
   const color = PRIORITY_COLORS[priority] || "#8b93a8";
   return <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:color+"22", color, letterSpacing:0.3 }}>{(priority||"—").toUpperCase()}</span>;
 }
+// Shared: render manufacturing instructions with markdown formatting
+function FormatMfgInstructions({ text }) {
+  if (!text) return null;
+  return text.split("\n").map((line, i) => {
+    const t = line.trim();
+    if (!t) return <div key={i} style={{ height: 8 }} />;
+    if (t.startsWith("###")) return <div key={i} style={{ fontSize: 12, fontWeight: 700, color: T.text, marginTop: 10, marginBottom: 4 }}>{t.replace(/^#+\s*/, "")}</div>;
+    if (t.startsWith("##")) return <div key={i} style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginTop: 12, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{t.replace(/^#+\s*/, "")}</div>;
+    const numMatch = t.match(/^(\d+)\.\s+(.*)$/);
+    if (numMatch) return (
+      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4, padding: "4px 0" }}>
+        <span style={{ minWidth: 22, height: 22, borderRadius: 11, background: T.accent + "15", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{numMatch[1]}</span>
+        <span style={{ fontSize: 12, color: T.text, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: numMatch[2].replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
+      </div>
+    );
+    if (t.startsWith("- ") || t.startsWith("• ")) return (
+      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 2, paddingLeft: 4 }}>
+        <span style={{ color: T.accent, fontWeight: 700, fontSize: 10, marginTop: 4 }}>•</span>
+        <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: t.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />
+      </div>
+    );
+    return <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: t.replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />;
+  });
+}
+
 function StatusDot({ status }) {
   return <span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:STATUS_COLORS[status]||"#8b93a8", marginRight:5 }} />;
 }
@@ -1093,6 +1118,7 @@ function FormulationsTab({ programId }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showPicker, setShowPicker] = useState(false);
+  const [editingMfg, setEditingMfg] = useState(false);
   useEffect(()=>{ supabase.from("plm_formulations").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setFormulas(data||[]);setLoading(false);}); },[programId]);
   useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("formulation_id",selected.id).order("sort_order").order("created_at").then(({data})=>setItems(data||[])); },[selected]);
   const addFormula=async()=>{ const{data}=await supabase.from("plm_formulations").insert({program_id:programId,name:"New Formulation",version:"v1.0",status:"draft"}).select().single(); if(data){setFormulas(p=>[...p,data]);setSelected(data);} };
@@ -1134,6 +1160,58 @@ function FormulationsTab({ programId }) {
               <tbody>{items.map(item=><FormulaItemRow key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={async()=>{await supabase.from("plm_formula_items").delete().eq("id",item.id);setItems(p=>p.filter(x=>x.id!==item.id));}} />)}</tbody>
             </table>
             {items.length===0&&<EmptyState icon="🧪" text="No ingredients — click + Ingredient to add from library or type your own" />}
+            
+            {/* ── Making Instructions ────────────────────────────── */}
+            <div style={{ marginTop: 20, borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 14 }}>📋</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Making Instructions</span>
+                  {selected.manufacturing_process && <span style={{ fontSize: 10, color: T.text3, background: T.surface2, padding: "2px 6px", borderRadius: 4 }}>{Math.round(selected.manufacturing_process.length / 5)} words</span>}
+                </div>
+                <button onClick={() => setEditingMfg(!editingMfg)}
+                  style={{ fontSize: 11, color: editingMfg ? "#ef4444" : T.accent, background: "none", border: `1px solid ${editingMfg ? "#ef444440" : T.accent + "40"}`, borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontWeight: 600 }}>
+                  {editingMfg ? "Done Editing" : "✎ Edit"}
+                </button>
+              </div>
+
+              {editingMfg ? (
+                <textarea
+                  value={selected.manufacturing_process || ""}
+                  onChange={e => { const v = e.target.value; setSelected(p => ({ ...p, manufacturing_process: v })); setFormulas(p => p.map(x => x.id === selected.id ? { ...x, manufacturing_process: v } : x)); }}
+                  onBlur={e => updateFormula("manufacturing_process", e.target.value)}
+                  rows={20}
+                  placeholder={"Write the full manufacturing process here...\n\nExample format:\n## PHASE 1: PVA DISSOLUTION\n1. **Water Preparation**: Heat 50% of RO water to 85°C\n2. **PVA Addition**: Slowly add PVA over 15 minutes\n   - Maintain vortex, avoid dry powder pockets\n   - Target mixing speed: 1500-2000 RPM\n\n## PHASE 2: SURFACTANT SYSTEM\n3. **SLS Slurry**: Mix remaining water with SLS at 60°C\n4. **Addition**: Pump into PVA base over 10 minutes"}
+                  style={{ width: "100%", padding: "12px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.accent}40`, borderRadius: 8, color: T.text, outline: "none", fontFamily: "monospace", lineHeight: 1.7, resize: "vertical", boxSizing: "border-box" }}
+                />
+              ) : selected.manufacturing_process ? (
+                <div style={{ padding: "14px 18px", borderRadius: 10, background: T.surface2, border: `1px solid ${T.border}` }}>
+                  <FormatMfgInstructions text={selected.manufacturing_process} />
+                </div>
+              ) : (
+                <div style={{ padding: "24px 16px", borderRadius: 10, border: `2px dashed ${T.border}`, textAlign: "center", cursor: "pointer" }}
+                  onClick={() => setEditingMfg(true)}>
+                  <div style={{ fontSize: 24, marginBottom: 6 }}>📋</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text3, marginBottom: 4 }}>No making instructions yet</div>
+                  <div style={{ fontSize: 11, color: T.text3 }}>Click to add step-by-step manufacturing process, or ask the AI Advisor to generate them</div>
+                </div>
+              )}
+
+              {/* Additional fields */}
+              {selected.manufacturing_process && !editingMfg && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 12 }}>
+                  <div>
+                    <InlineField label="Batch Size" value={selected.target_batch_size} onChange={v => updateFormula("target_batch_size", v)} type="number" placeholder="e.g., 1000" />
+                  </div>
+                  <div>
+                    <InlineField label="Batch Unit" value={selected.batch_size_unit || "kg"} onChange={v => updateFormula("batch_size_unit", v)} placeholder="kg" />
+                  </div>
+                  <div>
+                    <InlineField label="Target pH" value={selected.target_ph} onChange={v => updateFormula("target_ph", v)} type="number" placeholder="e.g., 7.5" />
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -1376,35 +1454,6 @@ function ExperimentsTab({ programId }) {
               };
               const SO = ["planned","in_progress","completed","failed","skipped"];
               const SC = { planned: T.text3, in_progress: "#eab308", completed: "#22c55e", failed: "#ef4444", skipped: "#8b93a8" };
-              // Format manufacturing instructions with basic markdown
-              const formatInstr = (text) => {
-                if (!text) return null;
-                return text.split("\n").map((line, i) => {
-                  const trimmed = line.trim();
-                  if (!trimmed) return <div key={i} style={{ height: 8 }} />;
-                  // Headers (### or **)
-                  if (trimmed.startsWith("###")) return <div key={i} style={{ fontSize: 12, fontWeight: 700, color: T.text, marginTop: 10, marginBottom: 4 }}>{trimmed.replace(/^#+\s*/, "")}</div>;
-                  if (trimmed.startsWith("##")) return <div key={i} style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginTop: 12, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{trimmed.replace(/^#+\s*/, "")}</div>;
-                  // Numbered steps
-                  const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
-                  if (numMatch) return (
-                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4, padding: "4px 0" }}>
-                      <span style={{ minWidth: 22, height: 22, borderRadius: 11, background: T.accent + "15", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{numMatch[1]}</span>
-                      <span style={{ fontSize: 12, color: T.text, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: numMatch[2].replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>') }} />
-                    </div>
-                  );
-                  // Bullet points
-                  if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) return (
-                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 2, paddingLeft: 4 }}>
-                      <span style={{ color: T.accent, fontWeight: 700, fontSize: 10, marginTop: 4 }}>•</span>
-                      <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: trimmed.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />
-                    </div>
-                  );
-                  // Regular text with bold support
-                  return <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: trimmed.replace(/\*\*(.*?)\*\*/g, '<strong style="color:'+T.text+'">$1</strong>') }} />;
-                });
-              };
-
               if (trialsLoading) return <div style={{ color: T.text3, fontSize: 12, padding: 16 }}>Loading trials...</div>;
               if (trialRuns.length === 0) return (
                 <div style={{ textAlign: "center", padding: "40px 16px", color: T.text3 }}>
@@ -1566,12 +1615,12 @@ function ExperimentsTab({ programId }) {
                                 </div>
                                 {run.manufacturing_instructions ? (
                                   <div style={{ padding: "12px 16px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
-                                    {formatInstr(run.manufacturing_instructions)}
+                                    {<FormatMfgInstructions text={run.manufacturing_instructions} />}
                                   </div>
                                 ) : trialFormula?.manufacturing_process ? (
                                   <div style={{ padding: "12px 16px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
                                     <div style={{ fontSize: 10, color: T.accent, fontWeight: 600, marginBottom: 6 }}>From base formulation:</div>
-                                    {formatInstr(trialFormula.manufacturing_process)}
+                                    {<FormatMfgInstructions text={trialFormula.manufacturing_process} />}
                                   </div>
                                 ) : (
                                   <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No instructions yet — click Edit to add</div>
