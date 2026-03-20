@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useResponsive } from "../lib/responsive";
+import { useAuth } from "../lib/auth";
 import PLMLibraryView from "./PLMLibrary";
 const PrintBatchRecord = lazy(() => import("./PrintBatchRecord"));
 
@@ -678,155 +679,371 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
 }
 
 function SourcingTab({ program }) {
-  const [items, setItems]     = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({name:"",sourcing_type:"ingredient",supplier_name:"",moq_unit:""});
-  const [libIngredients, setLibIngredients] = useState([]); // for name autocomplete
-
-  useEffect(()=>{
-    supabase.from("plm_sourcing").select("*").eq("program_id",program.id).order("sourcing_type").order("created_at")
-      .then(({data})=>{setItems(data||[]);setLoading(false);});
-    // Load library ingredient names for autocomplete
-    supabase.from("plm_ingredient_library").select("id,name,default_uom").eq("active",true).order("name")
-      .then(({data})=>setLibIngredients(data||[]));
-  },[program.id]);
-
-  // Pull formula line items into sourcing, auto-populating preferred suppliers from library
-  const syncFromFormula = async () => {
-    setSyncing(true);
-    const {data:formulas} = await supabase.from("plm_formulations").select("id").eq("program_id",program.id);
-    if (!formulas?.length) { setSyncing(false); return; }
-    const {data:fItems} = await supabase.from("plm_formula_items").select("*").in("formulation_id",formulas.map(f=>f.id));
-    if (!fItems?.length) { setSyncing(false); return; }
-
-    const existingNames = new Set(items.map(i=>i.name?.toLowerCase().trim()));
-    const toAdd = fItems.filter(fi=>fi.ingredient_name?.trim() && !existingNames.has(fi.ingredient_name.toLowerCase().trim()));
-    if (!toAdd.length) { setSyncing(false); return; }
-
-    // For each item, look up preferred supplier in library
-    const typeMap = {ingredient:"ingredient", packaging:"packaging"};
-    const rows = await Promise.all(toAdd.map(async fi => {
-      let supplier_name = "";
-      let moq = fi.input_qty || null;
-      let moq_unit = fi.input_uom || "";
-      let volume_tiers = [];
-
-      // Look up library match
-      const {data:libMatch} = await supabase.from("plm_ingredient_library")
-        .select("id,default_uom").ilike("name", fi.ingredient_name.trim()).limit(1);
-      if (libMatch?.length) {
-        const {data:prefSup} = await supabase.from("plm_ingredient_suppliers")
-          .select("supplier_name,plm_ingredient_pricing(min_qty,max_qty,unit_price,currency,uom)")
-          .eq("ingredient_id", libMatch[0].id)
-          .order("is_preferred", { ascending: false })
-          .limit(1);
-        if (prefSup?.length) {
-          supplier_name = prefSup[0].supplier_name;
-          if (!moq_unit && libMatch[0].default_uom) moq_unit = libMatch[0].default_uom;
-          // Import pricing tiers
-          if (prefSup[0].plm_ingredient_pricing?.length) {
-            volume_tiers = prefSup[0].plm_ingredient_pricing.map(t => ({
-              min_qty: t.min_qty, max_qty: t.max_qty||"",
-              unit: t.uom||moq_unit, unit_price: t.unit_price, total_cost: ""
-            }));
-          }
-        }
-      }
-
-      return {
-        program_id: program.id,
-        name: fi.ingredient_name,
-        sourcing_type: typeMap[fi.item_type] || "ingredient",
-        moq_unit, moq, supplier_name, volume_tiers,
-        notes: fi.function_in_formula ? "Function: "+fi.function_in_formula : "",
-      };
-    }));
-
-    const {data:created} = await supabase.from("plm_sourcing").insert(rows).select();
-    if (created) setItems(p=>[...p,...created]);
-    setSyncing(false);
-  };
-
-  // When name changes in add form, auto-fill supplier from library
-  const handleNameChange = async (name) => {
-    setForm(p=>({...p,name}));
-    if (!name.trim()) return;
-    const {data:libMatch} = await supabase.from("plm_ingredient_library")
-      .select("id,default_uom").ilike("name", name.trim()).limit(1);
-    if (libMatch?.length) {
-      const {data:prefSup} = await supabase.from("plm_ingredient_suppliers")
-        .select("supplier_name").eq("ingredient_id",libMatch[0].id).order("is_preferred",{ascending:false}).limit(1);
-      if (prefSup?.length) setForm(p=>({...p,supplier_name:prefSup[0].supplier_name,moq_unit:libMatch[0].default_uom||p.moq_unit}));
-    }
-  };
-
-  const add=async()=>{
-    if(!form.name.trim())return;
-    const{data}=await supabase.from("plm_sourcing").insert({...form,program_id:program.id,volume_tiers:[]}).select().single();
-    if(data){setItems(p=>[...p,data]);setShowForm(false);setForm({name:"",sourcing_type:"ingredient",supplier_name:"",moq_unit:""});}
-  };
-
-  const grouped=SOURCING_TYPES.reduce((acc,t)=>{acc[t.value]=items.filter(i=>i.sourcing_type===t.value);return acc;},{});
-  if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
+  const [subTab, setSubTab] = useState("ingredients"); // ingredients | cm
+  const { user } = useAuth();
 
   return (
     <div>
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
-        <div style={{ fontSize:13,color:T.text2 }}>{items.length} sourcing item{items.length!==1?"s":""}</div>
-        <div style={{ display:"flex",gap:8 }}>
-          <button onClick={syncFromFormula} disabled={syncing} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.surface2,color:T.accent,border:"1px solid "+T.accent+"50",borderRadius:6,cursor:"pointer",opacity:syncing?0.6:1 }}>
-            {syncing?"Syncing…":"⬇ Pull from Formula"}
-          </button>
-          <button onClick={()=>setShowForm(true)} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ Add Item</button>
-        </div>
+      {/* Sub-tab toggle */}
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid " + T.border, marginBottom: 16 }}>
+        {[["ingredients", "🧪 Ingredients"], ["cm", "🏭 Contract Manufacturers"]].map(([k, l]) => (
+          <button key={k} onClick={() => setSubTab(k)}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: "10px 16px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: subTab === k ? T.accent : T.text3, borderBottom: "2px solid " + (subTab === k ? T.accent : "transparent"), transition: "color 0.15s" }}>{l}</button>
+        ))}
+      </div>
+      {subTab === "ingredients" && <IngredientSourcingView program={program} />}
+      {subTab === "cm" && <CMSourcingView program={program} />}
+    </div>
+  );
+}
+
+// ─── Ingredient Sourcing with AI ──────────────────────────────────────────────
+function IngredientSourcingView({ program }) {
+  const { user } = useAuth();
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showNew, setShowNew] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [suppliers, setSuppliers] = useState([]);
+  const [form, setForm] = useState({ search_type: "exact", ingredient_name: "", desired_function: "", desired_outcome: "", claims_compatibility: [], restrictions: [], target_cost_per_kg: "", additional_requirements: "" });
+
+  useEffect(() => {
+    supabase.from("ingredient_sourcing_requests").select("*").eq("program_id", program.id).order("created_at", { ascending: false })
+      .then(({ data }) => { setRequests(data || []); setLoading(false); });
+  }, [program.id]);
+
+  useEffect(() => {
+    if (!selected) { setSuppliers([]); return; }
+    supabase.from("ingredient_suppliers").select("*").eq("request_id", selected.id).order("ai_fit_score", { ascending: false })
+      .then(({ data }) => setSuppliers(data || []));
+  }, [selected]);
+
+  const CLAIMS = ["EPA Safer Choice", "EU Ecolabel", "USDA BioPreferred", "Vegan", "Cruelty-Free", "Non-GMO", "Organic", "Biodegradable", "EWG Verified", "C2C Certified"];
+  const RESTRICTIONS = ["No sulfates (SLS/SLES)", "No parabens", "No phosphates", "No 1,4-dioxane", "No optical brighteners", "No synthetic fragrance", "No PFAS", "No palm oil derivatives", "No formaldehyde donors", "No chlorine/bleach"];
+
+  const createRequest = async () => {
+    const payload = {
+      program_id: program.id,
+      search_type: form.search_type,
+      ingredient_name: form.search_type === "exact" ? form.ingredient_name : null,
+      desired_function: form.search_type === "function" ? form.desired_function : null,
+      desired_outcome: form.search_type === "outcome" ? form.desired_outcome : null,
+      claims_compatibility: form.claims_compatibility,
+      restrictions: form.restrictions,
+      target_cost_per_kg: form.target_cost_per_kg ? parseFloat(form.target_cost_per_kg) : null,
+      additional_requirements: form.additional_requirements || null,
+      status: "draft",
+      created_by: user?.id || null,
+    };
+    const { data } = await supabase.from("ingredient_sourcing_requests").insert(payload).select().single();
+    if (data) { setRequests(p => [data, ...p]); setSelected(data); setShowNew(false); setForm({ search_type: "exact", ingredient_name: "", desired_function: "", desired_outcome: "", claims_compatibility: [], restrictions: [], target_cost_per_kg: "", additional_requirements: "" }); }
+  };
+
+  const runAISearch = async (req) => {
+    setSearching(true);
+    try {
+      const searchDesc = req.search_type === "exact" ? `Find ingredient: ${req.ingredient_name}` :
+        req.search_type === "function" ? `Find ingredients with function: ${req.desired_function}` :
+        `Find ingredients for outcome: ${req.desired_outcome}`;
+      
+      const context = `Product: ${program.name} (${program.category || "cleaning product"})
+Search: ${searchDesc}
+Claims to maintain: ${(req.claims_compatibility || []).join(", ") || "none specified"}
+Restrictions: ${(req.restrictions || []).join(", ") || "none"}
+Target cost: ${req.target_cost_per_kg ? "$" + req.target_cost_per_kg + "/kg" : "not specified"}
+Additional: ${req.additional_requirements || "none"}`;
+
+      const prompt = `You are a raw materials sourcing specialist for Earth Breeze (eco-friendly cleaning products).
+
+${context}
+
+${req.search_type === "exact" ? `Find suppliers and pricing for "${req.ingredient_name}". Include INCI name, CAS number, typical grades, and multiple supplier options.` :
+  req.search_type === "function" ? `Suggest 5-8 ingredients that serve the function: "${req.desired_function}". For each, explain why it fits, its typical cost range, and which suppliers carry it. Consider the claims and restrictions.` :
+  `Suggest 5-8 ingredients that achieve: "${req.desired_outcome}". For each, explain the mechanism, typical usage level, cost impact, and compatibility with the listed claims/restrictions.`}
+
+For EACH ingredient/supplier, provide:
+1. Ingredient name (INCI name)
+2. Trade name if common
+3. Supplier name
+4. Estimated price per kg (USD)
+5. Typical MOQ
+6. Why it's a good fit (0-100 score)
+7. Any claims compatibility notes
+
+Respond ONLY with a JSON array:
+[{"ingredient_name":"string","inci_name":"string","trade_name":"string or null","supplier_name":"string","supplier_website":"string or null","cas_number":"string or null","purity_pct":number or null,"grade":"string","origin_country":"string or null","certifications":["string"],"price_per_kg":number or null,"moq_kg":number or null,"lead_time_days":number or null,"claims_compatible":["string"],"ai_fit_score":number,"ai_reasoning":"string"}]`;
+
+      const resp = await fetch(supabase.supabaseUrl + "/functions/v1/plm-ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (await supabase.auth.getSession()).data.session?.access_token },
+        body: JSON.stringify({ question: prompt, program_id: program.id }),
+      });
+      const result = await resp.json();
+      
+      // Parse JSON from AI response
+      let found = [];
+      try {
+        const jsonMatch = (result.response || "").match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (jsonMatch) found = JSON.parse(jsonMatch[0]);
+        else found = JSON.parse((result.response || "").replace(/```json|```/g, "").trim());
+      } catch (e) { console.error("Parse error:", e); }
+
+      // Save suppliers to DB
+      if (found.length > 0) {
+        const rows = found.map(s => ({
+          request_id: req.id, org_id: program.org_id || "a0000000-0000-0000-0000-000000000001",
+          ingredient_name: s.ingredient_name || s.inci_name || "Unknown",
+          inci_name: s.inci_name, trade_name: s.trade_name,
+          supplier_name: s.supplier_name || "Unknown", supplier_website: s.supplier_website,
+          cas_number: s.cas_number, purity_pct: s.purity_pct, grade: s.grade,
+          origin_country: s.origin_country, certifications: s.certifications || [],
+          price_per_kg: s.price_per_kg, moq_kg: s.moq_kg, lead_time_days: s.lead_time_days,
+          claims_compatible: s.claims_compatible || [], ai_fit_score: s.ai_fit_score,
+          ai_reasoning: s.ai_reasoning, source: "ai_search",
+        }));
+        const { data: created } = await supabase.from("ingredient_suppliers").insert(rows).select();
+        if (created) setSuppliers(created);
+      }
+
+      // Update request
+      await supabase.from("ingredient_sourcing_requests").update({
+        ai_suggestions: found, ai_searched_at: new Date().toISOString(), status: "results_ready",
+      }).eq("id", req.id);
+      setRequests(p => p.map(r => r.id === req.id ? { ...r, ai_suggestions: found, status: "results_ready", ai_searched_at: new Date().toISOString() } : r));
+      if (selected?.id === req.id) setSelected(p => ({ ...p, ai_suggestions: found, status: "results_ready" }));
+    } catch (e) { console.error("AI search error:", e); }
+    setSearching(false);
+  };
+
+  const deleteRequest = async (id) => {
+    if (!window.confirm("Delete this sourcing request?")) return;
+    await supabase.from("ingredient_suppliers").delete().eq("request_id", id);
+    await supabase.from("ingredient_sourcing_requests").delete().eq("id", id);
+    setRequests(p => p.filter(r => r.id !== id));
+    if (selected?.id === id) setSelected(null);
+  };
+
+  const typeIcon = { exact: "🔍", function: "⚙", outcome: "🎯" };
+  const typeLabel = { exact: "Exact Ingredient", function: "By Function", outcome: "By Outcome" };
+  const statusColor = { draft: T.text3, searching: "#f59e0b", results_ready: "#22c55e", sourcing: T.accent, ordered: "#8b5cf6" };
+
+  if (loading) return <div style={{ color: T.text3, fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: T.text2 }}>{requests.length} ingredient search{requests.length !== 1 ? "es" : ""}</div>
+        <button onClick={() => setShowNew(true)} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ New Search</button>
       </div>
 
-      {items.length===0&&(
-        <div style={{ padding:"12px 16px",background:T.surface2,border:"1px solid "+T.border,borderRadius:8,marginBottom:16,fontSize:12,color:T.text3,lineHeight:1.6 }}>
-          Click <strong style={{color:T.accent}}>⬇ Pull from Formula</strong> to auto-import ingredients — suppliers and pricing will be pre-filled from your library.
+      {/* New search form */}
+      {showNew && (
+        <div style={{ background: T.surface2, border: "1px solid " + T.accent + "40", borderRadius: 10, padding: 18, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>What are you looking for?</div>
+          
+          {/* Search type toggle */}
+          <div style={{ display: "flex", gap: 0, marginBottom: 14, background: T.surface, border: "1px solid " + T.border, borderRadius: 8, overflow: "hidden" }}>
+            {[["exact", "🔍 Exact Ingredient"], ["function", "⚙ By Function"], ["outcome", "🎯 By Outcome"]].map(([k, l]) => (
+              <button key={k} onClick={() => setForm(p => ({ ...p, search_type: k }))}
+                style={{ flex: 1, padding: "10px 8px", fontSize: 12, fontWeight: 600, background: form.search_type === k ? T.accent : "transparent", color: form.search_type === k ? "#fff" : T.text3, border: "none", cursor: "pointer" }}>{l}</button>
+            ))}
+          </div>
+
+          {/* Search type specific input */}
+          {form.search_type === "exact" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Ingredient Name / INCI Name</div>
+              <input value={form.ingredient_name} onChange={e => setForm(p => ({ ...p, ingredient_name: e.target.value }))}
+                placeholder="e.g., Sodium Lauryl Sulfate, Polyvinyl Alcohol, Citric Acid"
+                style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          )}
+          {form.search_type === "function" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>What function should the ingredient serve?</div>
+              <input value={form.desired_function} onChange={e => setForm(p => ({ ...p, desired_function: e.target.value }))}
+                placeholder="e.g., primary surfactant, film-forming polymer, chelating agent, fragrance encapsulation"
+                style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          )}
+          {form.search_type === "outcome" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>What outcome do you need?</div>
+              <input value={form.desired_outcome} onChange={e => setForm(p => ({ ...p, desired_outcome: e.target.value }))}
+                placeholder="e.g., improve sheet dissolution speed, reduce raw material cost 20%, boost cleaning efficacy on grease"
+                style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          )}
+
+          {/* Claims & restrictions */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Must be compatible with claims:</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {CLAIMS.map(c => (
+                  <button key={c} onClick={() => setForm(p => ({ ...p, claims_compatibility: p.claims_compatibility.includes(c) ? p.claims_compatibility.filter(x => x !== c) : [...p.claims_compatibility, c] }))}
+                    style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.claims_compatibility.includes(c) ? "#22c55e" : T.border), background: form.claims_compatibility.includes(c) ? "#22c55e15" : "transparent", color: form.claims_compatibility.includes(c) ? "#22c55e" : T.text3 }}>{c}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Restrictions (avoid):</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {RESTRICTIONS.map(r => (
+                  <button key={r} onClick={() => setForm(p => ({ ...p, restrictions: p.restrictions.includes(r) ? p.restrictions.filter(x => x !== r) : [...p.restrictions, r] }))}
+                    style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, borderRadius: 12, cursor: "pointer", border: "1px solid " + (form.restrictions.includes(r) ? "#ef4444" : T.border), background: form.restrictions.includes(r) ? "#ef444415" : "transparent", color: form.restrictions.includes(r) ? "#ef4444" : T.text3 }}>{r}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Cost target & notes */}
+          <div style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 12, marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Target Cost ($/kg)</div>
+              <input type="number" value={form.target_cost_per_kg} onChange={e => setForm(p => ({ ...p, target_cost_per_kg: e.target.value }))}
+                placeholder="e.g., 5.00" style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Additional Requirements</div>
+              <input value={form.additional_requirements} onChange={e => setForm(p => ({ ...p, additional_requirements: e.target.value }))}
+                placeholder="e.g., must be cold-water soluble, pharma grade preferred"
+                style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setShowNew(false)} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, background: T.surface, border: "1px solid " + T.border, borderRadius: 6, color: T.text3, cursor: "pointer" }}>Cancel</button>
+            <button onClick={createRequest} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Create & Search with AI</button>
+          </div>
         </div>
       )}
 
-      {showForm&&(
-        <div style={{ background:T.surface2,border:"1px solid "+T.accent+"40",borderRadius:8,padding:16,marginBottom:16 }}>
-          <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>New Sourcing Item</div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-            <div>
-              <div style={{ fontSize:11,color:T.text3,marginBottom:4,fontWeight:600 }}>Name *</div>
-              <input list="lib-ingredients" value={form.name} onChange={e=>handleNameChange(e.target.value)}
-                placeholder="Type or pick from library…"
-                style={{ width:"100%",fontSize:13,color:T.text,background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",boxSizing:"border-box" }} />
-              <datalist id="lib-ingredients">
-                {libIngredients.map(i=><option key={i.id} value={i.name} />)}
-              </datalist>
+      {/* Request list + detail */}
+      <div className="plm-grid">
+        {/* Left: request list */}
+        <div style={{ borderRight: "1px solid " + T.border, paddingRight: 12 }}>
+          {requests.length === 0 && <EmptyState icon="🧪" text="No ingredient searches yet" />}
+          {requests.map(r => (
+            <div key={r.id} onClick={() => setSelected(r)}
+              style={{ padding: "10px 12px", borderRadius: 8, marginBottom: 4, cursor: "pointer", border: "1px solid " + (selected?.id === r.id ? T.accent : "transparent"), background: selected?.id === r.id ? T.accentDim : "transparent", transition: "all 0.1s" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: 14 }}>{typeIcon[r.search_type]}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {r.search_type === "exact" ? r.ingredient_name : r.search_type === "function" ? r.desired_function : r.desired_outcome}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 10, color: statusColor[r.status] || T.text3, fontWeight: 600, textTransform: "uppercase" }}>{r.status?.replace("_", " ")}</span>
+                {r.ai_suggestions?.length > 0 && <span style={{ fontSize: 10, color: T.text3 }}>• {r.ai_suggestions.length} results</span>}
+              </div>
             </div>
-            <InlineField label="Type" value={form.sourcing_type} onChange={v=>setForm(p=>({...p,sourcing_type:v}))} options={SOURCING_TYPES} />
-            <div>
-              <div style={{ fontSize:11,color:T.text3,marginBottom:4,fontWeight:600 }}>Supplier</div>
-              <SupplierPicker ingredientName={form.name} value={form.supplier_name}
-                onChange={v=>setForm(p=>({...p,supplier_name:v}))} />
-            </div>
-            <InlineField label="UOM" value={form.moq_unit} onChange={v=>setForm(p=>({...p,moq_unit:v}))} options={UOM_OPTIONS.map(u=>({value:u,label:u}))} />
-          </div>
-          <div style={{ display:"flex",gap:8,marginTop:12 }}>
-            <button onClick={()=>setShowForm(false)} style={{ flex:1,padding:8,fontSize:12,background:T.surface3,color:T.text2,border:"1px solid "+T.border,borderRadius:6,cursor:"pointer" }}>Cancel</button>
-            <button onClick={add} style={{ flex:2,padding:8,fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>Add</button>
-          </div>
+          ))}
         </div>
-      )}
 
-      {items.length>0 && SOURCING_TYPES.map(t=>{
-        const group=grouped[t.value];
-        if(!group.length)return null;
-        return (
-          <div key={t.value} style={{ marginBottom:20 }}>
-            <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>{t.label}s</div>
-            {group.map(item=><SourcingItemCard key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={id=>setItems(p=>p.filter(x=>x.id!==id))} />)}
-          </div>
-        );
-      })}
+        {/* Right: detail */}
+        <div>
+          {!selected && <div style={{ padding: 20, textAlign: "center", color: T.text3, fontSize: 13 }}>Select a search to view results</div>}
+          {selected && (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 16 }}>{typeIcon[selected.search_type]}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{typeLabel[selected.search_type]}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: T.text2 }}>
+                    {selected.search_type === "exact" ? selected.ingredient_name : selected.search_type === "function" ? selected.desired_function : selected.desired_outcome}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => runAISearch(selected)} disabled={searching}
+                    style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", opacity: searching ? 0.6 : 1 }}>
+                    {searching ? "🔍 Searching..." : "🤖 AI Search"}
+                  </button>
+                  <button onClick={() => deleteRequest(selected.id)}
+                    style={{ padding: "6px 10px", fontSize: 12, background: "none", border: "1px solid #ef444440", borderRadius: 6, color: "#ef4444", cursor: "pointer" }}>✕</button>
+                </div>
+              </div>
+
+              {/* Constraints summary */}
+              {((selected.claims_compatibility?.length > 0) || (selected.restrictions?.length > 0)) && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
+                  {(selected.claims_compatibility || []).map(c => <span key={c} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#22c55e15", color: "#22c55e", border: "1px solid #22c55e40" }}>✓ {c}</span>)}
+                  {(selected.restrictions || []).map(r => <span key={r} style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440" }}>✕ {r}</span>)}
+                  {selected.target_cost_per_kg && <span style={{ padding: "2px 8px", fontSize: 10, fontWeight: 600, borderRadius: 10, background: T.surface2, color: T.text3, border: "1px solid " + T.border }}>Target: ${selected.target_cost_per_kg}/kg</span>}
+                </div>
+              )}
+
+              {/* Results table */}
+              {suppliers.length > 0 ? (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: T.surface2 }}>
+                      <th style={{ textAlign: "left", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>Ingredient</th>
+                      <th style={{ textAlign: "left", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>Supplier</th>
+                      <th style={{ textAlign: "right", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>$/kg</th>
+                      <th style={{ textAlign: "center", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>Fit</th>
+                      <th style={{ textAlign: "left", padding: "8px 10px", fontSize: 11, fontWeight: 600, color: T.text3, borderBottom: "1px solid " + T.border }}>Reasoning</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suppliers.map(s => (
+                      <tr key={s.id} style={{ borderBottom: "1px solid " + T.border }}>
+                        <td style={{ padding: "8px 10px" }}>
+                          <div style={{ fontWeight: 600, color: T.text }}>{s.ingredient_name}</div>
+                          {s.inci_name && s.inci_name !== s.ingredient_name && <div style={{ fontSize: 10, color: T.text3 }}>{s.inci_name}</div>}
+                          {s.cas_number && <div style={{ fontSize: 10, color: T.text3 }}>CAS: {s.cas_number}</div>}
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginTop: 3 }}>
+                            {(s.certifications || []).map(c => <span key={c} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: "#22c55e15", color: "#22c55e" }}>{c}</span>)}
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <div style={{ fontWeight: 600, color: T.text }}>{s.supplier_name}</div>
+                          {s.origin_country && <div style={{ fontSize: 10, color: T.text3 }}>📍 {s.origin_country}</div>}
+                          {s.moq_kg && <div style={{ fontSize: 10, color: T.text3 }}>MOQ: {s.moq_kg}kg</div>}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: T.text, fontVariantNumeric: "tabular-nums" }}>
+                          {s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>
+                            {s.ai_fit_score || "—"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 240, lineHeight: 1.5 }}>{s.ai_reasoning}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : selected.status === "draft" ? (
+                <div style={{ padding: "24px 16px", borderRadius: 10, border: "2px dashed " + T.border, textAlign: "center" }}>
+                  <div style={{ fontSize: 24, marginBottom: 6 }}>🤖</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text3, marginBottom: 8 }}>Ready to search</div>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Click "AI Search" to find ingredients and suppliers matching your criteria</div>
+                </div>
+              ) : (
+                <div style={{ color: T.text3, fontSize: 12, padding: 16 }}>No results yet</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CM Sourcing (imports from Sourcing.js) ───────────────────────────────────
+function CMSourcingView({ program }) {
+  return (
+    <div style={{ padding: "16px 0" }}>
+      <div style={{ fontSize: 13, color: T.text3, marginBottom: 12 }}>Contract manufacturer sourcing for <strong style={{ color: T.text }}>{program.name}</strong></div>
+      <div style={{ padding: "24px 16px", borderRadius: 10, border: "2px dashed " + T.border, textAlign: "center" }}>
+        <div style={{ fontSize: 24, marginBottom: 6 }}>🏭</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text3, marginBottom: 4 }}>CM Sourcing</div>
+        <div style={{ fontSize: 11, color: T.text3 }}>Use the dedicated Sourcing module for CM discovery, outreach, and quotes. Coming soon: embedded CM sourcing within PLM.</div>
+      </div>
     </div>
   );
 }
