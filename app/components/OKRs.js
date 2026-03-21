@@ -573,11 +573,16 @@ export default function OKRsView() {
 
     return (
       <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
-        <div style={{ minWidth: leftColW + krColW + Math.max(700, months.length * 120) }}>
+        {(() => {
+          const monthPx = 140;
+          const timelineW = Math.max(700, months.length * monthPx);
+          const totalW = leftColW + krColW + timelineW;
+          return (
+        <div style={{ minWidth: totalW }}>
           {/* ===== HEADER ROW: Quarter ===== */}
           <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 5, background: T.surface }}>
             <div style={{ width: leftColW + krColW, flexShrink: 0, height: 24, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.surface }} />
-            <div style={{ flex: 1, display: "flex", height: 24, borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ width: timelineW, display: "flex", height: 24, borderBottom: `1px solid ${T.border}` }}>
               {quarters.map((q, i) => (
                 <div key={i} style={{ width: `${q.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.text2, display: "flex", alignItems: "center", justifyContent: "center" }}>{q.label}</div>
               ))}
@@ -589,7 +594,7 @@ export default function OKRsView() {
               <div style={{ width: leftColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 16, position: "relative" }}>Objectives<ResizeHandle col="obj" /></div>
               <div style={{ width: krColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 12, borderLeft: `1px solid ${T.border}`, position: "relative" }}>Key Results<ResizeHandle col="kr" /></div>
             </div>
-            <div style={{ flex: 1, display: "flex", height: 32, borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ width: timelineW, display: "flex", height: 32, borderBottom: `1px solid ${T.border}` }}>
               {months.map((m, i) => (
                 <div key={i} style={{ width: `${m.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 500, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.label}</div>
               ))}
@@ -609,7 +614,7 @@ export default function OKRsView() {
             return (
               <div style={{ display: "flex", position: "sticky", top: 56, zIndex: 5, background: T.bg }}>
                 <div style={{ width: leftColW + krColW, flexShrink: 0, height: 18, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.bg }} />
-                <div style={{ flex: 1, position: "relative", height: 18, borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ width: timelineW, position: "relative", height: 18, borderBottom: `1px solid ${T.border}` }}>
                   {weeks.map((w, i) => (
                     <div key={i} style={{ position: "absolute", left: `${w.pct}%`, top: 0, bottom: 0, display: "flex", alignItems: "center" }}>
                       <div style={{ width: 1, height: "100%", background: `${T.text3}30` }} />
@@ -659,7 +664,7 @@ export default function OKRsView() {
                   </div>
                 </div>
                 {/* Timeline cell */}
-                <div style={{ flex: 1, position: "relative", minHeight: Math.max(1, objKRs.length) * 34 + objMS.length * 30 + 30, display: "flex", flexDirection: "column", justifyContent: "center", padding: "4px 0" }}>
+                <div style={{ width: timelineW, position: "relative", minHeight: Math.max(1, objKRs.length) * 34 + objMS.length * 30 + 30, display: "flex", flexDirection: "column", justifyContent: "center", padding: "4px 0" }}>
                   {/* Month grid lines */}
                   {months.map((m, i) => (
                     <div key={i} style={{ position: "absolute", left: `${m.startPct + m.widthPct}%`, top: 0, bottom: 0, width: 1, background: T.border, zIndex: 0 }} />
@@ -773,6 +778,8 @@ export default function OKRsView() {
             );
           })}
         </div>
+          );
+        })()}
       </div>
     );
   };
