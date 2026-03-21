@@ -2539,7 +2539,7 @@ function ShareDropdown({ conversationId, onClose }) {
   );
 }
 
-function AIAdvisorTab({ program }) {
+function AIAgentTab({ program }) {
   const { isMobile } = useResponsive();
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
@@ -2548,7 +2548,16 @@ function AIAdvisorTab({ program }) {
   const [loading, setLoading] = useState(false);
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [showShare, setShowShare] = useState(false);
+  const [mode, setMode] = useState("advisor");
   const chatRef = useRef(null);
+
+  const MODES = [
+    { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, DOE, stability, regulatory, cost engineering", color: "#a855f7" },
+    { key: "ingredient", icon: "🧬", label: "Source Ingredients", desc: "Find raw materials, suppliers, pricing, MOQs", color: "#3b82f6" },
+    { key: "manufacturer", icon: "🏭", label: "Find Manufacturers", desc: "Contract manufacturers, capabilities, capacity, certifications", color: "#f59e0b" },
+    { key: "whitelabel", icon: "📦", label: "White Label", desc: "Complete ready-made product solutions, private label partners", color: "#10b981" },
+    { key: "formulate", icon: "🔬", label: "Formulate", desc: "AI creates formulations, batch records, and DOE experiments", color: "#ef4444" },
+  ];
 
   // Load conversations
   useEffect(() => {
@@ -2599,6 +2608,7 @@ function AIAdvisorTab({ program }) {
           question: userMsg,
           conversation_id: activeConvId || undefined,
           program_id: program?.id || undefined,
+          mode: mode,
           history: messages.map(m => ({ role: m.role, content: m.text })),
         }),
       });
@@ -2628,14 +2638,40 @@ function AIAdvisorTab({ program }) {
     if (activeConvId === id) startNew();
   };
 
-  const SUGGESTIONS = [
-    "Our sheets aren't dissolving fully in cold water. What should we investigate?",
-    "What are the best natural alternatives to PVA for our sheet format?",
-    "Help me design a DOE to optimize surfactant loading vs dissolution time",
-    "We're getting white residue on dark clothes after wash. Root cause analysis?",
-    "What enzyme cocktail do you recommend for general laundry stain removal in sheet format?",
-    "How can we reduce COGS by 15% without hurting cleaning performance?",
-  ];
+  const SUGGESTIONS = {
+    advisor: [
+      "Our sheets aren't dissolving fully in cold water. What should we investigate?",
+      "What are the best natural alternatives to PVA for our sheet format?",
+      "Help me design a DOE to optimize surfactant loading vs dissolution time",
+      "How can we reduce COGS by 15% without hurting cleaning performance?",
+    ],
+    ingredient: [
+      "Find me EPA Safer Choice approved surfactants for laundry sheets",
+      "Source biodegradable builders that replace STPP — need 3 supplier options each",
+      "What natural enzyme options are available for cold-water stain removal?",
+      "Find me optical brightener alternatives that are C2C certified",
+    ],
+    manufacturer: [
+      "Find contract manufacturers who can produce PVA-based laundry sheets in North America",
+      "Who makes eco-friendly cleaning products in the Pacific Northwest?",
+      "I need a CM with EPA Safer Choice certification and >1M units/month capacity",
+      "Find powder-to-tablet compression manufacturers for our new tablet line",
+    ],
+    whitelabel: [
+      "Find white label laundry sheet suppliers who can do custom branding",
+      "Who offers private label eco-friendly dish soap ready to ship?",
+      "Find turnkey laundry pod manufacturers with our label — US-based",
+      "What are the best white label options for plant-based fabric softener sheets?",
+    ],
+    formulate: [
+      "Create a formula for a concentrated floor cleaner — safe for kids and pets",
+      "Design an optimized laundry sheet with 40% surfactant loading and fast cold-water dissolution",
+      "Build a DOE to test 3 enzyme cocktails × 2 surfactant levels × 2 PVA grades",
+      "Formulate a dishwasher tablet with low-foam surfactants and citric acid builder",
+    ],
+  };
+
+  const activeMode = MODES.find(m => m.key === mode) || MODES[0];
 
   return (
     <div style={{ display: "flex", height: "calc(100vh - 260px)", gap: 0 }}>
@@ -2667,11 +2703,21 @@ function AIAdvisorTab({ program }) {
 
       {/* Chat area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {/* Mode selector */}
+        <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", WebkitOverflowScrolling: "touch", flexShrink: 0 }}>
+          {MODES.map(m => (
+            <button key={m.key} onClick={() => setMode(m.key)}
+              style={{ padding: isMobile ? "8px 10px" : "8px 16px", background: mode === m.key ? `${m.color}12` : "transparent", border: "none", borderBottom: mode === m.key ? `2px solid ${m.color}` : "2px solid transparent", cursor: "pointer", color: mode === m.key ? m.color : T.text3, fontSize: 12, fontWeight: mode === m.key ? 700 : 500, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ fontSize: 14 }}>{m.icon}</span>
+              {!isMobile && m.label}
+            </button>
+          ))}
+        </div>
         {/* Header */}
-        <div style={{ padding: "8px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div style={{ padding: "6px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 16 }}>{"\uD83E\uDDEA"}</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Chief Scientist</span>
+            <span style={{ fontSize: 14 }}>{activeMode.icon}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: activeMode.color }}>{activeMode.label}</span>
             {program && <span style={{ fontSize: 11, color: T.text3 }}>· {program.name}</span>}
           </div>
           {activeConvId && (
@@ -2688,18 +2734,18 @@ function AIAdvisorTab({ program }) {
         <div ref={chatRef} style={{ flex: 1, overflow: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 12 }}>
           {messages.length === 0 && (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 48 }}>{"\uD83E\uDDEA"}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>Earth Breeze Chief Scientist</div>
-              <div style={{ fontSize: 13, color: T.text3, textAlign: "center", maxWidth: 500, lineHeight: 1.7 }}>
-                I'm your unified R&D advisor — formulation chemistry, manufacturing, stability, DOE, ingredients, regulatory, and cost engineering. I think through problems from every angle and debate tradeoffs internally before giving you a recommendation.
-                {program ? ` I have context on ${program.name}.` : " Ask me anything about detergent sheet science."}
+              <div style={{ fontSize: 48 }}>{activeMode.icon}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>{activeMode.label}</div>
+              <div style={{ fontSize: 13, color: T.text3, textAlign: "center", maxWidth: 520, lineHeight: 1.7 }}>
+                {activeMode.desc}
+                {program ? `. Context: ${program.name}.` : ""}
               </div>
               <div style={{ fontSize: 12, color: T.text3, marginTop: 8 }}>Try asking:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: isMobile ? "95vw" : 520, width: "100%" }}>
-                {SUGGESTIONS.slice(0, 4).map((q, i) => (
+                {(SUGGESTIONS[mode] || SUGGESTIONS.advisor).map((q, i) => (
                   <button key={i} onClick={() => setInput(q)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`,
                     background: T.surface2, color: T.text2, fontSize: 12, cursor: "pointer", textAlign: "left", lineHeight: 1.5 }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = activeMode.color}
                     onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>{q}</button>
                 ))}
               </div>
@@ -2786,10 +2832,9 @@ function AIAdvisorTab({ program }) {
 
 const DETAIL_TABS = [
   { key:"overview",      label:"Overview"       },
-  { key:"ai_advisor",    label:"\u{1F916} AI Advisor"  },
+  { key:"ai_agent",      label:"\u{1F916} AI Agent"    },
   { key:"claims_sub",    label:"Claims & Evidence"},
   { key:"formulations",  label:"Formulations"   },
-  { key:"sourcing",      label:"Sourcing"       },
   { key:"gm_scenarios",  label:"GM% Scenarios"  },
   { key:"experiments",   label:"Experiments"    },
   { key:"trials",        label:"Trials"         },
@@ -2822,9 +2867,7 @@ function ProgramDetail({ program, onBack, onUpdate }) {
   const renderTab=()=>{
     switch(tab){
       case "overview":     return <OverviewTab program={program} onUpdate={onUpdate} counts={counts} />;
-      case "ai_advisor":   return <AIAdvisorTab program={program} />;
-      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
-      case "sourcing":     return <SourcingTab program={program} />;
+      case "ai_agent":     return <AIAgentTab program={program} />;      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
       case "gm_scenarios": return <GMScenarioTab program={program} />;
       case "formulations": return <FormulationsTab programId={program.id} />;
       case "experiments":  return <ExperimentsTab programId={program.id} />;
@@ -3025,7 +3068,7 @@ export default function PLMView() {
         <div style={{ fontSize:18,fontWeight:700,color:T.text,flex:1 }}>Product Lifecycle</div>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs…" style={{ fontSize:12,padding:"6px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:7,color:T.text,width:200,outline:"none" }} />
         <div style={{ display:"flex",background:T.surface2,border:"1px solid "+T.border,borderRadius:6,overflow:"hidden" }}>
-          {[["pipeline","⬢ Pipeline"],["list","☰ List"],["library","🧪 Library"],["sourcing","🔍 Sourcing"],["ai","🧪 AI Advisor"]].map(([k,label])=>(
+          {[["pipeline","⬢ Pipeline"],["list","☰ List"],["library","🧪 Library"],["ai","🤖 AI Agent"]].map(([k,label])=>(
             <button key={k} onClick={()=>setView(k)} style={{ padding:"5px 12px",fontSize:12,fontWeight:600,background:view===k?T.accent:"transparent",color:view===k?"#fff":T.text3,border:"none",cursor:"pointer" }}>{label}</button>
           ))}
         </div>
@@ -3043,15 +3086,11 @@ export default function PLMView() {
 
       {view==="ai" ? (
         <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column",padding:"0 24px 0 24px" }}>
-          <AIAdvisorTab program={null} />
+          <AIAgentTab program={null} />
         </div>
       ) : view==="library" ? (
         <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
           <PLMLibraryView />
-        </div>
-      ) : view==="sourcing" ? (
-        <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
-          <SourcingStandalone programs={programs} />
         </div>
       ) : (
         <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
