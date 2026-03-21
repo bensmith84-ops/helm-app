@@ -920,7 +920,7 @@ function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, supp
               {/* Intercompany */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface2, borderRadius: 8 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text, cursor: "pointer" }}><input type="checkbox" checked={form.is_intercompany} onChange={e => setForm(f => ({ ...f, is_intercompany: e.target.checked }))} /> Intercompany supplier</label>
-                {form.is_intercompany && <select value={form.entity_id} onChange={e => setForm(f => ({ ...f, entity_id: e.target.value }))} style={{ ...inp, flex: 1 }}><option value="">Select entity…</option>{(entities||[]).map(e => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select>}
+                {form.is_intercompany && <Select value={form.entity_id} onChange={v => setForm(f => ({ ...f, entity_id: v }))} placeholder="Select entity…" style={{ flex: 1 }} options={(entities||[]).map(e => ({ value: e.id, label: `${e.code} — ${e.name}`, sublabel: `${e.country} · ${e.base_currency}` }))} />}
               </div>
               {/* Certifications */}
               <div>
@@ -1704,7 +1704,7 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={lbl}>Quantity (+/-) *</div><input type="number" value={adjForm.quantity} onChange={e => setAdjForm(f => ({ ...f, quantity: e.target.value }))} placeholder="+100 or -50" style={inp} /><div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>Positive to add, negative to remove</div></div>
-                <div><div style={lbl}>Reason</div><select value={adjForm.reason} onChange={e => setAdjForm(f => ({ ...f, reason: e.target.value }))} style={inp}>{["cycle_count","damage","spoilage","theft","correction","other"].map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}</select></div>
+                <div><div style={lbl}>Reason</div><Select value={adjForm.reason} onChange={v => setAdjForm(f => ({ ...f, reason: v }))} options={["cycle_count","damage","spoilage","theft","correction","other"].map(r => ({ value: r, label: r.replace(/_/g, " ") }))} /></div>
               </div>
               <div><div style={lbl}>Notes</div><input value={adjForm.notes} onChange={e => setAdjForm(f => ({ ...f, notes: e.target.value }))} placeholder="Adjustment reason…" style={inp} /></div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -2542,18 +2542,18 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Country</div><input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} style={inp} /></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Region</div><select value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))} style={inp}>{["North America","Europe","APAC","LATAM","Africa","Middle East"].map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Base Currency</div><select value={form.base_currency} onChange={e => setForm(f => ({ ...f, base_currency: e.target.value }))} style={inp}>{currencies.map(c => <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Region</div><Select value={form.region} onChange={v => setForm(f => ({ ...f, region: v }))} options={["North America","Europe","APAC","LATAM","Africa","Middle East"].map(r => ({ value: r, label: r }))} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Base Currency</div><Select value={form.base_currency} onChange={v => setForm(f => ({ ...f, base_currency: v }))} options={currencies.map(c => ({ value: c.code, label: `${c.code} (${c.symbol})`, sublabel: c.name }))} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>City</div><input value={form.city || ""} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} style={inp} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Tax ID</div><input value={form.tax_id || ""} onChange={e => setForm(f => ({ ...f, tax_id: e.target.value }))} placeholder="EIN / VAT" style={inp} /></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Fiscal Year Start</div><select value={form.fiscal_year_start} onChange={e => setForm(f => ({ ...f, fiscal_year_start: e.target.value }))} style={inp}>{MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Fiscal Year Start</div><Select value={String(form.fiscal_year_start)} onChange={v => setForm(f => ({ ...f, fiscal_year_start: v }))} options={MONTHS.map((m, i) => ({ value: String(i + 1), label: m }))} /></div>
               </div>
               <div style={{ padding: "10px 12px", background: "#EDE9FE15", border: "1px solid #C4B5FD40", borderRadius: 8 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#5B21B6", marginBottom: 8 }}>Transfer Pricing</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Method</div><select value={form.transfer_pricing_method} onChange={e => setForm(f => ({ ...f, transfer_pricing_method: e.target.value }))} style={inp}>{Object.entries(TP_METHODS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+                  <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Method</div><Select value={form.transfer_pricing_method} onChange={v => setForm(f => ({ ...f, transfer_pricing_method: v }))} options={Object.entries(TP_METHODS).map(([k, v]) => ({ value: k, label: v }))} /></div>
                   <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Markup %</div><input type="number" value={form.transfer_pricing_markup_pct} onChange={e => setForm(f => ({ ...f, transfer_pricing_markup_pct: e.target.value }))} style={inp} /></div>
                 </div>
               </div>
