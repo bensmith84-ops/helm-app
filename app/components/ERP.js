@@ -23,6 +23,7 @@ const NAV = [
   { id: "manufacturing", label: "Manufacturing", icon: "⚙", badge: null },
   { id: "facilities", label: "Facilities", icon: "🏢", badge: null },
   { id: "entities", label: "Entities", icon: "🌐", badge: null },
+  { id: "reports", label: "Reports", icon: "📈", badge: null },
 ];
 
 const STATUS_PILL = {
@@ -173,6 +174,7 @@ export default function ERPView() {
           {view === "manufacturing" && <ManufacturingView workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
+          {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
         </div>
       </div>
     </div>
@@ -2310,6 +2312,514 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
               </div>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REPORTS VIEW — Pre-built reports + Custom Report Builder
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Schema map — describes all ERP tables and their relationships
+const ERP_SCHEMA = {
+  products: { label: "Products", icon: "📦", table: "erp_products", fields: [
+    { key: "name", label: "Name", type: "text" }, { key: "category", label: "Category", type: "text" },
+    { key: "product_type", label: "Type", type: "enum", options: ["finished_good","raw_material","packaging","component","service"] },
+    { key: "brand", label: "Brand", type: "text" }, { key: "status", label: "Status", type: "enum", options: ["active","development","discontinued","archived"] },
+    { key: "default_uom", label: "UOM", type: "text" }, { key: "country_of_origin", label: "Origin", type: "text" },
+  ], joins: ["variants","boms"] },
+  variants: { label: "SKU Variants", icon: "🏷", table: "erp_product_variants", fields: [
+    { key: "sku", label: "SKU", type: "text" }, { key: "name", label: "Name", type: "text" },
+    { key: "size", label: "Size", type: "text" }, { key: "barcode", label: "Barcode", type: "text" },
+    { key: "cost", label: "Cost", type: "currency" }, { key: "wholesale_price", label: "Wholesale", type: "currency" },
+    { key: "msrp", label: "MSRP", type: "currency" }, { key: "case_pack", label: "Case Pack", type: "number" },
+    { key: "shelf_life_days", label: "Shelf Life (days)", type: "number" },
+    { key: "status", label: "Status", type: "enum", options: ["active","discontinued"] },
+  ], joins: ["products","inventory","order_items","boms"] },
+  suppliers: { label: "Suppliers", icon: "🏭", table: "erp_suppliers", fields: [
+    { key: "name", label: "Name", type: "text" }, { key: "code", label: "Code", type: "text" },
+    { key: "supplier_type", label: "Type", type: "enum", options: ["raw_material","packaging","contract_manufacturer","3pl","service","white_label"] },
+    { key: "country", label: "Country", type: "text" }, { key: "payment_terms", label: "Terms", type: "text" },
+    { key: "lead_time_days", label: "Lead Time", type: "number" }, { key: "rating", label: "Rating", type: "number" },
+    { key: "is_intercompany", label: "Intercompany", type: "boolean" },
+  ], joins: ["purchase_orders","supplier_items","lots"] },
+  purchase_orders: { label: "Purchase Orders", icon: "📋", table: "erp_purchase_orders", fields: [
+    { key: "po_number", label: "PO #", type: "text" },
+    { key: "status", label: "Status", type: "enum", options: ["draft","submitted","confirmed","partially_received","received","closed","cancelled"] },
+    { key: "order_date", label: "Order Date", type: "date" }, { key: "expected_date", label: "Expected", type: "date" },
+    { key: "total", label: "Total", type: "currency" }, { key: "po_currency", label: "Currency", type: "text" },
+    { key: "is_intercompany", label: "Intercompany", type: "boolean" },
+  ], joins: ["suppliers","facilities","po_items","entities"] },
+  inventory: { label: "Inventory", icon: "📊", table: "erp_inventory", fields: [
+    { key: "quantity", label: "Quantity", type: "number" }, { key: "reserved_quantity", label: "Reserved", type: "number" },
+    { key: "bin_location", label: "Bin", type: "text" }, { key: "unit", label: "Unit", type: "text" },
+  ], joins: ["variants","facilities","lots"] },
+  lots: { label: "Inventory Lots", icon: "🏷", table: "erp_inventory_lots", fields: [
+    { key: "lot_number", label: "Lot #", type: "text" }, { key: "supplier_lot_number", label: "Supplier Lot", type: "text" },
+    { key: "manufactured_date", label: "Mfg Date", type: "date" }, { key: "expiry_date", label: "Expiry", type: "date" },
+    { key: "status", label: "Status", type: "enum", options: ["available","quarantine","expired","consumed","recalled"] },
+  ], joins: ["variants","suppliers","inventory"] },
+  orders: { label: "Sales Orders", icon: "🛒", table: "erp_orders", fields: [
+    { key: "order_number", label: "Order #", type: "text" },
+    { key: "channel", label: "Channel", type: "enum", options: ["shopify","amazon","retail","wholesale","manual"] },
+    { key: "status", label: "Status", type: "enum", options: ["pending","confirmed","processing","shipped","delivered","cancelled","refunded"] },
+    { key: "fulfillment_status", label: "Fulfillment", type: "enum", options: ["unfulfilled","partial","fulfilled"] },
+    { key: "order_date", label: "Order Date", type: "date" }, { key: "total", label: "Total", type: "currency" },
+  ], joins: ["customers","order_items","entities"] },
+  order_items: { label: "Order Line Items", icon: "📝", table: "erp_order_items", fields: [
+    { key: "sku", label: "SKU", type: "text" }, { key: "title", label: "Title", type: "text" },
+    { key: "quantity", label: "Qty", type: "number" }, { key: "unit_price", label: "Price", type: "currency" },
+    { key: "total", label: "Total", type: "currency" },
+  ], joins: ["orders","variants"] },
+  customers: { label: "Customers", icon: "👥", table: "erp_customers", fields: [
+    { key: "name", label: "Name", type: "text" },
+    { key: "customer_type", label: "Type", type: "enum", options: ["dtc","retail","wholesale","distributor","amazon"] },
+    { key: "payment_terms", label: "Terms", type: "text" }, { key: "credit_limit", label: "Credit Limit", type: "currency" },
+    { key: "status", label: "Status", type: "enum", options: ["active","inactive"] },
+  ], joins: ["orders"] },
+  work_orders: { label: "Work Orders", icon: "⚙", table: "erp_work_orders", fields: [
+    { key: "wo_number", label: "WO #", type: "text" },
+    { key: "status", label: "Status", type: "enum", options: ["planned","released","in_progress","completed","cancelled"] },
+    { key: "planned_quantity", label: "Planned Qty", type: "number" }, { key: "completed_quantity", label: "Completed", type: "number" },
+    { key: "planned_start", label: "Start", type: "date" }, { key: "planned_end", label: "End", type: "date" },
+  ], joins: ["variants","facilities","boms"] },
+  facilities: { label: "Facilities", icon: "🏢", table: "erp_facilities", fields: [
+    { key: "name", label: "Name", type: "text" },
+    { key: "facility_type", label: "Type", type: "enum", options: ["warehouse","factory","3pl","office","retail"] },
+    { key: "operator", label: "Operator", type: "text" }, { key: "city", label: "City", type: "text" },
+    { key: "country", label: "Country", type: "text" }, { key: "is_active", label: "Active", type: "boolean" },
+  ], joins: ["inventory","entities","purchase_orders","work_orders"] },
+  entities: { label: "Entities", icon: "🌐", table: "erp_entities", fields: [
+    { key: "name", label: "Name", type: "text" }, { key: "code", label: "Code", type: "text" },
+    { key: "country", label: "Country", type: "text" }, { key: "region", label: "Region", type: "text" },
+    { key: "base_currency", label: "Currency", type: "text" },
+    { key: "transfer_pricing_method", label: "TP Method", type: "text" },
+    { key: "transfer_pricing_markup_pct", label: "TP Markup %", type: "number" },
+  ], joins: ["facilities","suppliers","purchase_orders","orders"] },
+};
+
+function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, inventory, lots, orders, orderItems, customers, workOrders, facilities, entities, supplierItems, boms, bomItems, isMobile }) {
+  const [activeReport, setActiveReport] = useState(null);
+  const [subView, setSubView] = useState("library"); // library, builder, results
+  const [builderConfig, setBuilderConfig] = useState({ source: "", fields: [], filters: [], groupBy: "", sortBy: "", sortDir: "asc" });
+  const [customResults, setCustomResults] = useState(null);
+
+  // Data map for the report builder
+  const DATA_MAP = { products, variants, suppliers, purchase_orders: purchaseOrders, po_items: poItems, inventory, lots, orders, order_items: orderItems, customers, work_orders: workOrders, facilities, entities, supplier_items: supplierItems, boms, bom_items: bomItems };
+
+  // Lookup helpers
+  const lookup = (collection, id) => DATA_MAP[collection]?.find(x => x.id === id);
+  const getVariant = id => variants.find(v => v.id === id);
+  const getProduct = id => products.find(p => p.id === id);
+  const getSupplier = id => suppliers.find(s => s.id === id);
+  const getFacility = id => facilities.find(f => f.id === id);
+  const getCustomer = id => customers.find(c => c.id === id);
+  const getEntity = id => entities.find(e => e.id === id);
+
+  // ── PRE-BUILT REPORTS ───────────────────────────────────────────────────────
+  const REPORTS = [
+    { id: "inv_valuation", name: "Inventory Valuation", icon: "💰", category: "Inventory", description: "Total inventory value by SKU across all facilities",
+      run: () => {
+        const rows = [];
+        const bySku = {};
+        inventory.forEach(inv => {
+          const v = getVariant(inv.variant_id);
+          if (!v) return;
+          if (!bySku[v.sku]) bySku[v.sku] = { sku: v.sku, name: v.name, cost: v.cost || 0, totalQty: 0, totalValue: 0, facilities: 0 };
+          bySku[v.sku].totalQty += inv.quantity || 0;
+          bySku[v.sku].totalValue += (inv.quantity || 0) * (v.cost || 0);
+          bySku[v.sku].facilities++;
+        });
+        return { columns: ["SKU", "Product", "Unit Cost", "Total Qty", "Value", "Locations"], rows: Object.values(bySku).sort((a,b) => b.totalValue - a.totalValue).map(r => [r.sku, r.name, fmt(r.cost), fmtN(r.totalQty), fmt(r.totalValue), r.facilities]),
+          summary: `Total: ${fmt(Object.values(bySku).reduce((s,r) => s + r.totalValue, 0))}` };
+      }
+    },
+    { id: "inv_by_facility", name: "Inventory by Facility", icon: "🏢", category: "Inventory", description: "Stock distribution across warehouses, 3PLs, and factories",
+      run: () => {
+        const rows = facilities.map(f => {
+          const facInv = inventory.filter(i => i.facility_id === f.id);
+          const units = facInv.reduce((s,i) => s + (i.quantity||0), 0);
+          const skus = new Set(facInv.map(i => i.variant_id).filter(Boolean)).size;
+          const value = facInv.reduce((s,i) => { const v = getVariant(i.variant_id); return s + (i.quantity||0) * (v?.cost||0); }, 0);
+          return [f.name, f.facility_type, f.operator || "—", fmtN(units), skus, fmt(value)];
+        }).filter(r => parseInt(r[3].replace(/,/g,"")) > 0);
+        return { columns: ["Facility", "Type", "Operator", "Units", "SKUs", "Value"], rows, summary: `${facilities.length} facilities` };
+      }
+    },
+    { id: "expiring_lots", name: "Expiring Lots", icon: "⚠️", category: "Inventory", description: "Lots expiring within 90, 60, and 30 days",
+      run: () => {
+        const now = Date.now();
+        const rows = lots.filter(l => l.expiry_date && l.status === "available").map(l => {
+          const days = Math.ceil((new Date(l.expiry_date) - now) / 86400000);
+          const v = getVariant(l.variant_id);
+          const sup = getSupplier(l.supplier_id);
+          const qty = inventory.filter(i => i.lot_id === l.id).reduce((s,i) => s + (i.quantity||0), 0);
+          return { days, row: [l.lot_number, v?.sku || "—", v?.name || "—", sup?.name || "—", fmtN(qty), l.expiry_date ? new Date(l.expiry_date).toLocaleDateString() : "—", days < 0 ? "EXPIRED" : `${days}d`] };
+        }).sort((a,b) => a.days - b.days);
+        return { columns: ["Lot #", "SKU", "Product", "Supplier", "Qty", "Expiry", "Days Left"], rows: rows.map(r => r.row), summary: `${rows.filter(r => r.days <= 30).length} critical (<30d), ${rows.filter(r => r.days <= 90).length} total` };
+      }
+    },
+    { id: "sales_by_channel", name: "Sales by Channel", icon: "🛒", category: "Sales", description: "Revenue and order count breakdown by sales channel",
+      run: () => {
+        const channels = {};
+        orders.forEach(o => {
+          if (!channels[o.channel]) channels[o.channel] = { channel: o.channel, orders: 0, revenue: 0, avgOrder: 0, fulfilled: 0 };
+          channels[o.channel].orders++;
+          channels[o.channel].revenue += o.total || 0;
+          if (o.fulfillment_status === "fulfilled") channels[o.channel].fulfilled++;
+        });
+        Object.values(channels).forEach(c => c.avgOrder = c.orders > 0 ? c.revenue / c.orders : 0);
+        return { columns: ["Channel", "Orders", "Revenue", "Avg Order", "Fulfilled", "Fill Rate"], rows: Object.values(channels).sort((a,b) => b.revenue - a.revenue).map(c => [c.channel, c.orders, fmt(c.revenue), fmt(c.avgOrder), c.fulfilled, c.orders > 0 ? `${Math.round(c.fulfilled/c.orders*100)}%` : "—"]),
+          summary: `Total: ${fmt(orders.reduce((s,o) => s + (o.total||0), 0))}` };
+      }
+    },
+    { id: "sales_by_customer", name: "Sales by Customer", icon: "👥", category: "Sales", description: "Top customers by revenue with order counts",
+      run: () => {
+        const custs = {};
+        orders.forEach(o => {
+          const c = getCustomer(o.customer_id);
+          const key = c?.id || "unknown";
+          if (!custs[key]) custs[key] = { name: c?.name || "DTC", type: c?.customer_type || "—", orders: 0, revenue: 0, lastOrder: null };
+          custs[key].orders++;
+          custs[key].revenue += o.total || 0;
+          if (!custs[key].lastOrder || new Date(o.order_date) > new Date(custs[key].lastOrder)) custs[key].lastOrder = o.order_date;
+        });
+        return { columns: ["Customer", "Type", "Orders", "Revenue", "Avg Order", "Last Order"], rows: Object.values(custs).sort((a,b) => b.revenue - a.revenue).map(c => [c.name, c.type, c.orders, fmt(c.revenue), fmt(c.revenue/c.orders), c.lastOrder ? new Date(c.lastOrder).toLocaleDateString() : "—"]) };
+      }
+    },
+    { id: "top_skus", name: "Top Selling SKUs", icon: "🏆", category: "Sales", description: "Best-selling products by units sold and revenue",
+      run: () => {
+        const skus = {};
+        orderItems.forEach(oi => {
+          const key = oi.sku || oi.variant_id || "unknown";
+          const v = getVariant(oi.variant_id);
+          if (!skus[key]) skus[key] = { sku: oi.sku || v?.sku || "—", name: oi.title || v?.name || "—", units: 0, revenue: 0, orders: 0 };
+          skus[key].units += oi.quantity || 0;
+          skus[key].revenue += oi.total || (oi.quantity * oi.unit_price) || 0;
+          skus[key].orders++;
+        });
+        return { columns: ["SKU", "Product", "Units Sold", "Revenue", "Avg Price", "# Orders"], rows: Object.values(skus).sort((a,b) => b.revenue - a.revenue).map(s => [s.sku, s.name, fmtN(s.units), fmt(s.revenue), fmt(s.units > 0 ? s.revenue/s.units : 0), s.orders]) };
+      }
+    },
+    { id: "po_summary", name: "PO Summary", icon: "📋", category: "Purchasing", description: "Purchase order overview by status and supplier",
+      run: () => {
+        const rows = purchaseOrders.map(po => {
+          const sup = getSupplier(po.supplier_id);
+          const items = poItems.filter(i => i.po_id === po.id);
+          return [po.po_number, sup?.name || "—", po.status, po.order_date ? new Date(po.order_date).toLocaleDateString() : "—", po.expected_date ? new Date(po.expected_date).toLocaleDateString() : "—", items.length, fmt(po.total), po.is_intercompany ? "Yes" : "No"];
+        });
+        return { columns: ["PO #", "Supplier", "Status", "Order Date", "Expected", "Lines", "Total", "IC"], rows, summary: `Total: ${fmt(purchaseOrders.reduce((s,p) => s + (p.total||0), 0))}` };
+      }
+    },
+    { id: "supplier_spend", name: "Supplier Spend Analysis", icon: "💳", category: "Purchasing", description: "Spend breakdown by supplier with PO counts",
+      run: () => {
+        const sups = {};
+        purchaseOrders.forEach(po => {
+          const s = getSupplier(po.supplier_id);
+          const key = s?.id || "unknown";
+          if (!sups[key]) sups[key] = { name: s?.name || "—", code: s?.code || "—", type: s?.supplier_type || "—", pos: 0, total: 0, open: 0 };
+          sups[key].pos++;
+          sups[key].total += po.total || 0;
+          if (!["received","closed","cancelled"].includes(po.status)) sups[key].open++;
+        });
+        return { columns: ["Supplier", "Code", "Type", "POs", "Open", "Total Spend"], rows: Object.values(sups).sort((a,b) => b.total - a.total).map(s => [s.name, s.code, s.type, s.pos, s.open, fmt(s.total)]) };
+      }
+    },
+    { id: "bom_cost", name: "BOM Cost Analysis", icon: "🧪", category: "Manufacturing", description: "Bill of materials cost breakdown per product",
+      run: () => {
+        const rows = boms.filter(b => b.status === "active").map(b => {
+          const v = variants.find(x => x.id === b.variant_id);
+          const items = bomItems.filter(i => i.bom_id === b.id);
+          const materialCost = items.filter(i => i.item_type === "raw_material").reduce((s,i) => s + (i.quantity||0)*(i.cost_per_unit||0), 0);
+          const packagingCost = items.filter(i => i.item_type === "packaging").reduce((s,i) => s + (i.quantity||0)*(i.cost_per_unit||0), 0);
+          const laborCost = items.filter(i => i.item_type === "labor").reduce((s,i) => s + (i.quantity||0)*(i.cost_per_unit||0), 0);
+          const total = materialCost + packagingCost + laborCost;
+          const margin = v?.msrp ? ((v.msrp - total) / v.msrp * 100) : 0;
+          return [v?.sku || "—", b.name, items.length, fmt(materialCost), fmt(packagingCost), fmt(laborCost), fmt(total), v?.msrp ? fmt(v.msrp) : "—", `${margin.toFixed(1)}%`];
+        });
+        return { columns: ["SKU", "BOM", "Items", "Materials", "Packaging", "Labor", "Total Cost", "MSRP", "Margin %"], rows };
+      }
+    },
+    { id: "wo_production", name: "Production Report", icon: "⚙", category: "Manufacturing", description: "Work order status, yield, and completion rates",
+      run: () => {
+        const rows = workOrders.map(wo => {
+          const v = getVariant(wo.variant_id);
+          const f = getFacility(wo.facility_id);
+          const yld = wo.planned_quantity > 0 ? ((wo.completed_quantity||0)/wo.planned_quantity*100) : 0;
+          return [wo.wo_number, v?.sku || "—", f?.name || "—", wo.status, fmtN(wo.planned_quantity), fmtN(wo.completed_quantity||0), `${yld.toFixed(0)}%`, wo.planned_start ? new Date(wo.planned_start).toLocaleDateString() : "—"];
+        });
+        return { columns: ["WO #", "SKU", "Facility", "Status", "Planned", "Completed", "Yield", "Start"], rows };
+      }
+    },
+    { id: "entity_overview", name: "Entity Overview", icon: "🌐", category: "Corporate", description: "Legal entity summary with facilities, transfer pricing, and currencies",
+      run: () => {
+        const rows = entities.map(e => {
+          const facs = facilities.filter(f => f.entity_id === e.id).length;
+          const sups = suppliers.filter(s => s.entity_id === e.id).length;
+          return [e.code, e.name, e.country, e.region || "—", e.base_currency, e.entity_type, facs, e.transfer_pricing_method || "—", `${e.transfer_pricing_markup_pct||0}%`];
+        });
+        return { columns: ["Code", "Name", "Country", "Region", "Currency", "Type", "Facilities", "TP Method", "Markup"], rows };
+      }
+    },
+    { id: "stock_reorder", name: "Stock Reorder Report", icon: "🔄", category: "Inventory", description: "Low stock items that may need reordering based on sales velocity",
+      run: () => {
+        const skuData = {};
+        inventory.forEach(inv => {
+          const v = getVariant(inv.variant_id);
+          if (!v) return;
+          if (!skuData[v.sku]) skuData[v.sku] = { sku: v.sku, name: v.name, stock: 0, sold30d: 0, daysOfStock: 0, cost: v.cost || 0 };
+          skuData[v.sku].stock += inv.quantity || 0;
+        });
+        const thirtyAgo = new Date(Date.now() - 30 * 86400000);
+        orderItems.forEach(oi => {
+          const v = getVariant(oi.variant_id);
+          if (!v || !skuData[v.sku]) return;
+          const order = orders.find(o => o.id === oi.order_id);
+          if (order && new Date(order.order_date) >= thirtyAgo) skuData[v.sku].sold30d += oi.quantity || 0;
+        });
+        Object.values(skuData).forEach(s => { s.dailyRate = s.sold30d / 30; s.daysOfStock = s.dailyRate > 0 ? Math.round(s.stock / s.dailyRate) : 999; });
+        return { columns: ["SKU", "Product", "Stock", "Sold (30d)", "Daily Rate", "Days of Stock", "Reorder Value"], rows: Object.values(skuData).sort((a,b) => a.daysOfStock - b.daysOfStock).map(s => [s.sku, s.name, fmtN(s.stock), fmtN(s.sold30d), s.dailyRate.toFixed(1), s.daysOfStock >= 999 ? "∞" : s.daysOfStock, s.daysOfStock < 60 ? fmt(s.dailyRate * 90 * s.cost) : "—"]) };
+      }
+    },
+  ];
+
+  const CATEGORIES = [...new Set(REPORTS.map(r => r.category))];
+
+  // ── CUSTOM REPORT BUILDER ───────────────────────────────────────────────────
+  const runCustomReport = () => {
+    const schema = ERP_SCHEMA[builderConfig.source];
+    if (!schema) return;
+    let data = [...(DATA_MAP[builderConfig.source] || [])];
+    // Apply filters
+    (builderConfig.filters || []).forEach(f => {
+      if (!f.field || !f.value) return;
+      data = data.filter(row => {
+        const val = String(row[f.field] || "").toLowerCase();
+        const target = String(f.value).toLowerCase();
+        if (f.op === "equals") return val === target;
+        if (f.op === "contains") return val.includes(target);
+        if (f.op === "not_equals") return val !== target;
+        if (f.op === "gt") return parseFloat(row[f.field]) > parseFloat(f.value);
+        if (f.op === "lt") return parseFloat(row[f.field]) < parseFloat(f.value);
+        if (f.op === "is_true") return row[f.field] === true;
+        if (f.op === "is_false") return row[f.field] !== true;
+        return true;
+      });
+    });
+    // Sort
+    if (builderConfig.sortBy) {
+      data.sort((a, b) => {
+        const av = a[builderConfig.sortBy], bv = b[builderConfig.sortBy];
+        const cmp = typeof av === "number" ? av - bv : String(av || "").localeCompare(String(bv || ""));
+        return builderConfig.sortDir === "desc" ? -cmp : cmp;
+      });
+    }
+    // Select fields
+    const fields = (builderConfig.fields.length > 0 ? builderConfig.fields : schema.fields.map(f => f.key)).slice(0, 10);
+    const fieldLabels = fields.map(k => schema.fields.find(f => f.key === k)?.label || k);
+    // Resolve lookups for display
+    const rows = data.map(row => fields.map(k => {
+      const val = row[k];
+      if (val === null || val === undefined) return "—";
+      if (typeof val === "boolean") return val ? "Yes" : "No";
+      if (k.endsWith("_id") && typeof val === "string" && val.includes("-")) {
+        // Try to resolve foreign keys
+        if (k === "product_id") { const p = getProduct(val); return p?.name || val.slice(0,8); }
+        if (k === "variant_id") { const v = getVariant(val); return v?.sku || val.slice(0,8); }
+        if (k === "supplier_id") { const s = getSupplier(val); return s?.name || val.slice(0,8); }
+        if (k === "facility_id") { const f = getFacility(val); return f?.name || val.slice(0,8); }
+        if (k === "customer_id") { const c = getCustomer(val); return c?.name || val.slice(0,8); }
+        if (k === "entity_id" || k === "buying_entity_id") { const e = getEntity(val); return e?.code || val.slice(0,8); }
+        return val.slice(0, 8) + "…";
+      }
+      if (typeof val === "number" && (k.includes("price") || k.includes("cost") || k === "total" || k.includes("limit") || k.includes("value"))) return fmt(val);
+      if (typeof val === "string" && val.match(/^\d{4}-\d{2}-\d{2}/)) return new Date(val).toLocaleDateString();
+      return String(val);
+    }));
+    setCustomResults({ columns: fieldLabels, rows, count: data.length, source: schema.label });
+    setSubView("results");
+  };
+
+  const addFilter = () => setBuilderConfig(c => ({ ...c, filters: [...c.filters, { field: "", op: "equals", value: "" }] }));
+  const updateFilter = (i, key, val) => setBuilderConfig(c => ({ ...c, filters: c.filters.map((f, j) => j === i ? { ...f, [key]: val } : f) }));
+  const removeFilter = i => setBuilderConfig(c => ({ ...c, filters: c.filters.filter((_, j) => j !== i) }));
+
+  const inp = { width: "100%", padding: "7px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" };
+  const activeSchema = ERP_SCHEMA[builderConfig.source];
+
+  // ── RENDER REPORT TABLE ─────────────────────────────────────────────────────
+  const ReportTable = ({ columns, rows, summary }) => (
+    <div>
+      {summary && <div style={{ fontSize: 12, fontWeight: 700, color: T.accent, marginBottom: 8 }}>{summary}</div>}
+      <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+          <thead><tr style={{ background: T.surface2 }}>
+            {columns.map(c => <th key={c} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", borderBottom: `2px solid ${T.border}`, whiteSpace: "nowrap" }}>{c}</th>)}
+          </tr></thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
+                {row.map((cell, j) => <td key={j} style={{ padding: "6px 10px", color: T.text, whiteSpace: "nowrap" }}>{cell}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>{rows.length} row{rows.length !== 1 ? "s" : ""}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Reports</div><div style={{ fontSize: 12, color: T.text3 }}>{REPORTS.length} pre-built reports + custom builder</div></div>
+      </div>
+
+      {/* Sub-nav */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+        {[["library", "📊 Report Library"], ["builder", "🔧 Custom Builder"], ...(activeReport || customResults ? [["results", "📋 Results"]] : [])].map(([k, l]) => (
+          <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
+        ))}
+      </div>
+
+      {/* REPORT LIBRARY */}
+      {subView === "library" && (
+        <>
+          {CATEGORIES.map(cat => (
+            <div key={cat}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 8 }}>{cat}</div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+                {REPORTS.filter(r => r.category === cat).map(r => (
+                  <Card key={r.id} onClick={() => { setActiveReport(r); setCustomResults(null); setSubView("results"); }}
+                    style={{ padding: "12px 14px", cursor: "pointer" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 18 }}>{r.icon}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.name}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.4 }}>{r.description}</div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* CUSTOM REPORT BUILDER */}
+      {subView === "builder" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Data source */}
+          <Card style={{ padding: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>1. Select Data Source</div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 6 }}>
+              {Object.entries(ERP_SCHEMA).map(([key, schema]) => (
+                <button key={key} onClick={() => setBuilderConfig(c => ({ ...c, source: key, fields: [], filters: [], groupBy: "", sortBy: "" }))}
+                  style={{ padding: "8px", background: builderConfig.source === key ? T.accent + "15" : T.surface2, border: `1px solid ${builderConfig.source === key ? T.accent : T.border}`, borderRadius: 8, cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ fontSize: 14 }}>{schema.icon}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: builderConfig.source === key ? T.accent : T.text }}>{schema.label}</div>
+                  <div style={{ fontSize: 9, color: T.text3 }}>{schema.fields.length} fields</div>
+                </button>
+              ))}
+            </div>
+            {activeSchema && (
+              <div style={{ marginTop: 8, fontSize: 11, color: T.text3 }}>
+                Connects to: {activeSchema.joins.map(j => ERP_SCHEMA[j]?.label || j).join(", ")}
+              </div>
+            )}
+          </Card>
+
+          {activeSchema && (
+            <>
+              {/* Select fields */}
+              <Card style={{ padding: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>2. Select Fields</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {activeSchema.fields.map(f => (
+                    <button key={f.key} onClick={() => setBuilderConfig(c => ({ ...c, fields: c.fields.includes(f.key) ? c.fields.filter(x => x !== f.key) : [...c.fields, f.key] }))}
+                      style={{ fontSize: 11, padding: "4px 10px", borderRadius: 12, cursor: "pointer", border: `1px solid ${builderConfig.fields.includes(f.key) ? T.accent : T.border}`, background: builderConfig.fields.includes(f.key) ? T.accent + "15" : "transparent", color: builderConfig.fields.includes(f.key) ? T.accent : T.text3, fontWeight: 600 }}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>{builderConfig.fields.length === 0 ? "All fields selected (click to choose specific ones)" : `${builderConfig.fields.length} selected`}</div>
+              </Card>
+
+              {/* Filters */}
+              <Card style={{ padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>3. Filters</div>
+                  <button onClick={addFilter} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 6, cursor: "pointer" }}>+ Filter</button>
+                </div>
+                {builderConfig.filters.map((f, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 2fr auto", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                    <select value={f.field} onChange={e => updateFilter(i, "field", e.target.value)} style={inp}>
+                      <option value="">Field…</option>
+                      {activeSchema.fields.map(sf => <option key={sf.key} value={sf.key}>{sf.label}</option>)}
+                    </select>
+                    <select value={f.op} onChange={e => updateFilter(i, "op", e.target.value)} style={inp}>
+                      {[["equals","="],["not_equals","≠"],["contains","contains"],["gt",">"],["lt","<"],["is_true","is true"],["is_false","is false"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                    {!["is_true","is_false"].includes(f.op) && (() => {
+                      const sf = activeSchema.fields.find(x => x.key === f.field);
+                      if (sf?.type === "enum") return <select value={f.value} onChange={e => updateFilter(i, "value", e.target.value)} style={inp}><option value="">Any</option>{sf.options.map(o => <option key={o} value={o}>{o}</option>)}</select>;
+                      return <input value={f.value} onChange={e => updateFilter(i, "value", e.target.value)} placeholder="Value…" style={inp} />;
+                    })()}
+                    <button onClick={() => removeFilter(i)} style={{ padding: "4px 8px", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 14 }}>✕</button>
+                  </div>
+                ))}
+                {builderConfig.filters.length === 0 && <div style={{ fontSize: 11, color: T.text3 }}>No filters — showing all records</div>}
+              </Card>
+
+              {/* Sort + Run */}
+              <Card style={{ padding: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>4. Sort & Run</div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr auto", gap: 8, alignItems: "end" }}>
+                  <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Sort By</div><select value={builderConfig.sortBy} onChange={e => setBuilderConfig(c => ({ ...c, sortBy: e.target.value }))} style={inp}><option value="">Default</option>{activeSchema.fields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}</select></div>
+                  <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Direction</div><select value={builderConfig.sortDir} onChange={e => setBuilderConfig(c => ({ ...c, sortDir: e.target.value }))} style={inp}><option value="asc">Ascending</option><option value="desc">Descending</option></select></div>
+                  <button onClick={runCustomReport} style={{ padding: "8px 20px", fontSize: 13, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" }}>▶ Run Report</button>
+                </div>
+              </Card>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* RESULTS */}
+      {subView === "results" && (
+        <div>
+          {activeReport && (() => {
+            const result = activeReport.run();
+            return (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <span style={{ fontSize: 24 }}>{activeReport.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{activeReport.name}</div>
+                    <div style={{ fontSize: 12, color: T.text3 }}>{activeReport.description}</div>
+                  </div>
+                  <div style={{ flex: 1 }} />
+                  <button onClick={() => { setSubView("library"); setActiveReport(null); }} style={{ padding: "6px 12px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text3, cursor: "pointer" }}>← Back</button>
+                </div>
+                <ReportTable columns={result.columns} rows={result.rows} summary={result.summary} />
+              </div>
+            );
+          })()}
+          {customResults && !activeReport && (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <span style={{ fontSize: 24 }}>🔧</span>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Custom Report: {customResults.source}</div>
+                  <div style={{ fontSize: 12, color: T.text3 }}>{customResults.count} records found</div>
+                </div>
+                <div style={{ flex: 1 }} />
+                <button onClick={() => setSubView("builder")} style={{ padding: "6px 12px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text3, cursor: "pointer" }}>← Edit</button>
+              </div>
+              <ReportTable columns={customResults.columns} rows={customResults.rows} />
+            </div>
+          )}
         </div>
       )}
     </div>
