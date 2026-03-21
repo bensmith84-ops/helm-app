@@ -161,10 +161,10 @@ export default function ERPView() {
           {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} isMobile={isMobile} />}
-          {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} customers={customers} isMobile={isMobile} />}
+          {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} isMobile={isMobile} />}
           {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
-          {view === "manufacturing" && <ManufacturingView workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} facilities={facilities} boms={boms} isMobile={isMobile} />}
-          {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} isMobile={isMobile} />}
+          {view === "manufacturing" && <ManufacturingView workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
+          {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
         </div>
       </div>
     </div>
@@ -1142,60 +1142,181 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
 // ═══════════════════════════════════════════════════════════════════════════════
 // ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function OrdersView({ orders, setOrders, orderItems, customers, isMobile }) {
+function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, variants, isMobile }) {
   const [channelFilter, setChannelFilter] = useState("all");
-  const filtered = orders.filter(o => channelFilter === "all" || o.channel === channelFilter);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [selected, setSelected] = useState(null);
+  const filtered = orders.filter(o => {
+    if (channelFilter !== "all" && o.channel !== channelFilter) return false;
+    if (statusFilter !== "all" && o.status !== statusFilter) return false;
+    return true;
+  });
   const getCustomer = id => customers.find(c => c.id === id);
+  const getVariant = id => variants.find(v => v.id === id);
   const CHANNEL_COLORS = { shopify: "#95BF47", amazon: "#FF9900", retail: "#3B82F6", wholesale: "#8B5CF6", manual: T.text3 };
-  const totalRev = orders.reduce((s, o) => s + (o.total || 0), 0);
+  const totalRev = filtered.reduce((s, o) => s + (o.total || 0), 0);
+  const pendingCount = orders.filter(o => o.fulfillment_status !== "fulfilled" && o.status !== "cancelled").length;
+  const selItems = selected ? orderItems.filter(i => i.order_id === selected.id) : [];
+
+  const updateOrderStatus = async (id, status) => {
+    const updates = { status };
+    if (status === "shipped") updates.fulfillment_status = "fulfilled";
+    const { data } = await supabase.from("erp_orders").update(updates).eq("id", id).select().single();
+    if (data) { setOrders(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Orders</div><div style={{ fontSize: 12, color: T.text3 }}>{orders.length} orders · {fmt(totalRev)} total</div></div>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Orders</div><div style={{ fontSize: 12, color: T.text3 }}>{orders.length} orders · {pendingCount} pending · {fmt(totalRev)}</div></div>
       </div>
-      <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2, flexWrap: "wrap" }}>
-        {[["all","All"],["shopify","🟢 Shopify"],["amazon","🟠 Amazon"],["retail","🔵 Retail"],["wholesale","🟣 Wholesale"]].map(([v,l]) => (
-          <button key={v} onClick={() => setChannelFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: channelFilter === v ? T.surface : "transparent", color: channelFilter === v ? T.text : T.text3 }}>{l}</button>
-        ))}
+
+      {/* KPI */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[
+          { l: "Total Orders", v: orders.length, c: T.accent },
+          { l: "Pending", v: pendingCount, c: "#F59E0B" },
+          { l: "Revenue", v: fmt(orders.reduce((s,o) => s + (o.total||0), 0)), c: "#10B981" },
+          { l: "Shopify", v: orders.filter(o=>o.channel==="shopify").length, c: "#95BF47" },
+          { l: "Retail", v: orders.filter(o=>o.channel==="retail").length, c: "#3B82F6" },
+        ].map(s => <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>)}
       </div>
-      {filtered.length === 0 ? <EmptyState icon="🛒" text="No orders found" /> :
-        filtered.map(o => {
-          const cust = getCustomer(o.customer_id);
-          return (
-            <Card key={o.id} style={{ padding: "12px 14px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2 }}>
+          {[["all","All"],["shopify","🟢 Shopify"],["amazon","🟠 Amazon"],["retail","🔵 Retail"],["wholesale","🟣 Wholesale"]].map(([v,l]) => (
+            <button key={v} onClick={() => setChannelFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: channelFilter === v ? T.surface : "transparent", color: channelFilter === v ? T.text : T.text3 }}>{l}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2 }}>
+          {[["all","All"],["pending","Pending"],["processing","Processing"],["shipped","Shipped"],["cancelled","Cancelled"]].map(([v,l]) => (
+            <button key={v} onClick={() => setStatusFilter(v)} style={{ padding: "4px 8px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 10, fontWeight: 600, background: statusFilter === v ? T.surface : "transparent", color: statusFilter === v ? T.text : T.text3 }}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Order list + detail */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {filtered.length === 0 ? <EmptyState icon="🛒" text="No orders found" /> :
+            filtered.map(o => {
+              const cust = getCustomer(o.customer_id);
+              const sel = selected?.id === o.id;
+              return (
+                <Card key={o.id} onClick={() => setSelected(o)} style={{ padding: "10px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${CHANNEL_COLORS[o.channel] || T.accent}` : "3px solid transparent" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: CHANNEL_COLORS[o.channel] || T.text3, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.text }}>{o.order_number}</span>
+                      <Pill status={o.status} />
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{fmt(o.total)}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 3, display: "flex", gap: 10 }}>
+                    <span>{cust?.name || "DTC"}</span>
+                    <span>{new Date(o.order_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                    <span style={{ textTransform: "capitalize" }}>{o.channel}</span>
+                    <span>{o.fulfillment_status === "fulfilled" ? "✅" : o.fulfillment_status === "partial" ? "🔶" : "⬜"} {o.fulfillment_status}</span>
+                  </div>
+                </Card>
+              );
+            })
+          }
+        </div>
+
+        {/* Detail panel */}
+        {selected && !isMobile && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: CHANNEL_COLORS[o.channel] || T.text3 }} />
-                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: T.text }}>{o.order_number}</span>
-                  <Pill status={o.status} />
-                  <Pill status={o.fulfillment_status === "fulfilled" ? "completed" : o.fulfillment_status === "partial" ? "in_progress" : "pending"} />
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: CHANNEL_COLORS[selected.channel] }} />
+                  <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.text }}>{selected.order_number}</span>
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{fmt(o.total)}</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getCustomer(selected.customer_id)?.name || "DTC"} · {selected.channel}</div>
               </div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 4, display: "flex", gap: 12 }}>
-                <span>{cust?.name || "DTC"}</span>
-                <span>{new Date(o.order_date).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
-                <span style={{ textTransform: "capitalize" }}>{o.channel}</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                {selected.status === "pending" && <button onClick={() => updateOrderStatus(selected.id, "processing")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Process</button>}
+                {selected.status === "processing" && <button onClick={() => updateOrderStatus(selected.id, "shipped")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Mark Shipped</button>}
+                {selected.status !== "cancelled" && selected.status !== "delivered" && <button onClick={() => updateOrderStatus(selected.id, "cancelled")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Cancel</button>}
               </div>
-            </Card>
-          );
-        })
-      }
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+              {[
+                { l: "Status", v: selected.status?.replace(/_/g, " ") }, { l: "Fulfillment", v: selected.fulfillment_status }, { l: "Payment", v: selected.payment_status },
+                { l: "Order Date", v: new Date(selected.order_date).toLocaleDateString() }, { l: "Channel", v: selected.channel }, { l: "Total", v: fmt(selected.total) },
+              ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>)}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Line Items</div>
+            {selItems.length === 0 ? <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: 12 }}>No line items</div> :
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    {["Item", "SKU", "Qty", "Price", "Total"].map(h => <th key={h} style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>{selItems.map(item => (
+                    <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <td style={{ padding: "8px", color: T.text, fontWeight: 600 }}>{item.title}</td>
+                      <td style={{ padding: "8px", fontFamily: "monospace", fontSize: 11, color: T.accent }}>{item.sku || getVariant(item.variant_id)?.sku || "—"}</td>
+                      <td style={{ padding: "8px" }}>{item.quantity}</td>
+                      <td style={{ padding: "8px" }}>{fmt(item.unit_price)}</td>
+                      <td style={{ padding: "8px", fontWeight: 700 }}>{fmt(item.total || item.quantity * item.unit_price)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            }
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CUSTOMERS VIEW
+// CUSTOMERS VIEW — with CRUD
 // ═══════════════════════════════════════════════════════════════════════════════
 function CustomersView({ customers, setCustomers, orders, isMobile }) {
+  const [showNew, setShowNew] = useState(false);
+  const [form, setForm] = useState({ name: "", customer_type: "retail", email: "", payment_terms: "net_30", credit_limit: "", notes: "" });
+  const [typeFilter, setTypeFilter] = useState("all");
+  const filtered = customers.filter(c => typeFilter === "all" || c.customer_type === typeFilter);
+  const totalRev = orders.reduce((s, o) => s + (o.total || 0), 0);
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+
+  const saveCustomer = async () => {
+    if (!form.name.trim()) return;
+    const payload = { ...form, credit_limit: parseFloat(form.credit_limit) || null };
+    const { data } = await supabase.from("erp_customers").insert(payload).select().single();
+    if (data) setCustomers(p => [...p, data]);
+    setShowNew(false); setForm({ name: "", customer_type: "retail", email: "", payment_terms: "net_30", credit_limit: "", notes: "" });
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Customers</div><div style={{ fontSize: 12, color: T.text3 }}>{customers.length} accounts</div></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Customers</div><div style={{ fontSize: 12, color: T.text3 }}>{customers.length} accounts · {fmt(totalRev)} total revenue</div></div>
+        <button onClick={() => setShowNew(true)} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Customer</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "Total Accounts", v: customers.length, c: T.accent }, { l: "Retail", v: customers.filter(c=>c.customer_type==="retail").length, c: "#3B82F6" }, { l: "Wholesale", v: customers.filter(c=>c.customer_type==="wholesale").length, c: "#8B5CF6" }, { l: "Total Revenue", v: fmt(totalRev), c: "#10B981" }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2, flexWrap: "wrap" }}>
+        {[["all","All"],["retail","🏬 Retail"],["wholesale","📦 Wholesale"],["dtc","🛒 DTC"],["distributor","🚚 Distributor"]].map(([v,l]) => (
+          <button key={v} onClick={() => setTypeFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: typeFilter === v ? T.surface : "transparent", color: typeFilter === v ? T.text : T.text3 }}>{l}</button>
+        ))}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-        {customers.map(c => {
+        {filtered.map(c => {
           const custOrders = orders.filter(o => o.customer_id === c.id);
           const custRev = custOrders.reduce((s, o) => s + (o.total || 0), 0);
+          const openOrders = custOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled").length;
           return (
             <Card key={c.id} style={{ padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1205,8 +1326,10 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
                 </div>
                 <Pill status={c.status} />
               </div>
+              {c.email && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>{c.email}</div>}
               <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: T.text3 }}>
                 <span>{custOrders.length} order{custOrders.length !== 1 ? "s" : ""}</span>
+                {openOrders > 0 && <span style={{ color: "#F59E0B", fontWeight: 600 }}>{openOrders} open</span>}
                 <span style={{ fontWeight: 700, color: T.text }}>{fmt(custRev)}</span>
                 {c.credit_limit && <span>Limit: {fmt(c.credit_limit)}</span>}
               </div>
@@ -1214,72 +1337,268 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
           );
         })}
       </div>
+
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(480px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Customer</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><select value={form.customer_type} onChange={e => setForm(f => ({ ...f, customer_type: e.target.value }))} style={inp}>{["retail","wholesale","dtc","distributor","amazon"].map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Email</div><input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inp} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Payment Terms</div><select value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: e.target.value }))} style={inp}>{["prepaid","cod","net_15","net_30","net_45","net_60","net_90"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Credit Limit</div><input type="number" value={form.credit_limit} onChange={e => setForm(f => ({ ...f, credit_limit: e.target.value }))} placeholder="0" style={inp} /></div>
+              </div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={inp} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveCustomer} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MANUFACTURING VIEW
+// MANUFACTURING VIEW — with work order creation
 // ═══════════════════════════════════════════════════════════════════════════════
-function ManufacturingView({ workOrders, setWorkOrders, variants, facilities, boms, isMobile }) {
+function ManufacturingView({ workOrders, setWorkOrders, variants, products, facilities, boms, bomItems, lots, setLots, inventory, setInventory, isMobile }) {
+  const [showNew, setShowNew] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [selected, setSelected] = useState(null);
+  const [form, setForm] = useState({ variant_id: "", facility_id: "", planned_quantity: "", planned_start: "", planned_end: "", notes: "" });
   const getVariant = id => variants.find(v => v.id === id);
   const getFacility = id => facilities.find(f => f.id === id);
+  const filtered = workOrders.filter(wo => statusFilter === "all" || wo.status === statusFilter);
+  const factories = facilities.filter(f => f.facility_type === "factory");
+
+  const nextWONum = () => {
+    const year = new Date().getFullYear();
+    const existing = workOrders.filter(w => w.wo_number.startsWith(`WO-${year}`));
+    const max = existing.reduce((m, w) => { const n = parseInt(w.wo_number.split("-")[2]) || 0; return Math.max(m, n); }, 0);
+    return `WO-${year}-${String(max + 1).padStart(4, "0")}`;
+  };
+
+  const createWO = async () => {
+    if (!form.variant_id || !form.planned_quantity) return;
+    const v = getVariant(form.variant_id);
+    const vBom = boms.find(b => b.variant_id === form.variant_id && b.status === "active");
+    const payload = {
+      wo_number: nextWONum(),
+      variant_id: form.variant_id,
+      bom_id: vBom?.id || null,
+      facility_id: form.facility_id || null,
+      planned_quantity: parseFloat(form.planned_quantity),
+      planned_start: form.planned_start || null,
+      planned_end: form.planned_end || null,
+      notes: form.notes,
+      status: "planned",
+    };
+    const { data } = await supabase.from("erp_work_orders").insert(payload).select().single();
+    if (data) setWorkOrders(p => [data, ...p]);
+    setShowNew(false);
+    setForm({ variant_id: "", facility_id: "", planned_quantity: "", planned_start: "", planned_end: "", notes: "" });
+  };
+
+  const updateWOStatus = async (wo, newStatus) => {
+    const updates = { status: newStatus };
+    if (newStatus === "in_progress") updates.actual_start = new Date().toISOString();
+    if (newStatus === "completed") { updates.actual_end = new Date().toISOString(); updates.completed_quantity = wo.planned_quantity; }
+    const { data } = await supabase.from("erp_work_orders").update(updates).eq("id", wo.id).select().single();
+    if (data) { setWorkOrders(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+  };
+
+  const totalPlanned = workOrders.filter(w => w.status !== "cancelled").reduce((s, w) => s + (w.planned_quantity || 0), 0);
+  const totalCompleted = workOrders.reduce((s, w) => s + (w.completed_quantity || 0), 0);
+  const inProgress = workOrders.filter(w => w.status === "in_progress").length;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Manufacturing</div><div style={{ fontSize: 12, color: T.text3 }}>{workOrders.length} work orders</div></div>
-      {workOrders.length === 0 ? <EmptyState icon="⚙" text="No work orders yet. Create one from a BOM to start a production run." /> :
-        workOrders.map(wo => {
-          const v = getVariant(wo.variant_id);
-          const f = getFacility(wo.facility_id);
-          const pct = wo.planned_quantity > 0 ? Math.round((wo.completed_quantity / wo.planned_quantity) * 100) : 0;
-          return (
-            <Card key={wo.id} style={{ padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <div><span style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{wo.wo_number}</span><span style={{ marginLeft: 8 }}><Pill status={wo.status} /></span></div>
-                <div style={{ fontSize: 12, fontWeight: 700 }}>{fmtN(wo.completed_quantity)} / {fmtN(wo.planned_quantity)}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Manufacturing</div><div style={{ fontSize: 12, color: T.text3 }}>{workOrders.length} work orders</div></div>
+        <button onClick={() => setShowNew(true)} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Work Order</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "Planned", v: fmtN(totalPlanned), c: T.accent }, { l: "Completed", v: fmtN(totalCompleted), c: "#10B981" }, { l: "In Progress", v: inProgress, c: "#F59E0B" }, { l: "Yield", v: totalPlanned > 0 ? `${Math.round((totalCompleted / totalPlanned) * 100)}%` : "—", c: "#3B82F6" }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2, flexWrap: "wrap" }}>
+        {[["all","All"],["planned","Planned"],["released","Released"],["in_progress","In Progress"],["completed","Completed"]].map(([v,l]) => (
+          <button key={v} onClick={() => setStatusFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: statusFilter === v ? T.surface : "transparent", color: statusFilter === v ? T.text : T.text3 }}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1fr" : "1fr", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filtered.length === 0 ? <EmptyState icon="⚙" text="No work orders found" /> :
+            filtered.map(wo => {
+              const v = getVariant(wo.variant_id);
+              const f = getFacility(wo.facility_id);
+              const pct = wo.planned_quantity > 0 ? Math.round(((wo.completed_quantity || 0) / wo.planned_quantity) * 100) : 0;
+              const sel = selected?.id === wo.id;
+              return (
+                <Card key={wo.id} onClick={() => setSelected(wo)} style={{ padding: "12px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{wo.wo_number}</span><Pill status={wo.status} /></div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{fmtN(wo.completed_quantity || 0)} / {fmtN(wo.planned_quantity)}</div>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.text, marginBottom: 4 }}>{v?.sku || ""} — {v?.name || "Unknown"}</div>
+                  <div style={{ height: 4, background: T.surface2, borderRadius: 4, overflow: "hidden", marginBottom: 4 }}><div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "#10B981" : pct > 0 ? T.accent : T.surface2, borderRadius: 4 }} /></div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{f?.name || "—"}{wo.planned_start ? ` · Start ${new Date(wo.planned_start).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
+                </Card>
+              );
+            })
+          }
+        </div>
+
+        {selected && !isMobile && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.wo_number}</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getVariant(selected.variant_id)?.name || "—"}</div>
               </div>
-              <div style={{ fontSize: 12, color: T.text, marginBottom: 4 }}>{v?.name || "Unknown"}</div>
-              <div style={{ height: 4, background: T.surface2, borderRadius: 4, overflow: "hidden", marginBottom: 6 }}><div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "#10B981" : T.accent, borderRadius: 4 }} /></div>
-              <div style={{ fontSize: 11, color: T.text3 }}>{f?.name || ""}{wo.planned_start ? ` · ${new Date(wo.planned_start).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
-            </Card>
-          );
-        })
-      }
+              <div style={{ display: "flex", gap: 6 }}>
+                {selected.status === "planned" && <button onClick={() => updateWOStatus(selected, "released")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Release</button>}
+                {selected.status === "released" && <button onClick={() => updateWOStatus(selected, "in_progress")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 6, color: "#92400E", cursor: "pointer" }}>Start</button>}
+                {selected.status === "in_progress" && <button onClick={() => updateWOStatus(selected, "completed")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Complete</button>}
+                {selected.status !== "cancelled" && selected.status !== "completed" && <button onClick={() => updateWOStatus(selected, "cancelled")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Cancel</button>}
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, padding: "12px 14px", background: T.surface2, borderRadius: 8, marginBottom: 12 }}>
+              {[
+                { l: "Status", v: selected.status?.replace(/_/g, " ") }, { l: "Planned Qty", v: fmtN(selected.planned_quantity) }, { l: "Completed", v: fmtN(selected.completed_quantity || 0) },
+                { l: "Facility", v: getFacility(selected.facility_id)?.name || "—" }, { l: "Start", v: selected.planned_start ? new Date(selected.planned_start).toLocaleDateString() : "—" }, { l: "End", v: selected.planned_end ? new Date(selected.planned_end).toLocaleDateString() : "—" },
+              ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>)}
+            </div>
+            {selected.notes && <div style={{ fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+          </div>
+        )}
+      </div>
+
+      {/* Create WO Modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(520px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Work Order</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Product / SKU *</div><select value={form.variant_id} onChange={e => setForm(f => ({ ...f, variant_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{variants.filter(v => products.find(p => p.id === v.product_id)?.product_type === "finished_good").map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Quantity *</div><input type="number" value={form.planned_quantity} onChange={e => setForm(f => ({ ...f, planned_quantity: e.target.value }))} placeholder="10000" style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Facility</div><select value={form.facility_id} onChange={e => setForm(f => ({ ...f, facility_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{factories.length > 0 ? factories.map(f => <option key={f.id} value={f.id}>{f.name}</option>) : facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Planned Start</div><input type="date" value={form.planned_start} onChange={e => setForm(f => ({ ...f, planned_start: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Planned End</div><input type="date" value={form.planned_end} onChange={e => setForm(f => ({ ...f, planned_end: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }} /></div>
+              </div>
+              {form.variant_id && (() => { const vBom = boms.find(b => b.variant_id === form.variant_id && b.status === "active"); return vBom ? <div style={{ fontSize: 11, color: "#10B981", fontWeight: 600, padding: "6px 10px", background: "#D1FAE520", borderRadius: 6 }}>✓ Active BOM: {vBom.name} (v{vBom.version})</div> : <div style={{ fontSize: 11, color: "#F59E0B", fontWeight: 600, padding: "6px 10px", background: "#FEF3C720", borderRadius: 6 }}>⚠ No active BOM found for this variant</div>; })()}
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Production run notes…" style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={createWO} disabled={!form.variant_id || !form.planned_quantity} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.variant_id || !form.planned_quantity ? 0.5 : 1 }}>Create Work Order</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FACILITIES VIEW
+// FACILITIES VIEW — with CRUD and entity assignment
 // ═══════════════════════════════════════════════════════════════════════════════
-function FacilitiesView({ facilities, setFacilities, inventory, isMobile }) {
+function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobile }) {
+  const [showNew, setShowNew] = useState(false);
+  const [form, setForm] = useState({ name: "", facility_type: "warehouse", operator: "", city: "", state: "", country: "US", entity_id: "" });
   const TYPE_ICONS = { warehouse: "🏢", factory: "🏭", "3pl": "🚚", office: "🏫", retail: "🏬" };
+  const getEntity = id => entities?.find(e => e.id === id);
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+
+  const saveFacility = async () => {
+    if (!form.name.trim()) return;
+    const { data } = await supabase.from("erp_facilities").insert({ ...form, entity_id: form.entity_id || null }).select().single();
+    if (data) setFacilities(p => [...p, data]);
+    setShowNew(false); setForm({ name: "", facility_type: "warehouse", operator: "", city: "", state: "", country: "US", entity_id: "" });
+  };
+
+  const totalUnitsAll = inventory.reduce((s, i) => s + (i.quantity || 0), 0);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Facilities</div><div style={{ fontSize: 12, color: T.text3 }}>{facilities.length} locations</div></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Facilities</div><div style={{ fontSize: 12, color: T.text3 }}>{facilities.length} locations · {fmtN(totalUnitsAll)} total units</div></div>
+        <button onClick={() => setShowNew(true)} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Facility</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "Warehouses", v: facilities.filter(f=>f.facility_type==="warehouse").length, c: T.accent }, { l: "Factories", v: facilities.filter(f=>f.facility_type==="factory").length, c: "#F59E0B" }, { l: "3PL", v: facilities.filter(f=>f.facility_type==="3pl").length, c: "#3B82F6" }, { l: "Total Units", v: fmtN(totalUnitsAll), c: "#10B981" }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
+        ))}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
         {facilities.map(f => {
           const facInv = inventory.filter(i => i.facility_id === f.id);
           const totalUnits = facInv.reduce((s, i) => s + (i.quantity || 0), 0);
           const skuCount = new Set(facInv.map(i => i.variant_id).filter(Boolean)).size;
+          const ent = getEntity(f.entity_id);
           return (
             <Card key={f.id} style={{ padding: "14px 16px", borderLeft: `3px solid ${f.is_default ? T.accent : "transparent"}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                 <span style={{ fontSize: 22 }}>{TYPE_ICONS[f.facility_type] || "🏢"}</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{f.name}{f.is_default ? <span style={{ fontSize: 9, marginLeft: 6, color: T.accent, fontWeight: 600 }}>DEFAULT</span> : ""}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{f.name}</span>
+                    {f.is_default && <span style={{ fontSize: 9, color: T.accent, fontWeight: 600 }}>DEFAULT</span>}
+                    {ent && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: T.surface2, color: T.text3, fontWeight: 600 }}>{ent.code}</span>}
+                  </div>
                   <div style={{ fontSize: 11, color: T.text3, textTransform: "capitalize" }}>{f.facility_type?.replace(/_/g, " ")}{f.operator ? ` · ${f.operator}` : ""}</div>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.text3 }}>
                 <span style={{ fontWeight: 700, color: T.text }}>{fmtN(totalUnits)} units</span>
                 <span>{skuCount} SKUs</span>
-                <span>{f.city}{f.state ? `, ${f.state}` : ""}</span>
+                <span>{f.city}{f.state ? `, ${f.state}` : ""}{f.country && f.country !== "US" ? ` · ${f.country}` : ""}</span>
               </div>
             </Card>
           );
         })}
       </div>
+
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(520px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Facility</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><select value={form.facility_type} onChange={e => setForm(f => ({ ...f, facility_type: e.target.value }))} style={inp}>{["warehouse","factory","3pl","office","retail"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Operator</div><input value={form.operator} onChange={e => setForm(f => ({ ...f, operator: e.target.value }))} placeholder="e.g. ShipBob, internal" style={inp} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>City</div><input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>State</div><input value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Country</div><input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} style={inp} /></div>
+              </div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Legal Entity</div><select value={form.entity_id} onChange={e => setForm(f => ({ ...f, entity_id: e.target.value }))} style={inp}><option value="">None</option>{(entities||[]).map(e => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveFacility} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
