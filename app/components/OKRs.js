@@ -1935,6 +1935,7 @@ function OwnerPicker({ profiles, value, onChange }) {
 }
 
 function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
+  const { isMobile } = useResponsive();
   const set = useCallback((k, v) => setObjForm(p => ({ ...p, [k]: v })), [setObjForm]);
   const setKR = useCallback((idx, k, v) => setObjForm(p => ({ ...p, keyResults: p.keyResults.map((kr, i) => i === idx ? { ...kr, [k]: v } : kr) })), [setObjForm]);
   const addKR = useCallback(() => setObjForm(p => ({ ...p, keyResults: [...p.keyResults, { title: "", target_value: 100, unit: "", owner_id: "", start_date: "", end_date: "", has_milestones: false, milestone_frequency: "weekly" }] })), [setObjForm]);

@@ -699,6 +699,7 @@ function SourcingTab({ program }) {
 
 // ─── Ingredient Sourcing with AI ──────────────────────────────────────────────
 function IngredientSourcingView({ program }) {
+  const { isMobile } = useResponsive();
   const { user } = useAuth();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1050,6 +1051,7 @@ function CMSourcingView({ program }) {
 
 // ─── STANDALONE SOURCING VIEW (all programs) ──────────────────────────────────
 function SourcingStandalone({ programs }) {
+  const { isMobile } = useResponsive();
   const { user } = useAuth();
   const [subTab, setSubTab] = useState("ingredients");
   const [requests, setRequests] = useState([]);
@@ -1624,6 +1626,7 @@ function IngredientPickerModal({ onPick, onClose }) {
 // ─── TAB: FORMULATIONS ────────────────────────────────────────────────────────
 
 function FormulationsTab({ programId }) {
+  const { isMobile } = useResponsive();
   const [formulas, setFormulas] = useState([]);
   const [selected, setSelected] = useState(null);
   const [items, setItems] = useState([]);
@@ -1734,6 +1737,7 @@ function FormulationsTab({ programId }) {
 // ─── TAB: EXPERIMENTS ─────────────────────────────────────────────────────────
 
 function ExperimentsTab({ programId }) {
+  const { isMobile } = useResponsive();
   const [experiments, setExperiments] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2345,6 +2349,7 @@ function SKUsTab({ programId }) {
 // ─── TAB: ISSUES ──────────────────────────────────────────────────────────────
 
 function IssuesTab({ programId }) {
+  const { isMobile } = useResponsive();
   const [issues, setIssues] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2535,6 +2540,7 @@ function ShareDropdown({ conversationId, onClose }) {
 }
 
 function AIAdvisorTab({ program }) {
+  const { isMobile } = useResponsive();
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -2973,6 +2979,7 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
 // ─── MAIN PLM VIEW ────────────────────────────────────────────────────────────
 
 export default function PLMView() {
+  const { isMobile } = useResponsive();
   const [programs, setPrograms] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading]   = useState(true);

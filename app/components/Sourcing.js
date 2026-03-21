@@ -109,6 +109,7 @@ export default function SourcingView() {
 
 // ── New Project Modal ───────────────────────────────────────────────────────
 function NewProjectModal({ onClose, onCreate }) {
+  const { isMobile } = useResponsive();
   const [form, setForm] = useState({
     name: "", description: "", sourcing_type: [], target_geographies: [],
     required_certifications: [], min_capacity_units_month: "", max_moq: "",
