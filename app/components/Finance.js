@@ -83,7 +83,7 @@ const ProgressBar = ({ value, max, color = T.accent, height = 6 }) => {
 
 
 // ── Approval Chain Stepper ───────────────────────────────────────────────────
-const ApprovalChain = ({ req, employees }) => {
+const ApprovalChain = ({ req, members }) => {
   const isPersonChain = (req.approval_chain || "").startsWith("person_");
   const chain = isPersonChain
     ? [{ role: "Specific", label: req.require_person_name || "Named Approver" }]
@@ -94,7 +94,7 @@ const ApprovalChain = ({ req, employees }) => {
         const done = idx < req.approval_step || req.status === "approved";
         const current = idx === req.approval_step && req.status === "pending";
         const approval = (req.approvals || []).find(a => a.step === idx);
-        const approver = approval ? employees.find(e => e.user_id === approval.by) : null;
+        const approver = approval ? members.find(m => m.user_id === approval.by) : null;
         return (
           <div key={idx} style={{ display: "flex", alignItems: "center" }}>
             <div style={{ textAlign: "center" }}>
@@ -104,7 +104,7 @@ const ApprovalChain = ({ req, employees }) => {
                 border: current ? `2px solid ${T.accent}40` : "2px solid transparent",
               }}>{done ? "✓" : idx + 1}</div>
               <div style={{ fontSize: 9, fontWeight: 600, color: done ? "#10B981" : current ? T.accent : T.text3, marginTop: 2, whiteSpace: "nowrap" }}>{step.label}</div>
-              {approver && <div style={{ fontSize: 8, color: T.text3 }}>{approver.display_name?.split(" ")[0]}</div>}
+              {approver && <div style={{ fontSize: 8, color: T.text3 }}>{(approver.profiles?.display_name || "").split(" ")[0]}</div>}
             </div>
             {idx < chain.length - 1 && <div style={{ width: 24, height: 2, background: done ? "#10B981" : T.border, margin: "0 2px", marginBottom: 14 }} />}
           </div>
@@ -128,44 +128,40 @@ export default function FinanceView() {
   const [glCategories, setGlCategories] = useState([]);
   const [glCodes, setGlCodes] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [employees, setEmployees] = useState([]); // af_employee_settings joined with profiles
+  const [members, setMembers] = useState([]); // org_memberships + profiles for approval routing
   const [rules, setRules] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [budgetVersions, setBudgetVersions] = useState([]);
-  const [activeBudget, setActiveBudget] = useState(null); // current budget version data
+  const [activeBudget, setActiveBudget] = useState(null);
   const [activeBudgetName, setActiveBudgetName] = useState(null);
-
-  // My employee settings
-  const [mySettings, setMySettings] = useState(null);
+  const [myMembership, setMyMembership] = useState(null);
 
   useEffect(() => {
     const load = async () => {
       const [
         { data: reqs }, { data: cats }, { data: codes }, { data: depts },
-        { data: emps }, { data: rls }, { data: audit }, { data: bv },
-        { data: mySett },
+        { data: mems }, { data: rls }, { data: audit }, { data: bv },
       ] = await Promise.all([
         supabase.from("af_requests").select("*").order("created_at", { ascending: false }),
         supabase.from("af_gl_categories").select("*").order("sort_order"),
         supabase.from("af_gl_codes").select("*").order("code"),
         supabase.from("af_departments").select("*").order("name"),
-        supabase.from("af_employee_settings").select("*, profiles(display_name, avatar_url, email)").order("created_at"),
+        supabase.from("org_memberships").select("*, profiles(display_name, email, avatar_url)").eq("org_id", profile?.org_id),
         supabase.from("af_rules").select("*").order("sort_order"),
-        supabase.from("af_audit_log").select("*").order("created_at", { ascending: false }).limit(100),
+        supabase.from("af_audit_log").select("*").order("created_at", { ascending: false }).limit(200),
         supabase.from("af_budget_versions").select("*").order("saved_at", { ascending: false }),
-        supabase.from("af_employee_settings").select("*").eq("user_id", user?.id).maybeSingle(),
       ]);
       setRequests(reqs || []);
       setGlCategories(cats || []);
       setGlCodes(codes || []);
       setDepartments(depts || []);
-      setEmployees(emps || []);
+      setMembers(mems || []);
       setRules(rls || []);
       setAuditLog(audit || []);
       setBudgetVersions(bv || []);
-      setMySettings(mySett);
+      const me = (mems || []).find(m => m.user_id === user?.id);
+      setMyMembership(me || null);
 
-      // Load default budget
       const defaultBv = (bv || []).find(b => b.is_default);
       if (defaultBv) { setActiveBudget(defaultBv.data); setActiveBudgetName(defaultBv.name); }
 
@@ -202,10 +198,10 @@ export default function FinanceView() {
   };
 
   // ── Derived data ───────────────────────────────────────────────────────────
-  const isAdmin = mySettings?.af_role === "admin" || !mySettings; // default to admin if no settings
-  const isApprover = mySettings?.af_role === "approver" || isAdmin;
-  const isRequester = mySettings?.af_role === "requester";
-  const mySpendLimit = mySettings?.spend_limit || 500;
+  const isAdmin = myMembership?.af_role === "admin" || myMembership?.role === "owner" || !myMembership;
+  const isApprover = myMembership?.af_role === "approver" || isAdmin;
+  const isRequester = myMembership?.af_role === "requester";
+  const mySpendLimit = myMembership?.af_spend_limit || 500;
 
   const approved = requests.filter(r => r.status === "approved");
   const pending = requests.filter(r => r.status === "pending");
@@ -223,8 +219,6 @@ export default function FinanceView() {
     { id: "departments",  label: "Departments",  icon: "🏢" },
     { id: "rules",        label: "Rules",        icon: "⚡" },
     { id: "reports",      label: "Reports",      icon: "📊" },
-    { id: "employees",   label: "Employees",    icon: "👥" },
-    { id: "integrations",label: "Integrations", icon: "🔗" },
     { id: "audit",        label: "Audit Log",    icon: "🗂" },
   ];
 
@@ -259,14 +253,12 @@ export default function FinanceView() {
 
       {/* Main content */}
       <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "52px 12px 12px" : "20px 24px" }}>
-        {view === "dashboard" && <DashboardView requests={requests} employees={employees} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
-        {view === "requests" && <RequestsView requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} employees={employees} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} mySettings={mySettings} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
+        {view === "dashboard" && <DashboardView requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
+        {view === "requests" && <RequestsView requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "budgets" && <BudgetsView glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
-        {view === "departments" && <DepartmentsView departments={departments} setDepartments={setDepartments} employees={employees} requests={requests} getDeptSpend={getDeptSpend} />}
-        {view === "rules" && <RulesView rules={rules} setRules={setRules} glCodes={glCodes} employees={employees} user={user} />}
-        {view === "reports" && <ReportsView requests={requests} employees={employees} departments={departments} glCodes={glCodes} glCategories={glCategories} />}
-        {view === "employees" && <EmployeesView employees={employees} setEmployees={setEmployees} departments={departments} />}
-        {view === "integrations" && <IntegrationsView integrations={integrations} setIntegrations={setIntegrations} />}
+        {view === "departments" && <DepartmentsView departments={departments} setDepartments={setDepartments} members={members} requests={requests} getDeptSpend={getDeptSpend} />}
+        {view === "rules" && <RulesView rules={rules} setRules={setRules} glCodes={glCodes} members={members} user={user} />}
+        {view === "reports" && <ReportsView requests={requests} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} />}
         {view === "audit" && <AuditLogView auditLog={auditLog} />}
       </div>
     </div>
@@ -276,7 +268,7 @@ export default function FinanceView() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // DASHBOARD VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function DashboardView({ requests, employees, departments, glCategories, glCodes, activeBudget, activeBudgetName, getDeptSpend, pending, approved, onNavigate }) {
+function DashboardView({ requests, members, departments, glCategories, glCodes, activeBudget, activeBudgetName, getDeptSpend, pending, approved, onNavigate }) {
   const totalApproved = approved.reduce((s, r) => s + r.amount, 0);
   const totalPending = pending.reduce((s, r) => s + r.amount, 0);
 
@@ -303,7 +295,7 @@ function DashboardView({ requests, employees, departments, glCategories, glCodes
         {[
           { label: "Pending", value: pending.length, sub: fmt(totalPending), color: "#FFC107" },
           { label: "Approved", value: approved.length, sub: fmt(totalApproved), color: "#10B981" },
-          { label: "Employees", value: employees.length, sub: "in system", color: "#3B82F6" },
+          { label: "Team", value: members.length, sub: "members", color: "#3B82F6" },
           { label: "Departments", value: departments.filter(d => !d.parent_id).length, sub: `${departments.filter(d => d.parent_id).length} sub-depts`, color: "#8B5CF6" },
         ].map(s => (
           <Card key={s.label}>
@@ -377,7 +369,7 @@ function DashboardView({ requests, employees, departments, glCategories, glCodes
 // ═══════════════════════════════════════════════════════════════════════════════
 // REQUESTS VIEW — Full approval workflow
 // ═══════════════════════════════════════════════════════════════════════════════
-function RequestsView({ requests, addRequest, updateRequest, deleteRequest, employees, departments, glCodes, glCategories, rules, activeBudget, mySettings, mySpendLimit, isAdmin, isApprover, user, profile, addAuditEntry, getDeptSpend }) {
+function RequestsView({ requests, addRequest, updateRequest, deleteRequest, members, departments, glCodes, glCategories, rules, activeBudget, myMembership, mySpendLimit, isAdmin, isApprover, user, profile, addAuditEntry, getDeptSpend }) {
   const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -584,7 +576,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, empl
               </div>
               {req.status === "pending" && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-                  <ApprovalChain req={req} employees={employees} />
+                  <ApprovalChain req={req} members={members} />
                 </div>
               )}
             </Card>
@@ -724,7 +716,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, empl
             {/* Approval chain */}
             <div style={{ background: T.surface2, borderRadius: 10, padding: 16, marginBottom: 16 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 10 }}>Approval Chain</div>
-              <ApprovalChain req={selReq} employees={employees} />
+              <ApprovalChain req={selReq} members={members} />
             </div>
 
             {/* Details grid */}
@@ -1092,7 +1084,7 @@ function BudgetsView({ glCategories, requests, departments, activeBudget, setAct
 // ═══════════════════════════════════════════════════════════════════════════════
 // DEPARTMENTS VIEW — CRUD with hierarchy
 // ═══════════════════════════════════════════════════════════════════════════════
-function DepartmentsView({ departments, setDepartments, employees, requests, getDeptSpend }) {
+function DepartmentsView({ departments, setDepartments, members, requests, getDeptSpend }) {
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", color: "#3B82F6", parent_id: null });
@@ -1136,13 +1128,13 @@ function DepartmentsView({ departments, setDepartments, employees, requests, get
         {topLevel.map(d => {
           const { approved: spent, pending: pend } = getDeptSpend(d.name);
           const subs = departments.filter(s => s.parent_id === d.id);
-          const headcount = employees.filter(e => e.department_id === d.id).length;
+          const headcount = members.filter(m => m.department === d.name).length;
           return (
             <Card key={d.id} style={{ borderLeft: `4px solid ${d.color || T.accent}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{d.name}</div>
-                  <div style={{ fontSize: 11, color: T.text3 }}>{headcount} employees{subs.length > 0 ? ` · ${subs.length} sub-depts` : ""}</div>
+                  <div style={{ fontSize: 11, color: T.text3 }}>{headcount} people{subs.length > 0 ? ` · ${subs.length} sub-depts` : ""}</div>
                 </div>
                 <div style={{ display: "flex", gap: 4 }}>
                   <button onClick={() => { setForm({ name: "", color: d.color, parent_id: d.id }); setEditing(null); setShowNew(true); }}
@@ -1204,7 +1196,7 @@ function DepartmentsView({ departments, setDepartments, employees, requests, get
 // ═══════════════════════════════════════════════════════════════════════════════
 // RULES ENGINE — IF/THEN approval routing
 // ═══════════════════════════════════════════════════════════════════════════════
-function RulesView({ rules, setRules, glCodes, employees, user }) {
+function RulesView({ rules, setRules, glCodes, members, user }) {
   const [showNew, setShowNew] = useState(false);
   const FORM_DEFAULT = { name: "", description: "", action: "require_manager", conditions: [{ field: "amount", operator: ">", value: "", join: null }] };
   const [form, setForm] = useState(FORM_DEFAULT);
@@ -1343,7 +1335,7 @@ function RulesView({ rules, setRules, glCodes, employees, user }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // REPORTS VIEW — Spend analysis
 // ═══════════════════════════════════════════════════════════════════════════════
-function ReportsView({ requests, employees, departments, glCodes, glCategories }) {
+function ReportsView({ requests, members, departments, glCodes, glCategories }) {
   const approved = requests.filter(r => r.status === "approved");
   const totalApproved = approved.reduce((s, r) => s + r.amount, 0);
   const totalPending = requests.filter(r => r.status === "pending").reduce((s, r) => s + r.amount, 0);
@@ -1472,63 +1464,3 @@ function AuditLogView({ auditLog }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// EMPLOYEES — Spend limits, roles, levels
-// ═══════════════════════════════════════════════════════════════════════════════
-function EmployeesView({ employees, setEmployees, departments }) {
-  const [editId, setEditId] = useState(null);
-  const [editField, setEditField] = useState(null);
-  const [editVal, setEditVal] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all");
-  const LEVELS = ["IC","Senior IC","Lead","Manager","Director","VP","C-Suite","Contractor"];
-  const ROLES = ["requester","approver","admin"];
-  const saveField = async (empId, field, value) => { const parsed = field === "spend_limit" ? parseFloat(value) || 0 : value; await supabase.from("af_employee_settings").update({ [field]: parsed }).eq("id", empId); setEmployees(p => p.map(e => e.id === empId ? { ...e, [field]: parsed } : e)); setEditId(null); setEditField(null); };
-  const filtered = employees.filter(e => roleFilter === "all" || e.af_role === roleFilter);
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Employee Settings</div><div style={{ fontSize: 12, color: T.text3 }}>{employees.length} employees</div></div>
-      <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2 }}>{["all","requester","approver","admin"].map(r => <button key={r} onClick={() => setRoleFilter(r)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: roleFilter === r ? T.surface : "transparent", color: roleFilter === r ? T.text : T.text3 }}>{r === "all" ? "All" : ROLE_LABELS[r]}</button>)}</div>
-      {filtered.map(emp => (
-        <Card key={emp.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px" }}>
-          <div style={{ width: 36, height: 36, borderRadius: "50%", background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{emp.avatar || emp.profiles?.display_name?.slice(0,2)?.toUpperCase() || "?"}</div>
-          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{emp.profiles?.display_name || "Unknown"}</div><div style={{ fontSize: 11, color: T.text3 }}>{emp.profiles?.email} · {emp.title || emp.level}</div></div>
-          <div style={{ textAlign: "center", minWidth: 70 }}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Level</div>{editId === emp.id && editField === "level" ? <select autoFocus value={editVal} onChange={e => saveField(emp.id, "level", e.target.value)} onBlur={() => setEditId(null)} style={{ padding: "3px 6px", fontSize: 11, border: `1px solid ${T.accent}`, borderRadius: 5, background: T.surface, color: T.text }}>{LEVELS.map(l => <option key={l} value={l}>{l}</option>)}</select> : <div onClick={() => { setEditId(emp.id); setEditField("level"); setEditVal(emp.level); }} style={{ fontSize: 12, fontWeight: 600, color: T.text, cursor: "pointer" }}>{emp.level} <span style={{ fontSize: 9, color: T.text3 }}>✎</span></div>}</div>
-          <div style={{ textAlign: "center", minWidth: 100 }}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Auto-Approve</div>{editId === emp.id && editField === "spend_limit" ? <div style={{ display: "flex", gap: 3, alignItems: "center" }}><input autoFocus type="number" value={editVal} onChange={e => setEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveField(emp.id, "spend_limit", editVal); if (e.key === "Escape") setEditId(null); }} style={{ width: 70, padding: "3px 6px", border: `1px solid ${T.accent}`, borderRadius: 5, fontSize: 12, color: T.text, background: T.surface, outline: "none" }} /><button onClick={() => saveField(emp.id, "spend_limit", editVal)} style={{ background: "#10B981", color: "#fff", border: "none", borderRadius: 4, padding: "3px 6px", cursor: "pointer", fontSize: 10 }}>✓</button></div> : <div onClick={() => { setEditId(emp.id); setEditField("spend_limit"); setEditVal(emp.spend_limit || 0); }} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>{fmt(emp.spend_limit || 0)} <span style={{ fontSize: 9, color: T.text3 }}>✎</span></div>}</div>
-          <div style={{ minWidth: 90, textAlign: "center" }}>{editId === emp.id && editField === "af_role" ? <select autoFocus value={editVal} onChange={e => saveField(emp.id, "af_role", e.target.value)} onBlur={() => setEditId(null)} style={{ padding: "3px 6px", fontSize: 11, border: `1px solid ${T.accent}`, borderRadius: 5, background: T.surface, color: T.text }}>{ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select> : <span onClick={() => { setEditId(emp.id); setEditField("af_role"); setEditVal(emp.af_role); }} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 14, cursor: "pointer", background: emp.af_role === "admin" ? "#EDE9FE" : emp.af_role === "approver" ? "#DBEAFE" : T.surface2, color: emp.af_role === "admin" ? "#5B21B6" : emp.af_role === "approver" ? "#1D4ED8" : T.text3 }}>{ROLE_LABELS[emp.af_role] || emp.af_role} <span style={{ fontSize: 8, opacity: 0.5 }}>✎</span></span>}</div>
-        </Card>
-      ))}
-      {employees.length === 0 && <div style={{ textAlign: "center", padding: 24, color: T.text3, fontSize: 12 }}>No employee settings configured yet.</div>}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// INTEGRATIONS — QBO, Ramp, Brex, Rippling, Slack
-// ═══════════════════════════════════════════════════════════════════════════════
-function IntegrationsView({ integrations, setIntegrations }) {
-  const [showSlack, setShowSlack] = useState(false);
-  const [slackUrl, setSlackUrl] = useState("");
-  const META = [
-    { key: "quickbooks", name: "QuickBooks", logo: "QB", color: "#2CA01C", desc: "P&L actuals, transaction matching, GL mapping.", features: ["P&L sync","Txn matching","GL mapping","Journal entries"] },
-    { key: "ramp", name: "Ramp", logo: "RM", color: "#FF5757", desc: "Card transactions, spend matching, policy alerts.", features: ["Card import","Spend matching","Policy alerts","Virtual cards"] },
-    { key: "brex", name: "Brex", logo: "BX", color: "#F5A623", desc: "Cards, budgets, auto-reconciliation.", features: ["Card sync","Reconcile","Merchant controls","Alerts"] },
-    { key: "rippling", name: "Rippling", logo: "RP", color: "#FF6B4A", desc: "Employees, departments, org structure.", features: ["Employees","Departments","Levels","Real-time"] },
-  ];
-  const getI = (k) => integrations.find(i => i.provider === k);
-  const toggle = async (k) => { const ex = getI(k); if (ex) { const ns = !ex.is_connected; await supabase.from("af_integrations").update({ is_connected: ns, last_sync_at: ns ? new Date().toISOString() : null }).eq("id", ex.id); setIntegrations(p => p.map(i => i.id === ex.id ? { ...i, is_connected: ns } : i)); } else { const { data } = await supabase.from("af_integrations").insert({ provider: k, is_connected: true, last_sync_at: new Date().toISOString() }).select().single(); if (data) setIntegrations(p => [...p, data]); } };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Integrations</div><div style={{ fontSize: 12, color: T.text3 }}>Finance & HR stack</div></div><button onClick={() => setShowSlack(true)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>🔔 Slack</button></div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>{META.map(m => { const s = getI(m.key); const on = s?.is_connected; return (
-        <Card key={m.key} style={{ borderTop: `3px solid ${m.color}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}><div style={{ width: 38, height: 38, borderRadius: 8, background: m.color + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, color: m.color }}>{m.logo}</div><div><div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{m.name}</div><div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 1 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: on ? "#10B981" : "#D1D5DB" }} /><span style={{ fontSize: 10, color: on ? "#10B981" : T.text3, fontWeight: 600 }}>{on ? "Connected" : "Not connected"}</span></div></div></div>
-          <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.5, marginBottom: 10 }}>{m.desc}</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>{m.features.map(f => <span key={f} style={{ fontSize: 9, padding: "2px 7px", background: T.surface2, borderRadius: 10, color: T.text3, fontWeight: 600 }}>{f}</span>)}</div>
-          {on ? <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 10, color: T.text3 }}>Synced {s?.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : "—"}</span><button onClick={() => toggle(m.key)} style={{ padding: "4px 10px", fontSize: 10, border: "1px solid #FECACA", borderRadius: 6, background: "#FEE2E2", color: "#991B1B", cursor: "pointer", fontWeight: 600 }}>Disconnect</button></div>
-          : <button onClick={() => toggle(m.key)} style={{ width: "100%", padding: "8px", background: m.color, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Connect {m.name}</button>}
-        </Card>
-      ); })}</div>
-      {showSlack && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowSlack(false)}><div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: 24, width: "min(440px, 90vw)" }}><div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12 }}>🔔 Slack Notifications</div><div style={{ fontSize: 12, color: T.text3, marginBottom: 12 }}>Get alerts for: 📋 Submitted · ✅ Approved · ⚠️ Info Needed · ❌ Rejected · 🔄 Resubmitted · ↩️ Reinstated</div><div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Webhook URL</div><input value={slackUrl} onChange={e => setSlackUrl(e.target.value)} placeholder="https://hooks.slack.com/services/..." style={{ width: "100%", padding: "8px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text, outline: "none", boxSizing: "border-box" }} /></div><div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 14 }}><button onClick={() => setShowSlack(false)} style={{ padding: "7px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text3, cursor: "pointer" }}>Cancel</button><button onClick={() => setShowSlack(false)} style={{ padding: "7px 12px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button></div></div></div>}
-    </div>
-  );
-}
