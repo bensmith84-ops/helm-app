@@ -226,7 +226,7 @@ export default function FinanceView() {
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Left nav */}
+      {/* Left nav — desktop only */}
       {!isMobile && (
         <div style={{ width: 180, borderRight: `1px solid ${T.border}`, padding: "12px 8px", flexShrink: 0, overflow: "auto" }}>
           {NAV.map(n => (
@@ -239,27 +239,31 @@ export default function FinanceView() {
         </div>
       )}
 
-      {/* Mobile nav */}
-      {isMobile && (
-        <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0, position: "absolute", top: 0, left: 0, right: 0, zIndex: 10, background: T.bg }}>
-          {NAV.map(n => (
-            <button key={n.id} onClick={() => setView(n.id)}
-              style={{ padding: "10px 12px", background: "none", border: "none", borderBottom: view === n.id ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: view === n.id ? T.accent : T.text3, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
-              {n.icon} {n.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Content column */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        {/* Mobile tab bar */}
+        {isMobile && (
+          <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0, background: T.bg, WebkitOverflowScrolling: "touch" }}>
+            {NAV.map(n => (
+              <button key={n.id} onClick={() => setView(n.id)}
+                style={{ padding: "10px 14px", background: "none", border: "none", borderBottom: view === n.id ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: view === n.id ? T.accent : T.text3, fontSize: 18, fontWeight: 600, whiteSpace: "nowrap", position: "relative" }}>
+                {n.icon}
+                {n.id === "requests" && pending.length > 0 && <span style={{ position: "absolute", top: 6, right: 4, width: 6, height: 6, borderRadius: "50%", background: "#EF4444" }} />}
+              </button>
+            ))}
+          </div>
+        )}
 
-      {/* Main content */}
-      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "52px 12px 12px" : "20px 24px" }}>
-        {view === "dashboard" && <DashboardView requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
-        {view === "requests" && <RequestsView requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
-        {view === "budgets" && <BudgetsView glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
-        {view === "departments" && <DepartmentsView departments={departments} setDepartments={setDepartments} members={members} requests={requests} getDeptSpend={getDeptSpend} />}
-        {view === "rules" && <RulesView rules={rules} setRules={setRules} glCodes={glCodes} members={members} user={user} />}
-        {view === "reports" && <ReportsView requests={requests} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} />}
-        {view === "audit" && <AuditLogView auditLog={auditLog} />}
+        {/* Scrollable content area */}
+        <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
+        {view === "dashboard" && <DashboardView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
+        {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
+        {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
+        {view === "departments" && <DepartmentsView isMobile={isMobile} departments={departments} setDepartments={setDepartments} members={members} requests={requests} getDeptSpend={getDeptSpend} />}
+        {view === "rules" && <RulesView isMobile={isMobile} rules={rules} setRules={setRules} glCodes={glCodes} members={members} user={user} />}
+        {view === "reports" && <ReportsView isMobile={isMobile} requests={requests} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} />}
+        {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
+      </div>
       </div>
     </div>
   );
@@ -268,7 +272,7 @@ export default function FinanceView() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // DASHBOARD VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function DashboardView({ requests, members, departments, glCategories, glCodes, activeBudget, activeBudgetName, getDeptSpend, pending, approved, onNavigate }) {
+function DashboardView({ requests, members, isMobile, departments, glCategories, glCodes, activeBudget, activeBudgetName, getDeptSpend, pending, approved, onNavigate }) {
   const totalApproved = approved.reduce((s, r) => s + r.amount, 0);
   const totalPending = pending.reduce((s, r) => s + r.amount, 0);
 
@@ -369,7 +373,7 @@ function DashboardView({ requests, members, departments, glCategories, glCodes, 
 // ═══════════════════════════════════════════════════════════════════════════════
 // REQUESTS VIEW — Full approval workflow
 // ═══════════════════════════════════════════════════════════════════════════════
-function RequestsView({ requests, addRequest, updateRequest, deleteRequest, members, departments, glCodes, glCategories, rules, activeBudget, myMembership, mySpendLimit, isAdmin, isApprover, user, profile, addAuditEntry, getDeptSpend }) {
+function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteRequest, members, departments, glCodes, glCategories, rules, activeBudget, myMembership, mySpendLimit, isAdmin, isApprover, user, profile, addAuditEntry, getDeptSpend }) {
   const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -587,7 +591,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, memb
       {/* New Request Modal */}
       {showNew && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, width: "min(560px, 95vw)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, width: "min(560px, 95vw)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: isMobile ? 14 : 24 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Spend Request</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
@@ -604,7 +608,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, memb
                 ))}
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Amount (USD) *</div>
                   <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00"
@@ -623,7 +627,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, memb
               {form.cost_type === "recurring" && (
                 <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", marginBottom: 10 }}>↻ Recurring Schedule</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
                     <div>
                       <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Frequency</div>
                       <select value={form.recurring_frequency} onChange={e => setForm(f => ({ ...f, recurring_frequency: e.target.value }))}
@@ -659,7 +663,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, memb
               <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>📋 Budget Accountability</div>
                 <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>Is this spend already reflected in your approved budget?</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 6 }}>
                   {[["yes_exact","✓ Yes, at this cost"],["yes_lower","↑ Higher than budgeted"],["yes_higher","↓ Lower than budgeted"],["no","✗ Not in budget"],["unsure","? Unsure"]].map(([v,l]) => (
                     <button key={v} type="button" onClick={() => setForm(f => ({ ...f, budget_accounted_for: v }))}
                       style={{ padding: "8px 10px", borderRadius: 8, border: `2px solid ${form.budget_accounted_for === v ? T.accent : T.border}`, background: form.budget_accounted_for === v ? T.accent + "15" : "transparent", color: form.budget_accounted_for === v ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>{l}</button>
@@ -704,7 +708,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, memb
       {/* Request Detail Modal */}
       {selReq && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => { setSelected(null); setShowReject(false); setShowConditional(false); setShowResubmit(false); setShowRemoval(false); setResubEdits({}); setRemovalReason(""); }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, width: "min(600px, 95vw)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, width: "min(600px, 95vw)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: isMobile ? 14 : 24 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{selReq.title}</div>
@@ -720,7 +724,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, memb
             </div>
 
             {/* Details grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
               {[
                 { l: "Amount", v: fmt(selReq.amount) },
                 { l: "GL", v: glCodes.find(g => g.code === selReq.gl_code)?.name || selReq.gl_code || "—" },
@@ -831,11 +835,11 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, memb
                 ) : (
                   <div style={{ background: T.surface2, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.accent }}>✏️ Edit & Resubmit</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
                       <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Title</div><input value={resubEdits.title || ""} onChange={e => setResubEdits(p => ({ ...p, title: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
                       <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Amount</div><input type="number" value={resubEdits.amount || ""} onChange={e => setResubEdits(p => ({ ...p, amount: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
                       <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>GL Code</div><select value={resubEdits.gl_code || ""} onChange={e => setResubEdits(p => ({ ...p, gl_code: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{glCodes.map(g => <option key={g.code} value={g.code}>{g.code} · {g.name}</option>)}</select></div>
                       <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Department</div><select value={resubEdits.department || ""} onChange={e => setResubEdits(p => ({ ...p, department: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{departments.filter(d => !d.parent_id).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></div>
                     </div>
@@ -925,7 +929,7 @@ function RequestsView({ requests, addRequest, updateRequest, deleteRequest, memb
 // ═══════════════════════════════════════════════════════════════════════════════
 // BUDGETS VIEW — G&A category budgets with department allocations
 // ═══════════════════════════════════════════════════════════════════════════════
-function BudgetsView({ glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user }) {
+function BudgetsView({ isMobile, glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user }) {
   const [budgetData, setBudgetData] = useState(activeBudget || glCategories.map(c => ({ ...c, companyBudget: 0, allocations: [] })));
   const [editingCat, setEditingCat] = useState(null);
   const [companyAmt, setCompanyAmt] = useState("");
@@ -976,7 +980,7 @@ function BudgetsView({ glCategories, requests, departments, activeBudget, setAct
       </div>
 
       {/* Summary bar */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
         {[
           { l: "Total Budget", v: fmt(totalBudget), c: T.text },
           { l: "Spent", v: fmt(totalSpent), c: "#10B981" },
@@ -1084,7 +1088,7 @@ function BudgetsView({ glCategories, requests, departments, activeBudget, setAct
 // ═══════════════════════════════════════════════════════════════════════════════
 // DEPARTMENTS VIEW — CRUD with hierarchy
 // ═══════════════════════════════════════════════════════════════════════════════
-function DepartmentsView({ departments, setDepartments, members, requests, getDeptSpend }) {
+function DepartmentsView({ isMobile, departments, setDepartments, members, requests, getDeptSpend }) {
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", color: "#3B82F6", parent_id: null });
@@ -1196,7 +1200,7 @@ function DepartmentsView({ departments, setDepartments, members, requests, getDe
 // ═══════════════════════════════════════════════════════════════════════════════
 // RULES ENGINE — IF/THEN approval routing
 // ═══════════════════════════════════════════════════════════════════════════════
-function RulesView({ rules, setRules, glCodes, members, user }) {
+function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
   const [showNew, setShowNew] = useState(false);
   const FORM_DEFAULT = { name: "", description: "", action: "require_manager", conditions: [{ field: "amount", operator: ">", value: "", join: null }] };
   const [form, setForm] = useState(FORM_DEFAULT);
@@ -1335,7 +1339,7 @@ function RulesView({ rules, setRules, glCodes, members, user }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // REPORTS VIEW — Spend analysis
 // ═══════════════════════════════════════════════════════════════════════════════
-function ReportsView({ requests, members, departments, glCodes, glCategories }) {
+function ReportsView({ isMobile, requests, members, departments, glCodes, glCategories }) {
   const approved = requests.filter(r => r.status === "approved");
   const totalApproved = approved.reduce((s, r) => s + r.amount, 0);
   const totalPending = requests.filter(r => r.status === "pending").reduce((s, r) => s + r.amount, 0);
@@ -1372,7 +1376,7 @@ function ReportsView({ requests, members, departments, glCodes, glCategories }) 
       </div>
 
       {/* KPI row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
         {[
           { l: "Total Approved", v: fmt(totalApproved), c: "#10B981" },
           { l: "Pending Value", v: fmt(totalPending), c: "#F59E0B" },
@@ -1386,7 +1390,7 @@ function ReportsView({ requests, members, departments, glCodes, glCategories }) 
       </div>
 
       {/* By department + By GL side by side */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
         <Card>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>Spend by Department</div>
           {byDept.length === 0 ? <div style={{ fontSize: 12, color: T.text3 }}>No spend data yet</div> :
@@ -1439,7 +1443,7 @@ function ReportsView({ requests, members, departments, glCodes, glCategories }) 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AUDIT LOG VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function AuditLogView({ auditLog }) {
+function AuditLogView({ isMobile, auditLog }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Audit Log</div>
