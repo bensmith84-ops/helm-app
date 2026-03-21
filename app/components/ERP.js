@@ -892,6 +892,8 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
+  const [showReceivePO, setShowReceivePO] = useState(false);
+  const [receiveQtys, setReceiveQtys] = useState({});
   const [lineItems, setLineItems] = useState([]);
 
   const FORM_INIT = { supplier_id: "", facility_id: "", buying_entity_id: "", po_currency: "USD", payment_terms: "net_30", expected_date: "", notes: "", is_intercompany: false };
@@ -1070,8 +1072,8 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {selected.status === "draft" && <button onClick={() => updateStatus(selected, "submitted")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Submit</button>}
                 {selected.status === "submitted" && <button onClick={() => updateStatus(selected, "confirmed")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Confirm</button>}
-                {(selected.status === "confirmed" || selected.status === "partially_received") && <button onClick={() => updateStatus(selected, "received")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Mark Received</button>}
-                {selected.status !== "cancelled" && selected.status !== "closed" && <button onClick={() => updateStatus(selected, "cancelled")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Cancel</button>}
+                {(selected.status === "confirmed" || selected.status === "partially_received") && <button onClick={() => setShowReceivePO(true)} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#10B981", border: "none", borderRadius: 6, color: "#fff", cursor: "pointer" }}>📥 Receive Items</button>}
+                {selected.status !== "cancelled" && selected.status !== "closed" && selected.status !== "received" && <button onClick={() => updateStatus(selected, "cancelled")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Cancel</button>}
               </div>
             </div>
 
@@ -1092,6 +1094,22 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
               ))}
             </div>
 
+            {/* Receiving progress bar */}
+            {(() => {
+              const totalOrdered = selItems.reduce((s, i) => s + (i.quantity || 0), 0);
+              const totalReceived = selItems.reduce((s, i) => s + (i.received_quantity || 0), 0);
+              const pct = totalOrdered > 0 ? Math.round((totalReceived / totalOrdered) * 100) : 0;
+              return totalOrdered > 0 && (
+                <div style={{ marginBottom: 12, padding: "8px 12px", background: T.surface2, borderRadius: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 700, color: T.text }}>Receiving Progress</span>
+                    <span style={{ color: pct >= 100 ? "#10B981" : T.text3, fontWeight: 700 }}>{fmtN(totalReceived)} / {fmtN(totalOrdered)} ({pct}%)</span>
+                  </div>
+                  <div style={{ height: 6, background: T.bg, borderRadius: 4, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "#10B981" : T.accent, borderRadius: 4, transition: "width 0.3s" }} /></div>
+                </div>
+              );
+            })()}
+
             {/* Line items table */}
             <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Line Items</div>
             {selItems.length === 0 ? <div style={{ fontSize: 12, color: T.text3, padding: 12, textAlign: "center" }}>No line items</div> :
@@ -1101,16 +1119,23 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
                     {["Item", "Qty", "Unit", "Price", "Total", "Received"].map(h => <th key={h} style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
                   </tr></thead>
                   <tbody>
-                    {selItems.map(item => (
-                      <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                        <td style={{ padding: "8px", color: T.text, fontWeight: 600 }}>{item.description}</td>
-                        <td style={{ padding: "8px" }}>{fmtN(item.quantity)}</td>
-                        <td style={{ padding: "8px", color: T.text3 }}>{item.unit}</td>
-                        <td style={{ padding: "8px" }}>{fmt(item.unit_price)}</td>
-                        <td style={{ padding: "8px", fontWeight: 700 }}>{fmt(item.total)}</td>
-                        <td style={{ padding: "8px", color: item.received_quantity >= item.quantity ? "#10B981" : T.text3 }}>{fmtN(item.received_quantity || 0)}/{fmtN(item.quantity)}</td>
-                      </tr>
-                    ))}
+                    {selItems.map(item => {
+                      const fullyRcvd = (item.received_quantity || 0) >= item.quantity;
+                      return (
+                        <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}`, background: fullyRcvd ? "#10B98108" : "transparent" }}>
+                          <td style={{ padding: "8px", color: T.text, fontWeight: 600 }}>{item.description}</td>
+                          <td style={{ padding: "8px" }}>{fmtN(item.quantity)}</td>
+                          <td style={{ padding: "8px", color: T.text3 }}>{item.unit}</td>
+                          <td style={{ padding: "8px" }}>{fmt(item.unit_price)}</td>
+                          <td style={{ padding: "8px", fontWeight: 700 }}>{fmt(item.total)}</td>
+                          <td style={{ padding: "8px" }}>
+                            <span style={{ color: fullyRcvd ? "#10B981" : "#F59E0B", fontWeight: 700 }}>{fmtN(item.received_quantity || 0)}</span>
+                            <span style={{ color: T.text3 }}>/{fmtN(item.quantity)}</span>
+                            {fullyRcvd && <span style={{ marginLeft: 4, fontSize: 10 }}>✅</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot><tr style={{ borderTop: `2px solid ${T.border}` }}>
                     <td colSpan={4} style={{ padding: "8px", fontWeight: 700, textAlign: "right" }}>Total</td>
@@ -1206,6 +1231,71 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
           </div>
         </div>
       )}
+      {/* Receive PO Items Modal */}
+      {showReceivePO && selected && (() => {
+        const items = poItems.filter(i => i.po_id === selected.id);
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowReceivePO(false)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(600px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 4 }}>📥 Receive Items — {selected.po_number}</div>
+              <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>{getSupplier(selected.supplier_id)?.name} → {getFacility(selected.facility_id)?.name || "No facility"}</div>
+
+              {items.map(item => {
+                const remaining = item.quantity - (item.received_quantity || 0);
+                const fullyRcvd = remaining <= 0;
+                return (
+                  <div key={item.id} style={{ padding: "10px 12px", background: fullyRcvd ? "#10B98108" : T.surface2, borderRadius: 8, marginBottom: 8, border: `1px solid ${fullyRcvd ? "#10B98130" : T.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{item.description}</div>
+                        <div style={{ fontSize: 10, color: T.text3 }}>Ordered: {fmtN(item.quantity)} · Received: {fmtN(item.received_quantity || 0)} · Remaining: <strong style={{ color: remaining > 0 ? "#F59E0B" : "#10B981" }}>{fmtN(remaining)}</strong></div>
+                      </div>
+                      {fullyRcvd && <span style={{ fontSize: 16 }}>✅</span>}
+                    </div>
+                    {!fullyRcvd && (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <div style={{ fontSize: 11, color: T.text3, flexShrink: 0 }}>Receive:</div>
+                        <input type="number" value={receiveQtys[item.id] || ""} onChange={e => setReceiveQtys(q => ({ ...q, [item.id]: e.target.value }))}
+                          placeholder={String(remaining)} max={remaining}
+                          style={{ width: 80, padding: "6px 10px", fontSize: 14, fontWeight: 700, textAlign: "center", background: T.surface, border: `2px solid ${T.accent}40`, borderRadius: 8, color: T.text, outline: "none" }} />
+                        <button onClick={() => setReceiveQtys(q => ({ ...q, [item.id]: String(remaining) }))}
+                          style={{ padding: "4px 8px", fontSize: 10, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 5, cursor: "pointer", color: T.text3 }}>All</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+                <button onClick={() => { setShowReceivePO(false); setReceiveQtys({}); }} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={async () => {
+                  let anyReceived = false;
+                  for (const item of items) {
+                    const qty = parseInt(receiveQtys[item.id]);
+                    if (!qty || qty <= 0) continue;
+                    const newRcvd = (item.received_quantity || 0) + qty;
+                    await supabase.from("erp_po_items").update({ received_quantity: newRcvd }).eq("id", item.id);
+                    setPoItems(p => p.map(x => x.id === item.id ? { ...x, received_quantity: newRcvd } : x));
+                    anyReceived = true;
+                  }
+                  if (anyReceived) {
+                    // Check if all items fully received
+                    const updatedItems = items.map(i => ({ ...i, received_quantity: (i.received_quantity || 0) + (parseInt(receiveQtys[i.id]) || 0) }));
+                    const allReceived = updatedItems.every(i => i.received_quantity >= i.quantity);
+                    const anyPartial = updatedItems.some(i => i.received_quantity > 0 && i.received_quantity < i.quantity);
+                    const newStatus = allReceived ? "received" : anyPartial || updatedItems.some(i => i.received_quantity > 0) ? "partially_received" : selected.status;
+                    const updates = { status: newStatus };
+                    if (allReceived) updates.received_date = new Date().toISOString().slice(0, 10);
+                    const { data: updPO } = await supabase.from("erp_purchase_orders").update(updates).eq("id", selected.id).select().single();
+                    if (updPO) { setPurchaseOrders(p => p.map(x => x.id === updPO.id ? updPO : x)); setSelected(updPO); }
+                  }
+                  setShowReceivePO(false); setReceiveQtys({});
+                }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Confirm Receipt</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1823,7 +1913,8 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
 // ═══════════════════════════════════════════════════════════════════════════════
 function CustomersView({ customers, setCustomers, orders, isMobile }) {
   const [showNew, setShowNew] = useState(false);
-  const [form, setForm] = useState({ name: "", customer_type: "retail", email: "", payment_terms: "net_30", credit_limit: "", notes: "" });
+  const [selected, setSelected] = useState(null);
+  const [form, setForm] = useState({ name: "", customer_type: "retail", email: "", phone: "", website: "", payment_terms: "net_30", credit_limit: "", notes: "" });
   const [typeFilter, setTypeFilter] = useState("all");
   const filtered = customers.filter(c => typeFilter === "all" || c.customer_type === typeFilter);
   const totalRev = orders.reduce((s, o) => s + (o.total || 0), 0);
@@ -1832,16 +1923,25 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
   const saveCustomer = async () => {
     if (!form.name.trim()) return;
     const payload = { ...form, credit_limit: parseFloat(form.credit_limit) || null };
-    const { data } = await supabase.from("erp_customers").insert(payload).select().single();
-    if (data) setCustomers(p => [...p, data]);
-    setShowNew(false); setForm({ name: "", customer_type: "retail", email: "", payment_terms: "net_30", credit_limit: "", notes: "" });
+    if (selected && showNew) {
+      const { data } = await supabase.from("erp_customers").update(payload).eq("id", selected.id).select().single();
+      if (data) { setCustomers(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+    } else {
+      const { data } = await supabase.from("erp_customers").insert(payload).select().single();
+      if (data) { setCustomers(p => [...p, data]); setSelected(data); }
+    }
+    setShowNew(false);
   };
+
+  const custOrders = selected ? orders.filter(o => o.customer_id === selected.id).sort((a, b) => new Date(b.order_date) - new Date(a.order_date)) : [];
+  const custRev = custOrders.reduce((s, o) => s + (o.total || 0), 0);
+  const CHANNEL_COLORS = { shopify: "#95BF47", amazon: "#FF9900", retail: "#3B82F6", wholesale: "#8B5CF6" };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Customers</div><div style={{ fontSize: 12, color: T.text3 }}>{customers.length} accounts · {fmt(totalRev)} total revenue</div></div>
-        <button onClick={() => setShowNew(true)} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Customer</button>
+        <button onClick={() => { setForm({ name: "", customer_type: "retail", email: "", phone: "", website: "", payment_terms: "net_30", credit_limit: "", notes: "" }); setSelected(null); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Customer</button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
@@ -1856,50 +1956,103 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-        {filtered.map(c => {
-          const custOrders = orders.filter(o => o.customer_id === c.id);
-          const custRev = custOrders.reduce((s, o) => s + (o.total || 0), 0);
-          const openOrders = custOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled").length;
-          return (
-            <Card key={c.id} style={{ padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: T.text3, marginTop: 2, textTransform: "capitalize" }}>{c.customer_type?.replace(/_/g, " ")}{c.payment_terms ? ` · ${c.payment_terms.replace(/_/g, " ")}` : ""}</div>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr 1fr", gap: selected ? 16 : 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filtered.map(c => {
+            const cOrders = orders.filter(o => o.customer_id === c.id);
+            const cRev = cOrders.reduce((s, o) => s + (o.total || 0), 0);
+            const sel = selected?.id === c.id;
+            return (
+              <Card key={c.id} onClick={() => setSelected(c)} style={{ padding: "12px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{c.name}</div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 2, textTransform: "capitalize" }}>{c.customer_type?.replace(/_/g, " ")}{c.payment_terms ? ` · ${c.payment_terms.replace(/_/g, " ")}` : ""}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}><div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{fmt(cRev)}</div><div style={{ fontSize: 10, color: T.text3 }}>{cOrders.length} orders</div></div>
                 </div>
-                <Pill status={c.status} />
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Detail panel */}
+        {selected && !isMobile && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{selected.name}</div>
+                <div style={{ fontSize: 12, color: T.text3, textTransform: "capitalize" }}>{selected.customer_type?.replace(/_/g, " ")}</div>
               </div>
-              {c.email && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>{c.email}</div>}
-              <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: T.text3 }}>
-                <span>{custOrders.length} order{custOrders.length !== 1 ? "s" : ""}</span>
-                {openOrders > 0 && <span style={{ color: "#F59E0B", fontWeight: 600 }}>{openOrders} open</span>}
-                <span style={{ fontWeight: 700, color: T.text }}>{fmt(custRev)}</span>
-                {c.credit_limit && <span>Limit: {fmt(c.credit_limit)}</span>}
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => { setForm({ ...selected, credit_limit: selected.credit_limit || "" }); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>
+                <Pill status={selected.status} />
               </div>
-            </Card>
-          );
-        })}
+            </div>
+
+            {/* Customer KPIs */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+              {[{ l: "Total Revenue", v: fmt(custRev), c: "#10B981" }, { l: "Orders", v: custOrders.length, c: T.accent }, { l: "Avg Order", v: custOrders.length > 0 ? fmt(custRev / custOrders.length) : "—", c: "#F59E0B" }].map(s => (
+                <div key={s.l} style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 16, fontWeight: 800, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></div>
+              ))}
+            </div>
+
+            {/* Contact info */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+              {[
+                { l: "Email", v: selected.email || "—" }, { l: "Phone", v: selected.phone || "—" },
+                { l: "Payment Terms", v: selected.payment_terms?.replace(/_/g, " ") || "—" }, { l: "Credit Limit", v: selected.credit_limit ? fmt(selected.credit_limit) : "—" },
+              ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2 }}>{d.v}</div></div>)}
+            </div>
+
+            {/* Order history */}
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Order History ({custOrders.length})</div>
+            {custOrders.length === 0 ? <div style={{ fontSize: 12, color: T.text3 }}>No orders</div> :
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    {["Order", "Date", "Channel", "Status", "Total"].map(h => <th key={h} style={{ textAlign: "left", padding: "5px 6px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>{custOrders.slice(0, 10).map(o => (
+                    <tr key={o.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <td style={{ padding: "6px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{o.order_number}</td>
+                      <td style={{ padding: "6px", color: T.text3 }}>{new Date(o.order_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
+                      <td style={{ padding: "6px" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: CHANNEL_COLORS[o.channel] || T.text3, display: "inline-block", marginRight: 4 }} />{o.channel}</td>
+                      <td style={{ padding: "6px" }}><Pill status={o.status} /></td>
+                      <td style={{ padding: "6px", fontWeight: 700 }}>{fmt(o.total)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            }
+
+            {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+          </div>
+        )}
       </div>
 
       {showNew && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(480px, 95vw)" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Customer</div>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(520px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>{selected ? "Edit Customer" : "New Customer"}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><select value={form.customer_type} onChange={e => setForm(f => ({ ...f, customer_type: e.target.value }))} style={inp}>{["retail","wholesale","dtc","distributor","amazon"].map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Email</div><input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Email</div><input value={form.email || ""} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inp} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Phone</div><input value={form.phone || ""} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Website</div><input value={form.website || ""} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://" style={inp} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Payment Terms</div><select value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: e.target.value }))} style={inp}>{["prepaid","cod","net_15","net_30","net_45","net_60","net_90"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}</select></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Credit Limit</div><input type="number" value={form.credit_limit} onChange={e => setForm(f => ({ ...f, credit_limit: e.target.value }))} placeholder="0" style={inp} /></div>
               </div>
-              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={inp} /></div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><textarea value={form.notes || ""} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, resize: "vertical" }} /></div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
-                <button onClick={saveCustomer} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
+                <button onClick={saveCustomer} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>{selected ? "Save" : "Create"}</button>
               </div>
             </div>
           </div>
