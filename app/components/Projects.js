@@ -1420,7 +1420,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       { key: "someday", label: "🗓 Later", tasks: somedayTasks, color: T.text3 },
     ].filter(g => g.tasks.length > 0);
     return (
-      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 12px" : "20px 28px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0 }}>My Tasks</h2>
           <span style={{ fontSize: 12, color: T.text3 }}>· {mt.length} open</span>
@@ -1584,7 +1584,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               {/* Effort tracking */}
               <div style={{ background: T.surface2, borderRadius: 8, padding: "12px 14px", marginBottom: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Effort</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                   <div>
                     <label style={{ fontSize: 10, color: T.text3, display: "block", marginBottom: 3 }}>Est. Hours</label>
                     <input type="number" defaultValue={task.estimated_hours || ""} key={task.id + "-esthrs"}
@@ -1933,11 +1933,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           {formStep === 1 && <>
             <div style={{ marginBottom: 12 }}><label style={lbl}>Project Name *</label><input value={f.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Q2 Marketing Campaign" style={inp} /></div>
             <div style={{ marginBottom: 12 }}><label style={lbl}>Description</label><textarea value={f.description} onChange={e => set("description", e.target.value)} rows={3} placeholder="What is this project about?" style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={lbl}>Start Date</label><input type="date" value={f.start_date} onChange={e => set("start_date", e.target.value)} style={inp} /></div>
               <div><label style={lbl}>Target End Date</label><input type="date" value={f.target_end_date} onChange={e => set("target_end_date", e.target.value)} style={inp} /></div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div><label style={lbl}>Status</label><SearchableMultiSelect multi={false} placeholder="Status" options={[{value:"active",label:"Active",color:"#22c55e"},{value:"on_hold",label:"On Hold",color:"#eab308"},{value:"completed",label:"Completed",color:"#3b82f6"},{value:"archived",label:"Archived",color:"#6b7280"}]} selected={f.status||"active"} onChange={val => set("status", val)} /></div>
               <div><label style={lbl}>Default View</label><SearchableMultiSelect multi={false} placeholder="View" options={[{value:"List",label:"List"},{value:"Board",label:"Board"},{value:"Timeline",label:"Timeline"},{value:"Calendar",label:"Calendar"}]} selected={f.default_view||"List"} onChange={val => set("default_view", val)} /></div>
             </div>
@@ -2014,7 +2014,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const HEALTH_COLORS = { on_track: "#22c55e", at_risk: "#eab308", off_track: "#ef4444" };
     const HEALTH_LABELS = { on_track: "On Track", at_risk: "At Risk", off_track: "Off Track" };
     return (
-      <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 12px" : "20px 28px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Project Status Updates</h3>
           <button onClick={() => { setStatusForm({ health: "on_track", summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }}
@@ -2246,7 +2246,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
             <p style={{ fontSize: 13, color: T.text3, margin: "6px 0 0" }}>Choose a template to pre-populate your project with sections and tasks.</p>
           </div>
           <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
               {templates.map(t => (
                 <div key={t.id} onClick={() => createProjectFromTemplate(t)}
                   style={{ padding: "16px 18px", background: T.surface2, border: `1.5px solid ${T.border}`, borderRadius: 12, cursor: "pointer", transition: "all 0.15s" }}
@@ -2396,7 +2396,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Keyboard Shortcuts</h3>
               <button onClick={() => setShowKeyboardHelp(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 4 }}>
               {[
                 ["J / ↓", "Next task"],
                 ["K / ↑", "Previous task"],
@@ -2496,7 +2496,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               {viewMode === "Info" && (
-                <div style={{ flex: 1, overflow: "auto", padding: "24px 28px", maxWidth: 700 }}>
+                <div style={{ flex: 1, overflow: "auto", padding: "24px 28px", maxWidth: isMobile ? "95vw" : 700 }}>
                   {/* Quick actions */}
                   <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
                     <button onClick={openEditProject} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
@@ -2732,7 +2732,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                           {/* Trigger */}
                           <div style={{ marginBottom: 16 }}>
                             <label style={{ fontSize: 12, fontWeight: 700, color: T.accent, display: "block", marginBottom: 8 }}>⚡ WHEN...</label>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, 1fr)", gap: 6 }}>
                               {TRIGGER_TYPES.map(t => (
                                 <button key={t.key} onClick={() => setRuleForm(p => ({ ...p, trigger_type: t.key, trigger_config: {} }))}
                                   style={{ padding: "10px 12px", borderRadius: 8, border: ruleForm.trigger_type === t.key ? `2px solid ${T.accent}` : `1px solid ${T.border}`,

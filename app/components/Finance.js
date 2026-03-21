@@ -332,7 +332,7 @@ function DashboardView({ requests, members, isMobile, departments, glCategories,
       </Card>
 
       {/* GL Spend + Recent Requests */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
         <Card>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 14 }}>Spend by GL Category</div>
           {byGL.length === 0 ? <div style={{ fontSize: 12, color: T.text3 }}>No approved spend yet</div> :
@@ -1128,7 +1128,7 @@ function DepartmentsView({ isMobile, departments, setDepartments, members, reque
           style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Department</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
         {topLevel.map(d => {
           const { approved: spent, pending: pend } = getDeptSpend(d.name);
           const subs = departments.filter(s => s.parent_id === d.id);

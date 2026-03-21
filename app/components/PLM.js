@@ -877,7 +877,7 @@ Respond ONLY with a JSON array:
           )}
 
           {/* Claims & restrictions */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div>
               <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Must be compatible with claims:</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -1218,7 +1218,7 @@ JSON array only:
           )}
 
           {/* Claims & restrictions — compact */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div>
               <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Must be compatible with:</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -1710,7 +1710,7 @@ function FormulationsTab({ programId }) {
 
               {/* Additional fields */}
               {selected.manufacturing_process && !editingMfg && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10, marginTop: 12 }}>
                   <div>
                     <InlineField label="Batch Size" value={selected.target_batch_size} onChange={v => updateFormula("target_batch_size", v)} type="number" placeholder="e.g., 1000" />
                   </div>
@@ -2016,7 +2016,7 @@ function ExperimentsTab({ programId }) {
                         {isExp && (
                           <div style={{ borderTop: `1px solid ${T.border}` }}>
                             {/* Tracking row */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+                            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 0, borderBottom: `1px solid ${T.border}` }}>
                               {[["Status", <select value={run.status} onChange={e => updateRun(run.id, "status", e.target.value)} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: "transparent", border: "none", color: T.text, outline: "none" }}>{SO.map(s => <option key={s} value={s}>{s.replace(/_/g," ")}</option>)}</select>],
                                 ["Batch ID", <input value={run.batch_id || ""} onBlur={e => updateRun(run.id, "batch_id", e.target.value)} onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, batch_id: e.target.value } : r))} placeholder="LAB-2026-042" style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: "transparent", border: "none", color: T.text, outline: "none" }} />],
                                 ["Operator", <input value={run.operator || ""} onBlur={e => updateRun(run.id, "operator", e.target.value)} onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, operator: e.target.value } : r))} placeholder="Name" style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: "transparent", border: "none", color: T.text, outline: "none" }} />],
@@ -2181,7 +2181,7 @@ function ExperimentsTab({ programId }) {
                                   rows={2} placeholder="General notes, observations, learnings..."
                                   style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
                               </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8 }}>
                                 {[["pre_run_notes","Pre-Run","Setup notes..."],["in_process_notes","In-Process","Observations during trial..."],["post_run_notes","Post-Run","Post-trial observations..."]].map(([field,label,ph]) => (
                                   <div key={field}>
                                     <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>{label}</div>
@@ -2355,7 +2355,7 @@ function IssuesTab({ programId }) {
   const sc={critical:"#ef4444",high:"#f97316",medium:"#eab308",low:"#22c55e"};
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
-    <div style={{ display:"grid",gridTemplateColumns:"260px 1fr",gap:16 }}>
+    <div style={{ display:"grid",gridTemplateColumns:isMobile ? "1fr" : "260px 1fr",gap:16 }}>
       <div style={{ borderRight:"1px solid "+T.border,paddingRight:16 }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
           <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1 }}>Issues</div>
@@ -2689,7 +2689,7 @@ function AIAdvisorTab({ program }) {
                 {program ? ` I have context on ${program.name}.` : " Ask me anything about detergent sheet science."}
               </div>
               <div style={{ fontSize: 12, color: T.text3, marginTop: 8 }}>Try asking:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 520, width: "100%" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: isMobile ? "95vw" : 520, width: "100%" }}>
                 {SUGGESTIONS.slice(0, 4).map((q, i) => (
                   <button key={i} onClick={() => setInput(q)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`,
                     background: T.surface2, color: T.text2, fontSize: 12, cursor: "pointer", textAlign: "left", lineHeight: 1.5 }}

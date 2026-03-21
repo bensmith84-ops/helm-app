@@ -768,7 +768,7 @@ export default function OKRsView() {
   // LIST VIEW (existing)
   // ============================
   const ListView = () => (
-    <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+    <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 12px" : "20px 28px" }}>
       {objectives.length === 0 && (
         <div style={{ textAlign: "center", padding: 40, color: T.text3 }}>
           <div style={{ fontSize: 14, marginBottom: 8 }}>No objectives yet</div>
@@ -887,7 +887,7 @@ export default function OKRsView() {
     return (
       <div onClick={() => setEditItem(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div onClick={e => e.stopPropagation()} style={{ width: type === "milestone" ? 520 : 500, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "16px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ padding: isMobile ? "10px 12px" : "16px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Edit {typeLabel}</h3>
             <button onClick={() => setEditItem(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>×</button>
           </div>
@@ -904,7 +904,7 @@ export default function OKRsView() {
                   </select>
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12 }}>
                 <div><label style={_elbl}>Timeframe</label>
                   <select value={d.timeframe || "quarter"} onChange={e => editSet("timeframe", e.target.value)} style={{ ..._einp, cursor: "pointer" }}>
                     {TIMEFRAME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -935,7 +935,7 @@ export default function OKRsView() {
                   {linkedMS.length > 0 ? `${linkedMS.length} linked milestone${linkedMS.length > 1 ? "s" : ""} → ${autoProgress}% avg` : "No milestones linked yet — edit milestones and link them to this KR"}
                 </div>}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Current Value</label><input type="number" value={d.current_value ?? 0} onChange={e => editSet("current_value", e.target.value)} disabled={mode === "milestones"} style={{ ..._einp, opacity: mode === "milestones" ? 0.5 : 1 }} /></div>
                 <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => editSet("target_value", e.target.value)} style={_einp} /></div>
                 <div><label style={_elbl}>Unit</label><input value={d.unit || ""} onChange={e => editSet("unit", e.target.value)} placeholder="e.g. $, %" style={_einp} /></div>
@@ -993,7 +993,7 @@ export default function OKRsView() {
               </div>
 
               {/* Target + Unit */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div><label style={_elbl}>Current Total</label><input type="number" value={d.current_value ?? 0} disabled style={{ ..._einp, opacity: 0.6 }} /></div>
                 <div><label style={_elbl}>Target Value</label><input type="number" value={d.target_value ?? 100} onChange={e => {
                   const t = Number(e.target.value) || 100;
@@ -1787,7 +1787,7 @@ export default function OKRsView() {
               <label style={_lbl}>Summary *</label>
               <textarea value={localForm.summary} onChange={e => setLocalForm(p => ({ ...p, summary: e.target.value }))} placeholder="How is this objective progressing this week?" rows={3} style={_inp} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
               <div><label style={_lbl}>✨ Wins</label><textarea value={localForm.wins} onChange={e => setLocalForm(p => ({ ...p, wins: e.target.value }))} placeholder="What went well?" rows={2} style={_inp} /></div>
               <div><label style={_lbl}>⚠️ Blockers</label><textarea value={localForm.blockers} onChange={e => setLocalForm(p => ({ ...p, blockers: e.target.value }))} placeholder="What's in the way?" rows={2} style={_inp} /></div>
               <div><label style={_lbl}>➡️ Next Steps</label><textarea value={localForm.next_steps} onChange={e => setLocalForm(p => ({ ...p, next_steps: e.target.value }))} placeholder="What's the plan?" rows={2} style={_inp} /></div>
@@ -1980,7 +1980,7 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
               </select>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
             <div><label style={_lbl}>Timeframe</label>
               <select value={f.timeframe} onChange={e => set("timeframe", e.target.value)} style={{ ..._inp, cursor: "pointer" }}>
                 {TIMEFRAME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -2006,7 +2006,7 @@ function ObjFormModalInner({ objForm, setObjForm, saveObjective, profiles }) {
                 <div style={{ marginBottom: 8 }}>
                   <input value={kr.title} onChange={e => setKR(idx, "title", e.target.value)} placeholder="e.g. $10M Net Revenue @ 40% Margin" style={{ ..._inp, fontSize: 12 }} />
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>Target Value</label><input type="number" value={kr.target_value} onChange={e => setKR(idx, "target_value", e.target.value)} style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>Unit</label><input value={kr.unit} onChange={e => setKR(idx, "unit", e.target.value)} placeholder="e.g. $, %, users" style={{ ..._inp, fontSize: 12 }} /></div>
                   <div><label style={{ ..._lbl, fontSize: 10 }}>KR Owner</label><OwnerPicker profiles={profiles} value={kr.owner_id} onChange={v => setKR(idx, "owner_id", v)} /></div>

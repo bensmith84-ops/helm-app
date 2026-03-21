@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 
 const PRIORITY_COLORS = { urgent: "#ef4444", high: "#f97316", medium: "#eab308", low: "#22c55e", none: "#6b7280" };
@@ -12,6 +13,7 @@ const SHORT_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct
 
 export default function CalendarView() {
   const { user, profile } = useAuth();
+  const { isMobile } = useResponsive();
   const [tasks, setTasks] = useState([]);
   const [milestones, setMilestones] = useState([]);
   const [projects, setProjects] = useState({});

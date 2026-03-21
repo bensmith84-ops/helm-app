@@ -179,7 +179,7 @@ export default function PeopleView() {
           </div>
           {om?.role && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 8, background: (ROLE_COLORS[om.role] || T.text3) + "18", color: ROLE_COLORS[om.role] || T.text3, textTransform: "capitalize" }}>{om.role}</span>}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8 }}>
           <div style={{ textAlign: "center", padding: "6px 0", background: T.surface2, borderRadius: 6 }}><div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{stats.open}</div><div style={{ fontSize: 9, color: T.text3 }}>Open</div></div>
           <div style={{ textAlign: "center", padding: "6px 0", background: T.surface2, borderRadius: 6 }}><div style={{ fontSize: 16, fontWeight: 700, color: T.green }}>{stats.done}</div><div style={{ fontSize: 9, color: T.text3 }}>Done</div></div>
           <div style={{ textAlign: "center", padding: "6px 0", background: T.surface2, borderRadius: 6 }}><div style={{ fontSize: 16, fontWeight: 700, color: stats.overdue > 0 ? T.red : T.text3 }}>{stats.overdue}</div><div style={{ fontSize: 9, color: T.text3 }}>Overdue</div></div>
@@ -346,7 +346,7 @@ export default function PeopleView() {
 
   // === DETAIL PANEL ===
   const DetailPanel = () => { if (!selected) return null; const c = acol(selected.id); const stats = getStats(selected.id); const om = getMembership(selected.id); const memberTasks = tasks.filter(t => t.assignee_id === selected.id && t.status !== "done").sort((a, b) => { if (!a.due_date) return 1; if (!b.due_date) return -1; return new Date(a.due_date) - new Date(b.due_date); }).slice(0, 12); const memberProjs = stats.projs.map(pid => projects.find(p => p.id === pid)).filter(Boolean); const isMe = selected.id === user?.id; const isOwner = om?.role === "owner"; const userTeams = teamMembers.filter(tm => tm.user_id === selected.id).map(tm => teams.find(t => t.id === tm.team_id)).filter(Boolean); return (
-    <div style={{ width: 380, borderLeft: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
+    <div style={{ width: isMobile ? "100%" : 380, position: isMobile ? "fixed" : "relative", inset: isMobile ? 0 : "auto", zIndex: isMobile ? 50 : "auto", borderLeft: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: T.text3 }}>Member Details</span>
         <button onClick={() => setSelected(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>×</button>
@@ -382,12 +382,12 @@ export default function PeopleView() {
           {!isMe && !isOwner && <button onClick={() => deleteUser(selected.id)} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${T.red}30`, background: T.redDim, color: T.red, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>Remove</button>}
         </div>
       </div>
-      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, padding: "0 20px" }}>
+      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, padding: isMobile ? "0 10px" : "0 20px" }}>
         {["overview", "approval", "permissions"].map(t => <button key={t} onClick={() => setTab(t)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: tab === t ? 600 : 400, color: tab === t ? T.accent : T.text3, background: "none", border: "none", borderBottom: tab === t ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", textTransform: "capitalize" }}>{t === "approval" ? "Approval" : t}</button>)}
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: 20 }}>
         {tab === "overview" && <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 20 }}>
             {[{ l: "Total", v: stats.total, c: T.text }, { l: "Open", v: stats.open, c: T.accent }, { l: "Done", v: stats.done, c: T.green }, { l: "Overdue", v: stats.overdue, c: stats.overdue > 0 ? T.red : T.text3 }].map(s => (
               <div key={s.l} style={{ textAlign: "center", padding: "8px 0", background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 18, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3, marginTop: 2 }}>{s.l}</div></div>))}
           </div>
@@ -475,7 +475,7 @@ export default function PeopleView() {
           {/* Summary card */}
           <div style={{ background: T.surface2, borderRadius: 8, padding: "12px 14px", marginTop: 8 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 8 }}>Current Settings</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8 }}>
               <div><div style={{ fontSize: 9, color: T.text3 }}>Role</div><div style={{ fontSize: 12, fontWeight: 700, color: om?.af_role === "admin" ? "#5B21B6" : om?.af_role === "approver" ? "#1D4ED8" : T.text3, textTransform: "capitalize" }}>{om?.af_role || "requester"}</div></div>
               <div><div style={{ fontSize: 9, color: T.text3 }}>Limit</div><div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>${(om?.af_spend_limit || 500).toLocaleString()}</div></div>
               <div><div style={{ fontSize: 9, color: T.text3 }}>Level</div><div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{om?.af_level || "IC"}</div></div>

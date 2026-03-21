@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 
 const STAGES = [
   { key: "identified", label: "Identified", color: "#6b7280" },
@@ -33,6 +34,7 @@ function StagePill({ stage }) {
 
 // ── Main Sourcing View ──────────────────────────────────────────────────────
 export default function SourcingView() {
+  const { isMobile } = useResponsive();
   const [projects, setProjects] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -201,7 +203,7 @@ function NewProjectModal({ onClose, onCreate }) {
           <div><label style={lbl}>Target Lead Time</label><input type="number" value={form.target_lead_time_days} onChange={e => set("target_lead_time_days", e.target.value)} placeholder="days" style={inp} /></div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 14 }}>
           <div><label style={lbl}>Target Award Date</label><input type="date" value={form.target_award_date} onChange={e => set("target_award_date", e.target.value)} style={inp} /></div>
           <div><label style={lbl}>Target Production Date</label><input type="date" value={form.target_production_date} onChange={e => set("target_production_date", e.target.value)} style={inp} /></div>
         </div>

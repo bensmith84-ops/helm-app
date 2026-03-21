@@ -122,7 +122,7 @@ export default function CallsView() {
       </div>
 
       <div style={{ flex: 1, overflow: "auto", display: "flex" }}>
-        <div style={{ flex: 1, padding: "20px 28px", overflow: "auto" }}>
+        <div style={{ flex: 1, padding: isMobile ? "10px 12px" : "20px 28px", overflow: "auto" }}>
           {/* KPI row */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 24 }}>
             {[
@@ -179,7 +179,7 @@ export default function CallsView() {
 
         {/* Detail panel */}
         {selected && (
-          <div style={{ width: 380, borderLeft: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
+          <div style={{ width: isMobile ? "100%" : 380, position: isMobile ? "fixed" : "relative", inset: isMobile ? 0 : "auto", zIndex: isMobile ? 50 : "auto", borderLeft: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8 }}>Call Details</span>
               <button onClick={() => setSelected(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>×</button>

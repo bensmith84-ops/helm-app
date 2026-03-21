@@ -539,7 +539,7 @@ function ShopifySkuTab() {
           )}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
         {[
           { label: "Total Units", value: fmt(totalUnits), color: "#22c55e" },
           { label: "Net Revenue", value: fmtD(totalRev), color: "#3b82f6" },

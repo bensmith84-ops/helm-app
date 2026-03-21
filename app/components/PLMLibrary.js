@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
 
 const UOM_OPTIONS = ["kg","g","lb","oz","L","mL","units","each","case","drum","tote","pallet","MT"];
 const INGREDIENT_TYPES = [
@@ -305,6 +306,7 @@ function IngredientDetail({ ingredient, onUpdate, onClose }) {
 
 // ── Main Library View ─────────────────────────────────────────────────────────
 export default function PLMLibraryView() {
+  const { isMobile } = useResponsive();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");

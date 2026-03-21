@@ -209,7 +209,7 @@ export default function AutomationView() {
           ) : (
             <div>
               {/* Stats row */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
                 {[
                   { label: "Total Rules", value: rules.length, color: T.accent },
                   { label: "Active", value: activeCount, color: "#22c55e" },
