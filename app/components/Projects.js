@@ -1258,10 +1258,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const LABEL_W = 220;
     const today = new Date().toISOString().split("T")[0];
 
-    // Date range
+    // Date range — extend to at least 6 months out and start from beginning of earliest month
     const allDates = tw.flatMap(t => [t.start_date, t.due_date].filter(Boolean).map(d => new Date(d)));
-    const minD = new Date(Math.min(...allDates.map(d => d.getTime())) - 7 * 86400000);
-    const maxD = new Date(Math.max(...allDates.map(d => d.getTime())) + 21 * 86400000);
+    const rawMin = new Date(Math.min(...allDates.map(d => d.getTime())));
+    const rawMax = new Date(Math.max(...allDates.map(d => d.getTime())));
+    // Start from 1st of the earliest month (minus 1 week buffer)
+    const minD = new Date(rawMin.getFullYear(), rawMin.getMonth(), 1);
+    minD.setDate(minD.getDate() - 7);
+    // End at least 6 months from today, or 90 days past latest task, whichever is further
+    const sixMonthsOut = new Date(); sixMonthsOut.setMonth(sixMonthsOut.getMonth() + 6);
+    const ninetyPast = new Date(rawMax.getTime() + 90 * 86400000);
+    const maxD = new Date(Math.max(sixMonthsOut.getTime(), ninetyPast.getTime()));
     const totalDays = Math.ceil((maxD - minD) / 86400000);
 
     const getX = (dateStr) => Math.round(((new Date(dateStr) - minD) / 86400000) * DAY_W);
