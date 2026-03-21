@@ -13,6 +13,7 @@ const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "
 const fmtN = n => new Intl.NumberFormat("en-US").format(n || 0);
 
 const NAV = [
+  { id: "dashboard", label: "Dashboard", icon: "⬡", badge: null },
   { id: "products", label: "Products", icon: "📦", badge: null },
   { id: "suppliers", label: "Suppliers", icon: "🏭", badge: null },
   { id: "purchase_orders", label: "Purchase Orders", icon: "📋", badge: null },
@@ -58,7 +59,7 @@ const EmptyState = ({ icon, text }) => (
 export default function ERPView() {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
-  const [view, setView] = useState("products");
+  const [view, setView] = useState("dashboard");
   const [loading, setLoading] = useState(true);
 
   // Core data
@@ -68,6 +69,7 @@ export default function ERPView() {
   const [bomItems, setBomItems] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [supplierContacts, setSupplierContacts] = useState([]);
+  const [supplierItems, setSupplierItems] = useState([]);
   const [facilities, setFacilities] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [lots, setLots] = useState([]);
@@ -88,6 +90,7 @@ export default function ERPView() {
         { data: sups }, { data: facs }, { data: inv }, { data: lt },
         { data: pos }, { data: pois }, { data: ords }, { data: ois },
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
+        { data: supItems },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -106,12 +109,14 @@ export default function ERPView() {
         supabase.from("erp_entities").select("*").order("code"),
         supabase.from("erp_currencies").select("*").eq("is_active", true).order("code"),
         supabase.from("erp_exchange_rates").select("*").order("effective_date", { ascending: false }),
+        supabase.from("erp_supplier_items").select("*").order("item_name"),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
       setPurchaseOrders(pos || []); setPoItems(pois || []); setOrders(ords || []); setOrderItems(ois || []);
       setCustomers(custs || []); setWorkOrders(wos || []);
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
+      setSupplierItems(supItems || []);
       setLoading(false);
     };
     if (user) load();
@@ -157,8 +162,9 @@ export default function ERPView() {
 
         {/* Scrollable content */}
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
+          {view === "dashboard" && <ERPDashboard products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} inventory={inventory} lots={lots} orders={orders} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} setView={setView} isMobile={isMobile} />}
           {view === "products" && <ProductsView products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
-          {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
+          {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} isMobile={isMobile} />}
           {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} isMobile={isMobile} />}
@@ -167,6 +173,134 @@ export default function ERPView() {
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ERP DASHBOARD — Overview across all modules
+// ═══════════════════════════════════════════════════════════════════════════════
+function ERPDashboard({ products, variants, suppliers, purchaseOrders, inventory, lots, orders, customers, workOrders, facilities, entities, setView, isMobile }) {
+  const totalStock = inventory.reduce((s, i) => s + (i.quantity || 0), 0);
+  const openPOs = purchaseOrders.filter(p => !["received", "closed", "cancelled"].includes(p.status));
+  const pendingOrders = orders.filter(o => o.fulfillment_status !== "fulfilled" && o.status !== "cancelled");
+  const activeWOs = workOrders.filter(w => w.status === "in_progress" || w.status === "released");
+  const expiringLots = lots.filter(l => l.expiry_date && new Date(l.expiry_date) < new Date(Date.now() + 90 * 86400000) && l.status === "available");
+  const totalRev = orders.reduce((s, o) => s + (o.total || 0), 0);
+  const totalPOValue = openPOs.reduce((s, p) => s + (p.total || 0), 0);
+  const finishedGoods = products.filter(p => p.product_type === "finished_good");
+
+  const DashCard = ({ icon, title, value, sub, color, onClick }) => (
+    <div onClick={onClick} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, cursor: onClick ? "pointer" : "default", position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 20 }}>{icon}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.text3 }}>{title}</span>
+      </div>
+      <div style={{ fontSize: 24, fontWeight: 900, color: color || T.text }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>ERP Dashboard</div><div style={{ fontSize: 12, color: T.text3 }}>{entities.length} entities · {facilities.length} facilities · Real-time operations overview</div></div>
+
+      {/* Primary KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
+        <DashCard icon="📦" title="Products" value={finishedGoods.length} sub={`${variants.length} SKUs · ${products.length} total items`} color={T.accent} onClick={() => setView("products")} />
+        <DashCard icon="📊" title="Inventory" value={fmtN(totalStock)} sub={`${lots.filter(l=>l.status==="available").length} lots · ${facilities.length} locations`} color="#10B981" onClick={() => setView("inventory")} />
+        <DashCard icon="🛒" title="Pending Orders" value={pendingOrders.length} sub={`${fmt(totalRev)} total revenue`} color={pendingOrders.length > 0 ? "#F59E0B" : T.text3} onClick={() => setView("orders")} />
+        <DashCard icon="📋" title="Open POs" value={openPOs.length} sub={`${fmt(totalPOValue)} outstanding`} color={openPOs.length > 0 ? "#3B82F6" : T.text3} onClick={() => setView("purchase_orders")} />
+      </div>
+
+      {/* Secondary KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
+        <DashCard icon="🏭" title="Suppliers" value={suppliers.length} sub={`${suppliers.filter(s=>s.supplier_type==="raw_material").length} raw · ${suppliers.filter(s=>s.supplier_type==="contract_manufacturer").length} CMs`} onClick={() => setView("suppliers")} />
+        <DashCard icon="👥" title="Customers" value={customers.length} sub={`${customers.filter(c=>c.customer_type==="retail").length} retail · ${customers.filter(c=>c.customer_type==="wholesale").length} wholesale`} onClick={() => setView("customers")} />
+        <DashCard icon="⚙" title="Manufacturing" value={activeWOs.length} sub={`${workOrders.length} total WOs`} color={activeWOs.length > 0 ? "#8B5CF6" : T.text3} onClick={() => setView("manufacturing")} />
+        <DashCard icon="🏢" title="Facilities" value={facilities.length} sub={`${facilities.filter(f=>f.facility_type==="warehouse").length} WH · ${facilities.filter(f=>f.facility_type==="3pl").length} 3PL · ${facilities.filter(f=>f.facility_type==="factory").length} MFG`} onClick={() => setView("facilities")} />
+      </div>
+
+      {/* Alerts */}
+      {(expiringLots.length > 0 || pendingOrders.length > 5) && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {expiringLots.length > 0 && (
+            <div onClick={() => setView("inventory")} style={{ padding: "12px 16px", background: "#FEE2E215", border: "1px solid #FECACA", borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>⚠️</span>
+              <div><div style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>{expiringLots.length} lot{expiringLots.length !== 1 ? "s" : ""} expiring within 90 days</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>Click to review in Inventory → Lots & Traceability</div></div>
+            </div>
+          )}
+          {pendingOrders.length > 5 && (
+            <div onClick={() => setView("orders")} style={{ padding: "12px 16px", background: "#FEF3C715", border: "1px solid #FCD34D", borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>📦</span>
+              <div><div style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>{pendingOrders.length} orders awaiting fulfillment</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>Click to review pending orders</div></div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recent activity */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+        {/* Recent orders */}
+        <Card style={{ padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>Recent Orders</div>
+          {orders.slice(0, 5).map(o => (
+            <div key={o.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 11 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: { shopify: "#95BF47", amazon: "#FF9900", retail: "#3B82F6" }[o.channel] || T.text3 }} />
+                <strong style={{ fontFamily: "monospace" }}>{o.order_number}</strong>
+                <Pill status={o.status} />
+              </div>
+              <span style={{ fontWeight: 700 }}>{fmt(o.total)}</span>
+            </div>
+          ))}
+        </Card>
+
+        {/* Active work orders */}
+        <Card style={{ padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>Work Orders</div>
+          {workOrders.slice(0, 5).map(wo => {
+            const pct = wo.planned_quantity > 0 ? Math.round(((wo.completed_quantity || 0) / wo.planned_quantity) * 100) : 0;
+            return (
+              <div key={wo.id} style={{ padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+                  <div><strong style={{ fontFamily: "monospace", color: T.accent }}>{wo.wo_number}</strong><span style={{ marginLeft: 6 }}><Pill status={wo.status} /></span></div>
+                  <span style={{ fontSize: 10 }}>{fmtN(wo.completed_quantity || 0)}/{fmtN(wo.planned_quantity)}</span>
+                </div>
+                <div style={{ height: 3, background: T.surface2, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "#10B981" : T.accent, borderRadius: 3 }} /></div>
+              </div>
+            );
+          })}
+          {workOrders.length === 0 && <div style={{ fontSize: 11, color: T.text3 }}>No work orders</div>}
+        </Card>
+      </div>
+
+      {/* Inventory by facility */}
+      <Card style={{ padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>Inventory by Facility</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8 }}>
+          {facilities.map(f => {
+            const facInv = inventory.filter(i => i.facility_id === f.id);
+            const units = facInv.reduce((s, i) => s + (i.quantity || 0), 0);
+            const skus = new Set(facInv.map(i => i.variant_id).filter(Boolean)).size;
+            const TYPE_ICONS = { warehouse: "🏢", factory: "🏭", "3pl": "🚚" };
+            return (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.surface2, borderRadius: 8 }}>
+                <span style={{ fontSize: 16 }}>{TYPE_ICONS[f.facility_type] || "🏢"}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{f.name}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{fmtN(units)} units · {skus} SKUs</div>
+                </div>
+                <div style={{ width: 40, height: 40, borderRadius: 20, background: `conic-gradient(${T.accent} ${Math.min(100, Math.round((units / Math.max(totalStock, 1)) * 100))}%, ${T.surface2} 0)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ width: 30, height: 30, borderRadius: 15, background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.text3 }}>{Math.round((units / Math.max(totalStock, 1)) * 100)}%</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -490,7 +624,7 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUPPLIERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, isMobile }) {
+function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, supplierItems, setSupplierItems, products, isMobile }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -623,7 +757,7 @@ function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, isMo
             )}
 
             {/* PO history */}
-            <div>
+            <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Purchase Orders ({supplierPOs.length})</div>
               {supplierPOs.length === 0 ? <div style={{ fontSize: 11, color: T.text3 }}>No POs with this supplier</div> :
                 <>
@@ -638,7 +772,55 @@ function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, isMo
               }
             </div>
 
-            {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+            {/* Catalog / Item Pricing */}
+            {(() => {
+              const items = (supplierItems || []).filter(si => si.supplier_id === selected.id);
+              const getProduct = id => (products || []).find(p => p.id === id);
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>Catalog & Pricing ({items.length})</div>
+                    <button onClick={async () => {
+                      const name = prompt("Item name (supplier's product name):");
+                      if (!name) return;
+                      const price = parseFloat(prompt("Unit price (USD):", "0") || "0");
+                      const moq = parseInt(prompt("MOQ:", "0") || "0");
+                      const { data } = await supabase.from("erp_supplier_items").insert({ supplier_id: selected.id, item_name: name, unit_price: price, moq: moq || null, moq_unit: "each" }).select().single();
+                      if (data && setSupplierItems) setSupplierItems(p => [...p, data]);
+                    }} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 5, cursor: "pointer" }}>+ Item</button>
+                  </div>
+                  {items.length === 0 ? <div style={{ fontSize: 11, color: T.text3 }}>No catalog items</div> :
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                        <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                          {["Item", "Part #", "Price", "MOQ", "Lead", ""].map(h => <th key={h} style={{ textAlign: "left", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                        </tr></thead>
+                        <tbody>
+                          {items.map(si => {
+                            const prod = getProduct(si.product_id);
+                            return (
+                              <tr key={si.id} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                                <td style={{ padding: "6px", color: T.text }}>
+                                  <div style={{ fontWeight: 600 }}>{si.item_name}</div>
+                                  {prod && <div style={{ fontSize: 9, color: T.text3 }}>→ {prod.name}</div>}
+                                </td>
+                                <td style={{ padding: "6px", fontFamily: "monospace", fontSize: 10, color: T.text3 }}>{si.supplier_part_number || "—"}</td>
+                                <td style={{ padding: "6px", fontWeight: 700, color: T.accent }}>{fmt(si.unit_price)}<span style={{ fontWeight: 400, color: T.text3 }}>/{si.moq_unit || "ea"}</span></td>
+                                <td style={{ padding: "6px", color: T.text3 }}>{si.moq ? `${fmtN(si.moq)} ${si.moq_unit || ""}` : "—"}</td>
+                                <td style={{ padding: "6px", color: T.text3 }}>{si.lead_time_days ? `${si.lead_time_days}d` : "—"}</td>
+                                <td style={{ padding: "6px" }}>{si.is_preferred && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 6, background: "#D1FAE520", color: "#065F46", fontWeight: 700 }}>PREF</span>}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+                </div>
+              );
+            })()}
+
+            {selected.notes && <div style={{ fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
           </div>
         )}
       </div>
