@@ -158,7 +158,7 @@ export default function ERPView() {
         {/* Scrollable content */}
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
           {view === "products" && <ProductsView products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
-          {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} isMobile={isMobile} />}
+          {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} isMobile={isMobile} />}
           {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} isMobile={isMobile} />}
@@ -333,10 +333,82 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
 
             {/* Tags */}
             {(selected.tags || []).length > 0 && (
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16 }}>
                 {selected.tags.map(t => <span key={t} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: T.surface2, color: T.text3, fontWeight: 600 }}>{t}</span>)}
               </div>
             )}
+
+            {/* BOM Section */}
+            {selected.product_type === "finished_good" && (() => {
+              const prodBoms = boms.filter(b => prodVariants.some(v => v.id === b.variant_id));
+              return (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Bills of Materials</div>
+                    <button onClick={async () => {
+                      if (prodVariants.length === 0) return alert("Add a variant first");
+                      const vId = prodVariants[0].id;
+                      const { data } = await supabase.from("erp_bom").insert({ variant_id: vId, name: `${prodVariants[0].sku} BOM`, version: "1.0", status: "draft" }).select().single();
+                      if (data) setBoms(p => [...p, data]);
+                    }} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 6, cursor: "pointer" }}>+ BOM</button>
+                  </div>
+                  {prodBoms.length === 0 ? <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: 12 }}>No BOMs — create one to define ingredient composition</div> :
+                    prodBoms.map(bom => {
+                      const items = bomItems.filter(i => i.bom_id === bom.id).sort((a, b) => a.sort_order - b.sort_order);
+                      const totalCost = items.reduce((s, i) => s + ((i.quantity || 0) * (i.cost_per_unit || 0)), 0);
+                      const variant = prodVariants.find(v => v.id === bom.variant_id);
+                      return (
+                        <div key={bom.id} style={{ background: T.surface2, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <div>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{bom.name}</span>
+                              <span style={{ marginLeft: 6 }}><Pill status={bom.status} /></span>
+                              {variant && <span style={{ fontSize: 10, color: T.text3, marginLeft: 6 }}>({variant.sku})</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>{fmt(totalCost)}/unit</span>
+                              <button onClick={async () => {
+                                const name = prompt("Item name (e.g. PVA Film, LAS Surfactant):");
+                                if (!name) return;
+                                const { data } = await supabase.from("erp_bom_items").insert({ bom_id: bom.id, item_type: "raw_material", item_name: name, quantity: 0, unit: "g", cost_per_unit: 0, sort_order: items.length }).select().single();
+                                if (data) setBomItems(p => [...p, data]);
+                              }} style={{ padding: "2px 8px", fontSize: 10, background: T.accent + "20", color: T.accent, border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 700 }}>+ Item</button>
+                            </div>
+                          </div>
+                          {items.length === 0 ? <div style={{ fontSize: 11, color: T.text3, padding: 6 }}>No ingredients — add items to define the recipe</div> :
+                            <div style={{ overflowX: "auto" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                                <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                                  {["Ingredient", "Type", "Qty", "Unit", "$/Unit", "Total", ""].map(h => <th key={h} style={{ textAlign: "left", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                                </tr></thead>
+                                <tbody>
+                                  {items.map(item => (
+                                    <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                                      <td style={{ padding: "4px 6px", fontWeight: 600, color: T.text }}>{item.item_name}</td>
+                                      <td style={{ padding: "4px 6px", color: T.text3, fontSize: 10, textTransform: "capitalize" }}>{item.item_type?.replace(/_/g, " ")}</td>
+                                      <td style={{ padding: "4px 6px" }}><input type="number" defaultValue={item.quantity} onBlur={async e => { const v = parseFloat(e.target.value) || 0; await supabase.from("erp_bom_items").update({ quantity: v }).eq("id", item.id); setBomItems(p => p.map(x => x.id === item.id ? { ...x, quantity: v } : x)); }} style={{ width: 50, padding: "2px 4px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", textAlign: "right" }} /></td>
+                                      <td style={{ padding: "4px 6px", color: T.text3, fontSize: 10 }}>{item.unit}</td>
+                                      <td style={{ padding: "4px 6px" }}><input type="number" step="0.001" defaultValue={item.cost_per_unit} onBlur={async e => { const v = parseFloat(e.target.value) || 0; await supabase.from("erp_bom_items").update({ cost_per_unit: v }).eq("id", item.id); setBomItems(p => p.map(x => x.id === item.id ? { ...x, cost_per_unit: v } : x)); }} style={{ width: 60, padding: "2px 4px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", textAlign: "right" }} /></td>
+                                      <td style={{ padding: "4px 6px", fontWeight: 700, fontSize: 10, color: T.accent }}>{fmt((item.quantity || 0) * (item.cost_per_unit || 0))}</td>
+                                      <td style={{ padding: "4px 2px" }}><button onClick={async () => { await supabase.from("erp_bom_items").delete().eq("id", item.id); setBomItems(p => p.filter(x => x.id !== item.id)); }} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 10, padding: 0 }}>✕</button></td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot><tr style={{ borderTop: `1px solid ${T.border}` }}>
+                                  <td colSpan={5} style={{ padding: "4px 6px", fontWeight: 700, textAlign: "right", fontSize: 10 }}>Total Material Cost</td>
+                                  <td style={{ padding: "4px 6px", fontWeight: 800, color: T.accent }}>{fmt(totalCost)}</td>
+                                  <td></td>
+                                </tr></tfoot>
+                              </table>
+                            </div>
+                          }
+                        </div>
+                      );
+                    })
+                  }
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -418,45 +490,207 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUPPLIERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function SuppliersView({ suppliers, setSuppliers, isMobile }) {
+function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, isMobile }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const FORM_INIT = { name: "", code: "", supplier_type: "raw_material", website: "", email: "", phone: "", country: "US", city: "", state: "", payment_terms: "net_30", lead_time_days: "", certifications: [], rating: 3, is_intercompany: false, entity_id: "", notes: "" };
+  const [form, setForm] = useState(FORM_INIT);
+  const CERT_OPTIONS = ["ISO9001","ISO14001","GMP","EPA_Safer_Choice","EWG_Verified","USDA_BioPreferred","Vegan","Halal","Kosher","FSC","SFI","C2C","RSPO","IFRA","Compostable"];
+
   const filtered = suppliers.filter(s => {
     if (typeFilter !== "all" && s.supplier_type !== typeFilter) return false;
     if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.code?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
   const TYPE_ICONS = { raw_material: "🧪", packaging: "📋", contract_manufacturer: "🏭", "3pl": "🚚", service: "🛠", white_label: "📦" };
+  const getEntity = id => entities?.find(e => e.id === id);
+  const supplierPOs = selected ? purchaseOrders.filter(po => po.supplier_id === selected.id) : [];
+  const totalSpend = supplierPOs.reduce((s, po) => s + (po.total || 0), 0);
+
+  const saveSupplier = async () => {
+    if (!form.name.trim()) return;
+    const payload = { ...form, lead_time_days: parseInt(form.lead_time_days) || null, entity_id: form.entity_id || null };
+    if (selected && showNew) {
+      const { data } = await supabase.from("erp_suppliers").update(payload).eq("id", selected.id).select().single();
+      if (data) { setSuppliers(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+    } else {
+      const { data } = await supabase.from("erp_suppliers").insert(payload).select().single();
+      if (data) { setSuppliers(p => [...p, data]); setSelected(data); }
+    }
+    setShowNew(false);
+  };
+
+  const deleteSupplier = async (id) => {
+    if (!window.confirm("Delete this supplier?")) return;
+    await supabase.from("erp_suppliers").delete().eq("id", id);
+    setSuppliers(p => p.filter(x => x.id !== id));
+    if (selected?.id === id) setSelected(null);
+  };
+
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Suppliers</div><div style={{ fontSize: 12, color: T.text3 }}>{suppliers.length} vendors</div></div>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ padding: "6px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, width: isMobile ? 140 : 200, outline: "none" }} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ padding: "6px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, width: isMobile ? 120 : 180, outline: "none" }} />
+          <button onClick={() => { setForm(FORM_INIT); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Supplier</button>
+        </div>
       </div>
       <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2, flexWrap: "wrap" }}>
-        {[["all", "All"], ["raw_material", "🧪 Raw"], ["packaging", "📋 Pack"], ["contract_manufacturer", "🏭 CM"], ["3pl", "🚚 3PL"]].map(([v, l]) => (
+        {[["all","All"],["raw_material","🧪 Raw"],["packaging","📋 Pack"],["contract_manufacturer","🏭 CM"],["3pl","🚚 3PL"],["white_label","📦 WL"]].map(([v,l]) => (
           <button key={v} onClick={() => setTypeFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: typeFilter === v ? T.surface : "transparent", color: typeFilter === v ? T.text : T.text3 }}>{l}</button>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-        {filtered.map(s => (
-          <Card key={s.id} style={{ padding: "12px 14px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 20 }}>{TYPE_ICONS[s.supplier_type] || "🏢"}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{s.name}</span>{s.code && <span style={{ fontSize: 10, fontFamily: "monospace", color: T.text3, background: T.surface2, padding: "1px 5px", borderRadius: 3 }}>{s.code}</span>}</div>
-                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{s.supplier_type?.replace(/_/g, " ")} · {s.country}{s.lead_time_days ? ` · ${s.lead_time_days}d lead` : ""}{s.payment_terms ? ` · ${s.payment_terms.replace(/_/g, " ")}` : ""}</div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr 1fr", gap: selected ? 16 : 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filtered.map(s => {
+            const sel = selected?.id === s.id;
+            const ent = getEntity(s.entity_id);
+            return (
+              <Card key={s.id} onClick={() => setSelected(s)} style={{ padding: "12px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>{TYPE_ICONS[s.supplier_type] || "🏢"}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{s.name}</span>
+                      {s.code && <span style={{ fontSize: 9, fontFamily: "monospace", color: T.text3, background: T.surface2, padding: "1px 5px", borderRadius: 3 }}>{s.code}</span>}
+                      {s.is_intercompany && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 6, background: "#EDE9FE", color: "#5B21B6", fontWeight: 700 }}>IC</span>}
+                      {ent && <span style={{ fontSize: 8, color: T.text3 }}>{ent.code}</span>}
+                    </div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{s.country}{s.lead_time_days ? ` · ${s.lead_time_days}d` : ""}{s.payment_terms ? ` · ${s.payment_terms.replace(/_/g," ")}` : ""}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 1 }}>{[1,2,3,4,5].map(i => <span key={i} style={{ fontSize: 9, color: i <= (s.rating||0) ? "#F59E0B" : T.border }}>★</span>)}</div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Detail panel */}
+        {selected && !isMobile && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 220px)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>{TYPE_ICONS[selected.supplier_type] || "🏢"}</span>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{selected.name}</div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>{selected.code ? `${selected.code} · ` : ""}{selected.supplier_type?.replace(/_/g, " ")}</div>
+                  </div>
+                </div>
               </div>
-              <div style={{ display: "flex", gap: 2 }}>{[1,2,3,4,5].map(i => <span key={i} style={{ fontSize: 10, color: i <= (s.rating || 0) ? "#F59E0B" : T.border }}>★</span>)}</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => { setForm({ ...selected, lead_time_days: selected.lead_time_days || "", entity_id: selected.entity_id || "", certifications: selected.certifications || [] }); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>
+                <button onClick={() => deleteSupplier(selected.id)} style={{ padding: "5px 10px", fontSize: 11, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Delete</button>
+              </div>
             </div>
-            {(s.certifications || []).length > 0 && (
-              <div style={{ display: "flex", gap: 3, marginTop: 8, flexWrap: "wrap" }}>
-                {s.certifications.map(c => <span key={c} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: "#D1FAE520", color: "#065F46", fontWeight: 600 }}>{c}</span>)}
+
+            {/* Rating */}
+            <div style={{ display: "flex", gap: 2, marginBottom: 12 }}>{[1,2,3,4,5].map(i => <span key={i} style={{ fontSize: 16, color: i <= (selected.rating||0) ? "#F59E0B" : T.border, cursor: "pointer" }} onClick={async () => { await supabase.from("erp_suppliers").update({ rating: i }).eq("id", selected.id); const updated = { ...selected, rating: i }; setSuppliers(p => p.map(x => x.id === updated.id ? updated : x)); setSelected(updated); }}>★</span>)}</div>
+
+            {/* Details grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+              {[
+                { l: "Country", v: selected.country || "—" }, { l: "City", v: selected.city || "—" }, { l: "Payment", v: selected.payment_terms?.replace(/_/g, " ") || "—" },
+                { l: "Lead Time", v: selected.lead_time_days ? `${selected.lead_time_days} days` : "—" }, { l: "Currency", v: selected.currency || "USD" }, { l: "Min Order", v: selected.minimum_order_value ? fmt(selected.minimum_order_value) : "—" },
+              ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2 }}>{d.v}</div></div>)}
+            </div>
+
+            {/* Contact info */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Contact</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>
+                {selected.email && <div>📧 {selected.email}</div>}
+                {selected.phone && <div>📞 {selected.phone}</div>}
+                {selected.website && <div>🌐 <a href={selected.website} target="_blank" rel="noopener" style={{ color: T.accent }}>{selected.website}</a></div>}
+                {!selected.email && !selected.phone && !selected.website && <div>No contact info</div>}
+              </div>
+            </div>
+
+            {/* Certifications */}
+            {(selected.certifications || []).length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Certifications</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {selected.certifications.map(c => <span key={c} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: "#D1FAE520", color: "#065F46", fontWeight: 600 }}>{c}</span>)}
+                </div>
               </div>
             )}
-          </Card>
-        ))}
+
+            {/* PO history */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Purchase Orders ({supplierPOs.length})</div>
+              {supplierPOs.length === 0 ? <div style={{ fontSize: 11, color: T.text3 }}>No POs with this supplier</div> :
+                <>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>Total spend: <strong style={{ color: T.text }}>{fmt(totalSpend)}</strong></div>
+                  {supplierPOs.slice(0, 5).map(po => (
+                    <div key={po.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 11 }}>
+                      <div><strong style={{ fontFamily: "monospace", color: T.accent }}>{po.po_number}</strong><span style={{ marginLeft: 6 }}><Pill status={po.status} /></span></div>
+                      <span style={{ fontWeight: 700 }}>{fmt(po.total)}</span>
+                    </div>
+                  ))}
+                </>
+              }
+            </div>
+
+            {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+          </div>
+        )}
       </div>
+
+      {/* Create/Edit Modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(600px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>{selected && form.name ? "Edit Supplier" : "New Supplier"}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Code</div><input value={form.code || ""} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="BASF" style={{ ...inp, fontFamily: "monospace" }} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><select value={form.supplier_type} onChange={e => setForm(f => ({ ...f, supplier_type: e.target.value }))} style={inp}>{["raw_material","packaging","contract_manufacturer","3pl","service","white_label"].map(t => <option key={t} value={t}>{t.replace(/_/g," ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Country</div><input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Lead Time (days)</div><input type="number" value={form.lead_time_days} onChange={e => setForm(f => ({ ...f, lead_time_days: e.target.value }))} style={inp} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Email</div><input value={form.email || ""} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Phone</div><input value={form.phone || ""} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Website</div><input value={form.website || ""} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://" style={inp} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Payment Terms</div><select value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: e.target.value }))} style={inp}>{["prepaid","cod","net_15","net_30","net_45","net_60","net_90"].map(t => <option key={t} value={t}>{t.replace(/_/g," ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Rating</div><div style={{ display: "flex", gap: 4, padding: "8px 0" }}>{[1,2,3,4,5].map(i => <span key={i} onClick={() => setForm(f => ({ ...f, rating: i }))} style={{ fontSize: 18, color: i <= form.rating ? "#F59E0B" : T.border, cursor: "pointer" }}>★</span>)}</div></div>
+              </div>
+              {/* Intercompany */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface2, borderRadius: 8 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text, cursor: "pointer" }}><input type="checkbox" checked={form.is_intercompany} onChange={e => setForm(f => ({ ...f, is_intercompany: e.target.checked }))} /> Intercompany supplier</label>
+                {form.is_intercompany && <select value={form.entity_id} onChange={e => setForm(f => ({ ...f, entity_id: e.target.value }))} style={{ ...inp, flex: 1 }}><option value="">Select entity…</option>{(entities||[]).map(e => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select>}
+              </div>
+              {/* Certifications */}
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Certifications</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {CERT_OPTIONS.map(c => (
+                    <button key={c} onClick={() => setForm(f => ({ ...f, certifications: (f.certifications||[]).includes(c) ? f.certifications.filter(x => x !== c) : [...(f.certifications||[]), c] }))}
+                      style={{ fontSize: 10, padding: "3px 8px", borderRadius: 10, cursor: "pointer", border: `1px solid ${(form.certifications||[]).includes(c) ? "#10B981" : T.border}`, background: (form.certifications||[]).includes(c) ? "#D1FAE520" : "transparent", color: (form.certifications||[]).includes(c) ? "#065F46" : T.text3, fontWeight: 600 }}>{c}</button>
+                  ))}
+                </div>
+              </div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><textarea value={form.notes || ""} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, resize: "vertical" }} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveSupplier} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>{selected && form.name === selected.name ? "Save" : "Create"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
