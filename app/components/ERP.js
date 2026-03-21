@@ -22,6 +22,7 @@ const NAV = [
   { id: "customers", label: "Customers", icon: "👥", badge: null },
   { id: "manufacturing", label: "Manufacturing", icon: "⚙", badge: null },
   { id: "facilities", label: "Facilities", icon: "🏢", badge: null },
+  { id: "entities", label: "Entities", icon: "🌐", badge: null },
 ];
 
 const STATUS_PILL = {
@@ -171,6 +172,7 @@ export default function ERPView() {
           {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
+          {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
         </div>
       </div>
     </div>
@@ -1562,6 +1564,11 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const [lineItems, setLineItems] = useState([]);
+  const FORM_INIT = { channel: "manual", customer_id: "", notes: "" };
+  const [form, setForm] = useState(FORM_INIT);
+
   const filtered = orders.filter(o => {
     if (channelFilter !== "all" && o.channel !== channelFilter) return false;
     if (statusFilter !== "all" && o.status !== statusFilter) return false;
@@ -1581,10 +1588,48 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
     if (data) { setOrders(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
   };
 
+  // Order creation
+  const nextOrderNum = () => {
+    const max = orders.reduce((m, o) => { const n = parseInt(o.order_number.replace(/[^0-9]/g, "")) || 0; return Math.max(m, n); }, 100000);
+    return `ORD-${max + 1}`;
+  };
+  const addLine = () => setLineItems(p => [...p, { variant_id: "", title: "", quantity: 1, unit_price: 0 }]);
+  const updateLine = (i, f, v) => setLineItems(p => p.map((l, j) => j === i ? { ...l, [f]: v } : l));
+  const removeLine = i => setLineItems(p => p.filter((_, j) => j !== i));
+  const onLineVariantChange = (i, vId) => {
+    const v = variants.find(x => x.id === vId);
+    if (v) { updateLine(i, "variant_id", vId); updateLine(i, "title", v.name); updateLine(i, "unit_price", v.msrp || v.wholesale_price || 0); updateLine(i, "sku", v.sku); }
+  };
+  const lineTotal = lineItems.reduce((s, l) => s + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), 0);
+
+  const createOrder = async () => {
+    if (lineItems.length === 0) return;
+    const orderNum = nextOrderNum();
+    const { data: ord } = await supabase.from("erp_orders").insert({
+      order_number: orderNum, channel: form.channel, customer_id: form.customer_id || null,
+      status: "pending", fulfillment_status: "unfulfilled", payment_status: "pending",
+      subtotal: lineTotal, total: lineTotal, notes: form.notes,
+    }).select().single();
+    if (!ord) return;
+    const items = lineItems.map((l, i) => ({
+      order_id: ord.id, variant_id: l.variant_id || null, sku: l.sku || null,
+      title: l.title || "Item", quantity: parseInt(l.quantity) || 0,
+      unit_price: parseFloat(l.unit_price) || 0, total: (parseInt(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), sort_order: i,
+    }));
+    const { data: ois } = await supabase.from("erp_order_items").insert(items).select();
+    setOrders(p => [ord, ...p]);
+    if (ois) setOrderItems(p => [...p, ...ois]);
+    setShowNew(false); setForm(FORM_INIT); setLineItems([]); setSelected(ord);
+  };
+
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Orders</div><div style={{ fontSize: 12, color: T.text3 }}>{orders.length} orders · {pendingCount} pending · {fmt(totalRev)}</div></div>
+        <button onClick={() => { setForm(FORM_INIT); setLineItems([{ variant_id: "", title: "", quantity: 1, unit_price: 0 }]); setShowNew(true); }}
+          style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Order</button>
       </div>
 
       {/* KPI */}
@@ -1601,7 +1646,7 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
       {/* Filters */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2 }}>
-          {[["all","All"],["shopify","🟢 Shopify"],["amazon","🟠 Amazon"],["retail","🔵 Retail"],["wholesale","🟣 Wholesale"]].map(([v,l]) => (
+          {[["all","All"],["shopify","🟢 Shopify"],["amazon","🟠 Amazon"],["retail","🔵 Retail"],["wholesale","🟣 Wholesale"],["manual","⚪ Manual"]].map(([v,l]) => (
             <button key={v} onClick={() => setChannelFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: channelFilter === v ? T.surface : "transparent", color: channelFilter === v ? T.text : T.text3 }}>{l}</button>
           ))}
         </div>
@@ -1680,12 +1725,50 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
                       <td style={{ padding: "8px", fontWeight: 700 }}>{fmt(item.total || item.quantity * item.unit_price)}</td>
                     </tr>
                   ))}</tbody>
+                  <tfoot><tr style={{ borderTop: `2px solid ${T.border}` }}><td colSpan={4} style={{ padding: "8px", fontWeight: 700, textAlign: "right" }}>Total</td><td style={{ padding: "8px", fontWeight: 800, color: T.accent }}>{fmt(selItems.reduce((s,i)=>s+(i.total||0),0))}</td></tr></tfoot>
                 </table>
               </div>
             }
+            {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
           </div>
         )}
       </div>
+
+      {/* Create Order Modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(650px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Order</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Channel</div><select value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))} style={inp}>{["manual","shopify","amazon","retail","wholesale"].map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Customer</div><select value={form.customer_id} onChange={e => setForm(f => ({ ...f, customer_id: e.target.value }))} style={inp}><option value="">Select…</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              </div>
+              {/* Line items */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Line Items</div>
+                  <button onClick={addLine} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 6, cursor: "pointer" }}>+ Line</button>
+                </div>
+                {lineItems.map((line, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>PRODUCT</div>}<select value={line.variant_id} onChange={e => onLineVariantChange(i, e.target.value)} style={{ ...inp, padding: "7px 10px", fontSize: 11 }}><option value="">Select…</option>{variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>QTY</div>}<input type="number" value={line.quantity} onChange={e => updateLine(i, "quantity", e.target.value)} style={{ ...inp, padding: "7px 10px" }} /></div>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>PRICE</div>}<input type="number" step="0.01" value={line.unit_price} onChange={e => updateLine(i, "unit_price", e.target.value)} style={{ ...inp, padding: "7px 10px" }} /></div>
+                    <button onClick={() => removeLine(i)} style={{ padding: "6px 8px", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 14 }}>✕</button>
+                  </div>
+                ))}
+                {lineItems.length > 0 && <div style={{ textAlign: "right", fontSize: 14, fontWeight: 800, color: T.accent, paddingTop: 8, borderTop: `2px solid ${T.border}` }}>{fmt(lineTotal)}</div>}
+              </div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Order notes…" style={inp} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => { setShowNew(false); setLineItems([]); }} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={createOrder} disabled={lineItems.length === 0} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: lineItems.length === 0 ? 0.5 : 1 }}>Create Order</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2010,6 +2093,220 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={saveFacility} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENTITIES VIEW — Legal entities, subsidiaries, transfer pricing, currencies
+// ═══════════════════════════════════════════════════════════════════════════════
+function EntitiesView({ entities, setEntities, facilities, currencies, exchangeRates, suppliers, isMobile }) {
+  const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const FORM_INIT = { name: "", code: "", entity_type: "subsidiary", country: "", region: "North America", base_currency: "USD", city: "", tax_id: "", transfer_pricing_method: "cost_plus", transfer_pricing_markup_pct: 10, fiscal_year_start: 1, notes: "" };
+  const [form, setForm] = useState(FORM_INIT);
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+
+  const parentEntity = entities.find(e => e.entity_type === "parent");
+  const subsidiaries = entities.filter(e => e.entity_type !== "parent");
+  const getEntityFacilities = eid => facilities.filter(f => f.entity_id === eid);
+  const getEntitySuppliers = eid => suppliers.filter(s => s.entity_id === eid);
+  const getRate = (from, to) => { const r = exchangeRates.find(x => x.from_currency === from && x.to_currency === to); return r?.rate; };
+
+  const REGION_COLORS = { "North America": "#3B82F6", "Europe": "#10B981", "APAC": "#F59E0B", "LATAM": "#EF4444" };
+  const TP_METHODS = { cost_plus: "Cost Plus", resale_minus: "Resale Minus", comparable_uncontrolled: "Comparable Uncontrolled", transactional_net_margin: "Trans. Net Margin", profit_split: "Profit Split" };
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  const saveEntity = async () => {
+    if (!form.name.trim() || !form.code.trim()) return;
+    const payload = { ...form, parent_entity_id: parentEntity?.id || null, transfer_pricing_markup_pct: parseFloat(form.transfer_pricing_markup_pct) || 0, fiscal_year_start: parseInt(form.fiscal_year_start) || 1 };
+    if (selected && showNew) {
+      const { data } = await supabase.from("erp_entities").update(payload).eq("id", selected.id).select().single();
+      if (data) { setEntities(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+    } else {
+      const { data } = await supabase.from("erp_entities").insert(payload).select().single();
+      if (data) { setEntities(p => [...p, data]); setSelected(data); }
+    }
+    setShowNew(false);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Legal Entities</div><div style={{ fontSize: 12, color: T.text3 }}>{entities.length} entities · {currencies.length} currencies</div></div>
+        <button onClick={() => { setForm(FORM_INIT); setSelected(null); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Entity</button>
+      </div>
+
+      {/* KPI */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "Entities", v: entities.length, c: T.accent }, { l: "Currencies", v: currencies.length, c: "#3B82F6" }, { l: "Regions", v: new Set(entities.map(e => e.region).filter(Boolean)).size, c: "#10B981" }, { l: "Exchange Rates", v: exchangeRates.length, c: "#F59E0B" }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
+        ))}
+      </div>
+
+      {/* Entity org chart */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* Parent entity */}
+          {parentEntity && (
+            <Card onClick={() => setSelected(parentEntity)} style={{ padding: "14px 16px", borderLeft: `4px solid ${T.accent}`, cursor: "pointer", background: selected?.id === parentEntity.id ? T.accentDim : T.surface }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 22 }}>🏛</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{parentEntity.name}</div>
+                  <div style={{ fontSize: 11, color: T.text3 }}>{parentEntity.code} · {parentEntity.country} · {parentEntity.base_currency} · Parent</div>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Subsidiaries */}
+          {subsidiaries.map(ent => {
+            const sel = selected?.id === ent.id;
+            const regionColor = REGION_COLORS[ent.region] || T.text3;
+            const facCount = getEntityFacilities(ent.id).length;
+            return (
+              <Card key={ent.id} onClick={() => setSelected(ent)} style={{ padding: "12px 16px", marginLeft: isMobile ? 0 : 20, borderLeft: `4px solid ${regionColor}`, cursor: "pointer", background: sel ? `${regionColor}10` : T.surface }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>🌐</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{ent.name}</span>
+                      <span style={{ fontSize: 9, fontFamily: "monospace", padding: "1px 5px", borderRadius: 3, background: T.surface2, color: T.text3 }}>{ent.code}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{ent.country} · {ent.base_currency} · {ent.region}{facCount > 0 ? ` · ${facCount} facilities` : ""}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: regionColor }}>{ent.transfer_pricing_markup_pct || 0}%</div>
+                    <div style={{ fontSize: 9, color: T.text3 }}>{TP_METHODS[ent.transfer_pricing_method] || "—"}</div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Detail panel */}
+        {selected && !isMobile && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{selected.name}</div>
+                <div style={{ fontSize: 12, color: T.text3 }}>{selected.code} · {selected.entity_type}</div>
+              </div>
+              <button onClick={() => { setForm({ ...selected, transfer_pricing_markup_pct: selected.transfer_pricing_markup_pct || 0, fiscal_year_start: selected.fiscal_year_start || 1 }); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+              {[
+                { l: "Country", v: selected.country }, { l: "Region", v: selected.region || "—" }, { l: "Base Currency", v: selected.base_currency },
+                { l: "Fiscal Year", v: `Starts ${MONTHS[(selected.fiscal_year_start || 1) - 1]}` }, { l: "Tax ID", v: selected.tax_id || "—" }, { l: "City", v: selected.city || "—" },
+              ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2 }}>{d.v}</div></div>)}
+            </div>
+
+            {/* Transfer Pricing */}
+            <div style={{ marginBottom: 16, padding: "12px 14px", background: "#EDE9FE15", border: "1px solid #C4B5FD40", borderRadius: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#5B21B6", marginBottom: 8 }}>⚡ Transfer Pricing</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>METHOD</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, textTransform: "capitalize" }}>{TP_METHODS[selected.transfer_pricing_method] || "—"}</div></div>
+                <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>MARKUP</div><div style={{ fontSize: 18, fontWeight: 800, color: "#5B21B6" }}>{selected.transfer_pricing_markup_pct || 0}%</div></div>
+              </div>
+              {selected.base_currency !== "USD" && (
+                <div style={{ marginTop: 8, fontSize: 11, color: T.text3 }}>
+                  Exchange rate: 1 USD = {getRate("USD", selected.base_currency) || "?"} {selected.base_currency}
+                </div>
+              )}
+            </div>
+
+            {/* Facilities at this entity */}
+            {(() => {
+              const eFacs = getEntityFacilities(selected.id);
+              return eFacs.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Facilities ({eFacs.length})</div>
+                  {eFacs.map(f => (
+                    <div key={f.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 11 }}>
+                      <span>{f.name} ({f.facility_type})</span>
+                      <span style={{ color: T.text3 }}>{f.city}{f.state ? `, ${f.state}` : ""}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* IC Suppliers */}
+            {(() => {
+              const icSups = getEntitySuppliers(selected.id);
+              return icSups.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Intercompany Suppliers ({icSups.length})</div>
+                  {icSups.map(s => (
+                    <div key={s.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 11 }}>
+                      <span>{s.name} ({s.code})</span>
+                      <span style={{ color: T.text3 }}>{s.supplier_type?.replace(/_/g, " ")}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {selected.notes && <div style={{ fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+          </div>
+        )}
+      </div>
+
+      {/* Exchange Rates */}
+      <Card style={{ padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>Exchange Rates (USD base)</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 8 }}>
+          {currencies.filter(c => c.code !== "USD").map(c => {
+            const rate = getRate("USD", c.code);
+            return (
+              <div key={c.code} style={{ padding: "8px 10px", background: T.surface2, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div><div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{c.symbol} {c.code}</div><div style={{ fontSize: 9, color: T.text3 }}>{c.name}</div></div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{rate || "—"}</div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Create/Edit Entity Modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(580px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>{selected ? "Edit Entity" : "New Entity"}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Code *</div><input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="EB-XX" style={{ ...inp, fontFamily: "monospace" }} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Country</div><input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Region</div><select value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))} style={inp}>{["North America","Europe","APAC","LATAM","Africa","Middle East"].map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Base Currency</div><select value={form.base_currency} onChange={e => setForm(f => ({ ...f, base_currency: e.target.value }))} style={inp}>{currencies.map(c => <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>)}</select></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>City</div><input value={form.city || ""} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Tax ID</div><input value={form.tax_id || ""} onChange={e => setForm(f => ({ ...f, tax_id: e.target.value }))} placeholder="EIN / VAT" style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Fiscal Year Start</div><select value={form.fiscal_year_start} onChange={e => setForm(f => ({ ...f, fiscal_year_start: e.target.value }))} style={inp}>{MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select></div>
+              </div>
+              <div style={{ padding: "10px 12px", background: "#EDE9FE15", border: "1px solid #C4B5FD40", borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#5B21B6", marginBottom: 8 }}>Transfer Pricing</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Method</div><select value={form.transfer_pricing_method} onChange={e => setForm(f => ({ ...f, transfer_pricing_method: e.target.value }))} style={inp}>{Object.entries(TP_METHODS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+                  <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Markup %</div><input type="number" value={form.transfer_pricing_markup_pct} onChange={e => setForm(f => ({ ...f, transfer_pricing_markup_pct: e.target.value }))} style={inp} /></div>
+                </div>
+              </div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><textarea value={form.notes || ""} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, resize: "vertical" }} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveEntity} disabled={!form.name.trim() || !form.code.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() || !form.code.trim() ? 0.5 : 1 }}>{selected ? "Save" : "Create"}</button>
               </div>
             </div>
           </div>
