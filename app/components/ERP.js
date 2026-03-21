@@ -385,7 +385,7 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
 
   const filtered = products.filter(p => {
     if (typeFilter !== "all" && p.product_type !== typeFilter) return false;
-    if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.category?.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search) { const q = search.toLowerCase(); const pVars = variants.filter(v => v.product_id === p.id); const matchesSku = pVars.some(v => v.sku?.toLowerCase().includes(q) || v.barcode?.includes(q)); if (!p.name.toLowerCase().includes(q) && !p.category?.toLowerCase().includes(q) && !p.brand?.toLowerCase().includes(q) && !matchesSku) return false; }
     return true;
   });
 
@@ -513,18 +513,19 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                     <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
-                      {["SKU", "Name", "Size", "Cost", "Wholesale", "MSRP", "Case Pack"].map(h => <th key={h} style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                      {["SKU", "Name", "Size", "Cost", "Wholesale", "MSRP", "Pack", ""].map(h => <th key={h} style={{ textAlign: "left", padding: "6px 6px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {prodVariants.map(v => (
                         <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                          <td style={{ padding: "8px", fontWeight: 700, color: T.accent, fontFamily: "monospace", fontSize: 11 }}>{v.sku}</td>
-                          <td style={{ padding: "8px", color: T.text }}>{v.name}</td>
-                          <td style={{ padding: "8px", color: T.text3 }}>{v.size}</td>
-                          <td style={{ padding: "8px", fontWeight: 600 }}>{fmt(v.cost)}</td>
-                          <td style={{ padding: "8px" }}>{fmt(v.wholesale_price)}</td>
-                          <td style={{ padding: "8px" }}>{fmt(v.msrp)}</td>
-                          <td style={{ padding: "8px", color: T.text3 }}>{v.case_pack}</td>
+                          <td style={{ padding: "6px", fontWeight: 700, color: T.accent, fontFamily: "monospace", fontSize: 11 }}>{v.sku}</td>
+                          <td style={{ padding: "6px", color: T.text }}>{v.name}</td>
+                          <td style={{ padding: "6px", color: T.text3 }}>{v.size}</td>
+                          <td style={{ padding: "6px" }}><input type="number" step="0.01" defaultValue={v.cost} onBlur={async e => { const val = parseFloat(e.target.value) || 0; await supabase.from("erp_product_variants").update({ cost: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, cost: val } : x)); }} style={{ width: 55, padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", textAlign: "right" }} /></td>
+                          <td style={{ padding: "6px" }}><input type="number" step="0.01" defaultValue={v.wholesale_price} onBlur={async e => { const val = parseFloat(e.target.value) || 0; await supabase.from("erp_product_variants").update({ wholesale_price: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, wholesale_price: val } : x)); }} style={{ width: 55, padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", textAlign: "right" }} /></td>
+                          <td style={{ padding: "6px" }}><input type="number" step="0.01" defaultValue={v.msrp} onBlur={async e => { const val = parseFloat(e.target.value) || 0; await supabase.from("erp_product_variants").update({ msrp: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, msrp: val } : x)); }} style={{ width: 55, padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", textAlign: "right" }} /></td>
+                          <td style={{ padding: "6px", color: T.text3, fontSize: 11 }}>{v.case_pack}</td>
+                          <td style={{ padding: "6px" }}><button onClick={async () => { if (!window.confirm(`Delete variant ${v.sku}?`)) return; await supabase.from("erp_product_variants").delete().eq("id", v.id); setVariants(p => p.filter(x => x.id !== v.id)); }} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 10, padding: 0 }}>✕</button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -2233,7 +2234,56 @@ function ManufacturingView({ workOrders, setWorkOrders, variants, products, faci
                 { l: "Facility", v: getFacility(selected.facility_id)?.name || "—" }, { l: "Start", v: selected.planned_start ? new Date(selected.planned_start).toLocaleDateString() : "—" }, { l: "End", v: selected.planned_end ? new Date(selected.planned_end).toLocaleDateString() : "—" },
               ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>)}
             </div>
-            {selected.notes && <div style={{ fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+            {selected.notes && <div style={{ fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6, marginBottom: 12 }}>{selected.notes}</div>}
+
+            {/* BOM Material Requirements */}
+            {(() => {
+              const woBom = boms.find(b => b.id === selected.bom_id);
+              const woItems = woBom ? bomItems.filter(bi => bi.bom_id === woBom.id).sort((a, b) => a.sort_order - b.sort_order) : [];
+              const multiplier = selected.planned_quantity / (woBom?.batch_size || selected.planned_quantity || 1);
+              if (woItems.length === 0) return <div style={{ fontSize: 11, color: T.text3 }}>No BOM linked — {selected.bom_id ? "BOM has no items" : "link a BOM to see material requirements"}</div>;
+              const materialItems = woItems.filter(i => i.item_type !== "labor");
+              const laborItems = woItems.filter(i => i.item_type === "labor");
+              const totalMaterialCost = materialItems.reduce((s, i) => s + ((i.quantity || 0) * (i.cost_per_unit || 0) * multiplier), 0);
+              const totalLaborCost = laborItems.reduce((s, i) => s + ((i.quantity || 0) * (i.cost_per_unit || 0) * multiplier), 0);
+              const totalCost = totalMaterialCost + totalLaborCost;
+              return (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Material Requirements</div>
+                    <span style={{ fontSize: 10, color: T.text3 }}>{woBom?.name} v{woBom?.version}</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+                    <div style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{fmt(totalMaterialCost)}</div><div style={{ fontSize: 9, color: T.text3 }}>Materials</div></div>
+                    <div style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 14, fontWeight: 800, color: "#8B5CF6" }}>{fmt(totalLaborCost)}</div><div style={{ fontSize: 9, color: T.text3 }}>Labor</div></div>
+                    <div style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 14, fontWeight: 800, color: "#10B981" }}>{selected.planned_quantity > 0 ? fmt(totalCost / selected.planned_quantity) : "—"}</div><div style={{ fontSize: 9, color: T.text3 }}>Cost/Unit</div></div>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        {["Material", "Type", "Per Unit", "Required", "Unit", "Cost"].map(h => <th key={h} style={{ textAlign: "left", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {woItems.map(item => (
+                          <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                            <td style={{ padding: "5px 6px", fontWeight: 600, color: T.text }}>{item.item_name}</td>
+                            <td style={{ padding: "5px 6px", color: T.text3, fontSize: 10, textTransform: "capitalize" }}>{item.item_type?.replace(/_/g," ")}</td>
+                            <td style={{ padding: "5px 6px", fontFamily: "monospace", color: T.text3 }}>{item.quantity}</td>
+                            <td style={{ padding: "5px 6px", fontWeight: 700, color: T.accent }}>{fmtN(Math.ceil(item.quantity * multiplier * (1 + (item.scrap_pct || 0) / 100)))}</td>
+                            <td style={{ padding: "5px 6px", color: T.text3 }}>{item.unit}</td>
+                            <td style={{ padding: "5px 6px", fontWeight: 600 }}>{fmt(item.quantity * (item.cost_per_unit || 0) * multiplier)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot><tr style={{ borderTop: `1px solid ${T.border}` }}>
+                        <td colSpan={5} style={{ padding: "5px 6px", fontWeight: 700, textAlign: "right", fontSize: 10 }}>Total Production Cost</td>
+                        <td style={{ padding: "5px 6px", fontWeight: 800, color: T.accent }}>{fmt(totalCost)}</td>
+                      </tr></tfoot>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
