@@ -160,7 +160,7 @@ export default function ERPView() {
           {view === "products" && <ProductsView products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
           {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
-          {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} variants={variants} products={products} facilities={facilities} isMobile={isMobile} />}
+          {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} isMobile={isMobile} />}
           {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} customers={customers} isMobile={isMobile} />}
           {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} facilities={facilities} boms={boms} isMobile={isMobile} />}
@@ -789,61 +789,352 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
 // ═══════════════════════════════════════════════════════════════════════════════
 // INVENTORY VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function InventoryView({ inventory, setInventory, lots, variants, products, facilities, isMobile }) {
-  const [groupBy, setGroupBy] = useState("sku");
+function InventoryView({ inventory, setInventory, lots, setLots, variants, products, facilities, suppliers, purchaseOrders, setPurchaseOrders, isMobile }) {
+  const [subView, setSubView] = useState("overview"); // overview, lots, receive, adjust, transfer
+  const [showReceive, setShowReceive] = useState(false);
+  const [showAdjust, setShowAdjust] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [facilityFilter, setFacilityFilter] = useState("all");
+
   const getVariant = id => variants.find(v => v.id === id);
   const getProduct = id => products.find(p => p.id === id);
   const getFacility = id => facilities.find(f => f.id === id);
-  const getLot = id => lots.find(l => l.id === id);
+  const getSupplier = id => suppliers.find(s => s.id === id);
 
-  // Aggregate by SKU
+  const filteredInv = facilityFilter === "all" ? inventory : inventory.filter(i => i.facility_id === facilityFilter);
+
+  // Aggregations
   const bySku = {};
-  inventory.forEach(inv => {
+  filteredInv.forEach(inv => {
     const v = getVariant(inv.variant_id);
     const key = v?.sku || inv.product_id || "unknown";
-    if (!bySku[key]) bySku[key] = { sku: v?.sku || "—", name: v?.name || getProduct(inv.product_id)?.name || "Unknown", total: 0, facilities: {}, lots: new Set() };
+    if (!bySku[key]) bySku[key] = { sku: v?.sku || "—", name: v?.name || getProduct(inv.product_id)?.name || "Unknown", variantId: inv.variant_id, total: 0, reserved: 0, facilities: {}, lots: new Set() };
     bySku[key].total += inv.quantity || 0;
+    bySku[key].reserved += inv.reserved_quantity || 0;
     const fName = getFacility(inv.facility_id)?.name || "Unknown";
     bySku[key].facilities[fName] = (bySku[key].facilities[fName] || 0) + (inv.quantity || 0);
     if (inv.lot_id) bySku[key].lots.add(inv.lot_id);
   });
   const skuList = Object.values(bySku).sort((a, b) => b.total - a.total);
-  const totalUnits = inventory.reduce((s, i) => s + (i.quantity || 0), 0);
-  const totalSKUs = new Set(inventory.map(i => i.variant_id).filter(Boolean)).size;
+  const totalUnits = filteredInv.reduce((s, i) => s + (i.quantity || 0), 0);
+  const totalReserved = filteredInv.reduce((s, i) => s + (i.reserved_quantity || 0), 0);
+  const totalSKUs = new Set(filteredInv.map(i => i.variant_id).filter(Boolean)).size;
+  const activeLots = lots.filter(l => l.status === "available");
   const expiringLots = lots.filter(l => l.expiry_date && new Date(l.expiry_date) < new Date(Date.now() + 90 * 86400000) && l.status === "available");
+
+  // ── RECEIVE FORM ────────────────────────────────────────────────────────────
+  const [rcvForm, setRcvForm] = useState({ variant_id: "", facility_id: "", supplier_id: "", quantity: "", lot_number: "", supplier_lot: "", manufactured_date: "", expiry_date: "", po_id: "", bin_location: "", notes: "" });
+
+  const autoLotNumber = () => {
+    const d = new Date();
+    const seq = lots.length + 1;
+    return `LOT-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${String(seq).padStart(3, "0")}`;
+  };
+
+  const submitReceive = async () => {
+    if (!rcvForm.variant_id || !rcvForm.facility_id || !rcvForm.quantity) return;
+    const qty = parseFloat(rcvForm.quantity);
+    const lotNum = rcvForm.lot_number || autoLotNumber();
+
+    // Create lot
+    const lotPayload = {
+      lot_number: lotNum,
+      variant_id: rcvForm.variant_id,
+      supplier_id: rcvForm.supplier_id || null,
+      supplier_lot_number: rcvForm.supplier_lot || null,
+      manufactured_date: rcvForm.manufactured_date || null,
+      expiry_date: rcvForm.expiry_date || null,
+      received_date: new Date().toISOString().slice(0, 10),
+      po_id: rcvForm.po_id || null,
+      status: "available",
+    };
+    const { data: lot } = await supabase.from("erp_inventory_lots").insert(lotPayload).select().single();
+    if (!lot) return;
+
+    // Create or update inventory record
+    const { data: existing } = await supabase.from("erp_inventory").select("*").eq("variant_id", rcvForm.variant_id).eq("facility_id", rcvForm.facility_id).eq("lot_id", lot.id).maybeSingle();
+    let invRecord;
+    if (existing) {
+      const { data } = await supabase.from("erp_inventory").update({ quantity: existing.quantity + qty, bin_location: rcvForm.bin_location || existing.bin_location }).eq("id", existing.id).select().single();
+      invRecord = data;
+      setInventory(p => p.map(x => x.id === data.id ? data : x));
+    } else {
+      const { data } = await supabase.from("erp_inventory").insert({ variant_id: rcvForm.variant_id, facility_id: rcvForm.facility_id, lot_id: lot.id, quantity: qty, unit: "each", bin_location: rcvForm.bin_location || null }).select().single();
+      invRecord = data;
+      setInventory(p => [...p, data]);
+    }
+
+    // Log movement
+    await supabase.from("erp_inventory_movements").insert({ variant_id: rcvForm.variant_id, facility_id: rcvForm.facility_id, lot_id: lot.id, movement_type: "receipt", quantity: qty, reference_type: rcvForm.po_id ? "purchase_order" : null, reference_id: rcvForm.po_id || null, notes: rcvForm.notes || `Received ${qty} units, lot ${lotNum}` });
+
+    setLots(p => [lot, ...p]);
+    setShowReceive(false);
+    setRcvForm({ variant_id: "", facility_id: "", supplier_id: "", quantity: "", lot_number: "", supplier_lot: "", manufactured_date: "", expiry_date: "", po_id: "", bin_location: "", notes: "" });
+  };
+
+  // ── ADJUSTMENT FORM ─────────────────────────────────────────────────────────
+  const [adjForm, setAdjForm] = useState({ variant_id: "", facility_id: "", lot_id: "", quantity: "", reason: "cycle_count", notes: "" });
+
+  const submitAdjust = async () => {
+    if (!adjForm.variant_id || !adjForm.facility_id || !adjForm.quantity) return;
+    const adjQty = parseFloat(adjForm.quantity); // positive or negative
+    const { data: existing } = await supabase.from("erp_inventory").select("*").eq("variant_id", adjForm.variant_id).eq("facility_id", adjForm.facility_id).maybeSingle();
+    if (existing) {
+      const newQty = Math.max(0, existing.quantity + adjQty);
+      const { data } = await supabase.from("erp_inventory").update({ quantity: newQty }).eq("id", existing.id).select().single();
+      if (data) setInventory(p => p.map(x => x.id === data.id ? data : x));
+    } else if (adjQty > 0) {
+      const { data } = await supabase.from("erp_inventory").insert({ variant_id: adjForm.variant_id, facility_id: adjForm.facility_id, quantity: adjQty, unit: "each" }).select().single();
+      if (data) setInventory(p => [...p, data]);
+    }
+    await supabase.from("erp_inventory_movements").insert({ variant_id: adjForm.variant_id, facility_id: adjForm.facility_id, lot_id: adjForm.lot_id || null, movement_type: "adjustment", quantity: adjQty, reference_type: "adjustment", notes: `${adjForm.reason}: ${adjForm.notes || "Manual adjustment"}` });
+    setShowAdjust(false);
+    setAdjForm({ variant_id: "", facility_id: "", lot_id: "", quantity: "", reason: "cycle_count", notes: "" });
+  };
+
+  // ── TRANSFER FORM ───────────────────────────────────────────────────────────
+  const [xferForm, setXferForm] = useState({ variant_id: "", from_facility_id: "", to_facility_id: "", quantity: "", lot_id: "", notes: "" });
+
+  const submitTransfer = async () => {
+    if (!xferForm.variant_id || !xferForm.from_facility_id || !xferForm.to_facility_id || !xferForm.quantity) return;
+    if (xferForm.from_facility_id === xferForm.to_facility_id) return;
+    const qty = parseFloat(xferForm.quantity);
+
+    // Decrease from source
+    const { data: fromInv } = await supabase.from("erp_inventory").select("*").eq("variant_id", xferForm.variant_id).eq("facility_id", xferForm.from_facility_id).maybeSingle();
+    if (!fromInv || fromInv.quantity < qty) { alert("Insufficient stock at source facility"); return; }
+    const { data: updFrom } = await supabase.from("erp_inventory").update({ quantity: fromInv.quantity - qty }).eq("id", fromInv.id).select().single();
+    if (updFrom) setInventory(p => p.map(x => x.id === updFrom.id ? updFrom : x));
+
+    // Increase at destination
+    const { data: toInv } = await supabase.from("erp_inventory").select("*").eq("variant_id", xferForm.variant_id).eq("facility_id", xferForm.to_facility_id).maybeSingle();
+    if (toInv) {
+      const { data: updTo } = await supabase.from("erp_inventory").update({ quantity: toInv.quantity + qty }).eq("id", toInv.id).select().single();
+      if (updTo) setInventory(p => p.map(x => x.id === updTo.id ? updTo : x));
+    } else {
+      const { data: newTo } = await supabase.from("erp_inventory").insert({ variant_id: xferForm.variant_id, facility_id: xferForm.to_facility_id, lot_id: xferForm.lot_id || null, quantity: qty, unit: "each" }).select().single();
+      if (newTo) setInventory(p => [...p, newTo]);
+    }
+
+    // Log movements
+    const fromName = getFacility(xferForm.from_facility_id)?.name;
+    const toName = getFacility(xferForm.to_facility_id)?.name;
+    await supabase.from("erp_inventory_movements").insert([
+      { variant_id: xferForm.variant_id, facility_id: xferForm.from_facility_id, lot_id: xferForm.lot_id || null, movement_type: "transfer_out", quantity: -qty, notes: `Transfer to ${toName}: ${xferForm.notes || ""}`.trim() },
+      { variant_id: xferForm.variant_id, facility_id: xferForm.to_facility_id, lot_id: xferForm.lot_id || null, movement_type: "transfer_in", quantity: qty, notes: `Transfer from ${fromName}: ${xferForm.notes || ""}`.trim() },
+    ]);
+
+    setShowTransfer(false);
+    setXferForm({ variant_id: "", from_facility_id: "", to_facility_id: "", quantity: "", lot_id: "", notes: "" });
+  };
+
+  // ── INPUT STYLES ────────────────────────────────────────────────────────────
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+  const lbl = { fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Inventory</div><div style={{ fontSize: 12, color: T.text3 }}>{fmtN(totalUnits)} units across {facilities.length} facilities</div></div>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Inventory</div><div style={{ fontSize: 12, color: T.text3 }}>{fmtN(totalUnits)} units · {totalSKUs} SKUs · {facilities.length} facilities</div></div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => { setRcvForm(f => ({ ...f, lot_number: autoLotNumber() })); setShowReceive(true); }} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>📥 Receive</button>
+          <button onClick={() => setShowAdjust(true)} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "#F59E0B", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>±  Adjust</button>
+          <button onClick={() => setShowTransfer(true)} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>↔ Transfer</button>
+        </div>
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
-        {[{ l: "Total Units", v: fmtN(totalUnits), c: T.accent }, { l: "Active SKUs", v: totalSKUs, c: "#10B981" }, { l: "Active Lots", v: lots.filter(l => l.status === "available").length, c: "#3B82F6" }, { l: "Expiring <90d", v: expiringLots.length, c: expiringLots.length > 0 ? "#EF4444" : T.text3 }].map(s => (
-          <Card key={s.l} style={{ textAlign: "center", padding: 12 }}>
-            <div style={{ fontSize: 22, fontWeight: 900, color: s.c }}>{s.v}</div>
-            <div style={{ fontSize: 10, color: T.text3 }}>{s.l}</div>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "Total Units", v: fmtN(totalUnits), c: T.accent }, { l: "Reserved", v: fmtN(totalReserved), c: "#F59E0B" }, { l: "Available", v: fmtN(totalUnits - totalReserved), c: "#10B981" }, { l: "Active Lots", v: activeLots.length, c: "#3B82F6" }, { l: "Expiring <90d", v: expiringLots.length, c: expiringLots.length > 0 ? "#EF4444" : T.text3 }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div>
+            <div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div>
           </Card>
         ))}
       </div>
 
-      {/* Inventory by SKU */}
-      {skuList.map(item => (
-        <Card key={item.sku} style={{ padding: "12px 14px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <div><span style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{item.sku}</span><span style={{ fontSize: 12, color: T.text, marginLeft: 8 }}>{item.name}</span></div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmtN(item.total)}</div>
+      {/* Sub-nav: Overview | Lots */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+        {[["overview", "📊 Stock Levels"], ["lots", "🏷 Lots & Traceability"]].map(([k, l]) => (
+          <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
+        ))}
+        <div style={{ flex: 1 }} />
+        {/* Facility filter */}
+        <select value={facilityFilter} onChange={e => setFacilityFilter(e.target.value)} style={{ padding: "4px 8px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, outline: "none", marginBottom: 2 }}>
+          <option value="all">All Facilities</option>
+          {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+      </div>
+
+      {/* STOCK LEVELS VIEW */}
+      {subView === "overview" && (
+        <>
+          {skuList.map(item => (
+            <Card key={item.sku} style={{ padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div><span style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{item.sku}</span><span style={{ fontSize: 12, color: T.text, marginLeft: 8 }}>{item.name}</span></div>
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmtN(item.total)}</span>
+                  {item.reserved > 0 && <span style={{ fontSize: 11, color: "#F59E0B", marginLeft: 6 }}>({fmtN(item.reserved)} reserved)</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {Object.entries(item.facilities).map(([fName, qty]) => (
+                  <span key={fName} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.surface2, color: T.text3, fontWeight: 600 }}>{fName}: {fmtN(qty)}</span>
+                ))}
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: "#EFF6FF20", color: "#1D4ED8", fontWeight: 600 }}>{item.lots.size} lot{item.lots.size !== 1 ? "s" : ""}</span>
+              </div>
+            </Card>
+          ))}
+          {skuList.length === 0 && <EmptyState icon="📊" text="No inventory records" />}
+        </>
+      )}
+
+      {/* LOTS & TRACEABILITY VIEW */}
+      {subView === "lots" && (
+        <>
+          {activeLots.length === 0 && expiringLots.length === 0 && lots.length === 0 && <EmptyState icon="🏷" text="No lots recorded yet" />}
+          {expiringLots.length > 0 && (
+            <div style={{ padding: "10px 14px", background: "#FEE2E220", border: "1px solid #FECACA", borderRadius: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#991B1B", marginBottom: 6 }}>⚠ Expiring Soon ({expiringLots.length})</div>
+              {expiringLots.map(l => {
+                const v = getVariant(l.variant_id);
+                const daysLeft = Math.ceil((new Date(l.expiry_date) - new Date()) / 86400000);
+                return (
+                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11 }}>
+                    <span><strong style={{ fontFamily: "monospace" }}>{l.lot_number}</strong> · {v?.sku || "—"} · {v?.name || "—"}</span>
+                    <span style={{ color: daysLeft < 30 ? "#EF4444" : "#F59E0B", fontWeight: 700 }}>{daysLeft}d left · exp {new Date(l.expiry_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {lots.map(lot => {
+            const v = getVariant(lot.variant_id);
+            const sup = getSupplier(lot.supplier_id);
+            const lotInv = inventory.filter(i => i.lot_id === lot.id);
+            const lotQty = lotInv.reduce((s, i) => s + (i.quantity || 0), 0);
+            const isExpiring = lot.expiry_date && new Date(lot.expiry_date) < new Date(Date.now() + 90 * 86400000);
+            return (
+              <Card key={lot.id} style={{ padding: "12px 14px", borderLeft: `3px solid ${lot.status === "available" ? "#10B981" : lot.status === "quarantine" ? "#F59E0B" : lot.status === "expired" ? "#EF4444" : T.text3}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: T.text }}>{lot.lot_number}</span>
+                      <Pill status={lot.status} />
+                      {isExpiring && lot.status === "available" && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: "#FEE2E2", color: "#991B1B", fontWeight: 700 }}>EXPIRING</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 3 }}>
+                      {v?.sku || "—"} · {v?.name || getProduct(lot.product_id)?.name || "—"}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{fmtN(lotQty)} units</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{lotInv.length} location{lotInv.length !== 1 ? "s" : ""}</div>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 6, marginTop: 8, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>
+                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>SUPPLIER</div><div style={{ fontSize: 11, color: T.text }}>{sup?.name || "—"}</div></div>
+                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>SUPPLIER LOT</div><div style={{ fontSize: 11, color: T.text, fontFamily: "monospace" }}>{lot.supplier_lot_number || "—"}</div></div>
+                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>MFG DATE</div><div style={{ fontSize: 11, color: T.text }}>{lot.manufactured_date ? new Date(lot.manufactured_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</div></div>
+                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>EXPIRY</div><div style={{ fontSize: 11, color: isExpiring ? "#EF4444" : T.text, fontWeight: isExpiring ? 700 : 400 }}>{lot.expiry_date ? new Date(lot.expiry_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</div></div>
+                </div>
+              </Card>
+            );
+          })}
+        </>
+      )}
+
+      {/* ══════ RECEIVE MODAL ══════ */}
+      {showReceive && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowReceive(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(580px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 16 }}>📥 Receive Inventory</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={lbl}>Product / SKU *</div><select value={rcvForm.variant_id} onChange={e => setRcvForm(f => ({ ...f, variant_id: e.target.value }))} style={inp}><option value="">Select…</option>{variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
+                <div><div style={lbl}>Receive At *</div><select value={rcvForm.facility_id} onChange={e => setRcvForm(f => ({ ...f, facility_id: e.target.value }))} style={inp}><option value="">Select facility…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+                <div><div style={lbl}>Quantity *</div><input type="number" value={rcvForm.quantity} onChange={e => setRcvForm(f => ({ ...f, quantity: e.target.value }))} placeholder="0" style={inp} /></div>
+                <div><div style={lbl}>Supplier</div><select value={rcvForm.supplier_id} onChange={e => setRcvForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp}><option value="">Select…</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                <div><div style={lbl}>Against PO</div><select value={rcvForm.po_id} onChange={e => setRcvForm(f => ({ ...f, po_id: e.target.value }))} style={inp}><option value="">None</option>{purchaseOrders.filter(p => p.status !== "cancelled" && p.status !== "closed").map(p => <option key={p.id} value={p.id}>{p.po_number}</option>)}</select></div>
+              </div>
+              <div style={{ background: T.surface2, borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>🏷 Lot Details</div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                  <div><div style={lbl}>Lot Number</div><input value={rcvForm.lot_number} onChange={e => setRcvForm(f => ({ ...f, lot_number: e.target.value }))} style={{ ...inp, fontFamily: "monospace" }} /></div>
+                  <div><div style={lbl}>Supplier Lot #</div><input value={rcvForm.supplier_lot} onChange={e => setRcvForm(f => ({ ...f, supplier_lot: e.target.value }))} placeholder="Supplier's batch number" style={inp} /></div>
+                  <div><div style={lbl}>Manufactured Date</div><input type="date" value={rcvForm.manufactured_date} onChange={e => setRcvForm(f => ({ ...f, manufactured_date: e.target.value }))} style={inp} /></div>
+                  <div><div style={lbl}>Expiry Date</div><input type="date" value={rcvForm.expiry_date} onChange={e => setRcvForm(f => ({ ...f, expiry_date: e.target.value }))} style={inp} /></div>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={lbl}>Bin Location</div><input value={rcvForm.bin_location} onChange={e => setRcvForm(f => ({ ...f, bin_location: e.target.value }))} placeholder="e.g. A-01-01" style={inp} /></div>
+                <div><div style={lbl}>Notes</div><input value={rcvForm.notes} onChange={e => setRcvForm(f => ({ ...f, notes: e.target.value }))} placeholder="Receipt notes…" style={inp} /></div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowReceive(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={submitReceive} disabled={!rcvForm.variant_id || !rcvForm.facility_id || !rcvForm.quantity} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !rcvForm.variant_id || !rcvForm.facility_id || !rcvForm.quantity ? 0.5 : 1 }}>Receive</button>
+              </div>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {Object.entries(item.facilities).map(([fName, qty]) => (
-              <span key={fName} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.surface2, color: T.text3, fontWeight: 600 }}>{fName}: {fmtN(qty)}</span>
-            ))}
-            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: "#EFF6FF20", color: "#1D4ED8", fontWeight: 600 }}>{item.lots.size} lot{item.lots.size !== 1 ? "s" : ""}</span>
+        </div>
+      )}
+
+      {/* ══════ ADJUST MODAL ══════ */}
+      {showAdjust && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowAdjust(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(480px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#F59E0B", marginBottom: 16 }}>± Adjust Inventory</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={lbl}>Product / SKU *</div><select value={adjForm.variant_id} onChange={e => setAdjForm(f => ({ ...f, variant_id: e.target.value }))} style={inp}><option value="">Select…</option>{variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
+                <div><div style={lbl}>Facility *</div><select value={adjForm.facility_id} onChange={e => setAdjForm(f => ({ ...f, facility_id: e.target.value }))} style={inp}><option value="">Select…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={lbl}>Quantity (+/-) *</div><input type="number" value={adjForm.quantity} onChange={e => setAdjForm(f => ({ ...f, quantity: e.target.value }))} placeholder="+100 or -50" style={inp} /><div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>Positive to add, negative to remove</div></div>
+                <div><div style={lbl}>Reason</div><select value={adjForm.reason} onChange={e => setAdjForm(f => ({ ...f, reason: e.target.value }))} style={inp}>{["cycle_count","damage","spoilage","theft","correction","other"].map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}</select></div>
+              </div>
+              <div><div style={lbl}>Notes</div><input value={adjForm.notes} onChange={e => setAdjForm(f => ({ ...f, notes: e.target.value }))} placeholder="Adjustment reason…" style={inp} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowAdjust(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={submitAdjust} disabled={!adjForm.variant_id || !adjForm.facility_id || !adjForm.quantity} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#F59E0B", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !adjForm.variant_id || !adjForm.facility_id || !adjForm.quantity ? 0.5 : 1 }}>Submit Adjustment</button>
+              </div>
+            </div>
           </div>
-        </Card>
-      ))}
-      {skuList.length === 0 && <EmptyState icon="📊" text="No inventory records" />}
+        </div>
+      )}
+
+      {/* ══════ TRANSFER MODAL ══════ */}
+      {showTransfer && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowTransfer(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(500px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#3B82F6", marginBottom: 16 }}>↔ Transfer Inventory</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={lbl}>Product / SKU *</div><select value={xferForm.variant_id} onChange={e => setXferForm(f => ({ ...f, variant_id: e.target.value }))} style={inp}><option value="">Select…</option>{variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, alignItems: "end" }}>
+                <div><div style={lbl}>From Facility *</div><select value={xferForm.from_facility_id} onChange={e => setXferForm(f => ({ ...f, from_facility_id: e.target.value }))} style={inp}><option value="">Select…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+                <div style={{ fontSize: 18, color: T.text3, paddingBottom: 8 }}>→</div>
+                <div><div style={lbl}>To Facility *</div><select value={xferForm.to_facility_id} onChange={e => setXferForm(f => ({ ...f, to_facility_id: e.target.value }))} style={inp}><option value="">Select…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+              </div>
+              {xferForm.variant_id && xferForm.from_facility_id && (() => {
+                const avail = inventory.filter(i => i.variant_id === xferForm.variant_id && i.facility_id === xferForm.from_facility_id).reduce((s, i) => s + (i.quantity || 0), 0);
+                return <div style={{ fontSize: 11, color: avail > 0 ? "#10B981" : "#EF4444", fontWeight: 600 }}>Available at source: {fmtN(avail)} units</div>;
+              })()}
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={lbl}>Quantity *</div><input type="number" value={xferForm.quantity} onChange={e => setXferForm(f => ({ ...f, quantity: e.target.value }))} placeholder="0" style={inp} /></div>
+                <div><div style={lbl}>Notes</div><input value={xferForm.notes} onChange={e => setXferForm(f => ({ ...f, notes: e.target.value }))} placeholder="Transfer reason…" style={inp} /></div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowTransfer(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={submitTransfer} disabled={!xferForm.variant_id || !xferForm.from_facility_id || !xferForm.to_facility_id || !xferForm.quantity || xferForm.from_facility_id === xferForm.to_facility_id} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !xferForm.variant_id || !xferForm.from_facility_id || !xferForm.to_facility_id || !xferForm.quantity ? 0.5 : 1 }}>Transfer</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
