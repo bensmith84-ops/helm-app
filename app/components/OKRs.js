@@ -484,9 +484,21 @@ export default function OKRsView() {
   // ROADMAP TIMELINE VIEW
   // ============================
   const RoadmapView = () => {
-    // Calculate date range from cycle
-    const startDate = cycle?.start_date ? new Date(cycle.start_date + "T00:00:00") : new Date();
-    const endDate = cycle?.end_date ? new Date(cycle.end_date + "T00:00:00") : new Date(startDate.getTime() + 180 * 86400000);
+    // Calculate date range — expand to cover all KR dates, not just cycle
+    const cycleStart = cycle?.start_date ? new Date(cycle.start_date + "T00:00:00") : new Date();
+    const cycleEnd = cycle?.end_date ? new Date(cycle.end_date + "T00:00:00") : new Date(cycleStart.getTime() + 90 * 86400000);
+
+    // Find the actual min/max from all KR dates
+    const allKRDates = keyResults.flatMap(kr => [kr.start_date, kr.end_date].filter(Boolean).map(d => new Date(d + "T00:00:00")));
+    const minKR = allKRDates.length > 0 ? new Date(Math.min(...allKRDates.map(d => d.getTime()))) : cycleStart;
+    const maxKR = allKRDates.length > 0 ? new Date(Math.max(...allKRDates.map(d => d.getTime()))) : cycleEnd;
+
+    // Timeline range = union of cycle range and KR range, rounded to month boundaries
+    const rangeMin = new Date(Math.min(cycleStart.getTime(), minKR.getTime()));
+    const rangeMax = new Date(Math.max(cycleEnd.getTime(), maxKR.getTime()));
+    // Start at 1st of the start month, end at last day of the end month
+    const startDate = new Date(rangeMin.getFullYear(), rangeMin.getMonth(), 1);
+    const endDate = new Date(rangeMax.getFullYear(), rangeMax.getMonth() + 1, 0); // last day of month
     const totalDays = Math.max(1, (endDate - startDate) / 86400000);
 
     // Generate month columns
@@ -561,7 +573,7 @@ export default function OKRsView() {
 
     return (
       <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
-        <div style={{ minWidth: leftColW + krColW + 900 }}>
+        <div style={{ minWidth: leftColW + krColW + Math.max(700, months.length * 120) }}>
           {/* ===== HEADER ROW: Quarter ===== */}
           <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 5, background: T.surface }}>
             <div style={{ width: leftColW + krColW, flexShrink: 0, height: 24, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.surface }} />
@@ -678,7 +690,8 @@ export default function OKRsView() {
                       {objKRs.map(kr => {
                         const krMs = (krLinked[kr.id] || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
                         if (krMs.length === 0) return null;
-                        const krBar = kr.start_date && kr.end_date ? posBar(kr.start_date, kr.end_date) : null;
+                        const krBar = kr.start_date && kr.end_date ? posBar(kr.start_date, kr.end_date) 
+                          : cycle?.start_date && cycle?.end_date ? posBar(cycle.start_date, cycle.end_date) : null;
                         // KR-level health from aggregate of child milestones
                         const krPct = Number(kr.progress) || 0;
                         const offCount = krMs.filter(m => m.health === "off_track").length;
