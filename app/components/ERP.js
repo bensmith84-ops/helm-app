@@ -77,6 +77,9 @@ export default function ERPView() {
   const [orderItems, setOrderItems] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
+  const [entities, setEntities] = useState([]);
+  const [currencies, setCurrencies] = useState([]);
+  const [exchangeRates, setExchangeRates] = useState([]);
 
   useEffect(() => {
     const load = async () => {
@@ -84,7 +87,7 @@ export default function ERPView() {
         { data: prods }, { data: vars }, { data: bm }, { data: bi },
         { data: sups }, { data: facs }, { data: inv }, { data: lt },
         { data: pos }, { data: pois }, { data: ords }, { data: ois },
-        { data: custs }, { data: wos },
+        { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -100,11 +103,15 @@ export default function ERPView() {
         supabase.from("erp_order_items").select("*"),
         supabase.from("erp_customers").select("*").order("name"),
         supabase.from("erp_work_orders").select("*").order("created_at", { ascending: false }),
+        supabase.from("erp_entities").select("*").order("code"),
+        supabase.from("erp_currencies").select("*").eq("is_active", true).order("code"),
+        supabase.from("erp_exchange_rates").select("*").order("effective_date", { ascending: false }),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
       setPurchaseOrders(pos || []); setPoItems(pois || []); setOrders(ords || []); setOrderItems(ois || []);
       setCustomers(custs || []); setWorkOrders(wos || []);
+      setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setLoading(false);
     };
     if (user) load();
@@ -152,7 +159,7 @@ export default function ERPView() {
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
           {view === "products" && <ProductsView products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
           {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} isMobile={isMobile} />}
-          {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} isMobile={isMobile} />}
+          {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} variants={variants} products={products} facilities={facilities} isMobile={isMobile} />}
           {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} customers={customers} isMobile={isMobile} />}
           {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
@@ -457,45 +464,324 @@ function SuppliersView({ suppliers, setSuppliers, isMobile }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // PURCHASE ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, isMobile }) {
+function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, entities, currencies, exchangeRates, isMobile }) {
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const [lineItems, setLineItems] = useState([]);
+
+  const FORM_INIT = { supplier_id: "", facility_id: "", buying_entity_id: "", po_currency: "USD", payment_terms: "net_30", expected_date: "", notes: "", is_intercompany: false };
+  const [form, setForm] = useState(FORM_INIT);
+
   const filtered = purchaseOrders.filter(po => statusFilter === "all" || po.status === statusFilter);
   const getSupplier = id => suppliers.find(s => s.id === id);
   const getFacility = id => facilities.find(f => f.id === id);
+  const getEntity = id => entities.find(e => e.id === id);
+  const getCurrencySymbol = code => currencies.find(c => c.code === code)?.symbol || "$";
+
+  const openPOs = purchaseOrders.filter(p => !["received", "closed", "cancelled"].includes(p.status));
+  const totalOpen = openPOs.reduce((s, p) => s + (p.total || 0), 0);
+
+  // Auto-generate PO number
+  const nextPONum = () => {
+    const year = new Date().getFullYear();
+    const existing = purchaseOrders.filter(p => p.po_number.startsWith(`PO-${year}`));
+    const max = existing.reduce((m, p) => { const n = parseInt(p.po_number.split("-")[2]) || 0; return Math.max(m, n); }, 0);
+    return `PO-${year}-${String(max + 1).padStart(4, "0")}`;
+  };
+
+  // When supplier changes, check if intercompany
+  const onSupplierChange = (supId) => {
+    const sup = suppliers.find(s => s.id === supId);
+    setForm(f => ({
+      ...f,
+      supplier_id: supId,
+      is_intercompany: sup?.is_intercompany || false,
+      selling_entity_id: sup?.entity_id || "",
+      po_currency: sup?.currency || "USD",
+    }));
+  };
+
+  // Add line item
+  const addLine = () => setLineItems(p => [...p, { variant_id: "", product_id: "", description: "", quantity: 1, unit: "each", unit_price: 0 }]);
+  const updateLine = (i, field, val) => setLineItems(p => p.map((l, j) => j === i ? { ...l, [field]: val } : l));
+  const removeLine = (i) => setLineItems(p => p.filter((_, j) => j !== i));
+
+  // When a product/variant is selected on a line, auto-fill description and cost
+  const onLineProductChange = (i, variantId) => {
+    const v = variants.find(x => x.id === variantId);
+    if (v) {
+      const p = products.find(x => x.id === v.product_id);
+      updateLine(i, "variant_id", variantId);
+      updateLine(i, "description", `${v.name} (${v.sku})`);
+      updateLine(i, "unit_price", v.cost || 0);
+    }
+  };
+
+  const lineTotal = lineItems.reduce((s, l) => s + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), 0);
+
+  // Create PO
+  const createPO = async () => {
+    if (!form.supplier_id || lineItems.length === 0) return;
+    const poNumber = nextPONum();
+    const payload = {
+      po_number: poNumber,
+      supplier_id: form.supplier_id,
+      facility_id: form.facility_id || null,
+      buying_entity_id: form.buying_entity_id || null,
+      selling_entity_id: form.selling_entity_id || null,
+      is_intercompany: form.is_intercompany,
+      po_currency: form.po_currency,
+      status: "draft",
+      order_date: new Date().toISOString().slice(0, 10),
+      expected_date: form.expected_date || null,
+      payment_terms: form.payment_terms,
+      subtotal: lineTotal,
+      total: lineTotal,
+      notes: form.notes,
+    };
+    const { data: po } = await supabase.from("erp_purchase_orders").insert(payload).select().single();
+    if (!po) return;
+
+    // Insert line items
+    const items = lineItems.map((l, i) => ({
+      po_id: po.id,
+      variant_id: l.variant_id || null,
+      product_id: l.product_id || null,
+      description: l.description,
+      quantity: parseFloat(l.quantity) || 0,
+      unit: l.unit,
+      unit_price: parseFloat(l.unit_price) || 0,
+      total: (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0),
+      sort_order: i,
+    }));
+    const { data: createdItems } = await supabase.from("erp_po_items").insert(items).select();
+
+    setPurchaseOrders(p => [po, ...p]);
+    if (createdItems) setPoItems(p => [...p, ...createdItems]);
+    setShowNew(false);
+    setForm(FORM_INIT);
+    setLineItems([]);
+    setSelected(po);
+  };
+
+  // Update PO status
+  const updateStatus = async (po, newStatus) => {
+    const updates = { status: newStatus };
+    if (newStatus === "received") updates.received_date = new Date().toISOString().slice(0, 10);
+    const { data } = await supabase.from("erp_purchase_orders").update(updates).eq("id", po.id).select().single();
+    if (data) { setPurchaseOrders(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+  };
+
+  const selItems = selected ? poItems.filter(i => i.po_id === selected.id) : [];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Purchase Orders</div><div style={{ fontSize: 12, color: T.text3 }}>{purchaseOrders.length} POs · {purchaseOrders.filter(p => !["received","closed","cancelled"].includes(p.status)).length} open</div></div>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Purchase Orders</div><div style={{ fontSize: 12, color: T.text3 }}>{purchaseOrders.length} POs · {openPOs.length} open · {fmt(totalOpen)} outstanding</div></div>
+        <button onClick={() => { setForm(FORM_INIT); setLineItems([{ variant_id: "", description: "", quantity: 1, unit: "each", unit_price: 0 }]); setShowNew(true); }}
+          style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ New PO</button>
       </div>
+
+      {/* KPI cards */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "Open POs", v: openPOs.length, c: T.accent }, { l: "Outstanding", v: fmt(totalOpen), c: "#F59E0B" }, { l: "Received MTD", v: purchaseOrders.filter(p => p.status === "received" && p.received_date >= new Date().toISOString().slice(0, 7)).length, c: "#10B981" }, { l: "Avg Lead", v: `${Math.round(suppliers.reduce((s, x) => s + (x.lead_time_days || 0), 0) / Math.max(suppliers.length, 1))}d`, c: T.text3 }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div>
+            <div style={{ fontSize: 10, color: T.text3 }}>{s.l}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Status filter */}
       <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2, flexWrap: "wrap" }}>
         {[["all","All"],["draft","Draft"],["submitted","Submitted"],["confirmed","Confirmed"],["partially_received","Partial"],["received","Received"]].map(([v,l]) => (
           <button key={v} onClick={() => setStatusFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: statusFilter === v ? T.surface : "transparent", color: statusFilter === v ? T.text : T.text3 }}>{l}</button>
         ))}
       </div>
-      {filtered.length === 0 ? <EmptyState icon="📋" text="No purchase orders found" /> :
-        filtered.map(po => {
-          const sup = getSupplier(po.supplier_id);
-          const fac = getFacility(po.facility_id);
-          return (
-            <Card key={po.id} style={{ padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{po.po_number}</span>
-                    <Pill status={po.status} />
+
+      {/* PO list + detail */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filtered.length === 0 ? <EmptyState icon="📋" text="No purchase orders found" /> :
+            filtered.map(po => {
+              const sup = getSupplier(po.supplier_id);
+              const fac = getFacility(po.facility_id);
+              const ent = getEntity(po.buying_entity_id);
+              const sel = selected?.id === po.id;
+              const sym = getCurrencySymbol(po.po_currency);
+              return (
+                <Card key={po.id} onClick={() => setSelected(po)} style={{ padding: "12px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{po.po_number}</span>
+                        <Pill status={po.status} />
+                        {po.is_intercompany && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: "#EDE9FE", color: "#5B21B6", fontWeight: 700 }}>IC</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.text3, marginTop: 3 }}>
+                        {sup?.name || "—"}{fac ? ` → ${fac.name}` : ""}{ent ? ` · ${ent.code}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{sym}{fmtN(po.total)}</div>
+                      <div style={{ fontSize: 10, color: T.text3 }}>{po.po_currency !== "USD" ? po.po_currency : ""}{po.expected_date ? ` ETA ${new Date(po.expected_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>{sup?.name || "Unknown"}{fac ? ` → ${fac.name}` : ""}</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmt(po.total)}</div>
-                  <div style={{ fontSize: 10, color: T.text3 }}>{po.expected_date ? `ETA ${new Date(po.expected_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
-                </div>
+                </Card>
+              );
+            })
+          }
+        </div>
+
+        {/* Detail panel */}
+        {selected && !isMobile && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.po_number}</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getSupplier(selected.supplier_id)?.name}{selected.is_intercompany ? " (Intercompany)" : ""}</div>
               </div>
-              {po.notes && <div style={{ fontSize: 11, color: T.text3, padding: "6px 0", borderTop: `1px solid ${T.border}` }}>{po.notes}</div>}
-            </Card>
-          );
-        })
-      }
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {selected.status === "draft" && <button onClick={() => updateStatus(selected, "submitted")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Submit</button>}
+                {selected.status === "submitted" && <button onClick={() => updateStatus(selected, "confirmed")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Confirm</button>}
+                {(selected.status === "confirmed" || selected.status === "partially_received") && <button onClick={() => updateStatus(selected, "received")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Mark Received</button>}
+                {selected.status !== "cancelled" && selected.status !== "closed" && <button onClick={() => updateStatus(selected, "cancelled")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Cancel</button>}
+              </div>
+            </div>
+
+            {/* PO details grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+              {[
+                { l: "Status", v: selected.status?.replace(/_/g, " ") },
+                { l: "Order Date", v: selected.order_date ? new Date(selected.order_date).toLocaleDateString() : "—" },
+                { l: "Expected", v: selected.expected_date ? new Date(selected.expected_date).toLocaleDateString() : "—" },
+                { l: "Entity", v: getEntity(selected.buying_entity_id)?.code || "—" },
+                { l: "Currency", v: selected.po_currency || "USD" },
+                { l: "Terms", v: selected.payment_terms?.replace(/_/g, " ") || "—" },
+                { l: "Facility", v: getFacility(selected.facility_id)?.name || "—" },
+                { l: "Total", v: `${getCurrencySymbol(selected.po_currency)}${fmtN(selected.total)}` },
+                { l: "Received", v: selected.received_date ? new Date(selected.received_date).toLocaleDateString() : "—" },
+              ].map(d => (
+                <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>
+              ))}
+            </div>
+
+            {/* Line items table */}
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Line Items</div>
+            {selItems.length === 0 ? <div style={{ fontSize: 12, color: T.text3, padding: 12, textAlign: "center" }}>No line items</div> :
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    {["Item", "Qty", "Unit", "Price", "Total", "Received"].map(h => <th key={h} style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {selItems.map(item => (
+                      <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <td style={{ padding: "8px", color: T.text, fontWeight: 600 }}>{item.description}</td>
+                        <td style={{ padding: "8px" }}>{fmtN(item.quantity)}</td>
+                        <td style={{ padding: "8px", color: T.text3 }}>{item.unit}</td>
+                        <td style={{ padding: "8px" }}>{fmt(item.unit_price)}</td>
+                        <td style={{ padding: "8px", fontWeight: 700 }}>{fmt(item.total)}</td>
+                        <td style={{ padding: "8px", color: item.received_quantity >= item.quantity ? "#10B981" : T.text3 }}>{fmtN(item.received_quantity || 0)}/{fmtN(item.quantity)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr style={{ borderTop: `2px solid ${T.border}` }}>
+                    <td colSpan={4} style={{ padding: "8px", fontWeight: 700, textAlign: "right" }}>Total</td>
+                    <td style={{ padding: "8px", fontWeight: 800, color: T.accent }}>{fmt(selItems.reduce((s, i) => s + (i.total || 0), 0))}</td>
+                    <td></td>
+                  </tr></tfoot>
+                </table>
+              </div>
+            }
+            {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+          </div>
+        )}
+      </div>
+
+      {/* Create PO Modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(700px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Purchase Order</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Supplier + Entity */}
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Supplier *</div><select value={form.supplier_id} onChange={e => onSupplierChange(e.target.value)} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select supplier…</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.code}){s.is_intercompany ? " [IC]" : ""}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Buying Entity</div><select value={form.buying_entity_id} onChange={e => setForm(f => ({ ...f, buying_entity_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select entity…</option>{entities.map(e => <option key={e.id} value={e.id}>{e.code} — {e.name} ({e.base_currency})</option>)}</select></div>
+              </div>
+              {/* Facility + Currency + Terms */}
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Receive At</div><select value={form.facility_id} onChange={e => setForm(f => ({ ...f, facility_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select facility…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Currency</div><select value={form.po_currency} onChange={e => setForm(f => ({ ...f, po_currency: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}>{currencies.map(c => <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Payment Terms</div><select value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}>{["prepaid","cod","net_15","net_30","net_45","net_60","net_90"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}</select></div>
+              </div>
+              {/* Expected date + notes */}
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Expected Delivery</div><input type="date" value={form.expected_date} onChange={e => setForm(f => ({ ...f, expected_date: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="PO notes…" style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
+              </div>
+
+              {/* Intercompany indicator */}
+              {form.is_intercompany && (
+                <div style={{ padding: "8px 12px", borderRadius: 8, background: "#EDE9FE", border: "1px solid #C4B5FD", fontSize: 11, color: "#5B21B6", fontWeight: 600 }}>
+                  ⚡ Intercompany PO — transfer pricing rules will apply. Markup: {suppliers.find(s => s.id === form.supplier_id)?.entity_id ? `${entities.find(e => e.id === suppliers.find(s => s.id === form.supplier_id)?.entity_id)?.transfer_pricing_markup_pct || 0}%` : "—"}
+                </div>
+              )}
+
+              {/* Line items */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Line Items</div>
+                  <button onClick={addLine} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 6, cursor: "pointer" }}>+ Add Line</button>
+                </div>
+                {lineItems.map((line, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
+                    <div>
+                      {i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>ITEM</div>}
+                      <select value={line.variant_id} onChange={e => { updateLine(i, "variant_id", e.target.value); onLineProductChange(i, e.target.value); }}
+                        style={{ width: "100%", padding: "7px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}>
+                        <option value="">Select or type…</option>
+                        {variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}
+                        {products.filter(p => p.product_type !== "finished_good").map(p => <option key={`p-${p.id}`} value="">📦 {p.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      {i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>QTY</div>}
+                      <input type="number" value={line.quantity} onChange={e => updateLine(i, "quantity", e.target.value)}
+                        style={{ width: "100%", padding: "7px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      {i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>UNIT PRICE</div>}
+                      <input type="number" step="0.01" value={line.unit_price} onChange={e => updateLine(i, "unit_price", e.target.value)}
+                        style={{ width: "100%", padding: "7px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      {i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>LINE TOTAL</div>}
+                      <div style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text }}>{getCurrencySymbol(form.po_currency)}{((parseFloat(line.quantity) || 0) * (parseFloat(line.unit_price) || 0)).toFixed(2)}</div>
+                    </div>
+                    <button onClick={() => removeLine(i)} style={{ padding: "6px 8px", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 14, marginBottom: 1 }}>✕</button>
+                  </div>
+                ))}
+                {lineItems.length > 0 && (
+                  <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 0", borderTop: `2px solid ${T.border}`, marginTop: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{getCurrencySymbol(form.po_currency)}{lineTotal.toFixed(2)}{form.po_currency !== "USD" ? ` ${form.po_currency}` : ""}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => { setShowNew(false); setLineItems([]); }} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={createPO} disabled={!form.supplier_id || lineItems.length === 0}
+                  style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.supplier_id || lineItems.length === 0 ? 0.5 : 1 }}>Create PO</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
