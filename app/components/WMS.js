@@ -67,8 +67,11 @@ export default function WMSView() {
   const VIEWS = [
     { key: "tasks", icon: "📋", label: "Tasks" },
     { key: "receive", icon: "📥", label: "Receive" },
+    { key: "putaway", icon: "📍", label: "Put-away" },
     { key: "pick", icon: "🛒", label: "Pick" },
+    { key: "pack", icon: "📦", label: "Pack" },
     { key: "count", icon: "📊", label: "Count" },
+    { key: "transfer", icon: "↔", label: "Transfer" },
     { key: "lookup", icon: "🔍", label: "Lookup" },
   ];
 
@@ -103,8 +106,11 @@ export default function WMSView() {
     setWorkflowStep(0);
     setWorkflowData({});
     if (task.task_type === "receive") setView("receive");
+    else if (task.task_type === "putaway") setView("putaway");
     else if (task.task_type === "pick") setView("pick");
+    else if (task.task_type === "pack") setView("pack");
     else if (task.task_type === "count") setView("count");
+    else if (task.task_type === "transfer") setView("transfer");
   };
 
   const completeTask = async (task) => {
@@ -305,6 +311,240 @@ export default function WMSView() {
           </div>
         )}
 
+        {/* PUT-AWAY VIEW */}
+        {view === "putaway" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#3B82F6" }}>📍 Put-Away</div>
+              <button onClick={() => setView("tasks")} style={{ fontSize: 12, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>← Back</button>
+            </div>
+            {activeTask && <div style={{ padding: "10px 14px", background: "#3B82F615", border: "1px solid #3B82F640", borderRadius: 10, fontSize: 12, color: T.text }}>{activeTask.title}</div>}
+            <div style={{ fontSize: 13, color: T.text3 }}>1. Scan item → 2. Scan destination bin → 3. Confirm</div>
+
+            {workflowData.scannedVariant && !workflowData.putawayConfirmed && (
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{workflowData.scannedVariant.name}</div>
+                <div style={{ fontSize: 12, fontFamily: "monospace", color: T.accent }}>{workflowData.scannedVariant.sku}</div>
+
+                {/* Suggested bin locations */}
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, marginBottom: 6 }}>SUGGESTED BINS</div>
+                  {facilityBins.filter(b => b.zone === "bulk" && b.is_active).slice(0, 4).map(b => {
+                    const binInv = facilityInv.filter(i => i.bin_location === b.code);
+                    const used = binInv.reduce((s, i) => s + (i.quantity || 0), 0);
+                    const hasSameSku = binInv.some(i => i.variant_id === workflowData.scannedVariant?.id);
+                    return (
+                      <div key={b.id} onClick={() => setWorkflowData(d => ({ ...d, putawayBin: b }))}
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", marginBottom: 4, background: workflowData.putawayBin?.id === b.id ? T.accent + "15" : T.surface2, border: `1px solid ${workflowData.putawayBin?.id === b.id ? T.accent : T.border}`, borderRadius: 8, cursor: "pointer" }}>
+                        <div>
+                          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: T.text }}>{b.code}</span>
+                          {hasSameSku && <span style={{ fontSize: 9, marginLeft: 6, color: "#10B981", fontWeight: 700 }}>HAS SAME SKU</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: T.text3 }}>{fmtN(used)}/{fmtN(b.max_capacity || 0)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 2 }}>Or scan/enter bin</div>
+                  <input value={workflowData.putawayBinManual || ""} onChange={e => setWorkflowData(d => ({ ...d, putawayBinManual: e.target.value }))} placeholder="Bin code…" style={{ width: "100%", padding: "10px 14px", fontSize: 14, fontFamily: "monospace", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                </div>
+
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 2 }}>Quantity</div>
+                  <input type="number" value={workflowData.putawayQty || ""} onChange={e => setWorkflowData(d => ({ ...d, putawayQty: e.target.value }))} placeholder="0" style={{ width: "100%", padding: "10px 14px", fontSize: 16, fontWeight: 700, textAlign: "center", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                </div>
+
+                <button onClick={async () => {
+                  const qty = parseInt(workflowData.putawayQty);
+                  const binCode = workflowData.putawayBin?.code || workflowData.putawayBinManual;
+                  if (!qty || !binCode) return alert("Enter quantity and select/scan a bin");
+                  // Update inventory bin_location
+                  const existing = facilityInv.find(i => i.variant_id === workflowData.scannedVariant.id && (!i.bin_location || i.bin_location === "DOCK-R1" || i.bin_location === "DOCK-R2"));
+                  if (existing) {
+                    const { data } = await supabase.from("erp_inventory").update({ bin_location: binCode }).eq("id", existing.id).select().single();
+                    if (data) setInventory(p => p.map(x => x.id === data.id ? data : x));
+                  }
+                  await supabase.from("erp_inventory_movements").insert({ variant_id: workflowData.scannedVariant.id, facility_id: selectedFacility, movement_type: "adjustment", quantity: 0, notes: `Put-away: ${qty} units to ${binCode}` });
+                  if (activeTask) await completeTask(activeTask);
+                  else { setWorkflowData({}); alert(`✅ Put away ${qty}x ${workflowData.scannedVariant.sku} → ${binCode}`); }
+                }} style={{ width: "100%", marginTop: 10, padding: "14px", fontSize: 16, fontWeight: 800, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 12, cursor: "pointer" }}>
+                  ✓ Confirm Put-Away
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PACK VIEW */}
+        {view === "pack" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#8B5CF6" }}>📦 Pack & Ship</div>
+              <button onClick={() => setView("tasks")} style={{ fontSize: 12, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>← Back</button>
+            </div>
+            {activeTask && <div style={{ padding: "10px 14px", background: "#8B5CF615", border: "1px solid #8B5CF640", borderRadius: 10, fontSize: 12, color: T.text }}>{activeTask.title}</div>}
+            <div style={{ fontSize: 13, color: T.text3 }}>1. Scan items → 2. Select box type → 3. Print label → 4. Mark shipped</div>
+
+            {/* Scanned items list */}
+            {(workflowData.packItems || []).length > 0 && (
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Packed Items ({workflowData.packItems.length})</div>
+                {workflowData.packItems.map((item, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${T.border}20`, fontSize: 12 }}>
+                    <span style={{ fontFamily: "monospace", color: T.accent }}>{item.sku}</span>
+                    <span style={{ color: T.text }}>{item.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {workflowData.scannedVariant && (
+              <button onClick={() => {
+                setWorkflowData(d => ({
+                  ...d,
+                  packItems: [...(d.packItems || []), { sku: d.scannedVariant.sku, name: d.scannedVariant.name, id: d.scannedVariant.id }],
+                  scannedVariant: null, lastScan: null, scanType: null,
+                }));
+              }} style={{ padding: "12px", fontSize: 14, fontWeight: 700, background: "#10B98120", color: "#10B981", border: "1px solid #10B98140", borderRadius: 10, cursor: "pointer" }}>
+                ✓ Add {workflowData.scannedVariant.sku} to box
+              </button>
+            )}
+
+            {/* Box type selector */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, marginBottom: 6 }}>BOX TYPE</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {[{ k: "mailer", l: "📨 Mailer", d: "DTC single" }, { k: "small_box", l: "📦 Small Box", d: "2-3 items" }, { k: "medium_box", l: "📦 Medium Box", d: "4-6 items" }, { k: "large_box", l: "📦 Large Box", d: "Bulk/retail" }].map(b => (
+                  <button key={b.k} onClick={() => setWorkflowData(d => ({ ...d, boxType: b.k }))}
+                    style={{ padding: "10px", background: workflowData.boxType === b.k ? "#8B5CF615" : T.surface2, border: `1px solid ${workflowData.boxType === b.k ? "#8B5CF6" : T.border}`, borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{b.l}</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{b.d}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Carrier + tracking */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 2 }}>Carrier</div>
+                <select value={workflowData.carrier || ""} onChange={e => setWorkflowData(d => ({ ...d, carrier: e.target.value }))}
+                  style={{ width: "100%", padding: "10px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, color: T.text, boxSizing: "border-box" }}>
+                  <option value="">Select…</option>
+                  {["USPS","UPS","FedEx","DHL","Amazon Logistics"].map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 2 }}>Tracking #</div>
+                <input value={workflowData.tracking || ""} onChange={e => setWorkflowData(d => ({ ...d, tracking: e.target.value }))} placeholder="Scan or enter" style={{ width: "100%", padding: "10px 12px", fontSize: 12, fontFamily: "monospace", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <button style={{ padding: "12px", fontSize: 14, fontWeight: 700, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 12, cursor: "pointer" }}>🖨 Print Label</button>
+              <button style={{ padding: "12px", fontSize: 14, fontWeight: 700, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 12, cursor: "pointer" }}>🧾 Packing Slip</button>
+            </div>
+
+            <button onClick={async () => {
+              if (activeTask) await completeTask(activeTask);
+              else { alert(`✅ Packed and shipped! ${workflowData.carrier || ""} ${workflowData.tracking || ""}`); setWorkflowData({}); }
+            }} style={{ width: "100%", padding: "14px", fontSize: 16, fontWeight: 800, background: "#8B5CF6", color: "#fff", border: "none", borderRadius: 12, cursor: "pointer" }}>
+              ✓ Mark Shipped
+            </button>
+          </div>
+        )}
+
+        {/* TRANSFER VIEW */}
+        {view === "transfer" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#0EA5E9" }}>↔ Transfer</div>
+              <button onClick={() => setView("tasks")} style={{ fontSize: 12, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>← Back</button>
+            </div>
+            {activeTask && <div style={{ padding: "10px 14px", background: "#0EA5E915", border: "1px solid #0EA5E940", borderRadius: 10, fontSize: 12, color: T.text }}>{activeTask.title}</div>}
+
+            {/* Destination facility */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, marginBottom: 4 }}>TRANSFER TO</div>
+              <select value={workflowData.transferTo || ""} onChange={e => setWorkflowData(d => ({ ...d, transferTo: e.target.value }))}
+                style={{ width: "100%", padding: "10px 14px", fontSize: 14, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, color: T.text, boxSizing: "border-box" }}>
+                <option value="">Select destination…</option>
+                {facilities.filter(f => f.id !== selectedFacility).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+
+            <div style={{ fontSize: 13, color: T.text3 }}>Scan items to add to transfer</div>
+
+            {/* Transfer items list */}
+            {(workflowData.transferItems || []).length > 0 && (
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Transfer Items ({workflowData.transferItems.length})</div>
+                {workflowData.transferItems.map((item, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}20` }}>
+                    <div><span style={{ fontSize: 12, fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{item.sku}</span><span style={{ fontSize: 11, color: T.text3, marginLeft: 6 }}>{item.name}</span></div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <input type="number" value={item.qty} onChange={e => setWorkflowData(d => ({ ...d, transferItems: d.transferItems.map((x, j) => j === i ? { ...x, qty: parseInt(e.target.value) || 0 } : x) }))}
+                        style={{ width: 60, padding: "6px", fontSize: 14, fontWeight: 700, textAlign: "center", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none" }} />
+                      <button onClick={() => setWorkflowData(d => ({ ...d, transferItems: d.transferItems.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 14 }}>✕</button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, fontSize: 12, fontWeight: 700, color: T.text }}>
+                  Total: {workflowData.transferItems.reduce((s, i) => s + (i.qty || 0), 0)} units
+                </div>
+              </div>
+            )}
+
+            {workflowData.scannedVariant && (
+              <button onClick={() => {
+                const existing = (workflowData.transferItems || []).find(x => x.variantId === workflowData.scannedVariant.id);
+                if (existing) {
+                  setWorkflowData(d => ({ ...d, transferItems: d.transferItems.map(x => x.variantId === d.scannedVariant.id ? { ...x, qty: x.qty + 1 } : x), scannedVariant: null, lastScan: null, scanType: null }));
+                } else {
+                  setWorkflowData(d => ({
+                    ...d,
+                    transferItems: [...(d.transferItems || []), { variantId: d.scannedVariant.id, sku: d.scannedVariant.sku, name: d.scannedVariant.name, qty: 1 }],
+                    scannedVariant: null, lastScan: null, scanType: null,
+                  }));
+                }
+              }} style={{ padding: "12px", fontSize: 14, fontWeight: 700, background: "#0EA5E920", color: "#0EA5E9", border: "1px solid #0EA5E940", borderRadius: 10, cursor: "pointer" }}>
+                + Add {workflowData.scannedVariant.sku} to transfer
+              </button>
+            )}
+
+            <button onClick={async () => {
+              const items = workflowData.transferItems || [];
+              const toFac = workflowData.transferTo;
+              if (!toFac || items.length === 0) return alert("Select destination and add items");
+              // Process each item
+              for (const item of items) {
+                const fromInv = facilityInv.find(i => i.variant_id === item.variantId);
+                if (fromInv && fromInv.quantity >= item.qty) {
+                  await supabase.from("erp_inventory").update({ quantity: fromInv.quantity - item.qty }).eq("id", fromInv.id);
+                  const { data: toInv } = await supabase.from("erp_inventory").select("*").eq("variant_id", item.variantId).eq("facility_id", toFac).maybeSingle();
+                  if (toInv) await supabase.from("erp_inventory").update({ quantity: toInv.quantity + item.qty }).eq("id", toInv.id);
+                  else await supabase.from("erp_inventory").insert({ variant_id: item.variantId, facility_id: toFac, quantity: item.qty, unit: "each" });
+                  await supabase.from("erp_inventory_movements").insert([
+                    { variant_id: item.variantId, facility_id: selectedFacility, movement_type: "transfer_out", quantity: -item.qty, notes: `WMS transfer to ${facilities.find(f => f.id === toFac)?.name}` },
+                    { variant_id: item.variantId, facility_id: toFac, movement_type: "transfer_in", quantity: item.qty, notes: `WMS transfer from ${facilities.find(f => f.id === selectedFacility)?.name}` },
+                  ]);
+                }
+              }
+              if (activeTask) await completeTask(activeTask);
+              else { alert(`✅ Transferred ${items.reduce((s, i) => s + i.qty, 0)} units to ${facilities.find(f => f.id === toFac)?.name}`); setWorkflowData({}); }
+              // Reload inventory
+              const { data: inv } = await supabase.from("erp_inventory").select("*");
+              if (inv) setInventory(inv);
+            }} disabled={!workflowData.transferTo || !(workflowData.transferItems || []).length}
+              style={{ width: "100%", padding: "14px", fontSize: 16, fontWeight: 800, background: "#0EA5E9", color: "#fff", border: "none", borderRadius: 12, cursor: "pointer", opacity: !workflowData.transferTo || !(workflowData.transferItems || []).length ? 0.5 : 1 }}>
+              ✓ Confirm Transfer
+            </button>
+          </div>
+        )}
+
         {/* LOOKUP VIEW */}
         {view === "lookup" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -355,12 +595,12 @@ export default function WMSView() {
       </div>
 
       {/* Bottom nav */}
-      <div style={{ display: "flex", borderTop: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <div style={{ display: "flex", borderTop: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom)", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
         {VIEWS.map(v => (
           <button key={v.key} onClick={() => { setView(v.key); setWorkflowData({}); }}
-            style={{ flex: 1, padding: "10px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none", cursor: "pointer", color: view === v.key ? T.accent : T.text3 }}>
-            <span style={{ fontSize: 20 }}>{v.icon}</span>
-            <span style={{ fontSize: 9, fontWeight: view === v.key ? 700 : 500 }}>{v.label}</span>
+            style={{ minWidth: isMobile ? 56 : 70, flex: isMobile ? "0 0 auto" : 1, padding: "8px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none", cursor: "pointer", color: view === v.key ? T.accent : T.text3 }}>
+            <span style={{ fontSize: 18 }}>{v.icon}</span>
+            <span style={{ fontSize: 8, fontWeight: view === v.key ? 700 : 500 }}>{v.label}</span>
           </button>
         ))}
       </div>
