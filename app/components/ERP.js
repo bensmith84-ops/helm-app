@@ -81,6 +81,7 @@ export default function ERPView() {
   const [orderItems, setOrderItems] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
+  const [movements, setMovements] = useState([]);
   const [entities, setEntities] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
@@ -93,6 +94,7 @@ export default function ERPView() {
         { data: pos }, { data: pois }, { data: ords }, { data: ois },
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
         { data: supItems },
+        { data: mvmts },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -112,6 +114,7 @@ export default function ERPView() {
         supabase.from("erp_currencies").select("*").eq("is_active", true).order("code"),
         supabase.from("erp_exchange_rates").select("*").order("effective_date", { ascending: false }),
         supabase.from("erp_supplier_items").select("*").order("item_name"),
+        supabase.from("erp_inventory_movements").select("*").order("created_at", { ascending: false }).limit(200),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
@@ -119,6 +122,7 @@ export default function ERPView() {
       setCustomers(custs || []); setWorkOrders(wos || []);
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setSupplierItems(supItems || []);
+      setMovements(mvmts || []);
       setLoading(false);
     };
     if (user) load();
@@ -168,7 +172,7 @@ export default function ERPView() {
           {view === "products" && <ProductsView products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
           {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
-          {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} isMobile={isMobile} />}
+          {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
           {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} isMobile={isMobile} />}
           {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
@@ -1209,7 +1213,7 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
 // ═══════════════════════════════════════════════════════════════════════════════
 // INVENTORY VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function InventoryView({ inventory, setInventory, lots, setLots, variants, products, facilities, suppliers, purchaseOrders, setPurchaseOrders, isMobile }) {
+function InventoryView({ inventory, setInventory, lots, setLots, variants, products, facilities, suppliers, purchaseOrders, setPurchaseOrders, movements, setMovements, isMobile }) {
   const [subView, setSubView] = useState("overview"); // overview, lots, receive, adjust, transfer
   const [showReceive, setShowReceive] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
@@ -1285,7 +1289,8 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
     }
 
     // Log movement
-    await supabase.from("erp_inventory_movements").insert({ variant_id: rcvForm.variant_id, facility_id: rcvForm.facility_id, lot_id: lot.id, movement_type: "receipt", quantity: qty, reference_type: rcvForm.po_id ? "purchase_order" : null, reference_id: rcvForm.po_id || null, notes: rcvForm.notes || `Received ${qty} units, lot ${lotNum}` });
+    const { data: mvmt } = await supabase.from("erp_inventory_movements").insert({ variant_id: rcvForm.variant_id, facility_id: rcvForm.facility_id, lot_id: lot.id, movement_type: "receipt", quantity: qty, reference_type: rcvForm.po_id ? "purchase_order" : null, reference_id: rcvForm.po_id || null, notes: rcvForm.notes || `Received ${qty} units, lot ${lotNum}` }).select().single();
+    if (mvmt && setMovements) setMovements(p => [mvmt, ...p]);
 
     setLots(p => [lot, ...p]);
     setShowReceive(false);
@@ -1307,7 +1312,8 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
       const { data } = await supabase.from("erp_inventory").insert({ variant_id: adjForm.variant_id, facility_id: adjForm.facility_id, quantity: adjQty, unit: "each" }).select().single();
       if (data) setInventory(p => [...p, data]);
     }
-    await supabase.from("erp_inventory_movements").insert({ variant_id: adjForm.variant_id, facility_id: adjForm.facility_id, lot_id: adjForm.lot_id || null, movement_type: "adjustment", quantity: adjQty, reference_type: "adjustment", notes: `${adjForm.reason}: ${adjForm.notes || "Manual adjustment"}` });
+    const { data: mvmt } = await supabase.from("erp_inventory_movements").insert({ variant_id: adjForm.variant_id, facility_id: adjForm.facility_id, lot_id: adjForm.lot_id || null, movement_type: "adjustment", quantity: adjQty, reference_type: "adjustment", notes: `${adjForm.reason}: ${adjForm.notes || "Manual adjustment"}` }).select().single();
+    if (mvmt && setMovements) setMovements(p => [mvmt, ...p]);
     setShowAdjust(false);
     setAdjForm({ variant_id: "", facility_id: "", lot_id: "", quantity: "", reason: "cycle_count", notes: "" });
   };
@@ -1376,7 +1382,7 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
 
       {/* Sub-nav: Overview | Lots */}
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
-        {[["overview", "📊 Stock Levels"], ["lots", "🏷 Lots & Traceability"]].map(([k, l]) => (
+        {[["overview", "📊 Stock Levels"], ["lots", "🏷 Lots & Traceability"], ["movements", "📜 Movement Log"]].map(([k, l]) => (
           <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
@@ -1465,6 +1471,43 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
           })}
         </>
       )}
+
+      {/* MOVEMENT LOG VIEW */}
+      {subView === "movements" && (() => {
+        const filteredMvmts = facilityFilter === "all" ? (movements || []) : (movements || []).filter(m => m.facility_id === facilityFilter);
+        const MOVE_ICONS = { receipt: "📥", shipment: "📤", transfer_in: "➡️", transfer_out: "⬅️", adjustment: "±", production_in: "🏭", production_out: "📦", return: "↩️", scrap: "🗑" };
+        const MOVE_COLORS = { receipt: "#10B981", shipment: "#3B82F6", transfer_in: "#0EA5E9", transfer_out: "#F59E0B", adjustment: "#8B5CF6", production_in: "#10B981", production_out: "#3B82F6", return: "#EC4899", scrap: "#EF4444" };
+        return (
+          <>
+            {filteredMvmts.length === 0 ? <EmptyState icon="📜" text="No inventory movements recorded" /> :
+              filteredMvmts.slice(0, 100).map(m => {
+                const v = getVariant(m.variant_id);
+                const fac = getFacility(m.facility_id);
+                const isPositive = m.quantity > 0;
+                return (
+                  <Card key={m.id} style={{ padding: "10px 14px", borderLeft: `3px solid ${MOVE_COLORS[m.movement_type] || T.text3}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>{MOVE_ICONS[m.movement_type] || "📦"}</span>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: T.text, textTransform: "capitalize" }}>{m.movement_type.replace(/_/g, " ")}</span>
+                            {v && <span style={{ fontSize: 10, fontFamily: "monospace", color: T.accent }}>{v.sku}</span>}
+                          </div>
+                          <div style={{ fontSize: 10, color: T.text3 }}>{fac?.name || "—"} · {new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: isPositive ? "#10B981" : "#EF4444" }}>{isPositive ? "+" : ""}{fmtN(m.quantity)}</div>
+                    </div>
+                    {m.notes && <div style={{ fontSize: 10, color: T.text3, marginTop: 4, paddingLeft: 32 }}>{m.notes}</div>}
+                  </Card>
+                );
+              })
+            }
+            {filteredMvmts.length > 100 && <div style={{ fontSize: 11, color: T.text3, textAlign: "center", padding: 8 }}>Showing first 100 of {filteredMvmts.length} movements</div>}
+          </>
+        );
+      })()}
 
       {/* ══════ RECEIVE MODAL ══════ */}
       {showReceive && (
