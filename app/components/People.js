@@ -383,7 +383,7 @@ export default function PeopleView() {
         </div>
       </div>
       <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, padding: "0 20px" }}>
-        {["overview", "permissions"].map(t => <button key={t} onClick={() => setTab(t)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: tab === t ? 600 : 400, color: tab === t ? T.accent : T.text3, background: "none", border: "none", borderBottom: tab === t ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", textTransform: "capitalize" }}>{t}</button>)}
+        {["overview", "approval", "permissions"].map(t => <button key={t} onClick={() => setTab(t)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: tab === t ? 600 : 400, color: tab === t ? T.accent : T.text3, background: "none", border: "none", borderBottom: tab === t ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", textTransform: "capitalize" }}>{t === "approval" ? "Approval" : t}</button>)}
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: 20 }}>
         {tab === "overview" && <>
@@ -432,6 +432,55 @@ export default function PeopleView() {
               </div>
             );
           })()}
+        </>}
+        {tab === "approval" && <>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, marginBottom: 4 }}>Spend Approval Settings</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 14 }}>Controls how this person's spend requests are routed and auto-approved in Finance.</div>
+          </div>
+          {/* AF Role */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Finance Role</div>
+            <div style={{ display: "flex", gap: 0, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+              {[["requester","Requester"],["approver","Approver"],["admin","Admin"]].map(([v,l]) => (
+                <button key={v} onClick={async () => { await supabase.from("org_memberships").update({ af_role: v }).eq("id", om?.id); setMemberships(p => p.map(m => m.id === om?.id ? { ...m, af_role: v } : m)); showToast("Finance role updated", "success"); }}
+                  style={{ flex: 1, padding: "9px 0", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: om?.af_role === v ? T.accent : "transparent", color: om?.af_role === v ? "#fff" : T.text3, transition: "all 0.12s" }}>{l}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
+              {om?.af_role === "admin" ? "Can approve any request, manage rules, and delete requests" : om?.af_role === "approver" ? "Can approve, reject, and request info on pending requests" : "Can only submit requests — approvals routed to approvers"}
+            </div>
+          </div>
+          {/* Spend Limit */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Auto-Approve Limit</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: T.text3 }}>$</span>
+              <input type="number" defaultValue={om?.af_spend_limit || 500}
+                onBlur={async (e) => { const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("id", om?.id); setMemberships(p => p.map(m => m.id === om?.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); }}
+                onKeyDown={async (e) => { if (e.key === "Enter") { const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("id", om?.id); setMemberships(p => p.map(m => m.id === om?.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); e.target.blur(); } }}
+                style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 700, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>Requests below this amount auto-approve without routing through the approval chain</div>
+          </div>
+          {/* Level */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Org Level</div>
+            <select defaultValue={om?.af_level || "IC"} onChange={async (e) => { await supabase.from("org_memberships").update({ af_level: e.target.value }).eq("id", om?.id); setMemberships(p => p.map(m => m.id === om?.id ? { ...m, af_level: e.target.value } : m)); showToast("Level updated", "success"); }}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, cursor: "pointer", outline: "none", boxSizing: "border-box" }}>
+              {["IC","Senior IC","Lead","Manager","Director","VP","C-Suite","Contractor"].map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>Used for default spend limits and approval chain routing</div>
+          </div>
+          {/* Summary card */}
+          <div style={{ background: T.surface2, borderRadius: 8, padding: "12px 14px", marginTop: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 8 }}>Current Settings</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div><div style={{ fontSize: 9, color: T.text3 }}>Role</div><div style={{ fontSize: 12, fontWeight: 700, color: om?.af_role === "admin" ? "#5B21B6" : om?.af_role === "approver" ? "#1D4ED8" : T.text3, textTransform: "capitalize" }}>{om?.af_role || "requester"}</div></div>
+              <div><div style={{ fontSize: 9, color: T.text3 }}>Limit</div><div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>${(om?.af_spend_limit || 500).toLocaleString()}</div></div>
+              <div><div style={{ fontSize: 9, color: T.text3 }}>Level</div><div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{om?.af_level || "IC"}</div></div>
+            </div>
+          </div>
         </>}
         {tab === "permissions" && <>
           <div style={{ marginBottom: 20 }}>
