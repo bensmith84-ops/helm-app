@@ -250,6 +250,7 @@ export default function ERPView() {
 // ═══════════════════════════════════════════════════════════════════════════════
 function ERPDashboard({ products, variants, suppliers, purchaseOrders, inventory, lots, orders, customers, workOrders, facilities, entities, setView, isMobile }) {
   const totalStock = inventory.reduce((s, i) => s + (i.quantity || 0), 0);
+  const inventoryValue = inventory.reduce((s, i) => { const v = variants.find(x => x.id === i.variant_id); return s + (i.quantity || 0) * (v?.cost || 0); }, 0);
   const openPOs = purchaseOrders.filter(p => !["received", "closed", "cancelled"].includes(p.status));
   const pendingOrders = orders.filter(o => o.fulfillment_status !== "fulfilled" && o.status !== "cancelled");
   const activeWOs = workOrders.filter(w => w.status === "in_progress" || w.status === "released");
@@ -257,6 +258,8 @@ function ERPDashboard({ products, variants, suppliers, purchaseOrders, inventory
   const totalRev = orders.reduce((s, o) => s + (o.total || 0), 0);
   const totalPOValue = openPOs.reduce((s, p) => s + (p.total || 0), 0);
   const finishedGoods = products.filter(p => p.product_type === "finished_good");
+  const woPlanned = workOrders.filter(w => w.status !== "cancelled").reduce((s, w) => s + (w.planned_quantity || 0), 0);
+  const woCompleted = workOrders.reduce((s, w) => s + (w.completed_quantity || 0), 0);
 
   const DashCard = ({ icon, title, value, sub, color, onClick }) => (
     <div onClick={onClick} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, cursor: onClick ? "pointer" : "default", position: "relative" }}>
@@ -276,7 +279,7 @@ function ERPDashboard({ products, variants, suppliers, purchaseOrders, inventory
       {/* Primary KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
         <DashCard icon="📦" title="Products" value={finishedGoods.length} sub={`${variants.length} SKUs · ${products.length} total items`} color={T.accent} onClick={() => setView("products")} />
-        <DashCard icon="📊" title="Inventory" value={fmtN(totalStock)} sub={`${lots.filter(l=>l.status==="available").length} lots · ${facilities.length} locations`} color="#10B981" onClick={() => setView("inventory")} />
+        <DashCard icon="📊" title="Inventory" value={fmtN(totalStock)} sub={`${fmt(inventoryValue)} value · ${lots.filter(l=>l.status==="available").length} lots`} color="#10B981" onClick={() => setView("inventory")} />
         <DashCard icon="🛒" title="Pending Orders" value={pendingOrders.length} sub={`${fmt(totalRev)} total revenue`} color={pendingOrders.length > 0 ? "#F59E0B" : T.text3} onClick={() => setView("orders")} />
         <DashCard icon="📋" title="Open POs" value={openPOs.length} sub={`${fmt(totalPOValue)} outstanding`} color={openPOs.length > 0 ? "#3B82F6" : T.text3} onClick={() => setView("purchase_orders")} />
       </div>
@@ -1534,10 +1537,8 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
         ))}
         <div style={{ flex: 1 }} />
         {/* Facility filter */}
-        <select value={facilityFilter} onChange={e => setFacilityFilter(e.target.value)} style={{ padding: "4px 8px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, outline: "none", marginBottom: 2 }}>
-          <option value="all">All Facilities</option>
-          {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
+        <Select value={facilityFilter} onChange={v => setFacilityFilter(v)} style={{ width: 180, marginBottom: 2 }}
+          options={[{ value: "all", label: "All Facilities" }, ...facilities.map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))]} />
       </div>
 
       {/* STOCK LEVELS VIEW */}
@@ -1891,7 +1892,16 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 {selected.status === "pending" && <button onClick={() => updateOrderStatus(selected.id, "processing")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Process</button>}
-                {selected.status === "processing" && <button onClick={() => updateOrderStatus(selected.id, "shipped")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Mark Shipped</button>}
+                {selected.status === "processing" && <button onClick={() => {
+                  const carrier = prompt("Carrier (USPS, UPS, FedEx, DHL):", "USPS");
+                  if (!carrier) return;
+                  const tracking = prompt("Tracking number:", "");
+                  (async () => {
+                    const shipNum = `SHP-${selected.order_number.replace("ORD-", "")}`;
+                    await supabase.from("erp_shipments").insert({ order_id: selected.id, shipment_number: shipNum, carrier, tracking_number: tracking || null, tracking_url: tracking ? `https://track.${carrier.toLowerCase()}.com/${tracking}` : null, status: "shipped", shipped_at: new Date().toISOString() });
+                    updateOrderStatus(selected.id, "shipped");
+                  })();
+                }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#10B981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>📦 Ship Order</button>}
                 {selected.status !== "cancelled" && selected.status !== "delivered" && <button onClick={() => updateOrderStatus(selected.id, "cancelled")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Cancel</button>}
               </div>
             </div>
