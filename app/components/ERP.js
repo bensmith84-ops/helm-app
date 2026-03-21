@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
@@ -8,6 +8,66 @@ import { useResponsive } from "../lib/responsive";
 // ═══════════════════════════════════════════════════════════════════════════════
 // ERP MODULE — Products, Suppliers, POs, Inventory, Orders, Customers, Mfg, Facilities
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Searchable Select Component (inline) ─────────────────────────────────────
+function Select({ options = [], value, onChange, placeholder = "Select…", multi = false, disabled = false, style = {} }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef(null);
+  const inputRef = useRef(null);
+  useEffect(() => { const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, []);
+  useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
+  const filtered = options.filter(o => { if (!search) return true; const q = search.toLowerCase(); return (o.label||"").toLowerCase().includes(q) || (o.sublabel||"").toLowerCase().includes(q) || String(o.value||"").toLowerCase().includes(q); });
+  const isSelected = v => multi ? Array.isArray(value) && value.includes(v) : value === v;
+  const handleSelect = v => { if (multi) { const a = Array.isArray(value) ? [...value] : []; if (a.includes(v)) onChange(a.filter(x => x !== v)); else onChange([...a, v]); } else { onChange(v); setOpen(false); setSearch(""); } };
+  const getLabel = () => { if (multi && Array.isArray(value)) { const s = options.filter(o => value.includes(o.value)); if (s.length === 0) return null; if (s.length <= 2) return s.map(x => x.label).join(", "); return `${s.length} selected`; } const s = options.find(o => o.value === value); return s ? s.label : null; };
+  const label = getLabel();
+  return (
+    <div ref={ref} style={{ position: "relative", ...style }}>
+      <button onClick={() => { if (!disabled) { setOpen(!open); setSearch(""); } }} disabled={disabled} type="button"
+        style={{ width: "100%", padding: "7px 28px 7px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${open ? T.accent : T.border}`, borderRadius: 8, color: label ? T.text : T.text3, cursor: disabled ? "not-allowed" : "pointer", textAlign: "left", outline: "none", boxSizing: "border-box", position: "relative", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: disabled ? 0.6 : 1 }}>
+        {label || placeholder}
+        <span style={{ position: "absolute", right: 8, top: "50%", transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`, fontSize: 9, color: T.text3, transition: "transform 0.15s" }}>▼</span>
+      </button>
+      {multi && Array.isArray(value) && value.length > 0 && (
+        <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 4 }}>
+          {options.filter(o => value.includes(o.value)).map(o => (
+            <span key={o.value} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, padding: "2px 6px", borderRadius: 6, background: T.accentDim, color: T.accent, fontWeight: 600 }}>
+              {o.icon && <span style={{ fontSize: 9 }}>{o.icon}</span>}{o.label}
+              <span onClick={e => { e.stopPropagation(); handleSelect(o.value); }} style={{ cursor: "pointer", fontSize: 8, color: T.text3 }}>✕</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", zIndex: 999, maxHeight: 260, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 180 }}>
+          <div style={{ padding: "6px 6px 3px", flexShrink: 0 }}>
+            <input ref={inputRef} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" onClick={e => e.stopPropagation()}
+              style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "2px 4px 4px" }}>
+            {filtered.length === 0 && <div style={{ padding: "10px 8px", fontSize: 11, color: T.text3, textAlign: "center" }}>No matches</div>}
+            {filtered.map(o => (
+              <div key={o.value} onClick={() => handleSelect(o.value)}
+                style={{ padding: "6px 10px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, background: isSelected(o.value) ? T.accentDim : "transparent", marginBottom: 1 }}
+                onMouseEnter={e => { if (!isSelected(o.value)) e.currentTarget.style.background = T.surface2; }}
+                onMouseLeave={e => { if (!isSelected(o.value)) e.currentTarget.style.background = "transparent"; }}>
+                {multi && <span style={{ width: 13, height: 13, borderRadius: 3, flexShrink: 0, border: `1.5px solid ${isSelected(o.value) ? T.accent : T.border}`, background: isSelected(o.value) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 800 }}>{isSelected(o.value) ? "✓" : ""}</span>}
+                {o.icon && <span style={{ fontSize: 13, flexShrink: 0 }}>{o.icon}</span>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: isSelected(o.value) ? 700 : 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</div>
+                  {o.sublabel && <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.sublabel}</div>}
+                </div>
+                {!multi && isSelected(o.value) && <span style={{ fontSize: 10, color: T.accent }}>✓</span>}
+              </div>
+            ))}
+          </div>
+          {multi && <div style={{ padding: "5px 10px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", fontSize: 10 }}><span style={{ color: T.text3 }}>{(Array.isArray(value) ? value.length : 0)} selected</span><button onClick={() => onChange([])} type="button" style={{ color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, fontSize: 10 }}>Clear</button></div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n || 0);
 const fmtN = n => new Intl.NumberFormat("en-US").format(n || 0);
@@ -580,12 +640,12 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><select value={form.product_type} onChange={e => setForm(f => ({ ...f, product_type: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}>{["finished_good", "raw_material", "packaging", "component", "service"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}</select></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Category</div><select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}>{["laundry", "dish", "floor", "fabric_care", "component", "raw_material", "packaging"].map(c => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><Select value={form.product_type} onChange={v => setForm(f => ({ ...f, product_type: v }))} options={[{ value: "finished_good", label: "Finished Good", icon: "📦" }, { value: "raw_material", label: "Raw Material", icon: "🧪" }, { value: "packaging", label: "Packaging", icon: "📋" }, { value: "component", label: "Component", icon: "🔧" }, { value: "service", label: "Service", icon: "🛠" }]} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Category</div><Select value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))} options={["laundry","dish","floor","fabric_care","component","raw_material","packaging"].map(c => ({ value: c, label: c.replace(/_/g, " ") }))} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Brand</div><input value={form.brand || ""} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Status</div><select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}>{["active", "development", "discontinued", "archived"].map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Status</div><Select value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} options={[{ value: "active", label: "Active" }, { value: "development", label: "Development" }, { value: "discontinued", label: "Discontinued" }, { value: "archived", label: "Archived" }]} /></div>
               </div>
               <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Description</div><textarea value={form.description || ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }} /></div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -844,7 +904,7 @@ function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, supp
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Code</div><input value={form.code || ""} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="BASF" style={{ ...inp, fontFamily: "monospace" }} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><select value={form.supplier_type} onChange={e => setForm(f => ({ ...f, supplier_type: e.target.value }))} style={inp}>{["raw_material","packaging","contract_manufacturer","3pl","service","white_label"].map(t => <option key={t} value={t}>{t.replace(/_/g," ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><Select value={form.supplier_type} onChange={v => setForm(f => ({ ...f, supplier_type: v }))} options={[{ value: "raw_material", label: "Raw Material", icon: "🧪" }, { value: "packaging", label: "Packaging", icon: "📋" }, { value: "contract_manufacturer", label: "Contract Manufacturer", icon: "🏭" }, { value: "3pl", label: "3PL", icon: "🚚" }, { value: "service", label: "Service", icon: "🛠" }, { value: "white_label", label: "White Label", icon: "📦" }]} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Country</div><input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} style={inp} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Lead Time (days)</div><input type="number" value={form.lead_time_days} onChange={e => setForm(f => ({ ...f, lead_time_days: e.target.value }))} style={inp} /></div>
               </div>
@@ -854,7 +914,7 @@ function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, supp
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Website</div><input value={form.website || ""} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://" style={inp} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Payment Terms</div><select value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: e.target.value }))} style={inp}>{["prepaid","cod","net_15","net_30","net_45","net_60","net_90"].map(t => <option key={t} value={t}>{t.replace(/_/g," ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Payment Terms</div><Select value={form.payment_terms} onChange={v => setForm(f => ({ ...f, payment_terms: v }))} options={["prepaid","cod","net_15","net_30","net_45","net_60","net_90"].map(t => ({ value: t, label: t.replace(/_/g, " ") }))} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Rating</div><div style={{ display: "flex", gap: 4, padding: "8px 0" }}>{[1,2,3,4,5].map(i => <span key={i} onClick={() => setForm(f => ({ ...f, rating: i }))} style={{ fontSize: 18, color: i <= form.rating ? "#F59E0B" : T.border, cursor: "pointer" }}>★</span>)}</div></div>
               </div>
               {/* Intercompany */}
@@ -1158,14 +1218,14 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Supplier + Entity */}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Supplier *</div><select value={form.supplier_id} onChange={e => onSupplierChange(e.target.value)} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select supplier…</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.code}){s.is_intercompany ? " [IC]" : ""}</option>)}</select></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Buying Entity</div><select value={form.buying_entity_id} onChange={e => setForm(f => ({ ...f, buying_entity_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select entity…</option>{entities.map(e => <option key={e.id} value={e.id}>{e.code} — {e.name} ({e.base_currency})</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Supplier *</div><Select value={form.supplier_id} onChange={v => onSupplierChange(v)} placeholder="Select supplier…" options={suppliers.map(s => ({ value: s.id, label: `${s.name} (${s.code || "—"})`, sublabel: `${s.supplier_type?.replace(/_/g," ")} · ${s.country}${s.is_intercompany ? " · Intercompany" : ""}`, icon: { raw_material: "🧪", packaging: "📋", contract_manufacturer: "🏭", "3pl": "🚚" }[s.supplier_type] || "🏢" }))} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Buying Entity</div><Select value={form.buying_entity_id} onChange={v => setForm(f => ({ ...f, buying_entity_id: v }))} placeholder="Select entity…" options={entities.map(e => ({ value: e.id, label: `${e.code} — ${e.name}`, sublabel: `${e.country} · ${e.base_currency}`, icon: e.entity_type === "parent" ? "🏛" : "🌐" }))} /></div>
               </div>
               {/* Facility + Currency + Terms */}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Receive At</div><select value={form.facility_id} onChange={e => setForm(f => ({ ...f, facility_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select facility…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Currency</div><select value={form.po_currency} onChange={e => setForm(f => ({ ...f, po_currency: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}>{currencies.map(c => <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>)}</select></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Payment Terms</div><select value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}>{["prepaid","cod","net_15","net_30","net_45","net_60","net_90"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Receive At</div><Select value={form.facility_id} onChange={v => setForm(f => ({ ...f, facility_id: v }))} placeholder="Select facility…" options={facilities.map(f => ({ value: f.id, label: f.name, sublabel: `${f.facility_type?.replace(/_/g," ")} · ${f.city || ""}${f.state ? `, ${f.state}` : ""}`, icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Currency</div><Select value={form.po_currency} onChange={v => setForm(f => ({ ...f, po_currency: v }))} options={currencies.map(c => ({ value: c.code, label: `${c.code} (${c.symbol})`, sublabel: c.name }))} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Payment Terms</div><Select value={form.payment_terms} onChange={v => setForm(f => ({ ...f, payment_terms: v }))} options={["prepaid","cod","net_15","net_30","net_45","net_60","net_90"].map(t => ({ value: t, label: t.replace(/_/g, " ") }))} /></div>
               </div>
               {/* Expected date + notes */}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
@@ -1190,12 +1250,8 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
                   <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
                     <div>
                       {i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>ITEM</div>}
-                      <select value={line.variant_id} onChange={e => { updateLine(i, "variant_id", e.target.value); onLineProductChange(i, e.target.value); }}
-                        style={{ width: "100%", padding: "7px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}>
-                        <option value="">Select or type…</option>
-                        {variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}
-                        {products.filter(p => p.product_type !== "finished_good").map(p => <option key={`p-${p.id}`} value="">📦 {p.name}</option>)}
-                      </select>
+                      <Select value={line.variant_id} onChange={v => { updateLine(i, "variant_id", v); onLineProductChange(i, v); }} placeholder="Select item…"
+                        options={[...variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, sublabel: v.size || "", icon: "📦" })), ...products.filter(p => p.product_type !== "finished_good").map(p => ({ value: `raw-${p.id}`, label: p.name, sublabel: p.product_type?.replace(/_/g, " "), icon: "🧪" }))]} />
                     </div>
                     <div>
                       {i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>QTY</div>}
@@ -1606,13 +1662,13 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
             <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 16 }}>📥 Receive Inventory</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={lbl}>Product / SKU *</div><select value={rcvForm.variant_id} onChange={e => setRcvForm(f => ({ ...f, variant_id: e.target.value }))} style={inp}><option value="">Select…</option>{variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
-                <div><div style={lbl}>Receive At *</div><select value={rcvForm.facility_id} onChange={e => setRcvForm(f => ({ ...f, facility_id: e.target.value }))} style={inp}><option value="">Select facility…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+                <div><div style={lbl}>Product / SKU *</div><Select value={rcvForm.variant_id} onChange={v => setRcvForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
+                <div><div style={lbl}>Receive At *</div><Select value={rcvForm.facility_id} onChange={v => setRcvForm(f => ({ ...f, facility_id: v }))} placeholder="Select facility…" options={facilities.map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
                 <div><div style={lbl}>Quantity *</div><input type="number" value={rcvForm.quantity} onChange={e => setRcvForm(f => ({ ...f, quantity: e.target.value }))} placeholder="0" style={inp} /></div>
-                <div><div style={lbl}>Supplier</div><select value={rcvForm.supplier_id} onChange={e => setRcvForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp}><option value="">Select…</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-                <div><div style={lbl}>Against PO</div><select value={rcvForm.po_id} onChange={e => setRcvForm(f => ({ ...f, po_id: e.target.value }))} style={inp}><option value="">None</option>{purchaseOrders.filter(p => p.status !== "cancelled" && p.status !== "closed").map(p => <option key={p.id} value={p.id}>{p.po_number}</option>)}</select></div>
+                <div><div style={lbl}>Supplier</div><Select value={rcvForm.supplier_id} onChange={v => setRcvForm(f => ({ ...f, supplier_id: v }))} placeholder="Select…" options={suppliers.map(s => ({ value: s.id, label: s.name, sublabel: s.supplier_type?.replace(/_/g," "), icon: "🏭" }))} /></div>
+                <div><div style={lbl}>Against PO</div><Select value={rcvForm.po_id} onChange={v => setRcvForm(f => ({ ...f, po_id: v }))} placeholder="None" options={purchaseOrders.filter(p => p.status !== "cancelled" && p.status !== "closed").map(p => ({ value: p.id, label: p.po_number, sublabel: getSupplier(p.supplier_id)?.name || "" }))} /></div>
               </div>
               <div style={{ background: T.surface2, borderRadius: 8, padding: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>🏷 Lot Details</div>
@@ -1643,8 +1699,8 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
             <div style={{ fontSize: 16, fontWeight: 700, color: "#F59E0B", marginBottom: 16 }}>± Adjust Inventory</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={lbl}>Product / SKU *</div><select value={adjForm.variant_id} onChange={e => setAdjForm(f => ({ ...f, variant_id: e.target.value }))} style={inp}><option value="">Select…</option>{variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
-                <div><div style={lbl}>Facility *</div><select value={adjForm.facility_id} onChange={e => setAdjForm(f => ({ ...f, facility_id: e.target.value }))} style={inp}><option value="">Select…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+                <div><div style={lbl}>Product / SKU *</div><Select value={adjForm.variant_id} onChange={v => setAdjForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, icon: "📦" }))} /></div>
+                <div><div style={lbl}>Facility *</div><Select value={adjForm.facility_id} onChange={v => setAdjForm(f => ({ ...f, facility_id: v }))} placeholder="Select…" options={facilities.map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={lbl}>Quantity (+/-) *</div><input type="number" value={adjForm.quantity} onChange={e => setAdjForm(f => ({ ...f, quantity: e.target.value }))} placeholder="+100 or -50" style={inp} /><div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>Positive to add, negative to remove</div></div>
@@ -1666,11 +1722,11 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
           <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(500px, 95vw)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#3B82F6", marginBottom: 16 }}>↔ Transfer Inventory</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><div style={lbl}>Product / SKU *</div><select value={xferForm.variant_id} onChange={e => setXferForm(f => ({ ...f, variant_id: e.target.value }))} style={inp}><option value="">Select…</option>{variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
+              <div><div style={lbl}>Product / SKU *</div><Select value={xferForm.variant_id} onChange={v => setXferForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, icon: "📦" }))} /></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, alignItems: "end" }}>
-                <div><div style={lbl}>From Facility *</div><select value={xferForm.from_facility_id} onChange={e => setXferForm(f => ({ ...f, from_facility_id: e.target.value }))} style={inp}><option value="">Select…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+                <div><div style={lbl}>From Facility *</div><Select value={xferForm.from_facility_id} onChange={v => setXferForm(f => ({ ...f, from_facility_id: v }))} placeholder="Select…" options={facilities.map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))} /></div>
                 <div style={{ fontSize: 18, color: T.text3, paddingBottom: 8 }}>→</div>
-                <div><div style={lbl}>To Facility *</div><select value={xferForm.to_facility_id} onChange={e => setXferForm(f => ({ ...f, to_facility_id: e.target.value }))} style={inp}><option value="">Select…</option>{facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+                <div><div style={lbl}>To Facility *</div><Select value={xferForm.to_facility_id} onChange={v => setXferForm(f => ({ ...f, to_facility_id: v }))} placeholder="Select…" options={facilities.map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))} /></div>
               </div>
               {xferForm.variant_id && xferForm.from_facility_id && (() => {
                 const avail = inventory.filter(i => i.variant_id === xferForm.variant_id && i.facility_id === xferForm.from_facility_id).reduce((s, i) => s + (i.quantity || 0), 0);
@@ -1876,8 +1932,8 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
             <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Order</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Channel</div><select value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))} style={inp}>{["manual","shopify","amazon","retail","wholesale"].map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Customer</div><select value={form.customer_id} onChange={e => setForm(f => ({ ...f, customer_id: e.target.value }))} style={inp}><option value="">Select…</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Channel</div><Select value={form.channel} onChange={v => setForm(f => ({ ...f, channel: v }))} options={[{ value: "manual", label: "Manual", icon: "⚪" }, { value: "shopify", label: "Shopify", icon: "🟢" }, { value: "amazon", label: "Amazon", icon: "🟠" }, { value: "retail", label: "Retail", icon: "🔵" }, { value: "wholesale", label: "Wholesale", icon: "🟣" }]} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Customer</div><Select value={form.customer_id} onChange={v => setForm(f => ({ ...f, customer_id: v }))} placeholder="Select customer…" options={customers.map(c => ({ value: c.id, label: c.name, sublabel: c.customer_type?.replace(/_/g, " "), icon: "👥" }))} /></div>
               </div>
               {/* Line items */}
               <div>
@@ -1887,7 +1943,7 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
                 </div>
                 {lineItems.map((line, i) => (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
-                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>PRODUCT</div>}<select value={line.variant_id} onChange={e => onLineVariantChange(i, e.target.value)} style={{ ...inp, padding: "7px 10px", fontSize: 11 }}><option value="">Select…</option>{variants.map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>PRODUCT</div>}<Select value={line.variant_id} onChange={v => onLineVariantChange(i, v)} placeholder="Select…" options={variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
                     <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>QTY</div>}<input type="number" value={line.quantity} onChange={e => updateLine(i, "quantity", e.target.value)} style={{ ...inp, padding: "7px 10px" }} /></div>
                     <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>PRICE</div>}<input type="number" step="0.01" value={line.unit_price} onChange={e => updateLine(i, "unit_price", e.target.value)} style={{ ...inp, padding: "7px 10px" }} /></div>
                     <button onClick={() => removeLine(i)} style={{ padding: "6px 8px", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 14 }}>✕</button>
@@ -2038,7 +2094,7 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><select value={form.customer_type} onChange={e => setForm(f => ({ ...f, customer_type: e.target.value }))} style={inp}>{["retail","wholesale","dtc","distributor","amazon"].map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><Select value={form.customer_type} onChange={v => setForm(f => ({ ...f, customer_type: v }))} options={[{value:"retail",label:"Retail",icon:"🏬"},{value:"wholesale",label:"Wholesale",icon:"📦"},{value:"dtc",label:"DTC",icon:"🛒"},{value:"distributor",label:"Distributor",icon:"🚚"},{value:"amazon",label:"Amazon",icon:"🟠"}]} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Email</div><input value={form.email || ""} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inp} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
@@ -2188,10 +2244,10 @@ function ManufacturingView({ workOrders, setWorkOrders, variants, products, faci
           <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(520px, 95vw)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Work Order</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Product / SKU *</div><select value={form.variant_id} onChange={e => setForm(f => ({ ...f, variant_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{variants.filter(v => products.find(p => p.id === v.product_id)?.product_type === "finished_good").map(v => <option key={v.id} value={v.id}>{v.sku} — {v.name}</option>)}</select></div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Product / SKU *</div><Select value={form.variant_id} onChange={v => setForm(f => ({ ...f, variant_id: v }))} placeholder="Select finished good…" options={variants.filter(v => products.find(p => p.id === v.product_id)?.product_type === "finished_good").map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Quantity *</div><input type="number" value={form.planned_quantity} onChange={e => setForm(f => ({ ...f, planned_quantity: e.target.value }))} placeholder="10000" style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Facility</div><select value={form.facility_id} onChange={e => setForm(f => ({ ...f, facility_id: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{factories.length > 0 ? factories.map(f => <option key={f.id} value={f.id}>{f.name}</option>) : facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Facility</div><Select value={form.facility_id} onChange={v => setForm(f => ({ ...f, facility_id: v }))} placeholder="Select…" options={(factories.length > 0 ? factories : facilities).map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: {warehouse:"🏢",factory:"🏭","3pl":"🚚"}[f.facility_type]||"🏢" }))} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Planned Start</div><input type="date" value={form.planned_start} onChange={e => setForm(f => ({ ...f, planned_start: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, boxSizing: "border-box" }} /></div>
@@ -2279,7 +2335,7 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><select value={form.facility_type} onChange={e => setForm(f => ({ ...f, facility_type: e.target.value }))} style={inp}>{["warehouse","factory","3pl","office","retail"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}</select></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><Select value={form.facility_type} onChange={v => setForm(f => ({ ...f, facility_type: v }))} options={[{value:"warehouse",label:"Warehouse",icon:"🏢"},{value:"factory",label:"Factory",icon:"🏭"},{value:"3pl",label:"3PL",icon:"🚚"},{value:"office",label:"Office",icon:"🏫"},{value:"retail",label:"Retail",icon:"🏬"}]} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Operator</div><input value={form.operator} onChange={e => setForm(f => ({ ...f, operator: e.target.value }))} placeholder="e.g. ShipBob, internal" style={inp} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
@@ -2287,7 +2343,7 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>State</div><input value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} style={inp} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Country</div><input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} style={inp} /></div>
               </div>
-              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Legal Entity</div><select value={form.entity_id} onChange={e => setForm(f => ({ ...f, entity_id: e.target.value }))} style={inp}><option value="">None</option>{(entities||[]).map(e => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Legal Entity</div><Select value={form.entity_id} onChange={v => setForm(f => ({ ...f, entity_id: v }))} placeholder="None" options={(entities||[]).map(e => ({ value: e.id, label: `${e.code} — ${e.name}`, sublabel: `${e.country} · ${e.base_currency}`, icon: e.entity_type==="parent"?"🏛":"🌐" }))} /></div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={saveFacility} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
