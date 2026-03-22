@@ -183,6 +183,8 @@ export default function ERPView() {
   const [payments, setPayments] = useState([]);
   const [glAccounts, setGlAccounts] = useState([]);
   const [journalEntries, setJournalEntries] = useState([]);
+  const [binLocations, setBinLocations] = useState([]);
+  const [shippingRules, setShippingRules] = useState([]);
   const [entities, setEntities] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
@@ -196,7 +198,7 @@ export default function ERPView() {
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
         { data: supItems },
         { data: mvmts },
-        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts }, { data: glAccts }, { data: jeData },
+        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts }, { data: glAccts }, { data: jeData }, { data: bins }, { data: shipRules },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -227,6 +229,8 @@ export default function ERPView() {
         supabase.from("erp_payments").select("*").order("created_at", { ascending: false }),
         supabase.from("erp_gl_accounts").select("*").order("account_number"),
         supabase.from("erp_journal_entries").select("*").order("entry_date", { ascending: false }).limit(100),
+        supabase.from("erp_bin_locations").select("*").order("code"),
+        supabase.from("erp_shipping_rules").select("*").order("priority"),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
@@ -235,7 +239,7 @@ export default function ERPView() {
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setSupplierItems(supItems || []);
       setMovements(mvmts || []);
-      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []);
+      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []); setBinLocations(bins || []); setShippingRules(shipRules || []);
       setLoading(false);
     };
     if (user) load();
@@ -286,18 +290,18 @@ export default function ERPView() {
         {/* Scrollable content */}
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
           {view === "dashboard" && <ERPDashboard navigateTo={navigateTo} products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} inventory={inventory} lots={lots} orders={orders} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} setView={setView} isMobile={isMobile} />}
-          {view === "products" && <ProductsView navigateTo={navigateTo} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
+          {view === "products" && <ProductsView navigateTo={navigateTo} inventory={inventory} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
           {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} setArInvoices={setArInvoices} isMobile={isMobile} />}
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
-          {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
+          {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} binLocations={binLocations} setBinLocations={setBinLocations} isMobile={isMobile} />}
           {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} />}
           {view === "ap_ar" && <APARView apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
           {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}
-          {view === "shipping" && <ShippingView carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
+          {view === "shipping" && <ShippingView shippingRules={shippingRules} setShippingRules={setShippingRules} carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
         </div>
@@ -2671,7 +2675,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
 // ═══════════════════════════════════════════════════════════════════════════════
 // FACILITIES VIEW — with CRUD and entity assignment
 // ═══════════════════════════════════════════════════════════════════════════════
-function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobile }) {
+function FacilitiesView({ facilities, setFacilities, inventory, entities, binLocations, setBinLocations, isMobile }) {
   const [showNew, setShowNew] = useState(false);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({ name: "", facility_type: "warehouse", operator: "", city: "", state: "", country: "US", entity_id: "" });
@@ -2737,6 +2741,54 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
           );
         })}
       </div>
+
+      {/* Bin / Rack Location Management */}
+      <Card style={{ padding: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📍 Bin & Rack Locations ({binLocations.length})</div>
+          <button onClick={async () => {
+            const facName = prompt("Facility name (partial match):");
+            if (!facName) return;
+            const fac = facilities.find(f => f.name.toLowerCase().includes(facName.toLowerCase()));
+            if (!fac) { alert("Facility not found"); return; }
+            const zone = prompt("Zone:", "A"); const aisle = prompt("Aisle:", "01"); const rack = prompt("Rack:", "01"); const shelf = prompt("Shelf/Level:", "01");
+            const binType = prompt("Type (pick, bulk, staging, receiving, shipping, qc):", "pick");
+            const maxCap = parseInt(prompt("Max capacity:", "100") || "100");
+            const code = `${zone}-${aisle}-${rack}-${shelf}`;
+            const { data } = await supabase.from("erp_bin_locations").insert({ facility_id: fac.id, code, zone, aisle, rack, shelf_level: shelf, bin: code, bin_type: binType, max_capacity: maxCap, current_quantity: 0, is_active: true, barcode: `BIN-${code}` }).select().single();
+            if (data) setBinLocations(p => [...p, data]);
+          }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Bin</button>
+        </div>
+        {binLocations.length === 0 ? <div style={{ fontSize: 11, color: T.text3, textAlign: "center", padding: 12 }}>No bin locations</div> :
+          <div style={{ overflowX: "auto", maxHeight: 300, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead><tr style={{ borderBottom: `2px solid ${T.border}`, position: "sticky", top: 0, background: T.surface }}>
+                {["Code", "Facility", "Zone", "Aisle", "Rack", "Type", "Cap", "Qty", ""].map(h => <th key={h} style={{ textAlign: "left", padding: "5px 6px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{binLocations.map(b => {
+                const fac = facilities.find(f => f.id === b.facility_id);
+                const pct = b.max_capacity > 0 ? Math.round((b.current_quantity || 0) / b.max_capacity * 100) : 0;
+                return (
+                  <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}20`, opacity: b.is_active ? 1 : 0.5 }}>
+                    <td style={{ padding: "5px 6px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{b.code}</td>
+                    <td style={{ padding: "5px 6px", color: T.text3, fontSize: 10 }}>{fac?.name || "—"}</td>
+                    <td style={{ padding: "5px 6px" }}>{b.zone}</td>
+                    <td style={{ padding: "5px 6px" }}>{b.aisle}</td>
+                    <td style={{ padding: "5px 6px" }}>{b.rack}</td>
+                    <td style={{ padding: "5px 6px" }}><span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: { pick: "#EFF6FF20", bulk: "#FEF3C720", staging: "#EDE9FE20", receiving: "#D1FAE520", shipping: "#FCE7F320", qc: "#FEE2E220" }[b.bin_type] || T.surface2, color: { pick: "#1D4ED8", bulk: "#92400E", staging: "#5B21B6", receiving: "#065F46", shipping: "#9D174D", qc: "#991B1B" }[b.bin_type] || T.text3, fontWeight: 600 }}>{b.bin_type}</span></td>
+                    <td style={{ padding: "5px 6px", color: T.text3 }}>{b.max_capacity}</td>
+                    <td style={{ padding: "5px 6px" }}><div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 30, height: 4, background: T.surface2, borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct}%`, background: pct > 80 ? "#EF4444" : pct > 50 ? "#F59E0B" : "#10B981" }} /></div><span style={{ fontSize: 9, color: T.text3 }}>{b.current_quantity || 0}</span></div></td>
+                    <td style={{ padding: "5px 6px", display: "flex", gap: 2 }}>
+                      <button onClick={async () => { const newCap = prompt("New max capacity:", String(b.max_capacity)); if (!newCap) return; await supabase.from("erp_bin_locations").update({ max_capacity: parseInt(newCap) }).eq("id", b.id); setBinLocations(p => p.map(x => x.id === b.id ? { ...x, max_capacity: parseInt(newCap) } : x)); }} style={{ padding: "1px 4px", fontSize: 8, background: "none", border: `1px solid ${T.border}`, borderRadius: 3, color: T.text3, cursor: "pointer" }}>Edit</button>
+                      <button onClick={async () => { if (!window.confirm(`Delete bin ${b.code}?`)) return; await supabase.from("erp_bin_locations").delete().eq("id", b.id); setBinLocations(p => p.filter(x => x.id !== b.id)); }} style={{ padding: "1px 4px", fontSize: 8, background: "none", border: `1px solid #FECACA`, borderRadius: 3, color: "#EF4444", cursor: "pointer" }}>✕</button>
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+        }
+      </Card>
 
       {showNew && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
@@ -3363,7 +3415,7 @@ function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems,
 // ═══════════════════════════════════════════════════════════════════════════════
 // SHIPPING VIEW — Carriers, services, rules, integrations
 // ═══════════════════════════════════════════════════════════════════════════════
-function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServices, fulfillmentIntegrations, orders, isMobile }) {
+function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, carrierServices, setCarrierServices, fulfillmentIntegrations, orders, isMobile }) {
   const [subView, setSubView] = useState("carriers");
   const [showCarrierModal, setShowCarrierModal] = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -3426,7 +3478,7 @@ function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServic
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
-        {[["carriers", "🚚 Carriers"], ["services", "📋 Services"], ["integrations", "🔗 Integrations"]].map(([k, l]) => (
+        {[["carriers", "🚚 Carriers"], ["services", "📋 Services"], ["rules", "⚡ Rules"], ["integrations", "🔗 Integrations"]].map(([k, l]) => (
           <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
