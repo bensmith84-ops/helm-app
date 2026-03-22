@@ -187,6 +187,7 @@ export default function ERPView() {
   const [shippingRules, setShippingRules] = useState([]);
   const [landedCosts, setLandedCosts] = useState([]);
   const [journalLines, setJournalLines] = useState([]);
+  const [creditMemos, setCreditMemos] = useState([]);
   const [entities, setEntities] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
@@ -200,7 +201,7 @@ export default function ERPView() {
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
         { data: supItems },
         { data: mvmts },
-        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts }, { data: glAccts }, { data: jeData }, { data: bins }, { data: shipRules }, { data: lcData }, { data: jlData },
+        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts }, { data: glAccts }, { data: jeData }, { data: bins }, { data: shipRules }, { data: lcData }, { data: jlData }, { data: cmData },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -235,6 +236,7 @@ export default function ERPView() {
         supabase.from("erp_shipping_rules").select("*").order("priority"),
         supabase.from("erp_landed_costs").select("*").order("created_at"),
         supabase.from("erp_journal_lines").select("*").order("sort_order"),
+        supabase.from("erp_credit_memos").select("*").order("created_at", { ascending: false }),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
@@ -243,7 +245,7 @@ export default function ERPView() {
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setSupplierItems(supItems || []);
       setMovements(mvmts || []);
-      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []); setBinLocations(bins || []); setShippingRules(shipRules || []); setLandedCosts(lcData || []); setJournalLines(jlData || []);
+      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []); setBinLocations(bins || []); setShippingRules(shipRules || []); setLandedCosts(lcData || []); setJournalLines(jlData || []); setCreditMemos(cmData || []);
       setLoading(false);
     };
     if (user) load();
@@ -303,7 +305,7 @@ export default function ERPView() {
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} binLocations={binLocations} setBinLocations={setBinLocations} isMobile={isMobile} />}
           {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} journalLines={journalLines} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} />}
-          {view === "ap_ar" && <APARView apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
+          {view === "ap_ar" && <APARView creditMemos={creditMemos} setCreditMemos={setCreditMemos} apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
           {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}
           {view === "shipping" && <ShippingView shippingRules={shippingRules} setShippingRules={setShippingRules} carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
@@ -3269,7 +3271,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
 // ═══════════════════════════════════════════════════════════════════════════════
 // AP / AR VIEW — Accounts Payable, Accounts Receivable, Payments
 // ═══════════════════════════════════════════════════════════════════════════════
-function APARView({ apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile }) {
+function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile }) {
   const [subView, setSubView] = useState("ar");
   const [selected, setSelected] = useState(null);
   const [showPayment, setShowPayment] = useState(false);
@@ -3324,7 +3326,7 @@ function APARView({ apInvoices, setApInvoices, arInvoices, setArInvoices, paymen
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
-        {[["ar", "📥 Receivable (AR)"], ["ap", "📤 Payable (AP)"], ["payments", "💳 Payments"]].map(([k, l]) => (
+        {[["ar", "📥 Receivable (AR)"], ["ap", "📤 Payable (AP)"], ["payments", "💳 Payments"], ["credits", "📄 Credit Memos"]].map(([k, l]) => (
           <button key={k} onClick={() => { setSubView(k); setSelected(null); }} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
@@ -3458,6 +3460,64 @@ function APARView({ apInvoices, setApInvoices, arInvoices, setArInvoices, paymen
                 );
               })}</tbody>
             </table>
+          }
+        </div>
+      )}
+
+      {/* CREDIT MEMOS TAB */}
+      {subView === "credits" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={async () => {
+              const memoType = prompt("Type (vendor_credit / customer_credit):", "customer_credit");
+              if (!memoType) return;
+              const isVendor = memoType === "vendor_credit";
+              const entityName = prompt(isVendor ? "Supplier name:" : "Customer name:");
+              if (!entityName) return;
+              const entity = isVendor ? suppliers.find(s => s.name.toLowerCase().includes(entityName.toLowerCase())) : customers.find(c => c.name.toLowerCase().includes(entityName.toLowerCase()));
+              if (!entity) { alert(`${isVendor ? "Supplier" : "Customer"} not found`); return; }
+              const amount = parseFloat(prompt("Credit amount:", "0") || "0");
+              if (!amount) return;
+              const reason = prompt("Reason:", "");
+              const memoNum = `CM-${Date.now().toString(36).toUpperCase()}`;
+              const payload = { memo_number: memoNum, memo_type: memoType, amount, reason: reason || null, status: "issued", issue_date: new Date().toISOString().slice(0, 10) };
+              if (isVendor) payload.supplier_id = entity.id; else payload.customer_id = entity.id;
+              const { data } = await supabase.from("erp_credit_memos").insert(payload).select().single();
+              if (data) setCreditMemos(p => [data, ...p]);
+            }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Credit Memo</button>
+          </div>
+          {creditMemos.length === 0 ? <EmptyState icon="📄" text="No credit memos" /> :
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  {["Memo #", "Type", "Date", "To/From", "Amount", "Reason", "Status", ""].map(h => <th key={h} style={{ textAlign: "left", padding: "8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{creditMemos.map(cm => {
+                  const entity = cm.supplier_id ? getSupplier(cm.supplier_id) : getCustomer(cm.customer_id);
+                  return (
+                    <tr key={cm.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <td style={{ padding: "8px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{cm.memo_number}</td>
+                      <td style={{ padding: "8px" }}><Pill status={cm.memo_type} /></td>
+                      <td style={{ padding: "8px", color: T.text3 }}>{cm.issue_date ? new Date(cm.issue_date).toLocaleDateString() : "—"}</td>
+                      <td style={{ padding: "8px", color: T.text }}>{entity?.name || "—"}</td>
+                      <td style={{ padding: "8px", fontWeight: 700, color: "#EF4444" }}>{fmt(cm.amount)}</td>
+                      <td style={{ padding: "8px", color: T.text3, fontSize: 11 }}>{cm.reason || "—"}</td>
+                      <td style={{ padding: "8px" }}><Pill status={cm.status} /></td>
+                      <td style={{ padding: "8px", display: "flex", gap: 3 }}>
+                        {cm.status === "issued" && <button onClick={async () => {
+                          const { data } = await supabase.from("erp_credit_memos").update({ status: "applied" }).eq("id", cm.id).select().single();
+                          if (data) setCreditMemos(p => p.map(x => x.id === data.id ? data : x));
+                        }} style={{ padding: "2px 6px", fontSize: 9, background: "#D1FAE520", border: "1px solid #6EE7B7", borderRadius: 4, color: "#065F46", cursor: "pointer" }}>Apply</button>}
+                        {cm.status !== "voided" && <button onClick={async () => {
+                          const { data } = await supabase.from("erp_credit_memos").update({ status: "voided" }).eq("id", cm.id).select().single();
+                          if (data) setCreditMemos(p => p.map(x => x.id === data.id ? data : x));
+                        }} style={{ padding: "2px 6px", fontSize: 9, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 4, color: "#991B1B", cursor: "pointer" }}>Void</button>}
+                      </td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+            </div>
           }
         </div>
       )}
@@ -3759,10 +3819,17 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
           const priority = parseInt(prompt("Priority (lower = higher priority):", "50") || "50");
           const channel = prompt("Channel filter (shopify/amazon/retail/wholesale, blank=all):", "");
           const minVal = prompt("Min order value (blank=none):", "");
+          const maxVal = prompt("Max order value (blank=none):", "");
+          const country = prompt("Destination country (e.g. US, CA, blank=all):", "");
+          const state = prompt("Destination state (e.g. CA, TX, blank=all):", "");
+          const minWeight = prompt("Min weight in grams (blank=none):", "");
+          const maxWeight = prompt("Max weight in grams (blank=none):", "");
           const source = prompt("Fulfillment source (internal/stord, blank=any):", "");
-          const carName = prompt("Preferred carrier name:", "");
+          const carName = prompt("Preferred carrier name (blank=none):", "");
           const car = carName ? carriers.find(c => c.name.toLowerCase().includes(carName.toLowerCase())) : null;
-          const { data } = await supabase.from("erp_shipping_rules").insert({ name, priority, is_active: true, channel: channel || null, min_order_value: minVal ? parseFloat(minVal) : null, fulfillment_source: source || null, preferred_carrier_id: car?.id || null }).select().single();
+          const svcName = prompt("Preferred service (blank=none):", "");
+          const svc = svcName ? carrierServices.find(s => s.name.toLowerCase().includes(svcName.toLowerCase())) : null;
+          const { data } = await supabase.from("erp_shipping_rules").insert({ name, priority, is_active: true, channel: channel || null, min_order_value: minVal ? parseFloat(minVal) : null, max_order_value: maxVal ? parseFloat(maxVal) : null, destination_country: country || null, destination_state: state || null, min_weight_g: minWeight ? parseInt(minWeight) : null, max_weight_g: maxWeight ? parseInt(maxWeight) : null, fulfillment_source: source || null, preferred_carrier_id: car?.id || null, preferred_service_id: svc?.id || null }).select().single();
           if (data) setShippingRules(p => [...p, data].sort((a, b) => a.priority - b.priority));
         }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ Rule</button>}
       </div>
@@ -3860,11 +3927,14 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
                         {rule.max_order_value && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#FEF3C720", color: "#92400E", fontWeight: 600 }}>Max: {fmt(rule.max_order_value)}</span>}
                         {rule.destination_country && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#EDE9FE20", color: "#5B21B6", fontWeight: 600 }}>Country: {rule.destination_country}</span>}
                         {rule.destination_state && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#EDE9FE20", color: "#5B21B6", fontWeight: 600 }}>State: {rule.destination_state}</span>}
+                        {rule.min_weight_g && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#FCE7F320", color: "#9D174D", fontWeight: 600 }}>Min: {rule.min_weight_g}g</span>}
+                        {rule.max_weight_g && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#FCE7F320", color: "#9D174D", fontWeight: 600 }}>Max: {rule.max_weight_g}g</span>}
                         {rule.fulfillment_source && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#D1FAE520", color: "#065F46", fontWeight: 600 }}>Via: {rule.fulfillment_source}</span>}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {car && <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{car.name}</span>}
+                      {(() => { const svc = carrierServices.find(s => s.id === rule.preferred_service_id); return svc ? <span style={{ fontSize: 10, color: T.text3 }}>· {svc.name}</span> : null; })()}
                       <button onClick={async () => { await supabase.from("erp_shipping_rules").update({ is_active: !rule.is_active }).eq("id", rule.id); setShippingRules(p => p.map(x => x.id === rule.id ? { ...x, is_active: !rule.is_active } : x)); }} style={{ padding: "2px 6px", fontSize: 9, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer" }}>{rule.is_active ? "Disable" : "Enable"}</button>
                       <button onClick={async () => { if (!window.confirm("Delete this rule?")) return; await supabase.from("erp_shipping_rules").delete().eq("id", rule.id); setShippingRules(p => p.filter(x => x.id !== rule.id)); }} style={{ padding: "2px 6px", fontSize: 9, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 4, color: "#991B1B", cursor: "pointer" }}>✕</button>
                     </div>
