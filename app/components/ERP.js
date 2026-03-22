@@ -290,7 +290,7 @@ export default function ERPView() {
         {/* Scrollable content */}
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
           {view === "dashboard" && <ERPDashboard navigateTo={navigateTo} products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} inventory={inventory} lots={lots} orders={orders} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} setView={setView} isMobile={isMobile} />}
-          {view === "products" && <ProductsView navigateTo={navigateTo} inventory={inventory} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
+          {view === "products" && <ProductsView navigateTo={navigateTo} inventory={inventory} facilities={facilities} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} isMobile={isMobile} />}
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
@@ -444,7 +444,7 @@ function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrder
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRODUCTS VIEW — SKU master, variants, BOMs
 // ═══════════════════════════════════════════════════════════════════════════════
-function ProductsView({ navigateTo, products, setProducts, variants, setVariants, boms, setBoms, bomItems, setBomItems, inventory, isMobile }) {
+function ProductsView({ navigateTo, inventory, products, setProducts, variants, setVariants, boms, setBoms, bomItems, setBomItems, isMobile }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -612,6 +612,36 @@ function ProductsView({ navigateTo, products, setProducts, variants, setVariants
                     alert(`✅ Disassembled ${qty} × ${selected.name}\nComponents returned to inventory`);
                   }} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 700, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>↩ Disassemble</button>
                 </div>
+              </div>
+            )}
+
+            {/* Stock Levels by Variant (P7: Product → Inventory cross-link) */}
+            {prodVariants.length > 0 && (
+              <div style={{ marginBottom: 16, padding: "10px 12px", background: T.surface2, borderRadius: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>📊 Stock Levels</div>
+                {prodVariants.map(v => {
+                  const varInv = inventory.filter(i => i.variant_id === v.id);
+                  const total = varInv.reduce((s, i) => s + (i.quantity || 0), 0);
+                  const reserved = varInv.reduce((s, i) => s + (i.reserved_quantity || 0), 0);
+                  return (
+                    <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.border}20`, fontSize: 11 }}>
+                      <span style={{ fontFamily: "monospace", fontWeight: 700, color: T.accent, width: 90 }}>{v.sku}</span>
+                      <span style={{ flex: 1, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {varInv.length === 0 ? <span style={{ color: T.text3 }}>No stock</span> :
+                          varInv.map((inv, i) => {
+                            const fname = facilities?.find(f => f.id === inv.facility_id)?.name || "—";
+                            return <span key={i} style={{ padding: "1px 6px", borderRadius: 4, background: T.bg, color: T.text3, fontSize: 10 }}>{fname}: {fmtN(inv.quantity)}</span>;
+                          })
+                        }
+                      </span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                        <span style={{ fontWeight: 700, color: T.text }}>{fmtN(total)}</span>
+                        {reserved > 0 && <span style={{ color: "#F59E0B", fontSize: 10 }}>-{fmtN(reserved)} rsv</span>}
+                        <span style={{ fontWeight: 700, color: total - reserved <= 0 ? "#EF4444" : "#10B981", fontSize: 10 }}>= {fmtN(total - reserved)} avail</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -1724,9 +1754,19 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
             <Card key={item.sku} style={{ padding: "12px 14px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                 <div><span style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{item.sku}</span><span style={{ fontSize: 12, color: T.text, marginLeft: 8 }}>{item.name}</span></div>
-                <div style={{ textAlign: "right" }}>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmtN(item.total)}</span>
-                  {item.reserved > 0 && <span style={{ fontSize: 11, color: "#F59E0B", marginLeft: 6 }}>({fmtN(item.reserved)} reserved)</span>}
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>On Hand</div>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmtN(item.total)}</span>
+                  </div>
+                  {item.reserved > 0 && <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 9, color: "#F59E0B", fontWeight: 600, textTransform: "uppercase" }}>Reserved</div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#F59E0B" }}>{fmtN(item.reserved)}</span>
+                  </div>}
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 9, color: "#10B981", fontWeight: 600, textTransform: "uppercase" }}>Available</div>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: item.total - item.reserved <= 0 ? "#EF4444" : "#10B981" }}>{fmtN(item.total - item.reserved)}</span>
+                  </div>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -2654,11 +2694,32 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
                   {(selected.status === "in_progress" || selected.status === "released") && (
                     <button onClick={async () => {
                       if (!window.confirm("Backflush all materials for this work order? This will deduct component inventory.")) return;
+                      let totalMatCost = 0;
                       for (const item of materialItems) {
                         const reqQty = Math.ceil(item.quantity * multiplier * (1 + (item.scrap_pct || 0) / 100));
+                        const matCost = reqQty * (item.cost_per_unit || 0);
+                        totalMatCost += matCost;
+                        // Record issue
                         await supabase.from("erp_wo_issues").insert({ work_order_id: selected.id, bom_item_id: item.id, item_name: item.item_name, planned_quantity: reqQty, issued_quantity: reqQty, facility_id: selected.facility_id, issue_type: "backflush" });
+                        // Deduct from inventory if variant linked
+                        if (item.variant_id && selected.facility_id) {
+                          const { data: inv } = await supabase.from("erp_inventory").select("*").eq("variant_id", item.variant_id).eq("facility_id", selected.facility_id).maybeSingle();
+                          if (inv) {
+                            const newQty = Math.max(0, inv.quantity - reqQty);
+                            await supabase.from("erp_inventory").update({ quantity: newQty }).eq("id", inv.id);
+                            setInventory(p => p.map(x => x.id === inv.id ? { ...x, quantity: newQty } : x));
+                          }
+                          await supabase.from("erp_inventory_movements").insert({ variant_id: item.variant_id, facility_id: selected.facility_id, movement_type: "production_out", quantity: -reqQty, reference_type: "work_order", reference_id: selected.id, notes: `Backflush: ${item.item_name} × ${reqQty}` });
+                        }
                       }
-                      alert(`✅ Backflushed ${materialItems.length} components for ${selected.wo_number}`);
+                      // GL: DR WIP, CR Raw Material Inventory (Checklist 8.1.4)
+                      if (totalMatCost > 0) {
+                        await postJournalEntry("production", "work_order", selected.id, `Backflush: ${selected.wo_number} — ${materialItems.length} components`, [
+                          { account: "1220", name: "Inventory - WIP", debit: totalMatCost },
+                          { account: "1200", name: "Inventory - Raw Materials", credit: totalMatCost },
+                        ]);
+                      }
+                      alert(`✅ Backflushed ${materialItems.length} components — inventory deducted, GL posted`);
                     }} style={{ marginTop: 10, padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#8B5CF620", border: "1px solid #8B5CF640", borderRadius: 8, color: "#5B21B6", cursor: "pointer", width: "100%" }}>⚡ Backflush All Materials</button>
                   )}
                 </div>
