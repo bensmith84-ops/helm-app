@@ -185,6 +185,8 @@ export default function ERPView() {
   const [journalEntries, setJournalEntries] = useState([]);
   const [binLocations, setBinLocations] = useState([]);
   const [shippingRules, setShippingRules] = useState([]);
+  const [landedCosts, setLandedCosts] = useState([]);
+  const [journalLines, setJournalLines] = useState([]);
   const [entities, setEntities] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
@@ -198,7 +200,7 @@ export default function ERPView() {
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
         { data: supItems },
         { data: mvmts },
-        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts }, { data: glAccts }, { data: jeData }, { data: bins }, { data: shipRules },
+        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts }, { data: glAccts }, { data: jeData }, { data: bins }, { data: shipRules }, { data: lcData }, { data: jlData },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -231,6 +233,8 @@ export default function ERPView() {
         supabase.from("erp_journal_entries").select("*").order("entry_date", { ascending: false }).limit(100),
         supabase.from("erp_bin_locations").select("*").order("code"),
         supabase.from("erp_shipping_rules").select("*").order("priority"),
+        supabase.from("erp_landed_costs").select("*").order("created_at"),
+        supabase.from("erp_journal_lines").select("*").order("sort_order"),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
@@ -239,7 +243,7 @@ export default function ERPView() {
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setSupplierItems(supItems || []);
       setMovements(mvmts || []);
-      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []); setBinLocations(bins || []); setShippingRules(shipRules || []);
+      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []); setBinLocations(bins || []); setShippingRules(shipRules || []); setLandedCosts(lcData || []); setJournalLines(jlData || []);
       setLoading(false);
     };
     if (user) load();
@@ -292,13 +296,13 @@ export default function ERPView() {
           {view === "dashboard" && <ERPDashboard navigateTo={navigateTo} products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} inventory={inventory} lots={lots} orders={orders} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} setView={setView} isMobile={isMobile} />}
           {view === "products" && <ProductsView navigateTo={navigateTo} inventory={inventory} facilities={facilities} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} isMobile={isMobile} />}
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
-          {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
+          {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} landedCosts={landedCosts} setLandedCosts={setLandedCosts} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
           {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} setArInvoices={setArInvoices} isMobile={isMobile} />}
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} binLocations={binLocations} setBinLocations={setBinLocations} isMobile={isMobile} />}
-          {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} />}
+          {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} journalLines={journalLines} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} />}
           {view === "ap_ar" && <APARView apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
           {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}
           {view === "shipping" && <ShippingView shippingRules={shippingRules} setShippingRules={setShippingRules} carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
@@ -1096,7 +1100,7 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
 // ═══════════════════════════════════════════════════════════════════════════════
 // PURCHASE ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoices, purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, entities, currencies, exchangeRates, isMobile }) {
+function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoices, landedCosts, setLandedCosts, purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, entities, currencies, exchangeRates, isMobile }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   useEffect(() => { if (pendingNav?.view === "purchase_orders" && pendingNav.selectId) { const p = purchaseOrders.find(x => x.id === pendingNav.selectId); if (p) setSelected(p); setPendingNav(null); } }, [pendingNav]);
@@ -1359,24 +1363,59 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
               </div>
             }
 
-            {/* Landed Costs (Checklist 2.3) */}
-            <div style={{ marginTop: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>🚢 Landed Costs</div>
-                <button onClick={async () => {
-                  const costType = prompt("Cost type (duty, freight_in, brokerage, insurance, customs, other):", "freight_in");
-                  if (!costType) return;
-                  const desc = prompt("Description:", `${costType.replace(/_/g, " ")} for ${selected.po_number}`);
-                  const est = parseFloat(prompt("Estimated amount:", "0") || "0");
-                  const { data } = await supabase.from("erp_landed_costs").insert({ po_id: selected.id, cost_type: costType, description: desc, estimated_amount: est, gl_account: { duty: "6100", freight_in: "6110", brokerage: "6120" }[costType] || "6100" }).select().single();
-                  if (data) alert(`✅ Added ${costType}: ${fmt(est)}`);
-                }} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 5, cursor: "pointer" }}>+ Cost</button>
-              </div>
-              <div style={{ fontSize: 11, color: T.text3 }}>
-                {selected.incoterms && <span style={{ marginRight: 8, fontWeight: 600 }}>Incoterms: {selected.incoterms}</span>}
-                Est: {fmt(selected.estimated_landed_cost || 0)} · Actual: {fmt(selected.actual_landed_cost || 0)}
-              </div>
-            </div>
+            {/* Landed Costs (P5 — Checklist 2.3) */}
+            {(() => {
+              const poLanded = landedCosts.filter(lc => lc.po_id === selected.id);
+              const estTotal = poLanded.reduce((s, l) => s + (l.estimated_amount || 0), 0);
+              const actTotal = poLanded.reduce((s, l) => s + (l.actual_amount || 0), 0);
+              const variance = actTotal - estTotal;
+              const COST_ICONS = { duty: "🏛", freight_in: "🚢", brokerage: "📋", insurance: "🛡", customs: "🔒", other: "📦" };
+              return (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>🚢 Landed Costs ({poLanded.length})</div>
+                    <button onClick={async () => {
+                      const costType = prompt("Cost type (duty, freight_in, brokerage, insurance, customs, other):", "freight_in");
+                      if (!costType) return;
+                      const desc = prompt("Description:", `${costType.replace(/_/g, " ")} for ${selected.po_number}`);
+                      const est = parseFloat(prompt("Estimated amount:", "0") || "0");
+                      const vendor = prompt("Vendor/broker name:", "");
+                      const { data } = await supabase.from("erp_landed_costs").insert({ po_id: selected.id, cost_type: costType, description: desc, estimated_amount: est, vendor_name: vendor || null, gl_account: { duty: "6100", freight_in: "6110", brokerage: "6120" }[costType] || "6100" }).select().single();
+                      if (data) setLandedCosts(p => [...p, data]);
+                    }} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 5, cursor: "pointer" }}>+ Cost</button>
+                  </div>
+                  {poLanded.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {poLanded.map(lc => (
+                        <div key={lc.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", background: T.surface2, borderRadius: 6, fontSize: 11 }}>
+                          <span>{COST_ICONS[lc.cost_type] || "📦"}</span>
+                          <span style={{ flex: 1, fontWeight: 600, color: T.text, textTransform: "capitalize" }}>{lc.cost_type?.replace(/_/g, " ")}</span>
+                          <span style={{ color: T.text3 }}>Est: {fmt(lc.estimated_amount)}</span>
+                          {lc.actual_amount != null ? (
+                            <span style={{ fontWeight: 700, color: lc.actual_amount > lc.estimated_amount ? "#EF4444" : "#10B981" }}>Act: {fmt(lc.actual_amount)}</span>
+                          ) : (
+                            <button onClick={async () => {
+                              const actual = prompt("Enter actual amount:", String(lc.estimated_amount));
+                              if (!actual) return;
+                              const { data } = await supabase.from("erp_landed_costs").update({ actual_amount: parseFloat(actual), status: "actual" }).eq("id", lc.id).select().single();
+                              if (data) setLandedCosts(p => p.map(x => x.id === data.id ? data : x));
+                            }} style={{ padding: "1px 6px", fontSize: 9, background: "#FEF3C720", border: "1px solid #FCD34D", borderRadius: 4, color: "#92400E", cursor: "pointer", fontWeight: 600 }}>Enter Actual</button>
+                          )}
+                          {lc.vendor_name && <span style={{ fontSize: 9, color: T.text3 }}>{lc.vendor_name}</span>}
+                          <button onClick={async () => { await supabase.from("erp_landed_costs").delete().eq("id", lc.id); setLandedCosts(p => p.filter(x => x.id !== lc.id)); }} style={{ padding: "1px 4px", fontSize: 8, background: "none", border: "1px solid #FECACA", borderRadius: 3, color: "#EF4444", cursor: "pointer" }}>✕</button>
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, padding: "4px 8px", fontSize: 10, fontWeight: 700, borderTop: `1px solid ${T.border}` }}>
+                        <span style={{ color: T.text3 }}>Estimated: {fmt(estTotal)}</span>
+                        {actTotal > 0 && <span style={{ color: T.text }}>Actual: {fmt(actTotal)}</span>}
+                        {actTotal > 0 && variance !== 0 && <span style={{ color: variance > 0 ? "#EF4444" : "#10B981" }}>Variance: {variance > 0 ? "+" : ""}{fmt(variance)}</span>}
+                      </div>
+                    </div>
+                  )}
+                  {poLanded.length === 0 && <div style={{ fontSize: 10, color: T.text3 }}>No landed costs — click + to add duty, freight, brokerage</div>}
+                </div>
+              );
+            })()}
 
             {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
           </div>
@@ -1735,6 +1774,25 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
           </Card>
         ))}
       </div>
+
+      {/* Low Stock Alerts (P8: Reorder point alerts) */}
+      {(() => {
+        const lowStock = skuList.filter(item => {
+          const available = item.total - item.reserved;
+          return available <= 50 && item.total > 0; // alert when available stock ≤ 50
+        });
+        const zeroStock = skuList.filter(item => item.total <= 0);
+        return (lowStock.length > 0 || zeroStock.length > 0) ? (
+          <div style={{ padding: "8px 12px", background: lowStock.length > 0 ? "#FEF3C710" : "#FEE2E210", border: `1px solid ${lowStock.length > 0 ? "#FCD34D30" : "#FECACA30"}`, borderRadius: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 14 }}>⚠️</span>
+            {zeroStock.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#EF4444" }}>{zeroStock.length} out of stock</span>}
+            {lowStock.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#F59E0B" }}>{lowStock.length} low stock ({`≤50 available`})</span>}
+            <span style={{ fontSize: 10, color: T.text3 }}>
+              {lowStock.slice(0, 5).map(s => s.sku).join(", ")}{lowStock.length > 5 ? ` +${lowStock.length - 5} more` : ""}
+            </span>
+          </div>
+        ) : null;
+      })()}
 
       {/* Sub-nav: Overview | Lots */}
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
@@ -2907,7 +2965,7 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, binLoc
 // ═══════════════════════════════════════════════════════════════════════════════
 // GL VIEW — Chart of Accounts, Journal Entries, Trial Balance
 // ═══════════════════════════════════════════════════════════════════════════════
-function GLView({ glAccounts, journalEntries, setJournalEntries, entities, isMobile }) {
+function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, entities, isMobile }) {
   const [subView, setSubView] = useState("coa");
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
@@ -2957,7 +3015,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, entities, isMob
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
-        {[["coa", "📒 Chart of Accounts"], ["journal", "📝 Journal Entries"]].map(([k, l]) => (
+        {[["coa", "📒 Chart of Accounts"], ["journal", "📝 Journal Entries"], ["trial", "⚖ Trial Balance"]].map(([k, l]) => (
           <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
       </div>
@@ -3028,9 +3086,87 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, entities, isMob
                 ))}
               </div>
 
-              <div style={{ fontSize: 11, color: T.text3, textAlign: "center", padding: 12 }}>Journal lines loaded on detail view — expand to show debit/credit per account</div>
+              {/* Journal Entry Lines */}
+              {(() => {
+                const lines = journalLines.filter(l => l.entry_id === selected.id);
+                return lines.length > 0 ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Entry Lines</div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                        {["Account", "Description", "Debit", "Credit"].map(h => <th key={h} style={{ textAlign: h === "Debit" || h === "Credit" ? "right" : "left", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {lines.map(l => (
+                          <tr key={l.id} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                            <td style={{ padding: "5px 6px" }}><span style={{ fontFamily: "monospace", fontWeight: 700, color: T.accent, marginRight: 6 }}>{l.account_number}</span><span style={{ color: T.text }}>{l.account_name}</span></td>
+                            <td style={{ padding: "5px 6px", color: T.text3, fontSize: 10 }}>{l.description || "—"}</td>
+                            <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: l.debit > 0 ? 700 : 400, color: l.debit > 0 ? "#10B981" : T.text3 }}>{l.debit > 0 ? fmt(l.debit) : ""}</td>
+                            <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: l.credit > 0 ? 700 : 400, color: l.credit > 0 ? "#EF4444" : T.text3 }}>{l.credit > 0 ? fmt(l.credit) : ""}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot><tr style={{ borderTop: `2px solid ${T.border}` }}>
+                        <td colSpan={2} style={{ padding: "5px 6px", fontWeight: 700, textAlign: "right", fontSize: 10 }}>Totals</td>
+                        <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 800, color: "#10B981" }}>{fmt(lines.reduce((s, l) => s + (l.debit || 0), 0))}</td>
+                        <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 800, color: "#EF4444" }}>{fmt(lines.reduce((s, l) => s + (l.credit || 0), 0))}</td>
+                      </tr></tfoot>
+                    </table>
+                  </div>
+                ) : <div style={{ fontSize: 11, color: T.text3, textAlign: "center", padding: 12 }}>No lines loaded for this entry</div>;
+              })()}
             </div>
           )}
+        </div>
+      )}
+
+      {/* TRIAL BALANCE */}
+      {subView === "trial" && (
+        <div>
+          <div style={{ fontSize: 11, color: T.text3, padding: "8px 12px", background: T.surface2, borderRadius: 8, marginBottom: 12 }}>
+            Trial balance computed from posted journal entries. Debits should equal credits for a balanced ledger.
+          </div>
+          {(() => {
+            const balances = {};
+            journalLines.forEach(l => {
+              const je = journalEntries.find(e => e.id === l.entry_id);
+              if (!je || je.status !== "posted") return;
+              const key = l.account_number || "unknown";
+              if (!balances[key]) balances[key] = { number: key, name: l.account_name || "", debit: 0, credit: 0 };
+              balances[key].debit += l.debit || 0;
+              balances[key].credit += l.credit || 0;
+            });
+            const rows = Object.values(balances).sort((a, b) => a.number.localeCompare(b.number));
+            const totalDr = rows.reduce((s, r) => s + r.debit, 0);
+            const totalCr = rows.reduce((s, r) => s + r.credit, 0);
+            return rows.length === 0 ? <EmptyState icon="⚖" text="No posted journal entries yet" /> : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    {["Account #", "Account Name", "Debit", "Credit", "Net"].map(h => <th key={h} style={{ textAlign: h === "Debit" || h === "Credit" || h === "Net" ? "right" : "left", padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>{rows.map(r => {
+                    const net = r.debit - r.credit;
+                    return (
+                      <tr key={r.number} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                        <td style={{ padding: "5px 8px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{r.number}</td>
+                        <td style={{ padding: "5px 8px", color: T.text }}>{r.name}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: r.debit > 0 ? 600 : 400, color: r.debit > 0 ? T.text : T.text3 }}>{r.debit > 0 ? fmt(r.debit) : "—"}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: r.credit > 0 ? 600 : 400, color: r.credit > 0 ? T.text : T.text3 }}>{r.credit > 0 ? fmt(r.credit) : "—"}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: net > 0 ? "#10B981" : net < 0 ? "#EF4444" : T.text3 }}>{net !== 0 ? (net > 0 ? "" : "") + fmt(Math.abs(net)) : "—"}</td>
+                      </tr>
+                    );
+                  })}</tbody>
+                  <tfoot><tr style={{ borderTop: `2px solid ${T.border}` }}>
+                    <td colSpan={2} style={{ padding: "6px 8px", fontWeight: 800, textAlign: "right" }}>Totals</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 800, color: "#10B981" }}>{fmt(totalDr)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 800, color: "#EF4444" }}>{fmt(totalCr)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 900, color: Math.abs(totalDr - totalCr) < 0.01 ? "#10B981" : "#EF4444" }}>{Math.abs(totalDr - totalCr) < 0.01 ? "✅ Balanced" : `⚠ Off ${fmt(Math.abs(totalDr - totalCr))}`}</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+            );
+          })()}
         </div>
       )}
 
