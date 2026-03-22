@@ -69,15 +69,40 @@ export default function SettingsView({ isAdmin }) {
     task_overdue: true, okr_deadline: true, approval: true, mention: true, weekly_digest: true,
   });
 
+  // Sidebar order (was inside conditional IIFE — lifted to top)
+  const [dragIdx, setDragIdx] = useState(null);
+  const [navItems, setNavItems] = useState([]);
+
+  // Team (was inside conditional IIFE — lifted to top)
+  const [selectedMembers, setSelectedMembers] = useState(new Set());
+
+  // Permissions (was inside conditional IIFE — lifted to top)
+  const [perms, setPerms] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [permSaving, setPermSaving] = useState({});
+
   useEffect(() => {
     if (profile) {
       setDisplayName(profile.display_name || "");
       setTimezone(profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
       setTitle(profile.title || "");
       setBio(profile.bio || "");
+      // Init nav order
+      const nonDividerItems = NAV_ITEMS.filter(n => !n.type);
+      const savedOrder = profile?.nav_order;
+      const ordered = savedOrder ? savedOrder.map(k => nonDividerItems.find(n => n.key === k)).filter(Boolean).concat(nonDividerItems.filter(n => !savedOrder.includes(n.key))) : nonDividerItems;
+      setNavItems(ordered);
     }
-    // Load team
     loadTeam();
+    // Load permissions
+    (async () => {
+      const [{ data: users }, { data: permData }] = await Promise.all([
+        supabase.from("profiles").select("id,display_name,email,role").eq("org_id", profile?.org_id).order("display_name"),
+        supabase.from("user_module_permissions").select("*"),
+      ]);
+      setAllUsers(users || []);
+      setPerms(permData || []);
+    })();
   }, [profile]);
 
   const loadTeam = async () => {
@@ -231,52 +256,40 @@ export default function SettingsView({ isAdmin }) {
             </Section>
 
             <Section title="Sidebar Menu Order" subtitle="Drag items to reorder your navigation menu">
-              {(() => {
-                const nonDividerItems = NAV_ITEMS.filter(n => !n.type);
-                const savedOrder = profile?.nav_order;
-                const ordered = savedOrder ? savedOrder.map(k => nonDividerItems.find(n => n.key === k)).filter(Boolean).concat(nonDividerItems.filter(n => !savedOrder.includes(n.key))) : nonDividerItems;
-                const [dragIdx, setDragIdx] = useState(null);
-                const [items, setItems] = useState(ordered);
-                const saveOrder = async (newItems) => {
-                  const order = newItems.map(n => n.key);
-                  setItems(newItems);
-                  await supabase.from("profiles").update({ nav_order: order }).eq("id", user.id);
-                  showToast("Menu order saved");
-                };
-                return (
-                  <div>
-                    {items.map((item, i) => (
-                      <div key={item.key} draggable
-                        onDragStart={() => setDragIdx(i)}
-                        onDragOver={e => { e.preventDefault(); }}
-                        onDrop={() => {
-                          if (dragIdx === null || dragIdx === i) return;
-                          const next = [...items];
-                          const [moved] = next.splice(dragIdx, 1);
-                          next.splice(i, 0, moved);
-                          saveOrder(next);
-                          setDragIdx(null);
-                        }}
-                        onDragEnd={() => setDragIdx(null)}
-                        style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8,
-                          border:`1px solid ${T.border}`, marginBottom:4, cursor:"grab",
-                          background: dragIdx === i ? T.accentDim : T.surface2,
-                          opacity: dragIdx === i ? 0.5 : 1, transition:"background 0.1s" }}>
-                        <span style={{ color:T.text3, fontSize:12, cursor:"grab" }}>⠿</span>
-                        <span style={{ fontSize:16, width:22, textAlign:"center" }}>{item.icon}</span>
-                        <span style={{ fontSize:13, fontWeight:500 }}>{item.label}</span>
-                      </div>
-                    ))}
-                    <button onClick={async () => {
-                      await supabase.from("profiles").update({ nav_order: null }).eq("id", user.id);
-                      setItems(nonDividerItems);
-                      showToast("Reset to default order");
-                    }} style={{ marginTop:8, fontSize:11, color:T.text3, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>
-                      Reset to default order
-                    </button>
+              <div>
+                {navItems.map((item, i) => (
+                  <div key={item.key} draggable
+                    onDragStart={() => setDragIdx(i)}
+                    onDragOver={e => { e.preventDefault(); }}
+                    onDrop={() => {
+                      if (dragIdx === null || dragIdx === i) return;
+                      const next = [...navItems];
+                      const [moved] = next.splice(dragIdx, 1);
+                      next.splice(i, 0, moved);
+                      setNavItems(next);
+                      const order = next.map(n => n.key);
+                      supabase.from("profiles").update({ nav_order: order }).eq("id", user.id).then(() => showToast("Menu order saved"));
+                      setDragIdx(null);
+                    }}
+                    onDragEnd={() => setDragIdx(null)}
+                    style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8,
+                      border:`1px solid ${T.border}`, marginBottom:4, cursor:"grab",
+                      background: dragIdx === i ? T.accentDim : T.surface2,
+                      opacity: dragIdx === i ? 0.5 : 1, transition:"background 0.1s" }}>
+                    <span style={{ color:T.text3, fontSize:12, cursor:"grab" }}>⠿</span>
+                    <span style={{ fontSize:16, width:22, textAlign:"center" }}>{item.icon}</span>
+                    <span style={{ fontSize:13, fontWeight:500 }}>{item.label}</span>
                   </div>
-                );
-              })()}
+                ))}
+                <button onClick={async () => {
+                  const nonDividerItems = NAV_ITEMS.filter(n => !n.type);
+                  await supabase.from("profiles").update({ nav_order: null }).eq("id", user.id);
+                  setNavItems(nonDividerItems);
+                  showToast("Reset to default order");
+                }} style={{ marginTop:8, fontSize:11, color:T.text3, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>
+                  Reset to default order
+                </button>
+              </div>
             </Section>
           </>
         )}
@@ -331,7 +344,6 @@ export default function SettingsView({ isAdmin }) {
 
         {/* ── Team ── */}
         {activeTab === "Team" && (() => {
-          const [selectedMembers, setSelectedMembers] = useState(new Set());
           const allIds = members.map(m => m.user_id);
           const allSelected = selectedMembers.size > 0 && selectedMembers.size === members.length;
           const someSelected = selectedMembers.size > 0;
@@ -455,25 +467,11 @@ export default function SettingsView({ isAdmin }) {
 
         {/* ── Permissions ── */}
         {activeTab === "Permissions" && (() => {
-          const [perms, setPerms] = useState([]);
-          const [allUsers, setAllUsers] = useState([]);
-          const [saving, setSaving] = useState({});
           const moduleList = NAV_ITEMS.filter(n => n.key && n.type !== "divider" && n.key !== "settings" && !n.adminOnly);
-
-          useEffect(() => {
-            (async () => {
-              const [{ data: users }, { data: permData }] = await Promise.all([
-                supabase.from("profiles").select("id,display_name,email,role").eq("org_id", profile?.org_id).order("display_name"),
-                supabase.from("user_module_permissions").select("*"),
-              ]);
-              setAllUsers(users || []);
-              setPerms(permData || []);
-            })();
-          }, []);
 
           const getUserPerms = (userId) => {
             const p = perms.find(p => p.user_id === userId);
-            return p?.allowed_modules || null; // null = no restrictions
+            return p?.allowed_modules || null;
           };
           const getUserAdmin = (userId) => perms.find(p => p.user_id === userId)?.is_admin || false;
 
@@ -483,7 +481,7 @@ export default function SettingsView({ isAdmin }) {
             const newArr = currentArr.includes(moduleKey) 
               ? currentArr.filter(k => k !== moduleKey)
               : [...currentArr, moduleKey];
-            setSaving(p => ({ ...p, [userId]: true }));
+            setPermSaving(p => ({ ...p, [userId]: true }));
             const isAdm = getUserAdmin(userId);
             await supabase.from("user_module_permissions").upsert({
               user_id: userId, allowed_modules: newArr, is_admin: isAdm, updated_at: new Date().toISOString(), updated_by: user?.id,
@@ -493,7 +491,7 @@ export default function SettingsView({ isAdmin }) {
               if (existing) return p.map(x => x.user_id === userId ? { ...x, allowed_modules: newArr } : x);
               return [...p, { user_id: userId, allowed_modules: newArr, is_admin: isAdm }];
             });
-            setSaving(p => ({ ...p, [userId]: false }));
+            setPermSaving(p => ({ ...p, [userId]: false }));
           };
 
           const toggleAdmin = async (userId) => {
@@ -514,7 +512,7 @@ export default function SettingsView({ isAdmin }) {
             if (preset === "all") modules = moduleList.map(m => m.key);
             else if (preset === "core") modules = ["dashboard", "scoreboard", "okrs", "scorecard", "projects", "plm"];
             else if (preset === "none") modules = ["dashboard"];
-            setSaving(p => ({ ...p, [userId]: true }));
+            setPermSaving(p => ({ ...p, [userId]: true }));
             await supabase.from("user_module_permissions").upsert({
               user_id: userId, allowed_modules: modules, is_admin: getUserAdmin(userId), updated_at: new Date().toISOString(), updated_by: user?.id,
             }, { onConflict: "user_id" });
@@ -523,7 +521,7 @@ export default function SettingsView({ isAdmin }) {
               if (existing) return p.map(x => x.user_id === userId ? { ...x, allowed_modules: modules } : x);
               return [...p, { user_id: userId, allowed_modules: modules, is_admin: getUserAdmin(userId) }];
             });
-            setSaving(p => ({ ...p, [userId]: false }));
+            setPermSaving(p => ({ ...p, [userId]: false }));
           };
 
           return (
@@ -552,7 +550,7 @@ export default function SettingsView({ isAdmin }) {
                           Admin
                         </label>
                       </div>
-                      {saving[u.id] && <span style={{ fontSize: 10, color: T.text3 }}>saving…</span>}
+                      {permSaving[u.id] && <span style={{ fontSize: 10, color: T.text3 }}>saving…</span>}
                     </div>
                     {!isAdm && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
