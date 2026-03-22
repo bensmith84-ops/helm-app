@@ -2509,6 +2509,31 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
     if (newStatus === "completed") { updates.actual_end = new Date().toISOString(); updates.completed_quantity = wo.planned_quantity; }
     const { data } = await supabase.from("erp_work_orders").update(updates).eq("id", wo.id).select().single();
     if (data) { setWorkOrders(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+
+    // On completion: receive FG into inventory + GL posting
+    if (newStatus === "completed" && wo.variant_id && wo.facility_id) {
+      const qty = wo.planned_quantity || 0;
+      // Add finished goods to inventory
+      const { data: existing } = await supabase.from("erp_inventory").select("*").eq("variant_id", wo.variant_id).eq("facility_id", wo.facility_id).maybeSingle();
+      if (existing) {
+        const { data: inv } = await supabase.from("erp_inventory").update({ quantity: existing.quantity + qty }).eq("id", existing.id).select().single();
+        if (inv) setInventory(p => p.map(x => x.id === inv.id ? inv : x));
+      } else {
+        const { data: inv } = await supabase.from("erp_inventory").insert({ variant_id: wo.variant_id, facility_id: wo.facility_id, quantity: qty, unit: "each" }).select().single();
+        if (inv) setInventory(p => [...p, inv]);
+      }
+      // Log movement
+      await supabase.from("erp_inventory_movements").insert({ variant_id: wo.variant_id, facility_id: wo.facility_id, movement_type: "production_in", quantity: qty, reference_type: "work_order", reference_id: wo.id, notes: `WO ${wo.wo_number}: Produced ${qty} units` });
+      // GL: DR FG Inventory, CR WIP (Checklist 8.1.5)
+      const v = variants.find(x => x.id === wo.variant_id);
+      const fgValue = qty * (v?.cost || 0);
+      if (fgValue > 0) {
+        await postJournalEntry("production", "work_order", wo.id, `WO Complete: ${wo.wo_number} — ${qty} units`, [
+          { account: "1210", name: "Inventory - Finished Goods", debit: fgValue },
+          { account: "1220", name: "Inventory - WIP", credit: fgValue },
+        ]);
+      }
+    }
   };
 
   const totalPlanned = workOrders.filter(w => w.status !== "cancelled").reduce((s, w) => s + (w.planned_quantity || 0), 0);
@@ -3484,6 +3509,17 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
         <div style={{ flex: 1 }} />
         {subView === "carriers" && <button onClick={() => { setCarrierForm({ name: "", code: "", carrier_type: "direct", integration: "shipstation", account_number: "", is_active: true }); setEditingCarrier(null); setShowCarrierModal(true); }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ Carrier</button>}
         {subView === "services" && <button onClick={() => { setServiceForm({ carrier_id: carriers[0]?.id || "", name: "", code: "", service_level: "standard", estimated_days_min: "", estimated_days_max: "", base_rate: "", is_active: true }); setEditingService(null); setShowServiceModal(true); }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ Service</button>}
+        {subView === "rules" && <button onClick={async () => {
+          const name = prompt("Rule name:", "New Rule"); if (!name) return;
+          const priority = parseInt(prompt("Priority (lower = higher priority):", "50") || "50");
+          const channel = prompt("Channel filter (shopify/amazon/retail/wholesale, blank=all):", "");
+          const minVal = prompt("Min order value (blank=none):", "");
+          const source = prompt("Fulfillment source (internal/stord, blank=any):", "");
+          const carName = prompt("Preferred carrier name:", "");
+          const car = carName ? carriers.find(c => c.name.toLowerCase().includes(carName.toLowerCase())) : null;
+          const { data } = await supabase.from("erp_shipping_rules").insert({ name, priority, is_active: true, channel: channel || null, min_order_value: minVal ? parseFloat(minVal) : null, fulfillment_source: source || null, preferred_carrier_id: car?.id || null }).select().single();
+          if (data) setShippingRules(p => [...p, data].sort((a, b) => a.priority - b.priority));
+        }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ Rule</button>}
       </div>
 
       {/* CARRIERS TAB */}
@@ -3552,6 +3588,47 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* RULES TAB */}
+      {subView === "rules" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 11, color: T.text3, padding: "8px 12px", background: T.surface2, borderRadius: 8 }}>
+            Rules are evaluated in priority order (lowest number = highest priority). The first matching rule determines the carrier, service, and fulfillment source for an order.
+          </div>
+          {shippingRules.length === 0 ? <EmptyState icon="⚡" text="No shipping rules configured" /> :
+            shippingRules.map(rule => {
+              const car = carriers.find(c => c.id === rule.preferred_carrier_id);
+              return (
+                <Card key={rule.id} style={{ padding: "12px 14px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: T.accent, fontFamily: "monospace", padding: "1px 5px", background: T.accentDim, borderRadius: 4 }}>P{rule.priority}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{rule.name}</span>
+                        {rule.is_active ? <span style={{ fontSize: 9, color: "#10B981", fontWeight: 600 }}>Active</span> : <span style={{ fontSize: 9, color: T.text3 }}>Inactive</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", fontSize: 10 }}>
+                        {rule.channel && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#EFF6FF20", color: "#1D4ED8", fontWeight: 600 }}>Channel: {rule.channel}</span>}
+                        {rule.min_order_value && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#FEF3C720", color: "#92400E", fontWeight: 600 }}>Min: {fmt(rule.min_order_value)}</span>}
+                        {rule.max_order_value && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#FEF3C720", color: "#92400E", fontWeight: 600 }}>Max: {fmt(rule.max_order_value)}</span>}
+                        {rule.destination_country && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#EDE9FE20", color: "#5B21B6", fontWeight: 600 }}>Country: {rule.destination_country}</span>}
+                        {rule.destination_state && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#EDE9FE20", color: "#5B21B6", fontWeight: 600 }}>State: {rule.destination_state}</span>}
+                        {rule.fulfillment_source && <span style={{ padding: "1px 6px", borderRadius: 4, background: "#D1FAE520", color: "#065F46", fontWeight: 600 }}>Via: {rule.fulfillment_source}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {car && <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{car.name}</span>}
+                      <button onClick={async () => { await supabase.from("erp_shipping_rules").update({ is_active: !rule.is_active }).eq("id", rule.id); setShippingRules(p => p.map(x => x.id === rule.id ? { ...x, is_active: !rule.is_active } : x)); }} style={{ padding: "2px 6px", fontSize: 9, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer" }}>{rule.is_active ? "Disable" : "Enable"}</button>
+                      <button onClick={async () => { if (!window.confirm("Delete this rule?")) return; await supabase.from("erp_shipping_rules").delete().eq("id", rule.id); setShippingRules(p => p.filter(x => x.id !== rule.id)); }} style={{ padding: "2px 6px", fontSize: 9, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 4, color: "#991B1B", cursor: "pointer" }}>✕</button>
+                    </div>
+                  </div>
+                  {rule.notes && <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>{rule.notes}</div>}
+                </Card>
+              );
+            })
+          }
         </div>
       )}
 
