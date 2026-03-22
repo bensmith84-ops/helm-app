@@ -222,7 +222,7 @@ export default function CallsView() {
               {/* Notes */}
               <div style={{ marginBottom: 16 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, display: "block", marginBottom: 6 }}>Notes / Summary</label>
-                <textarea value={selected.summary || ""} onChange={e => update(selected.id, { summary: e.target.value })}
+                <textarea defaultValue={selected.summary || ""} key={selected.id + "-sum"} onBlur={e => update(selected.id, { summary: e.target.value })}
                   placeholder="Meeting notes, key decisions, context…"
                   style={{ width: "100%", minHeight: 100, fontSize: 12, color: T.text, lineHeight: 1.6, padding: "10px 12px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
               </div>

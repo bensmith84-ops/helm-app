@@ -564,10 +564,10 @@ export default function PeopleView() {
           </div>
         </div>
         {viewMode === "cards" && <MemberCards />}
-        {viewMode === "list" && <MemberList />}
-        {viewMode === "teams" && <TeamsView />}
+        {viewMode === "list" && <MemberList key="members" />}
+        {viewMode === "teams" && <TeamsView key="teams" />}
       </div>
-      {viewMode !== "teams" && <DetailPanel />}
+      {viewMode !== "teams" && <DetailPanel key={selected?.id || "none"} />}
       {inviteModal}
       {teamFormModal}
     </div>

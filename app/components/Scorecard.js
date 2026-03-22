@@ -740,7 +740,7 @@ export default function ScorecardView() {
               </div>
             );
           };
-          return <CommentModalInner />;
+          return <CommentModalInner key="comment-modal" />;
         })()}
 
         {/* Legend */}

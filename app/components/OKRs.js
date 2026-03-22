@@ -1877,13 +1877,13 @@ export default function OKRsView() {
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
         {header}
-        {viewMode === "list" ? <ListView /> : viewMode === "roadmap" ? <RoadmapView /> : <UpdatesView />}
+        {viewMode === "list" ? <ListView key="list" /> : viewMode === "roadmap" ? <RoadmapView key="roadmap" /> : <UpdatesView key="updates" />}
       </div>
 
       {editModal}
       {milestoneModal}
       {objFormModal}
-      <CheckInModal />
+      <CheckInModal key="checkin" />
     </div>
   );
 }

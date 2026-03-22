@@ -228,7 +228,7 @@ export default function CampaignsView() {
                     </div>
                   )}
                   <label style={{ fontSize:11, fontWeight:600, color:T.text3, display:"block", marginBottom:4 }}>Description</label>
-                  <textarea value={selected.description||""} onChange={e => update(selected.id, { description: e.target.value })}
+                  <textarea defaultValue={selected.description||""} key={selected.id + "-desc"} onBlur={e => update(selected.id, { description: e.target.value })}
                     placeholder="Campaign notes, goals, target audience…"
                     style={{ width:"100%", minHeight:100, fontSize:12, color:T.text, lineHeight:1.6, padding:"10px 12px", background:T.surface2, border:`1px solid ${T.border}`, borderRadius:7, resize:"vertical", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }} />
                 </>
