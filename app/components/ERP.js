@@ -151,6 +151,9 @@ export default function ERPView() {
   const [fulfillmentIntegrations, setFulfillmentIntegrations] = useState([]);
   const [rmas, setRmas] = useState([]);
   const [rmaItems, setRmaItems] = useState([]);
+  const [apInvoices, setApInvoices] = useState([]);
+  const [arInvoices, setArInvoices] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [entities, setEntities] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
@@ -164,7 +167,7 @@ export default function ERPView() {
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
         { data: supItems },
         { data: mvmts },
-        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData },
+        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -190,6 +193,9 @@ export default function ERPView() {
         supabase.from("erp_fulfillment_integrations").select("*").order("name"),
         supabase.from("erp_rma").select("*").order("created_at", { ascending: false }),
         supabase.from("erp_rma_items").select("*"),
+        supabase.from("erp_ap_invoices").select("*").order("created_at", { ascending: false }),
+        supabase.from("erp_ar_invoices").select("*").order("created_at", { ascending: false }),
+        supabase.from("erp_payments").select("*").order("created_at", { ascending: false }),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
@@ -198,7 +204,7 @@ export default function ERPView() {
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setSupplierItems(supItems || []);
       setMovements(mvmts || []);
-      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []);
+      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []);
       setLoading(false);
     };
     if (user) load();
@@ -247,9 +253,9 @@ export default function ERPView() {
           {view === "dashboard" && <ERPDashboard navigateTo={navigateTo} products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} inventory={inventory} lots={lots} orders={orders} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} setView={setView} isMobile={isMobile} />}
           {view === "products" && <ProductsView navigateTo={navigateTo} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
-          {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
+          {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
-          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} isMobile={isMobile} />}
+          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} setArInvoices={setArInvoices} isMobile={isMobile} />}
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
@@ -760,7 +766,10 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
   };
 
   const deleteSupplier = async (id) => {
-    if (!window.confirm("Delete this supplier?")) return;
+    const openPOs = purchaseOrders.filter(p => p.supplier_id === id && !["received","closed","cancelled"].includes(p.status));
+    let msg = "Delete this supplier?";
+    if (openPOs.length > 0) msg = `⚠ This supplier has ${openPOs.length} open PO(s). ${msg}`;
+    if (!window.confirm(msg)) return;
     await supabase.from("erp_suppliers").delete().eq("id", id);
     setSuppliers(p => p.filter(x => x.id !== id));
     if (selected?.id === id) setSelected(null);
@@ -983,7 +992,7 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
 // ═══════════════════════════════════════════════════════════════════════════════
 // PURCHASE ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, entities, currencies, exchangeRates, isMobile }) {
+function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoices, purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, entities, currencies, exchangeRates, isMobile }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   useEffect(() => { if (pendingNav?.view === "purchase_orders" && pendingNav.selectId) { const p = purchaseOrders.find(x => x.id === pendingNav.selectId); if (p) setSelected(p); setPendingNav(null); } }, [pendingNav]);
@@ -1384,6 +1393,17 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, purchaseOrd
                     if (allReceived) updates.received_date = new Date().toISOString().slice(0, 10);
                     const { data: updPO } = await supabase.from("erp_purchase_orders").update(updates).eq("id", selected.id).select().single();
                     if (updPO) { setPurchaseOrders(p => p.map(x => x.id === updPO.id ? updPO : x)); setSelected(updPO); }
+
+                    // Auto-create AP Invoice on full receipt (Checklist 2.4)
+                    if (allReceived) {
+                      const apInvNum = `AP-${selected.po_number.replace("PO-", "")}`;
+                      const sup = getSupplier(selected.supplier_id);
+                      const dueDate = new Date();
+                      const termDays = { net_15: 15, net_30: 30, net_45: 45, net_60: 60, net_90: 90, prepaid: 0, cod: 0 }[selected.payment_terms] || 30;
+                      dueDate.setDate(dueDate.getDate() + termDays);
+                      const { data: apInv } = await supabase.from("erp_ap_invoices").insert({ invoice_number: apInvNum, supplier_id: selected.supplier_id, po_id: selected.id, status: "pending", invoice_date: new Date().toISOString().slice(0,10), due_date: dueDate.toISOString().slice(0,10), currency: selected.po_currency || "USD", subtotal: selected.subtotal || selected.total, total: selected.total, match_status: "matched", payment_terms: selected.payment_terms }).select().single();
+                      if (apInv) setApInvoices(p => [apInv, ...p]);
+                    }
                   }
                   setShowReceivePO(false); setReceiveQtys({});
                 }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Confirm Receipt</button>
@@ -1802,7 +1822,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
 // ═══════════════════════════════════════════════════════════════════════════════
 // ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, facilities, isMobile }) {
+function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, facilities, setArInvoices, isMobile }) {
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -2082,8 +2102,21 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                   const svc = carrierServices.find(s => s.id === shipForm.service_id);
                   const shipNum = `SHP-${selected.order_number.replace("ORD-", "")}`;
                   const trackUrl = car?.tracking_url_template && shipForm.tracking_number ? car.tracking_url_template.replace("{tracking}", shipForm.tracking_number) : null;
-                  await supabase.from("erp_shipments").insert({ order_id: selected.id, shipment_number: shipNum, carrier: car?.name, carrier_id: shipForm.carrier_id, service_id: shipForm.service_id || null, tracking_number: shipForm.tracking_number || null, tracking_url: trackUrl, rate_amount: svc?.base_rate || null, weight_g: parseFloat(shipForm.weight_g) || null, status: "shipped", shipped_at: new Date().toISOString() });
+                  const { data: shipment } = await supabase.from("erp_shipments").insert({ order_id: selected.id, shipment_number: shipNum, carrier: car?.name, carrier_id: shipForm.carrier_id, service_id: shipForm.service_id || null, tracking_number: shipForm.tracking_number || null, tracking_url: trackUrl, rate_amount: svc?.base_rate || null, weight_g: parseFloat(shipForm.weight_g) || null, status: "shipped", shipped_at: new Date().toISOString() }).select().single();
                   await supabase.from("erp_orders").update({ carrier_id: shipForm.carrier_id, service_id: shipForm.service_id || null, weight_g: parseFloat(shipForm.weight_g) || null }).eq("id", selected.id);
+
+                  // Auto-generate AR Invoice (Checklist 3.4)
+                  const invNum = `INV-${selected.order_number.replace("ORD-", "")}`;
+                  const cust = getCustomer(selected.customer_id);
+                  const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + (cust?.payment_terms === "net_15" ? 15 : cust?.payment_terms === "net_60" ? 60 : 30));
+                  const { data: inv } = await supabase.from("erp_ar_invoices").insert({ invoice_number: invNum, order_id: selected.id, customer_id: selected.customer_id, shipment_id: shipment?.id || null, status: "sent", invoice_date: new Date().toISOString().slice(0,10), due_date: dueDate.toISOString().slice(0,10), subtotal: selected.subtotal || selected.total, total: selected.total, payment_terms: cust?.payment_terms || "net_30" }).select().single();
+                  if (inv) {
+                    const invItems = selItems.map((i, idx) => ({ invoice_id: inv.id, order_item_id: i.id, variant_id: i.variant_id, sku: i.sku, title: i.title, quantity: i.quantity, unit_price: i.unit_price, total: i.total || i.quantity * i.unit_price, sort_order: idx }));
+                    await supabase.from("erp_ar_invoice_items").insert(invItems);
+                    setArInvoices(p => [inv, ...p]);
+                    await supabase.from("erp_orders").update({ ar_invoice_id: inv.id }).eq("id", selected.id);
+                  }
+
                   updateOrderStatus(selected.id, "shipped");
                   setShowShipModal(false);
                 }} disabled={!shipForm.carrier_id} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !shipForm.carrier_id ? 0.5 : 1 }}>✓ Confirm & Ship</button>
