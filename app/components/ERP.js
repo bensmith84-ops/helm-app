@@ -1920,6 +1920,34 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
                   <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>MFG DATE</div><div style={{ fontSize: 11, color: T.text }}>{lot.manufactured_date ? new Date(lot.manufactured_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</div></div>
                   <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>EXPIRY</div><div style={{ fontSize: 11, color: isExpiring ? "#EF4444" : T.text, fontWeight: isExpiring ? 700 : 400 }}>{lot.expiry_date ? new Date(lot.expiry_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</div></div>
                 </div>
+                {/* Lot Trace — Forward & Backward (Checklist 12.2) */}
+                <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                  <button onClick={async () => {
+                    // Forward trace: lot → movements → what orders/WOs used it
+                    const { data: mvmts } = await supabase.from("erp_inventory_movements").select("*").eq("lot_id", lot.id).order("created_at", { ascending: true });
+                    const receipts = (mvmts || []).filter(m => m.movement_type === "receipt");
+                    const shipments = (mvmts || []).filter(m => m.movement_type === "shipment");
+                    const prodOut = (mvmts || []).filter(m => m.movement_type === "production_out");
+                    const adjusts = (mvmts || []).filter(m => m.movement_type === "adjustment");
+                    let trace = `═══ FORWARD LOT TRACE ═══\nLot: ${lot.lot_number}\nSKU: ${v?.sku || "—"} — ${v?.name || "—"}\nSupplier: ${sup?.name || "—"} (Lot: ${lot.supplier_lot_number || "—"})\nReceived: ${lot.received_date || "—"}\n\n`;
+                    trace += `RECEIPT (${receipts.length}):\n${receipts.map(m => `  📥 ${m.quantity} units — ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
+                    trace += `PRODUCTION USAGE (${prodOut.length}):\n${prodOut.map(m => `  🏭 ${m.quantity} units — ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
+                    trace += `SHIPMENTS (${shipments.length}):\n${shipments.map(m => `  📦 ${Math.abs(m.quantity)} units — ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
+                    trace += `ADJUSTMENTS (${adjusts.length}):\n${adjusts.map(m => `  ± ${m.quantity} units — ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
+                    trace += `CURRENT: ${fmtN(lotQty)} units on hand`;
+                    alert(trace);
+                  }} style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, background: "#EFF6FF20", border: "1px solid #93C5FD40", borderRadius: 4, color: "#1D4ED8", cursor: "pointer" }}>🔍 Forward Trace</button>
+                  <button onClick={async () => {
+                    // Backward trace: lot → supplier → PO → receipt
+                    const po = lot.po_id ? purchaseOrders.find(p => p.id === lot.po_id) : null;
+                    let trace = `═══ BACKWARD LOT TRACE ═══\nLot: ${lot.lot_number}\nSKU: ${v?.sku || "—"} — ${v?.name || "—"}\n\n`;
+                    trace += `SUPPLIER:\n  ${sup?.name || "Unknown"} (${sup?.code || "—"})\n  Supplier Lot: ${lot.supplier_lot_number || "—"}\n  Country: ${sup?.country || "—"}\n\n`;
+                    trace += `PURCHASE ORDER:\n  ${po ? `${po.po_number} — ${po.status} — ${fmt(po.total)}` : "No linked PO"}\n\n`;
+                    trace += `DATES:\n  Manufactured: ${lot.manufactured_date || "—"}\n  Received: ${lot.received_date || "—"}\n  Expiry: ${lot.expiry_date || "—"}\n\n`;
+                    trace += `CURRENT STATUS: ${lot.status}\nON HAND: ${fmtN(lotQty)} units`;
+                    alert(trace);
+                  }} style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, background: "#FEF3C720", border: "1px solid #FCD34D40", borderRadius: 4, color: "#92400E", cursor: "pointer" }}>↩ Backward Trace</button>
+                </div>
               </Card>
             );
           })}
@@ -2585,6 +2613,28 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
                 {selected.tags.map(t => <span key={t} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: T.accentDim, color: T.accent, fontWeight: 600 }}>{t}</span>)}
               </div>
             )}
+
+            {/* Ship-To Addresses */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>📍 Ship-To Addresses</div>
+                <button onClick={async () => {
+                  const label = prompt("Address label (Home, Office, Warehouse):", "Home");
+                  if (!label) return;
+                  const line1 = prompt("Address line 1:"); if (!line1) return;
+                  const city = prompt("City:"); const state = prompt("State:"); const zip = prompt("ZIP:"); const country = prompt("Country:", "US");
+                  await supabase.from("erp_customer_addresses").insert({ customer_id: selected.id, label: label, address_line1: line1, city: city || null, state: state || null, postal_code: zip || null, country: country || "US", is_default: false });
+                  alert(`✅ Added address: ${label}`);
+                }} style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 4, cursor: "pointer" }}>+ Address</button>
+              </div>
+              {/* Show primary inline address if exists */}
+              {selected.address_line1 && (
+                <div style={{ fontSize: 11, color: T.text3, padding: "6px 8px", background: T.surface2, borderRadius: 6, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, color: T.text }}>Primary: </span>
+                  {selected.address_line1}{selected.city ? `, ${selected.city}` : ""}{selected.state ? ` ${selected.state}` : ""} {selected.postal_code || ""}
+                </div>
+              )}
+            </div>
 
             {/* Order history */}
             <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Order History ({custOrders.length})</div>
@@ -3843,7 +3893,7 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
-        {[["carriers", "🚚 Carriers"], ["services", "📋 Services"], ["rules", "⚡ Rules"], ["integrations", "🔗 Integrations"]].map(([k, l]) => (
+        {[["carriers", "🚚 Carriers"], ["services", "📋 Services"], ["rules", "⚡ Rules"], ["rates", "💲 Rate Shop"], ["integrations", "🔗 Integrations"]].map(([k, l]) => (
           <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
@@ -3979,6 +4029,45 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
               );
             })
           }
+        </div>
+      )}
+
+      {/* RATE SHOP TAB */}
+      {subView === "rates" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 11, color: T.text3, padding: "8px 12px", background: T.surface2, borderRadius: 8 }}>
+            Compare carrier rates across all active services. Rates are base rates from carrier service configuration — actual rates may vary by contract, zone, and surcharges.
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                {["Carrier", "Service", "Level", "Est. Days", "Base Rate", "Per Lb (est)", "Active"].map(h => <th key={h} style={{ textAlign: h === "Base Rate" || h === "Per Lb (est)" ? "right" : "left", padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{carrierServices
+                .filter(s => s.is_active)
+                .sort((a, b) => (a.base_rate || 999) - (b.base_rate || 999))
+                .map((svc, i) => {
+                  const car = carriers.find(c => c.id === svc.carrier_id);
+                  const ICONS = { usps: "📮", ups: "📦", fedex: "✈️", dhl: "🟡", stord: "🏭" };
+                  const LEVEL_COLORS = { economy: "#10B981", standard: "#3B82F6", express: "#F59E0B", overnight: "#EF4444" };
+                  return (
+                    <tr key={svc.id} style={{ borderBottom: `1px solid ${T.border}20`, background: i === 0 ? "#10B98108" : "transparent" }}>
+                      <td style={{ padding: "6px 8px", fontWeight: 600, color: T.text }}>{ICONS[car?.code] || "🚚"} {car?.name}</td>
+                      <td style={{ padding: "6px 8px", color: T.text }}>{svc.name}</td>
+                      <td style={{ padding: "6px 8px" }}><span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: `${LEVEL_COLORS[svc.service_level] || T.text3}15`, color: LEVEL_COLORS[svc.service_level] || T.text3, fontWeight: 600, textTransform: "capitalize" }}>{svc.service_level}</span></td>
+                      <td style={{ padding: "6px 8px", color: T.text3 }}>{svc.estimated_days_min && svc.estimated_days_max ? `${svc.estimated_days_min}-${svc.estimated_days_max}d` : "—"}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: i === 0 ? "#10B981" : T.text }}>{svc.base_rate ? fmt(svc.base_rate) : "—"}{i === 0 && svc.base_rate && <span style={{ fontSize: 9, marginLeft: 4, color: "#10B981" }}>BEST</span>}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>{svc.base_rate ? fmt(svc.base_rate / 16) : "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{svc.is_active ? <span style={{ color: "#10B981", fontWeight: 600, fontSize: 10 }}>✓</span> : <span style={{ color: T.text3, fontSize: 10 }}>—</span>}</td>
+                    </tr>
+                  );
+                })
+              }</tbody>
+            </table>
+          </div>
+          <div style={{ padding: "8px 12px", background: T.surface2, borderRadius: 8, fontSize: 10, color: T.text3 }}>
+            💡 Sorted by base rate (lowest first). Green highlight = cheapest option. Per-lb estimate assumes 1 lb package.
+          </div>
         </div>
       )}
 
