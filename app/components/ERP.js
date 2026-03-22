@@ -521,13 +521,13 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
                     <tbody>
                       {prodVariants.map(v => (
                         <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                          <td style={{ padding: "6px", fontWeight: 700, color: T.accent, fontFamily: "monospace", fontSize: 11 }}>{v.sku}</td>
-                          <td style={{ padding: "6px", color: T.text }}>{v.name}</td>
-                          <td style={{ padding: "6px", color: T.text3 }}>{v.size}</td>
+                          <td style={{ padding: "6px" }}><input defaultValue={v.sku} onBlur={async e => { const val = e.target.value.trim(); if (!val || val === v.sku) return; await supabase.from("erp_product_variants").update({ sku: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, sku: val } : x)); }} style={{ width: 80, padding: "2px 4px", fontSize: 11, fontWeight: 700, fontFamily: "monospace", color: T.accent, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, outline: "none" }} /></td>
+                          <td style={{ padding: "6px" }}><input defaultValue={v.name} onBlur={async e => { const val = e.target.value.trim(); if (!val) return; await supabase.from("erp_product_variants").update({ name: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, name: val } : x)); }} style={{ width: "100%", padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} /></td>
+                          <td style={{ padding: "6px" }}><input defaultValue={v.size || ""} onBlur={async e => { await supabase.from("erp_product_variants").update({ size: e.target.value }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, size: e.target.value } : x)); }} style={{ width: 45, padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, outline: "none" }} /></td>
                           <td style={{ padding: "6px" }}><input type="number" step="0.01" defaultValue={v.cost} onBlur={async e => { const val = parseFloat(e.target.value) || 0; await supabase.from("erp_product_variants").update({ cost: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, cost: val } : x)); }} style={{ width: 55, padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", textAlign: "right" }} /></td>
                           <td style={{ padding: "6px" }}><input type="number" step="0.01" defaultValue={v.wholesale_price} onBlur={async e => { const val = parseFloat(e.target.value) || 0; await supabase.from("erp_product_variants").update({ wholesale_price: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, wholesale_price: val } : x)); }} style={{ width: 55, padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", textAlign: "right" }} /></td>
                           <td style={{ padding: "6px" }}><input type="number" step="0.01" defaultValue={v.msrp} onBlur={async e => { const val = parseFloat(e.target.value) || 0; await supabase.from("erp_product_variants").update({ msrp: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, msrp: val } : x)); }} style={{ width: 55, padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none", textAlign: "right" }} /></td>
-                          <td style={{ padding: "6px", color: T.text3, fontSize: 11 }}>{v.case_pack}</td>
+                          <td style={{ padding: "6px" }}><input type="number" defaultValue={v.case_pack} onBlur={async e => { const val = parseInt(e.target.value) || 0; await supabase.from("erp_product_variants").update({ case_pack: val }).eq("id", v.id); setVariants(p => p.map(x => x.id === v.id ? { ...x, case_pack: val } : x)); }} style={{ width: 40, padding: "2px 4px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, outline: "none", textAlign: "right" }} /></td>
                           <td style={{ padding: "6px" }}><button onClick={async () => { if (!window.confirm(`Delete variant ${v.sku}?`)) return; await supabase.from("erp_product_variants").delete().eq("id", v.id); setVariants(p => p.filter(x => x.id !== v.id)); }} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 10, padding: 0 }}>✕</button></td>
                         </tr>
                       ))}
@@ -567,8 +567,8 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
                         <div key={bom.id} style={{ background: T.surface2, borderRadius: 8, padding: 12, marginBottom: 10 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                             <div>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{bom.name}</span>
-                              <span style={{ marginLeft: 6 }}><Pill status={bom.status} /></span>
+                              <input defaultValue={bom.name} onBlur={async e => { const val = e.target.value.trim(); if (!val) return; await supabase.from("erp_bom").update({ name: val }).eq("id", bom.id); setBoms(p => p.map(x => x.id === bom.id ? { ...x, name: val } : x)); }} style={{ width: 140, padding: "2px 4px", fontSize: 12, fontWeight: 700, background: "transparent", border: `1px solid transparent`, borderRadius: 4, color: T.text, outline: "none" }} onFocus={e => e.target.style.borderColor = T.border} onBlur2={e => e.target.style.borderColor = "transparent"} />
+                              <select defaultValue={bom.status} onChange={async e => { await supabase.from("erp_bom").update({ status: e.target.value }).eq("id", bom.id); setBoms(p => p.map(x => x.id === bom.id ? { ...x, status: e.target.value } : x)); }} style={{ fontSize: 10, padding: "1px 4px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}><option value="draft">Draft</option><option value="active">Active</option><option value="superseded">Superseded</option></select>
                               {variant && <span style={{ fontSize: 10, color: T.text3, marginLeft: 6 }}>({variant.sku})</span>}
                             </div>
                             <div style={{ display: "flex", gap: 4 }}>
@@ -579,6 +579,7 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
                                 const { data } = await supabase.from("erp_bom_items").insert({ bom_id: bom.id, item_type: "raw_material", item_name: name, quantity: 0, unit: "g", cost_per_unit: 0, sort_order: items.length }).select().single();
                                 if (data) setBomItems(p => [...p, data]);
                               }} style={{ padding: "2px 8px", fontSize: 10, background: T.accent + "20", color: T.accent, border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 700 }}>+ Item</button>
+                              <button onClick={async () => { if (!window.confirm("Delete this BOM and all items?")) return; await supabase.from("erp_bom").delete().eq("id", bom.id); setBoms(p => p.filter(x => x.id !== bom.id)); setBomItems(p => p.filter(x => x.bom_id !== bom.id)); }} style={{ padding: "2px 8px", fontSize: 10, background: "#EF444420", color: "#EF4444", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 700 }}>Delete</button>
                             </div>
                           </div>
                           {items.length === 0 ? <div style={{ fontSize: 11, color: T.text3, padding: 6 }}>No ingredients — add items to define the recipe</div> :
@@ -1013,46 +1014,49 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
   // Create PO
   const createPO = async () => {
     if (!form.supplier_id || lineItems.length === 0) return;
-    const poNumber = nextPONum();
     const payload = {
-      po_number: poNumber,
       supplier_id: form.supplier_id,
       facility_id: form.facility_id || null,
       buying_entity_id: form.buying_entity_id || null,
-      selling_entity_id: form.selling_entity_id || null,
       is_intercompany: form.is_intercompany,
       po_currency: form.po_currency,
-      status: "draft",
-      order_date: new Date().toISOString().slice(0, 10),
       expected_date: form.expected_date || null,
       payment_terms: form.payment_terms,
       subtotal: lineTotal,
       total: lineTotal,
       notes: form.notes,
     };
-    const { data: po } = await supabase.from("erp_purchase_orders").insert(payload).select().single();
-    if (!po) return;
 
-    // Insert line items
-    const items = lineItems.map((l, i) => ({
-      po_id: po.id,
-      variant_id: l.variant_id || null,
-      product_id: l.product_id || null,
-      description: l.description,
-      quantity: parseFloat(l.quantity) || 0,
-      unit: l.unit,
-      unit_price: parseFloat(l.unit_price) || 0,
-      total: (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0),
-      sort_order: i,
-    }));
-    const { data: createdItems } = await supabase.from("erp_po_items").insert(items).select();
-
-    setPurchaseOrders(p => [po, ...p]);
-    if (createdItems) setPoItems(p => [...p, ...createdItems]);
-    setShowNew(false);
-    setForm(FORM_INIT);
-    setLineItems([]);
-    setSelected(po);
+    if (selected && (selected.status === "draft" || selected.status === "submitted")) {
+      // UPDATE existing PO
+      const { data: po } = await supabase.from("erp_purchase_orders").update(payload).eq("id", selected.id).select().single();
+      if (!po) return;
+      // Delete old items and re-insert
+      await supabase.from("erp_po_items").delete().eq("po_id", selected.id);
+      const items = lineItems.map((l, i) => ({
+        po_id: po.id, variant_id: l.variant_id || null, description: l.description,
+        quantity: parseFloat(l.quantity) || 0, unit: l.unit || "each",
+        unit_price: parseFloat(l.unit_price) || 0, total: (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), sort_order: i,
+      }));
+      const { data: newItems } = await supabase.from("erp_po_items").insert(items).select();
+      setPurchaseOrders(p => p.map(x => x.id === po.id ? po : x));
+      setPoItems(p => [...p.filter(x => x.po_id !== po.id), ...(newItems || [])]);
+      setSelected(po);
+    } else {
+      // CREATE new PO
+      const poNumber = nextPONum();
+      const { data: po } = await supabase.from("erp_purchase_orders").insert({ ...payload, po_number: poNumber, status: "draft", order_date: new Date().toISOString().slice(0, 10) }).select().single();
+      if (!po) return;
+      const items = lineItems.map((l, i) => ({
+        po_id: po.id, variant_id: l.variant_id || null, description: l.description,
+        quantity: parseFloat(l.quantity) || 0, unit: l.unit || "each",
+        unit_price: parseFloat(l.unit_price) || 0, total: (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), sort_order: i,
+      }));
+      const { data: createdItems } = await supabase.from("erp_po_items").insert(items).select();
+      setPurchaseOrders(p => [po, ...p]);
+      if (createdItems) setPoItems(p => [...p, ...createdItems]);
+      setSelected(po);
+    }
   };
 
   // Update PO status
@@ -1134,6 +1138,7 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
                 <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getSupplier(selected.supplier_id)?.name}{selected.is_intercompany ? " (Intercompany)" : ""}</div>
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(selected.status === "draft" || selected.status === "submitted") && <button onClick={() => { setForm({ supplier_id: selected.supplier_id, facility_id: selected.facility_id || "", buying_entity_id: selected.buying_entity_id || "", po_currency: selected.po_currency || "USD", payment_terms: selected.payment_terms || "net_30", expected_date: selected.expected_date || "", notes: selected.notes || "", is_intercompany: selected.is_intercompany || false }); setLineItems(poItems.filter(i => i.po_id === selected.id).map(i => ({ variant_id: i.variant_id || "", description: i.description, quantity: i.quantity, unit: i.unit || "each", unit_price: i.unit_price }))); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>}
                 {selected.status === "draft" && <button onClick={() => updateStatus(selected, "submitted")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Submit</button>}
                 {selected.status === "submitted" && <button onClick={() => updateStatus(selected, "confirmed")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Confirm</button>}
                 {(selected.status === "confirmed" || selected.status === "partially_received") && <button onClick={() => setShowReceivePO(true)} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#10B981", border: "none", borderRadius: 6, color: "#fff", cursor: "pointer" }}>📥 Receive Items</button>}
@@ -1797,22 +1802,28 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
 
   const createOrder = async () => {
     if (lineItems.length === 0) return;
-    const orderNum = nextOrderNum();
-    const { data: ord } = await supabase.from("erp_orders").insert({
-      order_number: orderNum, channel: form.channel, customer_id: form.customer_id || null,
-      status: "pending", fulfillment_status: "unfulfilled", payment_status: "pending",
-      subtotal: lineTotal, total: lineTotal, notes: form.notes,
-    }).select().single();
-    if (!ord) return;
-    const items = lineItems.map((l, i) => ({
-      order_id: ord.id, variant_id: l.variant_id || null, sku: l.sku || null,
-      title: l.title || "Item", quantity: parseInt(l.quantity) || 0,
-      unit_price: parseFloat(l.unit_price) || 0, total: (parseInt(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), sort_order: i,
-    }));
-    const { data: ois } = await supabase.from("erp_order_items").insert(items).select();
-    setOrders(p => [ord, ...p]);
-    if (ois) setOrderItems(p => [...p, ...ois]);
-    setShowNew(false); setForm(FORM_INIT); setLineItems([]); setSelected(ord);
+    if (selected && selected.status === "pending") {
+      // UPDATE existing order
+      const { data: ord } = await supabase.from("erp_orders").update({ channel: form.channel, customer_id: form.customer_id || null, subtotal: lineTotal, total: lineTotal, notes: form.notes }).eq("id", selected.id).select().single();
+      if (!ord) return;
+      await supabase.from("erp_order_items").delete().eq("order_id", selected.id);
+      const items = lineItems.map((l, i) => ({ order_id: ord.id, variant_id: l.variant_id || null, sku: l.sku || null, title: l.title || "Item", quantity: parseInt(l.quantity) || 0, unit_price: parseFloat(l.unit_price) || 0, total: (parseInt(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), sort_order: i }));
+      const { data: ois } = await supabase.from("erp_order_items").insert(items).select();
+      setOrders(p => p.map(x => x.id === ord.id ? ord : x));
+      setOrderItems(p => [...p.filter(x => x.order_id !== ord.id), ...(ois || [])]);
+      setSelected(ord);
+    } else {
+      // CREATE new order
+      const orderNum = nextOrderNum();
+      const { data: ord } = await supabase.from("erp_orders").insert({ order_number: orderNum, channel: form.channel, customer_id: form.customer_id || null, status: "pending", fulfillment_status: "unfulfilled", payment_status: "pending", subtotal: lineTotal, total: lineTotal, notes: form.notes }).select().single();
+      if (!ord) return;
+      const items = lineItems.map((l, i) => ({ order_id: ord.id, variant_id: l.variant_id || null, sku: l.sku || null, title: l.title || "Item", quantity: parseInt(l.quantity) || 0, unit_price: parseFloat(l.unit_price) || 0, total: (parseInt(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), sort_order: i }));
+      const { data: ois } = await supabase.from("erp_order_items").insert(items).select();
+      setOrders(p => [ord, ...p]);
+      if (ois) setOrderItems(p => [...p, ...ois]);
+      setSelected(ord);
+    }
+    setShowNew(false); setForm(FORM_INIT); setLineItems([]);
   };
 
   const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
@@ -1891,6 +1902,7 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
                 <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getCustomer(selected.customer_id)?.name || "DTC"} · {selected.channel}</div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
+                {selected.status === "pending" && <button onClick={() => { setForm({ channel: selected.channel, customer_id: selected.customer_id || "", notes: selected.notes || "" }); setLineItems(orderItems.filter(i => i.order_id === selected.id).map(i => ({ variant_id: i.variant_id || "", title: i.title, quantity: i.quantity, unit_price: i.unit_price, sku: i.sku }))); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>}
                 {selected.status === "pending" && <button onClick={() => updateOrderStatus(selected.id, "processing")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Process</button>}
                 {selected.status === "processing" && <button onClick={() => {
                   const carrier = prompt("Carrier (USPS, UPS, FedEx, DHL):", "USPS");
@@ -2053,6 +2065,7 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => { setForm({ ...selected, credit_limit: selected.credit_limit || "" }); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>
+                <button onClick={async () => { if (!window.confirm(`Delete ${selected.name}?`)) return; await supabase.from("erp_customers").delete().eq("id", selected.id); setCustomers(p => p.filter(x => x.id !== selected.id)); setSelected(null); }} style={{ padding: "5px 10px", fontSize: 11, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Delete</button>
                 <Pill status={selected.status} />
               </div>
             </div>
@@ -2151,10 +2164,8 @@ function ManufacturingView({ workOrders, setWorkOrders, variants, products, faci
 
   const createWO = async () => {
     if (!form.variant_id || !form.planned_quantity) return;
-    const v = getVariant(form.variant_id);
     const vBom = boms.find(b => b.variant_id === form.variant_id && b.status === "active");
     const payload = {
-      wo_number: nextWONum(),
       variant_id: form.variant_id,
       bom_id: vBom?.id || null,
       facility_id: form.facility_id || null,
@@ -2162,10 +2173,14 @@ function ManufacturingView({ workOrders, setWorkOrders, variants, products, faci
       planned_start: form.planned_start || null,
       planned_end: form.planned_end || null,
       notes: form.notes,
-      status: "planned",
     };
-    const { data } = await supabase.from("erp_work_orders").insert(payload).select().single();
-    if (data) setWorkOrders(p => [data, ...p]);
+    if (selected && (selected.status === "planned" || selected.status === "released")) {
+      const { data } = await supabase.from("erp_work_orders").update(payload).eq("id", selected.id).select().single();
+      if (data) { setWorkOrders(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+    } else {
+      const { data } = await supabase.from("erp_work_orders").insert({ ...payload, wo_number: nextWONum(), status: "planned" }).select().single();
+      if (data) { setWorkOrders(p => [data, ...p]); setSelected(data); }
+    }
     setShowNew(false);
     setForm({ variant_id: "", facility_id: "", planned_quantity: "", planned_start: "", planned_end: "", notes: "" });
   };
@@ -2232,6 +2247,7 @@ function ManufacturingView({ workOrders, setWorkOrders, variants, products, faci
                 <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getVariant(selected.variant_id)?.name || "—"}</div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
+                {(selected.status === "planned" || selected.status === "released") && <button onClick={() => { setForm({ variant_id: selected.variant_id, facility_id: selected.facility_id || "", planned_quantity: selected.planned_quantity || "", planned_start: selected.planned_start || "", planned_end: selected.planned_end || "", notes: selected.notes || "" }); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>}
                 {selected.status === "planned" && <button onClick={() => updateWOStatus(selected, "released")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Release</button>}
                 {selected.status === "released" && <button onClick={() => updateWOStatus(selected, "in_progress")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 6, color: "#92400E", cursor: "pointer" }}>Start</button>}
                 {selected.status === "in_progress" && <button onClick={() => updateWOStatus(selected, "completed")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#D1FAE5", border: "1px solid #6EE7B7", borderRadius: 6, color: "#065F46", cursor: "pointer" }}>Complete</button>}
@@ -2332,6 +2348,7 @@ function ManufacturingView({ workOrders, setWorkOrders, variants, products, faci
 // ═══════════════════════════════════════════════════════════════════════════════
 function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobile }) {
   const [showNew, setShowNew] = useState(false);
+  const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({ name: "", facility_type: "warehouse", operator: "", city: "", state: "", country: "US", entity_id: "" });
   const TYPE_ICONS = { warehouse: "🏢", factory: "🏭", "3pl": "🚚", office: "🏫", retail: "🏬" };
   const getEntity = id => entities?.find(e => e.id === id);
@@ -2339,9 +2356,15 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
 
   const saveFacility = async () => {
     if (!form.name.trim()) return;
-    const { data } = await supabase.from("erp_facilities").insert({ ...form, entity_id: form.entity_id || null }).select().single();
-    if (data) setFacilities(p => [...p, data]);
-    setShowNew(false); setForm({ name: "", facility_type: "warehouse", operator: "", city: "", state: "", country: "US", entity_id: "" });
+    const payload = { ...form, entity_id: form.entity_id || null };
+    if (selected) {
+      const { data } = await supabase.from("erp_facilities").update(payload).eq("id", selected.id).select().single();
+      if (data) setFacilities(p => p.map(x => x.id === data.id ? data : x));
+    } else {
+      const { data } = await supabase.from("erp_facilities").insert(payload).select().single();
+      if (data) setFacilities(p => [...p, data]);
+    }
+    setShowNew(false); setSelected(null); setForm({ name: "", facility_type: "warehouse", operator: "", city: "", state: "", country: "US", entity_id: "" });
   };
 
   const totalUnitsAll = inventory.reduce((s, i) => s + (i.quantity || 0), 0);
@@ -2374,6 +2397,8 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{f.name}</span>
                     {f.is_default && <span style={{ fontSize: 9, color: T.accent, fontWeight: 600 }}>DEFAULT</span>}
                     {ent && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: T.surface2, color: T.text3, fontWeight: 600 }}>{ent.code}</span>}
+                    <button onClick={e => { e.stopPropagation(); setForm({ name: f.name, facility_type: f.facility_type, operator: f.operator || "", city: f.city || "", state: f.state || "", country: f.country || "US", entity_id: f.entity_id || "" }); setShowNew(true); setSelected(f); }} style={{ padding: "2px 6px", fontSize: 9, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer", marginLeft: "auto" }}>Edit</button>
+                    <button onClick={async e => { e.stopPropagation(); if (!window.confirm(`Delete ${f.name}?`)) return; await supabase.from("erp_facilities").delete().eq("id", f.id); setFacilities(p => p.filter(x => x.id !== f.id)); }} style={{ padding: "2px 6px", fontSize: 9, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 4, color: "#991B1B", cursor: "pointer" }}>✕</button>
                   </div>
                   <div style={{ fontSize: 11, color: T.text3, textTransform: "capitalize" }}>{f.facility_type?.replace(/_/g, " ")}{f.operator ? ` · ${f.operator}` : ""}</div>
                 </div>
@@ -2514,6 +2539,7 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
                 <div style={{ fontSize: 12, color: T.text3 }}>{selected.code} · {selected.entity_type}</div>
               </div>
               <button onClick={() => { setForm({ ...selected, transfer_pricing_markup_pct: selected.transfer_pricing_markup_pct || 0, fiscal_year_start: selected.fiscal_year_start || 1 }); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>
+              {selected.entity_type !== "parent" && <button onClick={async () => { if (!window.confirm(`Delete ${selected.name}?`)) return; await supabase.from("erp_entities").delete().eq("id", selected.id); setEntities(p => p.filter(x => x.id !== selected.id)); setSelected(null); }} style={{ padding: "5px 10px", fontSize: 11, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Delete</button>}
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
