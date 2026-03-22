@@ -214,6 +214,7 @@ export default function FinanceView() {
   // ── Navigation ─────────────────────────────────────────────────────────────
   const NAV = [
     { id: "dashboard",    label: "Dashboard",    icon: "◉" },
+    { id: "vendor_spend", label: "Vendor Spend", icon: "📑" },
     { id: "requests",     label: "Requests",     icon: "📋" },
     { id: "budgets",      label: "Budgets",      icon: "💰" },
     { id: "departments",  label: "Departments",  icon: "🏢" },
@@ -263,6 +264,7 @@ export default function FinanceView() {
         {view === "rules" && <RulesView isMobile={isMobile} rules={rules} setRules={setRules} glCodes={glCodes} members={members} user={user} />}
         {view === "reports" && <ReportsView isMobile={isMobile} requests={requests} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} />}
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
+        {view === "vendor_spend" && <VendorSpendView isMobile={isMobile} glCodes={glCodes} glCategories={glCategories} departments={departments} />}
       </div>
       </div>
     </div>
@@ -1468,3 +1470,314 @@ function AuditLogView({ isMobile, auditLog }) {
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VENDOR SPEND VIEW — January 2026 closed book detail
+// ═══════════════════════════════════════════════════════════════════════════════
+function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
+  const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
+    ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",accentDim:"#6366f115" }
+    : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",accentDim:"#6366f110" };
+  const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  const fmtD = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(n);
+
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [subView, setSubView] = useState("summary"); // summary, vendors, gl_map, by_team
+  const [search, setSearch] = useState("");
+  const [gaFilter, setGaFilter] = useState("all");
+  const [teamFilter, setTeamFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("Actual"); // Actual or Budget
+  const [editingTeam, setEditingTeam] = useState(null);
+  const [sortBy, setSortBy] = useState("total"); // total, name, team
+  const [sortDir, setSortDir] = useState("desc");
+
+  const TEAMS = ["Sales","Executive","Customer Success","Creative","Marketing","Tech & Data","Administrative","Finance","Legal","People Ops","Impact","R&D / Product","Operations","Manufacturing","Unassigned"];
+  const GA_CATS = ["People Costs","Direct Ad Spend","Brand/Other/Marketing","Consultants","Non-Fixed and Other","Software and Subscriptions","T&E","R&D","Insurance","Legal"];
+  const GA_COLORS = { "People Costs":"#8B5CF6", "Direct Ad Spend":"#EF4444", "Brand/Other/Marketing":"#F59E0B", "Consultants":"#3B82F6", "Non-Fixed and Other":"#6B7280", "Software and Subscriptions":"#10B981", "T&E":"#EC4899", "R&D":"#06B6D4", "Insurance":"#14B8A6", "Legal":"#A855F7" };
+
+  // Load seed data
+  useEffect(() => {
+    (async () => {
+      try {
+        // Try DB first
+        const { data: dbData } = await supabase.from("fin_vendor_spend").select("*").eq("period", "2026-01").limit(1);
+        if (dbData && dbData.length > 0) {
+          const { data: all } = await supabase.from("fin_vendor_spend").select("*").eq("period", "2026-01");
+          setData(all || []);
+        } else {
+          // Seed from JSON
+          const res = await fetch("/vendor_spend_seed.json");
+          const seed = await res.json();
+          const rows = seed.map(r => ({
+            period: r.p, vendor_name: r.v, gl_account: r.g, gl_description: r.d,
+            amount: r.a, budget_or_actual: r.b, ga_category: r.c, team: r.t
+          }));
+          setData(rows);
+          // Batch insert into DB (fire and forget)
+          for (let i = 0; i < rows.length; i += 100) {
+            supabase.from("fin_vendor_spend").insert(rows.slice(i, i + 100).map(r => ({ ...r, org_id: "a0000000-0000-0000-0000-000000000001" }))).then(() => {});
+          }
+        }
+      } catch (e) { console.error("Vendor spend load error:", e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  // Filtered data
+  const filtered = data.filter(r => {
+    if (typeFilter !== "all" && r.budget_or_actual !== typeFilter) return false;
+    if (gaFilter !== "all" && r.ga_category !== gaFilter) return false;
+    if (teamFilter !== "all" && r.team !== teamFilter) return false;
+    if (search && !r.vendor_name?.toLowerCase().includes(search.toLowerCase()) && !r.gl_description?.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  // Aggregations
+  const byVendor = {};
+  filtered.forEach(r => {
+    if (!byVendor[r.vendor_name]) byVendor[r.vendor_name] = { name: r.vendor_name, total: 0, ga: new Set(), teams: new Set(), accounts: new Set(), count: 0 };
+    byVendor[r.vendor_name].total += r.amount;
+    byVendor[r.vendor_name].ga.add(r.ga_category);
+    byVendor[r.vendor_name].teams.add(r.team);
+    byVendor[r.vendor_name].accounts.add(r.gl_account);
+    byVendor[r.vendor_name].count++;
+  });
+  let vendorList = Object.values(byVendor);
+  if (sortBy === "total") vendorList.sort((a, b) => sortDir === "desc" ? b.total - a.total : a.total - b.total);
+  else if (sortBy === "name") vendorList.sort((a, b) => sortDir === "desc" ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name));
+
+  const byGA = {};
+  filtered.forEach(r => {
+    if (!byGA[r.ga_category]) byGA[r.ga_category] = { cat: r.ga_category, total: 0, vendors: new Set() };
+    byGA[r.ga_category].total += r.amount;
+    byGA[r.ga_category].vendors.add(r.vendor_name);
+  });
+  const gaList = Object.values(byGA).sort((a, b) => b.total - a.total);
+
+  const byTeam = {};
+  filtered.forEach(r => {
+    if (!byTeam[r.team]) byTeam[r.team] = { team: r.team, total: 0, vendors: new Set(), ga: new Set() };
+    byTeam[r.team].total += r.amount;
+    byTeam[r.team].vendors.add(r.vendor_name);
+    byTeam[r.team].ga.add(r.ga_category);
+  });
+  const teamList = Object.values(byTeam).sort((a, b) => b.total - a.total);
+
+  const totalSpend = filtered.reduce((s, r) => s + r.amount, 0);
+  const actualTotal = data.filter(r => r.budget_or_actual === "Actual").reduce((s, r) => s + r.amount, 0);
+  const budgetTotal = data.filter(r => r.budget_or_actual === "Budget").reduce((s, r) => s + r.amount, 0);
+  const variance = actualTotal - budgetTotal;
+
+  // Edit team for a vendor
+  const updateVendorTeam = async (vendorName, newTeam) => {
+    setData(p => p.map(r => r.vendor_name === vendorName ? { ...r, team: newTeam } : r));
+    await supabase.from("fin_vendor_spend").update({ team: newTeam }).eq("vendor_name", vendorName).eq("period", "2026-01");
+    setEditingTeam(null);
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading vendor spend data…</div>;
+
+  return (
+    <div style={{ padding: isMobile ? 12 : 20 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>January 2026 — Vendor Spend</div>
+        <div style={{ fontSize: 12, color: T.text3 }}>Closed book detail · {data.length} line items · {Object.keys(byVendor).length} vendors · Linked to GL & Approval System</div>
+      </div>
+
+      {/* KPI Row */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+        {[
+          { l: "Actual Spend", v: fmt(actualTotal), c: T.accent },
+          { l: "Budget", v: fmt(budgetTotal), c: "#F59E0B" },
+          { l: "Variance", v: (variance >= 0 ? "+" : "") + fmt(variance), c: variance > 0 ? "#EF4444" : "#10B981" },
+          { l: "Vendors", v: vendorList.length, c: "#3B82F6" },
+          { l: "G&A Categories", v: gaList.length, c: "#8B5CF6" },
+        ].map(s => (
+          <div key={s.l} style={{ textAlign: "center", padding: 12, background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: s.c }}>{s.v}</div>
+            <div style={{ fontSize: 10, color: T.text3, fontWeight: 600 }}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters + Sub-nav */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+        {[["summary","📊 Summary"],["vendors","🏢 By Vendor"],["by_team","👥 By Team"],["gl_map","📒 GL Mapping"]].map(([k,l]) => (
+          <button key={k} onClick={() => setSubView(k)} style={{ padding: "6px 14px", borderRadius: 8, background: subView === k ? T.accent : T.surface2, color: subView === k ? "#fff" : T.text3, border: `1px solid ${subView === k ? T.accent : T.border}`, fontSize: 12, fontWeight: subView === k ? 700 : 500, cursor: "pointer" }}>{l}</button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11 }}>
+          <option value="Actual">Actuals Only</option>
+          <option value="Budget">Budget Only</option>
+          <option value="all">All (A+B)</option>
+        </select>
+        <select value={gaFilter} onChange={e => setGaFilter(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11 }}>
+          <option value="all">All G&A Categories</option>
+          {GA_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11 }}>
+          <option value="all">All Teams</option>
+          {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendors…" style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11, width: 160 }} />
+      </div>
+
+      {/* SUMMARY VIEW */}
+      {subView === "summary" && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+          {/* G&A Breakdown */}
+          <div style={{ background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Spend by G&A Category</div>
+            {gaList.map(g => {
+              const pct = totalSpend > 0 ? (g.total / totalSpend * 100) : 0;
+              return (
+                <div key={g.cat} style={{ marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+                    <span style={{ fontWeight: 600, color: T.text }}>{g.cat}</span>
+                    <span style={{ fontWeight: 700, color: GA_COLORS[g.cat] || T.text }}>{fmt(g.total)} <span style={{ fontSize: 10, color: T.text3 }}>({pct.toFixed(1)}%)</span></span>
+                  </div>
+                  <div style={{ height: 6, background: T.surface3, borderRadius: 3 }}>
+                    <div style={{ height: 6, borderRadius: 3, background: GA_COLORS[g.cat] || T.accent, width: `${pct}%`, transition: "width 0.3s" }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{g.vendors.size} vendors</div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Top 20 Vendors */}
+          <div style={{ background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top 20 Vendors</div>
+            {vendorList.slice(0, 20).map((v, i) => (
+              <div key={v.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${T.border}20`, fontSize: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: T.text3, width: 20 }}>{i + 1}</span>
+                  <span style={{ fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</span>
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                  {[...v.ga].slice(0, 2).map(g => <span key={g} style={{ fontSize: 8, padding: "1px 4px", borderRadius: 3, background: (GA_COLORS[g] || "#666") + "15", color: GA_COLORS[g] || "#666", fontWeight: 600 }}>{g.split("/")[0]}</span>)}
+                  <span style={{ fontWeight: 700, color: T.text, fontFamily: "monospace", minWidth: 70, textAlign: "right" }}>{fmt(v.total)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* VENDORS VIEW */}
+      {subView === "vendors" && (
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>
+            {vendorList.length} vendors · {fmt(totalSpend)} total · Click team to edit assignment
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+              {["#", "Vendor", "Total", "G&A Category", "Team", "GL Accounts", "Lines"].map(h => (
+                <th key={h} onClick={() => { if (h === "Total") { setSortBy("total"); setSortDir(d => d === "desc" ? "asc" : "desc"); } if (h === "Vendor") { setSortBy("name"); setSortDir(d => d === "desc" ? "asc" : "desc"); } }}
+                  style={{ textAlign: h === "Total" || h === "Lines" ? "right" : "left", padding: "8px 6px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: h === "Total" || h === "Vendor" ? "pointer" : "default" }}>{h}{sortBy === "total" && h === "Total" ? (sortDir === "desc" ? " ↓" : " ↑") : ""}{sortBy === "name" && h === "Vendor" ? (sortDir === "desc" ? " ↓" : " ↑") : ""}</th>
+              ))}
+            </tr></thead>
+            <tbody>{vendorList.map((v, i) => (
+              <tr key={v.name} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                <td style={{ padding: "6px", color: T.text3, fontSize: 10 }}>{i + 1}</td>
+                <td style={{ padding: "6px", fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</td>
+                <td style={{ padding: "6px", textAlign: "right", fontWeight: 700, fontFamily: "monospace", color: T.text }}>{fmtD(v.total)}</td>
+                <td style={{ padding: "6px" }}>
+                  <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                    {[...v.ga].map(g => <span key={g} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: (GA_COLORS[g] || "#666") + "15", color: GA_COLORS[g] || "#666", fontWeight: 600 }}>{g}</span>)}
+                  </div>
+                </td>
+                <td style={{ padding: "6px" }}>
+                  {editingTeam === v.name ? (
+                    <select autoFocus value={[...v.teams][0] || "Unassigned"} onChange={e => updateVendorTeam(v.name, e.target.value)} onBlur={() => setEditingTeam(null)}
+                      style={{ padding: "2px 4px", fontSize: 11, borderRadius: 4, border: `1px solid ${T.accent}`, background: T.surface, color: T.text }}>
+                      {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  ) : (
+                    <span onClick={() => setEditingTeam(v.name)} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, background: T.surface2, color: T.text2, cursor: "pointer", border: `1px dashed ${T.border}` }} title="Click to edit team">
+                      {[...v.teams].join(", ")}
+                    </span>
+                  )}
+                </td>
+                <td style={{ padding: "6px", fontSize: 10, color: T.text3, fontFamily: "monospace" }}>{[...v.accounts].join(", ")}</td>
+                <td style={{ padding: "6px", textAlign: "right", fontSize: 10, color: T.text3 }}>{v.count}</td>
+              </tr>
+            ))}</tbody>
+            <tfoot><tr style={{ borderTop: `2px solid ${T.border}` }}>
+              <td colSpan={2} style={{ padding: "8px 6px", fontWeight: 800, textAlign: "right" }}>Total</td>
+              <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{fmtD(totalSpend)}</td>
+              <td colSpan={4}></td>
+            </tr></tfoot>
+          </table>
+        </div>
+      )}
+
+      {/* BY TEAM VIEW */}
+      {subView === "by_team" && (
+        <div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Spend grouped by team assignment · Click team names on Vendor view to reassign</div>
+          {teamList.map(t => {
+            const pct = totalSpend > 0 ? (t.total / totalSpend * 100) : 0;
+            const teamVendors = vendorList.filter(v => v.teams.has(t.team)).sort((a, b) => b.total - a.total);
+            return (
+              <div key={t.team} style={{ marginBottom: 12, background: T.surface, borderRadius: 10, border: `1px solid ${T.border}`, padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{t.team}</span>
+                    <span style={{ fontSize: 11, color: T.text3, marginLeft: 8 }}>{t.vendors.size} vendors · {[...t.ga].length} categories</span>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(t.total)}</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{pct.toFixed(1)}% of total</div>
+                  </div>
+                </div>
+                <div style={{ height: 4, background: T.surface3, borderRadius: 2, marginBottom: 8 }}>
+                  <div style={{ height: 4, borderRadius: 2, background: T.accent, width: `${pct}%` }} />
+                </div>
+                {teamVendors.slice(0, 8).map(v => (
+                  <div key={v.name} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
+                    <span style={{ color: T.text2 }}>{v.name}</span>
+                    <span style={{ fontWeight: 600, fontFamily: "monospace", color: T.text }}>{fmtD(v.total)}</span>
+                  </div>
+                ))}
+                {teamVendors.length > 8 && <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>+{teamVendors.length - 8} more vendors</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* GL MAPPING VIEW */}
+      {subView === "gl_map" && (
+        <div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>GL Account → G&A Category → Default Team mapping · 69 accounts from your chart of accounts</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+              {["GL #", "Account Name", "G&A Category", "Default Team", "Jan Spend"].map(h => (
+                <th key={h} style={{ textAlign: h === "Jan Spend" ? "right" : "left", padding: "8px 6px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>{(() => {
+              // Get unique GL accounts from data
+              const glMap = {};
+              data.forEach(r => {
+                if (!glMap[r.gl_account]) glMap[r.gl_account] = { code: r.gl_account, name: r.gl_description, ga: r.ga_category, team: r.team, total: 0 };
+                glMap[r.gl_account].total += r.amount;
+              });
+              return Object.values(glMap).sort((a, b) => a.code.localeCompare(b.code)).map(gl => (
+                <tr key={gl.code} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                  <td style={{ padding: "6px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{gl.code}</td>
+                  <td style={{ padding: "6px", color: T.text }}>{gl.name}</td>
+                  <td style={{ padding: "6px" }}><span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: (GA_COLORS[gl.ga] || "#666") + "15", color: GA_COLORS[gl.ga] || "#666", fontWeight: 600 }}>{gl.ga}</span></td>
+                  <td style={{ padding: "6px", fontSize: 11, color: T.text2 }}>{gl.team}</td>
+                  <td style={{ padding: "6px", textAlign: "right", fontWeight: 600, fontFamily: "monospace", color: T.text }}>{fmtD(gl.total)}</td>
+                </tr>
+              ));
+            })()}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
