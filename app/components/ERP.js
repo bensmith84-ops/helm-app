@@ -1946,12 +1946,98 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
                 </table>
               </div>
             }
-            {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+
+            {/* Shipping Address */}
+            {selected.shipping_name && (
+              <div style={{ marginTop: 12, padding: "10px 12px", background: T.surface2, borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 4 }}>📍 Ship To</div>
+                <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: 600 }}>{selected.shipping_name}</div>
+                  {selected.shipping_address_line1 && <div>{selected.shipping_address_line1}</div>}
+                  <div>{[selected.shipping_city, selected.shipping_state, selected.shipping_postal_code].filter(Boolean).join(", ")}</div>
+                  {selected.shipping_phone && <div style={{ color: T.text3, fontSize: 11 }}>📞 {selected.shipping_phone}</div>}
+                </div>
+              </div>
+            )}
+
+            {/* Carrier info if shipped */}
+            {selected.carrier_id && (() => {
+              const car = carriers.find(c => c.id === selected.carrier_id);
+              const svc = carrierServices.find(s => s.id === selected.service_id);
+              return car && (
+                <div style={{ marginTop: 8, padding: "8px 12px", background: "#10B98110", border: "1px solid #10B98130", borderRadius: 8, fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontWeight: 700, color: "#10B981" }}>✅ {car.name}</span>
+                  {svc && <span style={{ color: T.text3 }}>· {svc.name}</span>}
+                  {svc && <span style={{ color: T.text3 }}>· {svc.estimated_days_min}-{svc.estimated_days_max}d</span>}
+                </div>
+              );
+            })()}
+
+            {selected.notes && <div style={{ marginTop: 8, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
           </div>
         )}
       </div>
 
-      {/* Create Order Modal */}
+      {/* Ship Order Modal */}
+      {showShipModal && selected && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowShipModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(540px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 4 }}>📦 Ship Order — {selected.order_number}</div>
+            <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>{getCustomer(selected.customer_id)?.name || "DTC"} · {selItems.length} item{selItems.length !== 1 ? "s" : ""} · {fmt(selected.total)}</div>
+
+            {selected.shipping_name && (
+              <div style={{ padding: "8px 12px", background: T.surface2, borderRadius: 8, marginBottom: 12, fontSize: 11 }}>
+                <div style={{ fontWeight: 700, color: T.text }}>📍 {selected.shipping_name}</div>
+                <div style={{ color: T.text3 }}>{selected.shipping_address_line1}{selected.shipping_city ? `, ${selected.shipping_city}` : ""} {selected.shipping_state} {selected.shipping_postal_code}</div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Carrier *</div>
+                <Select value={shipForm.carrier_id} onChange={v => setShipForm(f => ({ ...f, carrier_id: v, service_id: "" }))} placeholder="Select carrier…"
+                  options={carriers.filter(c => c.is_active).map(c => ({ value: c.id, label: c.name, sublabel: `${c.carrier_type?.replace(/_/g," ")} · via ${c.integration || "direct"}`, icon: { usps: "📮", ups: "📦", fedex: "✈️", dhl: "🟡", stord: "🏭" }[c.code] || "🚚" }))} /></div>
+
+              {shipForm.carrier_id && (
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Service *</div>
+                  <Select value={shipForm.service_id} onChange={v => setShipForm(f => ({ ...f, service_id: v }))} placeholder="Select service…"
+                    options={carrierServices.filter(s => s.carrier_id === shipForm.carrier_id && s.is_active).map(s => ({ value: s.id, label: s.name, sublabel: `${s.estimated_days_min}-${s.estimated_days_max} days · ~${fmt(s.base_rate)}` }))} /></div>
+              )}
+
+              {shipForm.service_id && (() => { const svc = carrierServices.find(s => s.id === shipForm.service_id); return svc && (
+                <div style={{ padding: "10px 12px", background: "#EFF6FF15", border: "1px solid #93C5FD40", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div><div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{svc.name}</div><div style={{ fontSize: 11, color: T.text3 }}>{svc.estimated_days_min}-{svc.estimated_days_max} business days</div></div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: T.accent }}>~{fmt(svc.base_rate)}</div>
+                </div>
+              ); })()}
+
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Tracking Number</div><input value={shipForm.tracking_number} onChange={e => setShipForm(f => ({ ...f, tracking_number: e.target.value }))} placeholder="Enter or auto-generate" style={{ width: "100%", padding: "8px 12px", fontSize: 12, fontFamily: "monospace", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Weight (g)</div><input type="number" value={shipForm.weight_g} onChange={e => setShipForm(f => ({ ...f, weight_g: e.target.value }))} placeholder="180" style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <button style={{ padding: "10px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>🖨 Generate Label</button>
+                <button style={{ padding: "10px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>🧾 Packing Slip</button>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowShipModal(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={async () => {
+                  if (!shipForm.carrier_id) return;
+                  const car = carriers.find(c => c.id === shipForm.carrier_id);
+                  const svc = carrierServices.find(s => s.id === shipForm.service_id);
+                  const shipNum = `SHP-${selected.order_number.replace("ORD-", "")}`;
+                  const trackUrl = car?.tracking_url_template && shipForm.tracking_number ? car.tracking_url_template.replace("{tracking}", shipForm.tracking_number) : null;
+                  await supabase.from("erp_shipments").insert({ order_id: selected.id, shipment_number: shipNum, carrier: car?.name, carrier_id: shipForm.carrier_id, service_id: shipForm.service_id || null, tracking_number: shipForm.tracking_number || null, tracking_url: trackUrl, rate_amount: svc?.base_rate || null, weight_g: parseFloat(shipForm.weight_g) || null, status: "shipped", shipped_at: new Date().toISOString() });
+                  await supabase.from("erp_orders").update({ carrier_id: shipForm.carrier_id, service_id: shipForm.service_id || null, weight_g: parseFloat(shipForm.weight_g) || null }).eq("id", selected.id);
+                  updateOrderStatus(selected.id, "shipped");
+                  setShowShipModal(false);
+                }} disabled={!shipForm.carrier_id} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !shipForm.carrier_id ? 0.5 : 1 }}>✓ Confirm & Ship</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {showNew && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(650px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
@@ -2081,12 +2167,32 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
             </div>
 
             {/* Contact info */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
               {[
                 { l: "Email", v: selected.email || "—" }, { l: "Phone", v: selected.phone || "—" },
                 { l: "Payment Terms", v: selected.payment_terms?.replace(/_/g, " ") || "—" }, { l: "Credit Limit", v: selected.credit_limit ? fmt(selected.credit_limit) : "—" },
+                { l: "Source", v: selected.source || "—" }, { l: "Lifetime Orders", v: selected.total_orders || 0 },
+                { l: "Lifetime Spent", v: fmt(selected.total_spent) }, { l: "Last Order", v: selected.last_order_at ? new Date(selected.last_order_at).toLocaleDateString() : "—" },
               ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2 }}>{d.v}</div></div>)}
             </div>
+
+            {/* Address */}
+            {selected.address_line1 && (
+              <div style={{ marginBottom: 12, padding: "10px 12px", background: T.surface2, borderRadius: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, marginBottom: 4 }}>📍 ADDRESS</div>
+                <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>
+                  {selected.address_line1}{selected.address_line2 ? `, ${selected.address_line2}` : ""}
+                  <br />{[selected.city, selected.state, selected.postal_code].filter(Boolean).join(", ")}{selected.country && selected.country !== "US" ? ` · ${selected.country}` : ""}
+                </div>
+              </div>
+            )}
+
+            {/* Tags */}
+            {(selected.tags || []).length > 0 && (
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
+                {selected.tags.map(t => <span key={t} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: T.accentDim, color: T.accent, fontWeight: 600 }}>{t}</span>)}
+              </div>
+            )}
 
             {/* Order history */}
             <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Order History ({custOrders.length})</div>
@@ -2438,6 +2544,127 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
               </div>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SHIPPING VIEW — Carriers, services, rules, integrations
+// ═══════════════════════════════════════════════════════════════════════════════
+function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServices, fulfillmentIntegrations, orders, isMobile }) {
+  const [subView, setSubView] = useState("carriers");
+  const CARRIER_ICONS = { usps: "📮", ups: "📦", fedex: "✈️", dhl: "🟡", stord: "🏭" };
+
+  const shippedOrders = orders.filter(o => o.status === "shipped" || o.status === "delivered");
+  const pendingShip = orders.filter(o => o.status === "processing");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Shipping</div><div style={{ fontSize: 12, color: T.text3 }}>{carriers.length} carriers · {carrierServices.length} services · {pendingShip.length} awaiting shipment</div></div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "Active Carriers", v: carriers.filter(c => c.is_active).length, c: T.accent }, { l: "Services", v: carrierServices.filter(s => s.is_active).length, c: "#3B82F6" }, { l: "Awaiting Ship", v: pendingShip.length, c: pendingShip.length > 0 ? "#F59E0B" : T.text3 }, { l: "Shipped Today", v: shippedOrders.filter(o => new Date(o.updated_at || o.order_date).toDateString() === new Date().toDateString()).length, c: "#10B981" }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+        {[["carriers", "🚚 Carriers"], ["services", "📋 Services"], ["integrations", "🔗 Integrations"]].map(([k, l]) => (
+          <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
+        ))}
+      </div>
+
+      {/* CARRIERS TAB */}
+      {subView === "carriers" && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+          {carriers.map(c => {
+            const services = carrierServices.filter(s => s.carrier_id === c.id);
+            return (
+              <Card key={c.id} style={{ padding: "14px 16px", borderLeft: `3px solid ${c.is_active ? "#10B981" : T.text3}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontSize: 24 }}>{CARRIER_ICONS[c.code] || "🚚"}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{c.name}</span>
+                      <span style={{ fontSize: 9, fontFamily: "monospace", padding: "1px 5px", borderRadius: 3, background: T.surface2, color: T.text3 }}>{c.code}</span>
+                      {c.is_active ? <span style={{ fontSize: 9, color: "#10B981", fontWeight: 700 }}>ACTIVE</span> : <span style={{ fontSize: 9, color: T.text3 }}>INACTIVE</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{c.carrier_type?.replace(/_/g, " ")} · via {c.integration || "direct"}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 4 }}>{services.length} Service{services.length !== 1 ? "s" : ""}</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {services.filter(s => s.is_active).map(s => (
+                    <span key={s.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.surface2, color: T.text3, fontWeight: 600 }}>
+                      {s.name} · {s.estimated_days_min}-{s.estimated_days_max}d · ~{fmt(s.base_rate)}
+                    </span>
+                  ))}
+                </div>
+                {c.account_number && <div style={{ marginTop: 6, fontSize: 10, color: T.text3 }}>Account: {c.account_number}</div>}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* SERVICES TAB */}
+      {subView === "services" && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+              {["Carrier", "Service", "Code", "Level", "Est. Days", "Rate", "Status"].map(h => <th key={h} style={{ textAlign: "left", padding: "8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {carrierServices.map(s => {
+                const car = carriers.find(c => c.id === s.carrier_id);
+                return (
+                  <tr key={s.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                    <td style={{ padding: "8px", display: "flex", alignItems: "center", gap: 6 }}><span>{CARRIER_ICONS[car?.code] || "🚚"}</span><span style={{ fontWeight: 600, color: T.text }}>{car?.name}</span></td>
+                    <td style={{ padding: "8px", fontWeight: 600, color: T.text }}>{s.name}</td>
+                    <td style={{ padding: "8px", fontFamily: "monospace", fontSize: 11, color: T.text3 }}>{s.code}</td>
+                    <td style={{ padding: "8px" }}><span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 6, background: { economy: T.surface2, standard: "#EFF6FF20", express: "#FEF3C720", overnight: "#FEE2E220" }[s.service_level] || T.surface2, color: { economy: T.text3, standard: "#1D4ED8", express: "#92400E", overnight: "#991B1B" }[s.service_level] || T.text3, fontWeight: 600, textTransform: "capitalize" }}>{s.service_level}</span></td>
+                    <td style={{ padding: "8px", color: T.text3 }}>{s.estimated_days_min}-{s.estimated_days_max}</td>
+                    <td style={{ padding: "8px", fontWeight: 700, color: T.accent }}>{fmt(s.base_rate)}</td>
+                    <td style={{ padding: "8px" }}>{s.is_active ? <span style={{ fontSize: 10, color: "#10B981", fontWeight: 700 }}>Active</span> : <span style={{ fontSize: 10, color: T.text3 }}>Inactive</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* INTEGRATIONS TAB */}
+      {subView === "integrations" && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+          {fulfillmentIntegrations.map(intg => {
+            const INTG_ICONS = { shipstation: "📮", stord: "🏭", shopify: "🟢", helm: "⬡" };
+            return (
+              <Card key={intg.id} style={{ padding: "14px 16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontSize: 22 }}>{INTG_ICONS[intg.code] || "🔗"}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{intg.name}</span>
+                      {intg.is_active ? <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: "#D1FAE520", color: "#065F46", fontWeight: 700 }}>Connected</span> : <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: T.surface2, color: T.text3, fontWeight: 600 }}>Disconnected</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{intg.integration_type?.replace(/_/g, " ")}</div>
+                  </div>
+                </div>
+                {intg.api_url && <div style={{ fontSize: 10, color: T.text3, fontFamily: "monospace", marginBottom: 4 }}>{intg.api_url}</div>}
+                {intg.config && Object.keys(intg.config).length > 0 && (
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {Object.entries(intg.config).map(([k, v]) => (
+                      <span key={k} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 6, background: T.surface2, color: T.text3 }}>{k.replace(/_/g, " ")}: {String(v)}</span>
+                    ))}
+                  </div>
+                )}
+                {intg.last_sync_at && <div style={{ marginTop: 6, fontSize: 10, color: T.text3 }}>Last sync: {new Date(intg.last_sync_at).toLocaleString()}</div>}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
