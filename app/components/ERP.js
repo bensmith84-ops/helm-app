@@ -300,7 +300,7 @@ export default function ERPView() {
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} landedCosts={landedCosts} setLandedCosts={setLandedCosts} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} binLocations={binLocations} isMobile={isMobile} />}
-          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} shippingRules={shippingRules} setArInvoices={setArInvoices} isMobile={isMobile} />}
+          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} shippingRules={shippingRules} setArInvoices={setArInvoices} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} binLocations={binLocations} setBinLocations={setBinLocations} isMobile={isMobile} />}
@@ -959,7 +959,17 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
 
             {/* Contact info */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Contact</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>Contact</div>
+                <button onClick={async () => {
+                  const name = prompt("Contact name:"); if (!name) return;
+                  const role = prompt("Role/title:", "Account Manager");
+                  const email = prompt("Email:", "");
+                  const phone = prompt("Phone:", "");
+                  await supabase.from("erp_supplier_contacts").insert({ supplier_id: selected.id, name, role: role || null, email: email || null, phone: phone || null });
+                  alert(`✅ Added contact: ${name}`);
+                }} style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 4, cursor: "pointer" }}>+ Contact</button>
+              </div>
               <div style={{ fontSize: 11, color: T.text3 }}>
                 {selected.email && <div>📧 {selected.email}</div>}
                 {selected.phone && <div>📞 {selected.phone}</div>}
@@ -1833,7 +1843,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
           {skuList.map(item => (
             <Card key={item.sku} style={{ padding: "12px 14px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <div><span style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{item.sku}</span><span style={{ fontSize: 12, color: T.text, marginLeft: 8 }}>{item.name}</span></div>
+                <div><span onClick={() => { const prod = products.find(p => variants.find(v => v.id === item.variantId && v.product_id === p.id)); if (prod) navigateTo("products", prod.id); }} style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent, cursor: "pointer", textDecoration: "underline dotted" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "underline dotted"}>{item.sku}</span><span style={{ fontSize: 12, color: T.text, marginLeft: 8 }}>{item.name}</span></div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>On Hand</div>
@@ -1920,7 +1930,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
       {subView === "movements" && (() => {
         const filteredMvmts = facilityFilter === "all" ? (movements || []) : (movements || []).filter(m => m.facility_id === facilityFilter);
         const MOVE_ICONS = { receipt: "📥", shipment: "📤", transfer_in: "➡️", transfer_out: "⬅️", adjustment: "±", production_in: "🏭", production_out: "📦", return: "↩️", scrap: "🗑" };
-        const MOVE_COLORS = { receipt: "#10B981", shipment: "#3B82F6", transfer_in: "#0EA5E9", transfer_out: "#F59E0B", adjustment: "#8B5CF6", production_in: "#10B981", production_out: "#3B82F6", return: "#EC4899", scrap: "#EF4444" };
+        const MOVE_COLORS = { receipt: "#10B981", shipment: "#3B82F6", transfer_in: "#0EA5E9", transfer_out: "#F59E0B", adjustment: "#8B5CF6", production_in: "#10B981", production_out: "#3B82F6", return: "#EC4899", scrap: "#EF4444", bin_transfer: "#8B5CF6" };
         return (
           <>
             {filteredMvmts.length === 0 ? <EmptyState icon="📜" text="No inventory movements recorded" /> :
@@ -1978,7 +1988,16 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={lbl}>Bin Location</div><input value={rcvForm.bin_location} onChange={e => setRcvForm(f => ({ ...f, bin_location: e.target.value }))} placeholder="e.g. A-01-01" style={inp} /></div>
+                <div><div style={lbl}>Bin Location</div>
+                  {binLocations && binLocations.length > 0 ? (
+                    <Select value={rcvForm.bin_location} onChange={v => setRcvForm(f => ({ ...f, bin_location: v }))} placeholder="Select bin…" options={binLocations.filter(b => b.is_active && (!rcvForm.facility_id || b.facility_id === rcvForm.facility_id)).map(b => {
+                      const pct = b.max_capacity > 0 ? Math.round((b.current_quantity || 0) / b.max_capacity * 100) : 0;
+                      return { value: b.code, label: b.code, sublabel: `${b.bin_type} · ${b.current_quantity || 0}/${b.max_capacity} (${pct}%)`, icon: { receiving: "📥", bulk: "📦", pick: "🎯", staging: "📋" }[b.bin_type] || "📍" };
+                    })} />
+                  ) : (
+                    <input value={rcvForm.bin_location} onChange={e => setRcvForm(f => ({ ...f, bin_location: e.target.value }))} placeholder="e.g. A-01-01" style={inp} />
+                  )}
+                </div>
                 <div><div style={lbl}>Notes</div><input value={rcvForm.notes} onChange={e => setRcvForm(f => ({ ...f, notes: e.target.value }))} placeholder="Receipt notes…" style={inp} /></div>
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: T.text }}>
@@ -2053,7 +2072,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
 // ═══════════════════════════════════════════════════════════════════════════════
 // ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, facilities, shippingRules, setArInvoices, isMobile }) {
+function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, facilities, shippingRules, setArInvoices, inventory, setInventory, isMobile }) {
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -2363,6 +2382,22 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                   const trackUrl = car?.tracking_url_template && shipForm.tracking_number ? car.tracking_url_template.replace("{tracking}", shipForm.tracking_number) : null;
                   const { data: shipment } = await supabase.from("erp_shipments").insert({ order_id: selected.id, shipment_number: shipNum, carrier: car?.name, carrier_id: shipForm.carrier_id, service_id: shipForm.service_id || null, tracking_number: shipForm.tracking_number || null, tracking_url: trackUrl, rate_amount: svc?.base_rate || null, weight_g: parseFloat(shipForm.weight_g) || null, status: "shipped", shipped_at: new Date().toISOString() }).select().single();
                   await supabase.from("erp_orders").update({ carrier_id: shipForm.carrier_id, service_id: shipForm.service_id || null, weight_g: parseFloat(shipForm.weight_g) || null }).eq("id", selected.id);
+
+                  // Auto-deduct inventory on shipment (Item 7)
+                  for (const item of selItems) {
+                    if (item.variant_id) {
+                      const fac = facilities?.[0];
+                      if (fac) {
+                        const { data: inv } = await supabase.from("erp_inventory").select("*").eq("variant_id", item.variant_id).eq("facility_id", fac.id).maybeSingle();
+                        if (inv) {
+                          const newQty = Math.max(0, inv.quantity - (item.quantity || 0));
+                          await supabase.from("erp_inventory").update({ quantity: newQty }).eq("id", inv.id);
+                          setInventory(p => p.map(x => x.id === inv.id ? { ...x, quantity: newQty } : x));
+                        }
+                        await supabase.from("erp_inventory_movements").insert({ variant_id: item.variant_id, facility_id: fac.id, movement_type: "shipment", quantity: -(item.quantity || 0), reference_type: "order", reference_id: selected.id, notes: `Shipped: ${item.quantity} × ${item.sku} — ${selected.order_number}` });
+                      }
+                    }
+                  }
 
                   // Auto-generate AR Invoice (Checklist 3.4)
                   const invNum = `INV-${selected.order_number.replace("ORD-", "")}`;
