@@ -75,6 +75,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState(""); // legacy — kept for compat
   const commentRef = useRef(null);
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const editCommentRef = useRef(null);
   const [attachments, setAttachments] = useState([]);
   const [dependencies, setDependencies] = useState([]);
   const [customFields, setCustomFields] = useState([]);
@@ -544,6 +546,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
 
   const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
   const addCommentFromRef = async (text) => { if (!text || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: text }).select().single(); if (!error && data) setComments(p => [...p, data]); };
+  const editComment = async (id, newContent) => {
+    if (!newContent?.trim()) return;
+    const { data, error } = await supabase.from("comments").update({ content: newContent.trim(), is_edited: true, edited_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id).select().single();
+    if (!error && data) setComments(p => p.map(c => c.id === data.id ? data : c));
+    setEditingCommentId(null);
+  };
+  const deleteComment = async (id) => {
+    if (!window.confirm("Delete this comment?")) return;
+    await supabase.from("comments").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    setComments(p => p.filter(c => c.id !== id));
+  };
   const addComment = async () => { if (!newComment.trim() || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: newComment.trim() }).select().single(); if (!error && data) setComments(p => [...p, data]); setNewComment(""); };
   const uploadAttachment = async (file) => { if (!selectedTask) return; const path = `${profile.org_id}/${selectedTask.id}/${Date.now()}_${file.name}`; const { error: ue } = await supabase.storage.from("attachments").upload(path, file); if (ue) return showToast("Upload failed"); const { data, error } = await supabase.from("attachments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user.id }).select().single(); if (!error && data) setAttachments(p => [...p, data]); };
   const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
@@ -1802,14 +1815,33 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               <div>
                 <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 8 }}>Comments</label>
                 {comments.map(c => (
-                  <div key={c.id} style={{ marginBottom: 10, display: "flex", gap: 8 }}>
+                  <div key={c.id} style={{ marginBottom: 10, display: "flex", gap: 8, group: "comment" }}>
                     <div style={{ width: 24, height: 24, borderRadius: 12, background: acol(c.author_id) + "30", color: acol(c.author_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>{ini(c.author_id)}</div>
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{uname(c.author_id)}</span>
                         <span style={{ fontSize: 10, color: T.text3 }}>{timeAgo(c.created_at)}</span>
+                        {c.is_edited && <span style={{ fontSize: 9, color: T.text3, fontStyle: "italic" }}>(edited{c.edited_at ? " " + timeAgo(c.edited_at) : ""})</span>}
                       </div>
-                      <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.4 }}>{c.content}</div>
+                      {editingCommentId === c.id ? (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input ref={editCommentRef} defaultValue={c.content} autoFocus
+                            onKeyDown={e => { if (e.key === "Enter") editComment(c.id, e.target.value); if (e.key === "Escape") setEditingCommentId(null); }}
+                            style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.accent}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
+                          <button onClick={() => editComment(c.id, editCommentRef.current?.value)} style={{ padding: "4px 8px", borderRadius: 5, background: T.accent, color: "#fff", border: "none", fontSize: 11, cursor: "pointer" }}>Save</button>
+                          <button onClick={() => setEditingCommentId(null)} style={{ padding: "4px 8px", borderRadius: 5, background: T.surface2, color: T.text3, border: `1px solid ${T.border}`, fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                        </div>
+                      ) : (
+                        <div style={{ position: "relative" }}>
+                          <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.4 }}>{c.content}</div>
+                          {c.author_id === user?.id && (
+                            <div style={{ display: "flex", gap: 4, marginTop: 3, opacity: 0.5, transition: "opacity 0.15s" }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
+                              <button onClick={() => setEditingCommentId(c.id)} style={{ padding: "1px 6px", fontSize: 9, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer" }}>Edit</button>
+                              <button onClick={() => deleteComment(c.id)} style={{ padding: "1px 6px", fontSize: 9, background: "none", border: "1px solid #FECACA", borderRadius: 4, color: "#EF4444", cursor: "pointer" }}>Delete</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
