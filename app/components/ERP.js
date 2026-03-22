@@ -1595,6 +1595,17 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
     }
     const { data: mvmt } = await supabase.from("erp_inventory_movements").insert({ variant_id: adjForm.variant_id, facility_id: adjForm.facility_id, lot_id: adjForm.lot_id || null, movement_type: "adjustment", quantity: adjQty, reference_type: "adjustment", notes: `${adjForm.reason}: ${adjForm.notes || "Manual adjustment"}` }).select().single();
     if (mvmt && setMovements) setMovements(p => [mvmt, ...p]);
+
+    // GL: DR/CR Inventory, CR/DR Adjustment Expense (Checklist 8.1.6)
+    const absAmt = Math.abs(adjQty) * (variants.find(v => v.id === adjForm.variant_id)?.cost || 0);
+    if (absAmt > 0) {
+      await postJournalEntry("adjustment", "adjustment", mvmt?.id,
+        `Inv Adjustment: ${adjForm.reason} — ${getVariant(adjForm.variant_id)?.sku}`,
+        adjQty > 0
+          ? [{ account: "1210", name: "Inventory - Finished Goods", debit: absAmt }, { account: "5400", name: "Inventory Adjustment Expense", credit: absAmt }]
+          : [{ account: "5400", name: "Inventory Adjustment Expense", debit: absAmt }, { account: "1210", name: "Inventory - Finished Goods", credit: absAmt }]);
+    }
+
     setShowAdjust(false);
     setAdjForm({ variant_id: "", facility_id: "", lot_id: "", quantity: "", reason: "cycle_count", notes: "" });
   };
