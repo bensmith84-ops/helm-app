@@ -83,6 +83,7 @@ const NAV = [
   { id: "manufacturing", label: "Manufacturing", icon: "⚙", badge: null },
   { id: "facilities", label: "Facilities", icon: "🏢", badge: null },
   { id: "shipping", label: "Shipping", icon: "🚚", badge: null },
+  { id: "returns", label: "Returns", icon: "↩️", badge: null },
   { id: "entities", label: "Entities", icon: "🌐", badge: null },
   { id: "reports", label: "Reports", icon: "📈", badge: null },
 ];
@@ -148,6 +149,8 @@ export default function ERPView() {
   const [carriers, setCarriers] = useState([]);
   const [carrierServices, setCarrierServices] = useState([]);
   const [fulfillmentIntegrations, setFulfillmentIntegrations] = useState([]);
+  const [rmas, setRmas] = useState([]);
+  const [rmaItems, setRmaItems] = useState([]);
   const [entities, setEntities] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
@@ -161,7 +164,7 @@ export default function ERPView() {
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
         { data: supItems },
         { data: mvmts },
-        { data: cars }, { data: carSvcs }, { data: fIntg },
+        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -185,6 +188,8 @@ export default function ERPView() {
         supabase.from("erp_carriers").select("*").order("name"),
         supabase.from("erp_carrier_services").select("*").order("carrier_id, name"),
         supabase.from("erp_fulfillment_integrations").select("*").order("name"),
+        supabase.from("erp_rma").select("*").order("created_at", { ascending: false }),
+        supabase.from("erp_rma_items").select("*"),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
@@ -193,7 +198,7 @@ export default function ERPView() {
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setSupplierItems(supItems || []);
       setMovements(mvmts || []);
-      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []);
+      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []);
       setLoading(false);
     };
     if (user) load();
@@ -248,6 +253,7 @@ export default function ERPView() {
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
+          {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}
           {view === "shipping" && <ShippingView carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
@@ -2547,6 +2553,201 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={saveFacility} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RETURNS VIEW — RMA management, inspection, disposition
+// ═══════════════════════════════════════════════════════════════════════════════
+function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems, customers, variants, inventory, setInventory, movements, setMovements, facilities, isMobile }) {
+  const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [form, setForm] = useState({ order_id: "", reason_code: "defective", return_type: "refund", notes: "" });
+  const [newItems, setNewItems] = useState([]);
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+
+  const getCustomer = id => customers.find(c => c.id === id);
+  const getOrder = id => orders.find(o => o.id === id);
+  const filtered = rmas.filter(r => statusFilter === "all" || r.status === statusFilter);
+  const selItems = selected ? rmaItems.filter(i => i.rma_id === selected.id) : [];
+
+  const nextRmaNum = () => { const max = rmas.reduce((m, r) => { const n = parseInt(r.rma_number.replace(/[^0-9]/g, "")) || 0; return Math.max(m, n); }, 1000); return `RMA-${max + 1}`; };
+
+  const createRma = async () => {
+    if (!form.order_id || newItems.length === 0) return;
+    const ord = getOrder(form.order_id);
+    const refund = newItems.reduce((s, i) => s + (parseFloat(i.refund_amount) || 0), 0);
+    const { data: rma } = await supabase.from("erp_rma").insert({ rma_number: nextRmaNum(), order_id: form.order_id, customer_id: ord?.customer_id || null, status: "requested", reason_code: form.reason_code, return_type: form.return_type, refund_amount: refund, notes: form.notes }).select().single();
+    if (!rma) return;
+    const items = newItems.map((i, idx) => ({ rma_id: rma.id, variant_id: i.variant_id || null, sku: i.sku, title: i.title, quantity: parseInt(i.quantity) || 0, refund_amount: parseFloat(i.refund_amount) || 0, sort_order: idx }));
+    const { data: created } = await supabase.from("erp_rma_items").insert(items).select();
+    setRmas(p => [rma, ...p]);
+    if (created) setRmaItems(p => [...p, ...created]);
+    setShowNew(false); setSelected(rma);
+  };
+
+  const updateRmaStatus = async (rma, newStatus) => {
+    const updates = { status: newStatus };
+    if (newStatus === "approved") updates.approved_at = new Date().toISOString();
+    if (newStatus === "received") updates.received_at = new Date().toISOString();
+    if (newStatus === "closed") updates.closed_at = new Date().toISOString();
+    const { data } = await supabase.from("erp_rma").update(updates).eq("id", rma.id).select().single();
+    if (data) { setRmas(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+  };
+
+  const dispositionItem = async (item, disp) => {
+    await supabase.from("erp_rma_items").update({ disposition: disp, received_quantity: item.quantity, inspection_result: disp === "scrap" ? "fail" : "pass" }).eq("id", item.id);
+    setRmaItems(p => p.map(x => x.id === item.id ? { ...x, disposition: disp, received_quantity: item.quantity, inspection_result: disp === "scrap" ? "fail" : "pass" } : x));
+    // If restock, add back to inventory
+    if (disp === "restock" && item.variant_id) {
+      const fac = facilities[0];
+      if (fac) {
+        const { data: existing } = await supabase.from("erp_inventory").select("*").eq("variant_id", item.variant_id).eq("facility_id", fac.id).maybeSingle();
+        if (existing) { await supabase.from("erp_inventory").update({ quantity: existing.quantity + item.quantity }).eq("id", existing.id); setInventory(p => p.map(x => x.id === existing.id ? { ...x, quantity: x.quantity + item.quantity } : x)); }
+        else { const { data: inv } = await supabase.from("erp_inventory").insert({ variant_id: item.variant_id, facility_id: fac.id, quantity: item.quantity }).select().single(); if (inv) setInventory(p => [...p, inv]); }
+        const { data: mvmt } = await supabase.from("erp_inventory_movements").insert({ variant_id: item.variant_id, facility_id: fac.id, movement_type: "return", quantity: item.quantity, reference_type: "rma", reference_id: selected.id, notes: `RMA ${selected.rma_number}: Restocked ${item.quantity} × ${item.sku}` }).select().single();
+        if (mvmt && setMovements) setMovements(p => [mvmt, ...p]);
+      }
+    }
+  };
+
+  const REASON_LABELS = { defective: "Defective", wrong_item: "Wrong Item", damaged_in_transit: "Damaged in Transit", customer_changed_mind: "Changed Mind", warranty: "Warranty", quality: "Quality Issue" };
+  const STATUS_FLOW = { requested: ["approved", "cancelled"], approved: ["received", "cancelled"], received: ["inspected", "closed"], inspected: ["closed"] };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Returns & RMA</div><div style={{ fontSize: 12, color: T.text3 }}>{rmas.length} returns · {rmas.filter(r => r.status !== "closed" && r.status !== "cancelled").length} open</div></div>
+        <button onClick={() => { setForm({ order_id: "", reason_code: "defective", return_type: "refund", notes: "" }); setNewItems([]); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ RMA</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "Open", v: rmas.filter(r => !["closed","cancelled"].includes(r.status)).length, c: "#F59E0B" }, { l: "Received", v: rmas.filter(r => r.status === "received").length, c: "#3B82F6" }, { l: "Closed", v: rmas.filter(r => r.status === "closed").length, c: "#10B981" }, { l: "Refund Total", v: fmt(rmas.filter(r => r.status === "closed").reduce((s, r) => s + (r.refund_amount || 0), 0)), c: T.accent }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2, flexWrap: "wrap" }}>
+        {[["all","All"],["requested","Requested"],["approved","Approved"],["received","Received"],["closed","Closed"],["cancelled","Cancelled"]].map(([v,l]) => (
+          <button key={v} onClick={() => setStatusFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: statusFilter === v ? T.surface : "transparent", color: statusFilter === v ? T.text : T.text3 }}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {filtered.length === 0 ? <EmptyState icon="↩️" text="No returns found" /> :
+            filtered.map(r => {
+              const ord = getOrder(r.order_id);
+              const cust = getCustomer(r.customer_id);
+              const sel = selected?.id === r.id;
+              return (
+                <Card key={r.id} onClick={() => setSelected(r)} style={{ padding: "10px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{r.rma_number}</span>
+                      <Pill status={r.status} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(r.refund_amount)}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>
+                    {cust?.name || "Unknown"} · {ord?.order_number || "—"} · {REASON_LABELS[r.reason_code] || r.reason_code} · {r.return_type}
+                  </div>
+                </Card>
+              );
+            })
+          }
+        </div>
+
+        {selected && !isMobile && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.rma_number}</div>
+                <div style={{ fontSize: 12, color: T.text3 }}>{getCustomer(selected.customer_id)?.name} · {getOrder(selected.order_id)?.order_number}</div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {(STATUS_FLOW[selected.status] || []).map(ns => (
+                  <button key={ns} onClick={() => updateRmaStatus(selected, ns)} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: ns === "cancelled" ? "#FEE2E2" : "#D1FAE5", border: `1px solid ${ns === "cancelled" ? "#FECACA" : "#6EE7B7"}`, borderRadius: 6, color: ns === "cancelled" ? "#991B1B" : "#065F46", cursor: "pointer", textTransform: "capitalize" }}>{ns}</button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+              {[{ l: "Status", v: selected.status }, { l: "Reason", v: REASON_LABELS[selected.reason_code] || selected.reason_code }, { l: "Type", v: selected.return_type }, { l: "Refund", v: fmt(selected.refund_amount) }, { l: "Requested", v: selected.requested_at ? new Date(selected.requested_at).toLocaleDateString() : "—" }, { l: "Received", v: selected.received_at ? new Date(selected.received_at).toLocaleDateString() : "—" }].map(d => (
+                <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Return Items</div>
+            {selItems.length === 0 ? <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: 12 }}>No items</div> :
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    {["Item", "SKU", "Qty", "Rcvd", "Disposition", "Action"].map(h => <th key={h} style={{ textAlign: "left", padding: "6px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>{selItems.map(item => (
+                    <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <td style={{ padding: "6px", fontWeight: 600, color: T.text }}>{item.title}</td>
+                      <td style={{ padding: "6px", fontFamily: "monospace", fontSize: 11, color: T.accent }}>{item.sku}</td>
+                      <td style={{ padding: "6px" }}>{item.quantity}</td>
+                      <td style={{ padding: "6px", color: item.received_quantity >= item.quantity ? "#10B981" : T.text3 }}>{item.received_quantity || 0}</td>
+                      <td style={{ padding: "6px" }}>{item.disposition ? <Pill status={item.disposition} /> : <span style={{ color: T.text3, fontSize: 11 }}>Pending</span>}</td>
+                      <td style={{ padding: "6px" }}>{!item.disposition && (selected.status === "received" || selected.status === "inspected") && (
+                        <div style={{ display: "flex", gap: 3 }}>
+                          <button onClick={() => dispositionItem(item, "restock")} style={{ padding: "2px 6px", fontSize: 9, background: "#D1FAE520", border: "1px solid #6EE7B7", borderRadius: 4, color: "#065F46", cursor: "pointer" }}>Restock</button>
+                          <button onClick={() => dispositionItem(item, "scrap")} style={{ padding: "2px 6px", fontSize: 9, background: "#FEE2E220", border: "1px solid #FECACA", borderRadius: 4, color: "#991B1B", cursor: "pointer" }}>Scrap</button>
+                          <button onClick={() => dispositionItem(item, "rework")} style={{ padding: "2px 6px", fontSize: 9, background: "#FEF3C720", border: "1px solid #FCD34D", borderRadius: 4, color: "#92400E", cursor: "pointer" }}>Rework</button>
+                        </div>
+                      )}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            }
+            {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+          </div>
+        )}
+      </div>
+
+      {/* Create RMA Modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(600px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Return (RMA)</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Original Order *</div>
+                <Select value={form.order_id} onChange={v => { setForm(f => ({ ...f, order_id: v })); const ois = orderItems.filter(i => i.order_id === v); setNewItems(ois.map(i => ({ variant_id: i.variant_id, sku: i.sku, title: i.title, quantity: 1, refund_amount: i.unit_price || 0 }))); }} placeholder="Select order…" options={orders.filter(o => o.status === "shipped" || o.status === "delivered").map(o => ({ value: o.id, label: o.order_number, sublabel: `${getCustomer(o.customer_id)?.name || "DTC"} · ${fmt(o.total)}` }))} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Reason</div>
+                  <Select value={form.reason_code} onChange={v => setForm(f => ({ ...f, reason_code: v }))} options={Object.entries(REASON_LABELS).map(([k, v]) => ({ value: k, label: v }))} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Return Type</div>
+                  <Select value={form.return_type} onChange={v => setForm(f => ({ ...f, return_type: v }))} options={[{ value: "refund", label: "Refund" }, { value: "exchange", label: "Exchange" }, { value: "store_credit", label: "Store Credit" }, { value: "repair", label: "Repair" }]} /></div>
+              </div>
+              {newItems.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>Items to Return</div>
+                  {newItems.map((item, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 6, marginBottom: 4, alignItems: "center" }}>
+                      <div style={{ fontSize: 11 }}>{item.sku} — {item.title}</div>
+                      <input type="number" value={item.quantity} min="1" onChange={e => setNewItems(p => p.map((x, j) => j === i ? { ...x, quantity: e.target.value } : x))} style={{ ...inp, padding: "5px 8px", fontSize: 11 }} />
+                      <input type="number" step="0.01" value={item.refund_amount} onChange={e => setNewItems(p => p.map((x, j) => j === i ? { ...x, refund_amount: e.target.value } : x))} style={{ ...inp, padding: "5px 8px", fontSize: 11 }} />
+                      <button onClick={() => setNewItems(p => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }}>✕</button>
+                    </div>
+                  ))}
+                  <div style={{ textAlign: "right", fontWeight: 700, color: T.accent, marginTop: 6 }}>Refund: {fmt(newItems.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.refund_amount) || 0), 0))}</div>
+                </div>
+              )}
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, resize: "vertical" }} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={createRma} disabled={!form.order_id || newItems.length === 0} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.order_id ? 0.5 : 1 }}>Create RMA</button>
               </div>
             </div>
           </div>
