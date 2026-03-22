@@ -249,7 +249,7 @@ export default function ERPView() {
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
-          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} isMobile={isMobile} />}
+          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} isMobile={isMobile} />}
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
@@ -423,7 +423,18 @@ function ProductsView({ navigateTo, products, setProducts, variants, setVariants
   };
 
   const deleteProduct = async (id) => {
-    if (!window.confirm("Delete this product and all its variants?")) return;
+    // Check for open orders using this product's variants
+    const prodVars = variants.filter(v => v.product_id === id);
+    const varIds = prodVars.map(v => v.id);
+    const { data: openOI } = await supabase.from("erp_order_items").select("id, order_id").in("variant_id", varIds.length > 0 ? varIds : ["none"]);
+    const openOrderCount = openOI?.length || 0;
+    const hasInventory = inventory.some(i => varIds.includes(i.variant_id) && i.quantity > 0);
+
+    let msg = "Delete this product and all its variants?";
+    if (openOrderCount > 0) msg = `⚠ This product has ${openOrderCount} line items across open orders. ${msg}`;
+    if (hasInventory) msg = `⚠ This product has on-hand inventory. ${msg}`;
+
+    if (!window.confirm(msg)) return;
     await supabase.from("erp_products").delete().eq("id", id);
     setProducts(p => p.filter(x => x.id !== id));
     setVariants(v => v.filter(x => x.product_id !== id));
@@ -1468,8 +1479,17 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
     if (mvmt && setMovements) setMovements(p => [mvmt, ...p]);
 
     setLots(p => [lot, ...p]);
+
+    // Create QC hold if requested
+    if (rcvForm.qc_hold) {
+      await supabase.from("erp_qc_holds").insert({ variant_id: rcvForm.variant_id, lot_id: lot.id, facility_id: rcvForm.facility_id, hold_type: "incoming", quantity: qty, status: "on_hold", reference_type: rcvForm.po_id ? "purchase_order" : null, reference_id: rcvForm.po_id || null, reason: "Incoming inspection required" });
+      // Update lot status to qc_hold
+      await supabase.from("erp_inventory_lots").update({ status: "qc_hold" }).eq("id", lot.id);
+      setLots(p => p.map(x => x.id === lot.id ? { ...x, status: "qc_hold" } : x));
+    }
+
     setShowReceive(false);
-    setRcvForm({ variant_id: "", facility_id: "", supplier_id: "", quantity: "", lot_number: "", supplier_lot: "", manufactured_date: "", expiry_date: "", po_id: "", bin_location: "", notes: "" });
+    setRcvForm({ variant_id: "", facility_id: "", supplier_id: "", quantity: "", lot_number: "", supplier_lot: "", manufactured_date: "", expiry_date: "", po_id: "", bin_location: "", notes: "", qc_hold: false });
   };
 
   // ── ADJUSTMENT FORM ─────────────────────────────────────────────────────────
@@ -1710,6 +1730,10 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
                 <div><div style={lbl}>Bin Location</div><input value={rcvForm.bin_location} onChange={e => setRcvForm(f => ({ ...f, bin_location: e.target.value }))} placeholder="e.g. A-01-01" style={inp} /></div>
                 <div><div style={lbl}>Notes</div><input value={rcvForm.notes} onChange={e => setRcvForm(f => ({ ...f, notes: e.target.value }))} placeholder="Receipt notes…" style={inp} /></div>
               </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: T.text }}>
+                <input type="checkbox" checked={rcvForm.qc_hold || false} onChange={e => setRcvForm(f => ({ ...f, qc_hold: e.target.checked }))} style={{ width: 16, height: 16, accentColor: "#F59E0B" }} />
+                <span>🔬 Place on <strong style={{ color: "#F59E0B" }}>QC Hold</strong> — requires inspection before available for allocation</span>
+              </label>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowReceive(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={submitReceive} disabled={!rcvForm.variant_id || !rcvForm.facility_id || !rcvForm.quantity} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !rcvForm.variant_id || !rcvForm.facility_id || !rcvForm.quantity ? 0.5 : 1 }}>Receive</button>
@@ -1778,7 +1802,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
 // ═══════════════════════════════════════════════════════════════════════════════
 // ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, isMobile }) {
+function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, facilities, isMobile }) {
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -1807,6 +1831,25 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
     if (status === "shipped") updates.fulfillment_status = "fulfilled";
     const { data } = await supabase.from("erp_orders").update(updates).eq("id", id).select().single();
     if (data) { setOrders(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+    // Auto-allocate on processing
+    if (status === "processing") {
+      const items = orderItems.filter(i => i.order_id === id);
+      for (const item of items) {
+        if (item.variant_id) {
+          await supabase.from("erp_allocations").insert({ order_id: id, order_item_id: item.id, variant_id: item.variant_id, facility_id: facilities?.[0]?.id, allocated_quantity: item.quantity, allocation_type: "hard", status: "active" });
+          // Update reserved_quantity on inventory
+          await supabase.from("erp_inventory").update({ reserved_quantity: supabase.rpc ? item.quantity : item.quantity }).eq("variant_id", item.variant_id).eq("facility_id", facilities?.[0]?.id);
+        }
+      }
+    }
+    // Release allocations on cancel
+    if (status === "cancelled") {
+      await supabase.from("erp_allocations").update({ status: "cancelled", released_at: new Date().toISOString() }).eq("order_id", id).eq("status", "active");
+    }
+    // Release allocations on ship
+    if (status === "shipped") {
+      await supabase.from("erp_allocations").update({ status: "picked", released_at: new Date().toISOString() }).eq("order_id", id).eq("status", "active");
+    }
   };
 
   // Order creation
@@ -2428,6 +2471,17 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
                       </tr></tfoot>
                     </table>
                   </div>
+                  {/* Backflush button */}
+                  {(selected.status === "in_progress" || selected.status === "released") && (
+                    <button onClick={async () => {
+                      if (!window.confirm("Backflush all materials for this work order? This will deduct component inventory.")) return;
+                      for (const item of materialItems) {
+                        const reqQty = Math.ceil(item.quantity * multiplier * (1 + (item.scrap_pct || 0) / 100));
+                        await supabase.from("erp_wo_issues").insert({ work_order_id: selected.id, bom_item_id: item.id, item_name: item.item_name, planned_quantity: reqQty, issued_quantity: reqQty, facility_id: selected.facility_id, issue_type: "backflush" });
+                      }
+                      alert(`✅ Backflushed ${materialItems.length} components for ${selected.wo_number}`);
+                    }} style={{ marginTop: 10, padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#8B5CF620", border: "1px solid #8B5CF640", borderRadius: 8, color: "#5B21B6", cursor: "pointer", width: "100%" }}>⚡ Backflush All Materials</button>
+                  )}
                 </div>
               );
             })()}
