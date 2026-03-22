@@ -82,6 +82,7 @@ const NAV = [
   { id: "customers", label: "Customers", icon: "👥", badge: null },
   { id: "manufacturing", label: "Manufacturing", icon: "⚙", badge: null },
   { id: "facilities", label: "Facilities", icon: "🏢", badge: null },
+  { id: "shipping", label: "Shipping", icon: "🚚", badge: null },
   { id: "entities", label: "Entities", icon: "🌐", badge: null },
   { id: "reports", label: "Reports", icon: "📈", badge: null },
 ];
@@ -142,6 +143,9 @@ export default function ERPView() {
   const [customers, setCustomers] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
   const [movements, setMovements] = useState([]);
+  const [carriers, setCarriers] = useState([]);
+  const [carrierServices, setCarrierServices] = useState([]);
+  const [fulfillmentIntegrations, setFulfillmentIntegrations] = useState([]);
   const [entities, setEntities] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
@@ -155,6 +159,7 @@ export default function ERPView() {
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
         { data: supItems },
         { data: mvmts },
+        { data: cars }, { data: carSvcs }, { data: fIntg },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -175,6 +180,9 @@ export default function ERPView() {
         supabase.from("erp_exchange_rates").select("*").order("effective_date", { ascending: false }),
         supabase.from("erp_supplier_items").select("*").order("item_name"),
         supabase.from("erp_inventory_movements").select("*").order("created_at", { ascending: false }).limit(200),
+        supabase.from("erp_carriers").select("*").order("name"),
+        supabase.from("erp_carrier_services").select("*").order("carrier_id, name"),
+        supabase.from("erp_fulfillment_integrations").select("*").order("name"),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
@@ -183,6 +191,7 @@ export default function ERPView() {
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setSupplierItems(supItems || []);
       setMovements(mvmts || []);
+      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []);
       setLoading(false);
     };
     if (user) load();
@@ -233,10 +242,11 @@ export default function ERPView() {
           {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
-          {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} isMobile={isMobile} />}
+          {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} isMobile={isMobile} />}
           {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
+          {view === "shipping" && <ShippingView carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
         </div>
@@ -1758,7 +1768,7 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
 // ═══════════════════════════════════════════════════════════════════════════════
 // ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, variants, isMobile }) {
+function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, isMobile }) {
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -1766,6 +1776,8 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
   const [lineItems, setLineItems] = useState([]);
   const FORM_INIT = { channel: "manual", customer_id: "", notes: "" };
   const [form, setForm] = useState(FORM_INIT);
+  const [showShipModal, setShowShipModal] = useState(false);
+  const [shipForm, setShipForm] = useState({ carrier_id: "", service_id: "", tracking_number: "", weight_g: "" });
 
   const filtered = orders.filter(o => {
     if (channelFilter !== "all" && o.channel !== channelFilter) return false;
@@ -1904,16 +1916,7 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
               <div style={{ display: "flex", gap: 6 }}>
                 {selected.status === "pending" && <button onClick={() => { setForm({ channel: selected.channel, customer_id: selected.customer_id || "", notes: selected.notes || "" }); setLineItems(orderItems.filter(i => i.order_id === selected.id).map(i => ({ variant_id: i.variant_id || "", title: i.title, quantity: i.quantity, unit_price: i.unit_price, sku: i.sku }))); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>}
                 {selected.status === "pending" && <button onClick={() => updateOrderStatus(selected.id, "processing")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#EFF6FF", border: "1px solid #93C5FD", borderRadius: 6, color: "#1D4ED8", cursor: "pointer" }}>Process</button>}
-                {selected.status === "processing" && <button onClick={() => {
-                  const carrier = prompt("Carrier (USPS, UPS, FedEx, DHL):", "USPS");
-                  if (!carrier) return;
-                  const tracking = prompt("Tracking number:", "");
-                  (async () => {
-                    const shipNum = `SHP-${selected.order_number.replace("ORD-", "")}`;
-                    await supabase.from("erp_shipments").insert({ order_id: selected.id, shipment_number: shipNum, carrier, tracking_number: tracking || null, tracking_url: tracking ? `https://track.${carrier.toLowerCase()}.com/${tracking}` : null, status: "shipped", shipped_at: new Date().toISOString() });
-                    updateOrderStatus(selected.id, "shipped");
-                  })();
-                }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#10B981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>📦 Ship Order</button>}
+                {selected.status === "processing" && <button onClick={() => { setShipForm({ carrier_id: "", service_id: "", tracking_number: "", weight_g: "" }); setShowShipModal(true); }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#10B981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>📦 Ship Order</button>}
                 {selected.status !== "cancelled" && selected.status !== "delivered" && <button onClick={() => updateOrderStatus(selected.id, "cancelled")} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Cancel</button>}
               </div>
             </div>
