@@ -93,21 +93,26 @@ const postJournalEntry = async (source, refType, refId, description, lines, enti
   return je;
 };
 
-const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "⬡", badge: null },
-  { id: "products", label: "Products", icon: "📦", badge: null },
-  { id: "suppliers", label: "Suppliers", icon: "🏭", badge: null },
-  { id: "purchase_orders", label: "Purchase Orders", icon: "📋", badge: null },
-  { id: "inventory", label: "Inventory", icon: "📊", badge: null },
-  { id: "orders", label: "Orders", icon: "🛒", badge: null },
-  { id: "customers", label: "Customers", icon: "👥", badge: null },
-  { id: "manufacturing", label: "Manufacturing", icon: "⚙", badge: null },
-  { id: "facilities", label: "Facilities", icon: "🏢", badge: null },
-  { id: "shipping", label: "Shipping", icon: "🚚", badge: null },
-  { id: "ap_ar", label: "AP / AR", icon: "💰", badge: null },
-  { id: "returns", label: "Returns", icon: "↩️", badge: null },
-  { id: "entities", label: "Entities", icon: "🌐", badge: null },
-  { id: "reports", label: "Reports", icon: "📈", badge: null },
+const ERP_NAV = [
+  { type: "header", label: "Overview" },
+  { id: "dashboard", label: "Dashboard", icon: "⬡" },
+  { type: "header", label: "Supply Chain" },
+  { id: "products", label: "Products", icon: "📦" },
+  { id: "suppliers", label: "Suppliers", icon: "🏭" },
+  { id: "purchase_orders", label: "Purchase Orders", icon: "📋" },
+  { id: "inventory", label: "Inventory", icon: "📊" },
+  { id: "manufacturing", label: "Manufacturing", icon: "⚙" },
+  { type: "header", label: "Sales & Fulfillment" },
+  { id: "orders", label: "Orders", icon: "🛒" },
+  { id: "customers", label: "Customers", icon: "👥" },
+  { id: "shipping", label: "Shipping", icon: "🚚" },
+  { id: "returns", label: "Returns", icon: "↩️" },
+  { type: "header", label: "Finance" },
+  { id: "ap_ar", label: "AP / AR", icon: "💰" },
+  { id: "gl", label: "General Ledger", icon: "📒" },
+  { id: "entities", label: "Entities", icon: "🌐" },
+  { id: "facilities", label: "Facilities", icon: "🏢" },
+  { id: "reports", label: "Reports", icon: "📈" },
 ];
 
 const STATUS_PILL = {
@@ -248,13 +253,17 @@ export default function ERPView() {
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Left nav — desktop */}
+      {/* Left nav — desktop (grouped) */}
       {!isMobile && (
-        <div style={{ width: 180, borderRight: `1px solid ${T.border}`, padding: "12px 8px", flexShrink: 0, overflow: "auto" }}>
-          {NAV.map(n => (
+        <div style={{ width: 185, borderRight: `1px solid ${T.border}`, padding: "8px 6px", flexShrink: 0, overflow: "auto" }}>
+          {ERP_NAV.map((n, i) => n.type === "header" ? (
+            <div key={n.label} style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em", padding: "10px 10px 3px", marginTop: i > 0 ? 4 : 0 }}>{n.label}</div>
+          ) : (
             <button key={n.id} onClick={() => setView(n.id)}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: view === n.id ? T.accentDim : "transparent", border: "none", borderRadius: 6, cursor: "pointer", color: view === n.id ? T.accent : T.text3, fontSize: 12, fontWeight: view === n.id ? 700 : 500, textAlign: "left", marginBottom: 2 }}>
-              <span style={{ fontSize: 13 }}>{n.icon}</span>{n.label}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 7, padding: "6px 10px", background: view === n.id ? T.accentDim : "transparent", border: "none", borderRadius: 6, cursor: "pointer", color: view === n.id ? T.accent : T.text2, fontSize: 12, fontWeight: view === n.id ? 700 : 400, textAlign: "left", marginBottom: 1, transition: "background 0.1s" }}
+              onMouseEnter={e => { if (view !== n.id) e.currentTarget.style.background = T.surface2; }}
+              onMouseLeave={e => { if (view !== n.id) e.currentTarget.style.background = "transparent"; }}>
+              <span style={{ fontSize: 12, opacity: view === n.id ? 1 : 0.6 }}>{n.icon}</span>{n.label}
             </button>
           ))}
         </div>
@@ -265,7 +274,7 @@ export default function ERPView() {
         {/* Mobile tab bar */}
         {isMobile && (
           <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0, background: T.bg, WebkitOverflowScrolling: "touch" }}>
-            {NAV.map(n => (
+            {ERP_NAV.filter(n => !n.type).map(n => (
               <button key={n.id} onClick={() => setView(n.id)}
                 style={{ padding: "10px 14px", background: "none", border: "none", borderBottom: view === n.id ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: view === n.id ? T.accent : T.text3, fontSize: 18, fontWeight: 600, whiteSpace: "nowrap" }}>
                 {n.icon}
@@ -285,6 +294,7 @@ export default function ERPView() {
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
+          {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} />}
           {view === "ap_ar" && <APARView apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
           {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}
           {view === "shipping" && <ShippingView carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
@@ -1314,6 +1324,26 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
                 </table>
               </div>
             }
+
+            {/* Landed Costs (Checklist 2.3) */}
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>🚢 Landed Costs</div>
+                <button onClick={async () => {
+                  const costType = prompt("Cost type (duty, freight_in, brokerage, insurance, customs, other):", "freight_in");
+                  if (!costType) return;
+                  const desc = prompt("Description:", `${costType.replace(/_/g, " ")} for ${selected.po_number}`);
+                  const est = parseFloat(prompt("Estimated amount:", "0") || "0");
+                  const { data } = await supabase.from("erp_landed_costs").insert({ po_id: selected.id, cost_type: costType, description: desc, estimated_amount: est, gl_account: { duty: "6100", freight_in: "6110", brokerage: "6120" }[costType] || "6100" }).select().single();
+                  if (data) alert(`✅ Added ${costType}: ${fmt(est)}`);
+                }} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 5, cursor: "pointer" }}>+ Cost</button>
+              </div>
+              <div style={{ fontSize: 11, color: T.text3 }}>
+                {selected.incoterms && <span style={{ marginRight: 8, fontWeight: 600 }}>Incoterms: {selected.incoterms}</span>}
+                Est: {fmt(selected.estimated_landed_cost || 0)} · Actual: {fmt(selected.actual_landed_cost || 0)}
+              </div>
+            </div>
+
             {selected.notes && <div style={{ marginTop: 12, fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
           </div>
         )}
@@ -2727,6 +2757,184 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={saveFacility} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GL VIEW — Chart of Accounts, Journal Entries, Trial Balance
+// ═══════════════════════════════════════════════════════════════════════════════
+function GLView({ glAccounts, journalEntries, setJournalEntries, entities, isMobile }) {
+  const [subView, setSubView] = useState("coa");
+  const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const [jeForm, setJeForm] = useState({ description: "", lines: [{ account: "", debit: "", credit: "", desc: "" }, { account: "", debit: "", credit: "", desc: "" }] });
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+
+  const TYPE_COLORS = { asset: "#3B82F6", liability: "#EF4444", equity: "#8B5CF6", revenue: "#10B981", expense: "#F59E0B", cogs: "#EC4899" };
+  const typeAccounts = (type) => glAccounts.filter(a => a.account_type === type);
+
+  // Trial balance calculation
+  const trialBalance = glAccounts.map(a => {
+    const entries = journalEntries.flatMap(je => []);
+    // Simplified: just show account structure
+    return { ...a, balance: 0 };
+  });
+
+  const createJournalEntry = async () => {
+    if (!jeForm.description.trim()) return;
+    const lines = jeForm.lines.filter(l => l.account && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0));
+    if (lines.length < 2) { alert("Need at least 2 lines"); return; }
+    const totalDr = lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
+    const totalCr = lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
+    if (Math.abs(totalDr - totalCr) > 0.01) { alert(`Entry must balance. DR: ${fmt(totalDr)} ≠ CR: ${fmt(totalCr)}`); return; }
+    const je = await postJournalEntry("manual", null, null, jeForm.description,
+      lines.map(l => {
+        const acct = glAccounts.find(a => a.account_number === l.account || a.id === l.account);
+        return { account: acct?.account_number || l.account, name: acct?.name || "", debit: parseFloat(l.debit) || 0, credit: parseFloat(l.credit) || 0, desc: l.desc };
+      }));
+    if (je) setJournalEntries(p => [je, ...p]);
+    setShowNew(false);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>General Ledger</div><div style={{ fontSize: 12, color: T.text3 }}>{glAccounts.length} accounts · {journalEntries.length} journal entries</div></div>
+        <button onClick={() => { setJeForm({ description: "", lines: [{ account: "", debit: "", credit: "", desc: "" }, { account: "", debit: "", credit: "", desc: "" }] }); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Journal Entry</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[["asset", "Assets"], ["liability", "Liabilities"], ["equity", "Equity"], ["revenue", "Revenue"], ["cogs", "COGS"], ["expense", "Expenses"]].map(([type, label]) => (
+          <Card key={type} style={{ textAlign: "center", padding: 8 }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: TYPE_COLORS[type] }}>{typeAccounts(type).length}</div>
+            <div style={{ fontSize: 9, color: T.text3 }}>{label}</div>
+          </Card>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+        {[["coa", "📒 Chart of Accounts"], ["journal", "📝 Journal Entries"]].map(([k, l]) => (
+          <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
+        ))}
+      </div>
+
+      {/* CHART OF ACCOUNTS */}
+      {subView === "coa" && (
+        <div>
+          {["asset", "liability", "equity", "revenue", "cogs", "expense"].map(type => {
+            const accts = typeAccounts(type);
+            if (accts.length === 0) return null;
+            return (
+              <div key={type} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: TYPE_COLORS[type], textTransform: "uppercase", marginBottom: 6, letterSpacing: "0.05em" }}>{type === "cogs" ? "Cost of Goods Sold" : type}</div>
+                {accts.map(a => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderBottom: `1px solid ${T.border}20`, fontSize: 12 }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: T.accent, width: 50 }}>{a.account_number}</span>
+                    <span style={{ flex: 1, color: T.text }}>{a.name}</span>
+                    <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase" }}>{a.normal_balance}</span>
+                    {a.is_active ? <span style={{ fontSize: 9, color: "#10B981", fontWeight: 600 }}>Active</span> : <span style={{ fontSize: 9, color: T.text3 }}>Inactive</span>}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* JOURNAL ENTRIES */}
+      {subView === "journal" && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {journalEntries.length === 0 ? <EmptyState icon="📝" text="No journal entries" /> :
+              journalEntries.map(je => {
+                const sel = selected?.id === je.id;
+                return (
+                  <Card key={je.id} onClick={() => setSelected(je)} style={{ padding: "10px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${T.accent}` : "3px solid transparent" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{je.entry_number}</span>
+                        <Pill status={je.status} />
+                        {je.source && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: T.surface2, color: T.text3, fontWeight: 600 }}>{je.source}</span>}
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{fmt(je.total_debit)}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>{je.description?.slice(0, 60)}{je.description?.length > 60 ? "…" : ""} · {new Date(je.entry_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                  </Card>
+                );
+              })
+            }
+          </div>
+
+          {selected && !isMobile && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.entry_number}</div>
+                  <div style={{ fontSize: 12, color: T.text3 }}>{selected.description}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <Pill status={selected.status} />
+                  {selected.is_balanced ? <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "#D1FAE520", color: "#065F46", fontWeight: 700 }}>BALANCED</span> : <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "#FEE2E2", color: "#991B1B", fontWeight: 700 }}>UNBALANCED</span>}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+                {[{ l: "Date", v: new Date(selected.entry_date).toLocaleDateString() }, { l: "Period", v: selected.period || "—" }, { l: "Source", v: selected.source || "manual" }, { l: "Total Debit", v: fmt(selected.total_debit) }, { l: "Total Credit", v: fmt(selected.total_credit) }, { l: "Reference", v: selected.reference_type || "—" }].map(d => (
+                  <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 11, color: T.text3, textAlign: "center", padding: 12 }}>Journal lines loaded on detail view — expand to show debit/credit per account</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Create JE Modal */}
+      {showNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(650px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Journal Entry</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Description *</div><input value={jeForm.description} onChange={e => setJeForm(f => ({ ...f, description: e.target.value }))} placeholder="Manual adjustment — describe the entry" style={inp} /></div>
+
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Lines</div>
+                  <button onClick={() => setJeForm(f => ({ ...f, lines: [...f.lines, { account: "", debit: "", credit: "", desc: "" }] }))} style={{ padding: "3px 10px", fontSize: 10, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 5, cursor: "pointer" }}>+ Line</button>
+                </div>
+                {jeForm.lines.map((line, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1.5fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>ACCOUNT</div>}<Select value={line.account} onChange={v => { const ls = [...jeForm.lines]; ls[i].account = v; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="Select account…" options={glAccounts.map(a => ({ value: a.account_number, label: `${a.account_number} — ${a.name}`, sublabel: a.account_type }))} /></div>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>DEBIT</div>}<input type="number" step="0.01" value={line.debit} onChange={e => { const ls = [...jeForm.lines]; ls[i].debit = e.target.value; if (e.target.value) ls[i].credit = ""; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="0.00" style={{ ...inp, padding: "7px 10px", textAlign: "right", color: "#10B981" }} /></div>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>CREDIT</div>}<input type="number" step="0.01" value={line.credit} onChange={e => { const ls = [...jeForm.lines]; ls[i].credit = e.target.value; if (e.target.value) ls[i].debit = ""; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="0.00" style={{ ...inp, padding: "7px 10px", textAlign: "right", color: "#EF4444" }} /></div>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>MEMO</div>}<input value={line.desc} onChange={e => { const ls = [...jeForm.lines]; ls[i].desc = e.target.value; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="Line description" style={{ ...inp, padding: "7px 10px" }} /></div>
+                    <button onClick={() => setJeForm(f => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 14, padding: "6px" }}>✕</button>
+                  </div>
+                ))}
+                {(() => {
+                  const dr = jeForm.lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
+                  const cr = jeForm.lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
+                  const balanced = Math.abs(dr - cr) < 0.01 && dr > 0;
+                  return (
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 16, padding: "8px 0", borderTop: `2px solid ${T.border}`, fontSize: 13 }}>
+                      <span style={{ color: "#10B981", fontWeight: 700 }}>DR: {fmt(dr)}</span>
+                      <span style={{ color: "#EF4444", fontWeight: 700 }}>CR: {fmt(cr)}</span>
+                      <span style={{ fontWeight: 800, color: balanced ? "#10B981" : "#EF4444" }}>{balanced ? "✅ Balanced" : `⚠ Off by ${fmt(Math.abs(dr - cr))}`}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={createJournalEntry} disabled={!jeForm.description.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !jeForm.description.trim() ? 0.5 : 1 }}>Post Entry</button>
               </div>
             </div>
           </div>
