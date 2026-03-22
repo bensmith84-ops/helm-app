@@ -83,6 +83,7 @@ const NAV = [
   { id: "manufacturing", label: "Manufacturing", icon: "⚙", badge: null },
   { id: "facilities", label: "Facilities", icon: "🏢", badge: null },
   { id: "shipping", label: "Shipping", icon: "🚚", badge: null },
+  { id: "ap_ar", label: "AP / AR", icon: "💰", badge: null },
   { id: "returns", label: "Returns", icon: "↩️", badge: null },
   { id: "entities", label: "Entities", icon: "🌐", badge: null },
   { id: "reports", label: "Reports", icon: "📈", badge: null },
@@ -154,6 +155,8 @@ export default function ERPView() {
   const [apInvoices, setApInvoices] = useState([]);
   const [arInvoices, setArInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [glAccounts, setGlAccounts] = useState([]);
+  const [journalEntries, setJournalEntries] = useState([]);
   const [entities, setEntities] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
@@ -167,7 +170,7 @@ export default function ERPView() {
         { data: custs }, { data: wos }, { data: ents }, { data: curs }, { data: rates },
         { data: supItems },
         { data: mvmts },
-        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts },
+        { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts }, { data: glAccts }, { data: jeData },
       ] = await Promise.all([
         supabase.from("erp_products").select("*").order("name"),
         supabase.from("erp_product_variants").select("*").order("sku"),
@@ -196,6 +199,8 @@ export default function ERPView() {
         supabase.from("erp_ap_invoices").select("*").order("created_at", { ascending: false }),
         supabase.from("erp_ar_invoices").select("*").order("created_at", { ascending: false }),
         supabase.from("erp_payments").select("*").order("created_at", { ascending: false }),
+        supabase.from("erp_gl_accounts").select("*").order("account_number"),
+        supabase.from("erp_journal_entries").select("*").order("entry_date", { ascending: false }).limit(100),
       ]);
       setProducts(prods || []); setVariants(vars || []); setBoms(bm || []); setBomItems(bi || []);
       setSuppliers(sups || []); setFacilities(facs || []); setInventory(inv || []); setLots(lt || []);
@@ -204,7 +209,7 @@ export default function ERPView() {
       setEntities(ents || []); setCurrencies(curs || []); setExchangeRates(rates || []);
       setSupplierItems(supItems || []);
       setMovements(mvmts || []);
-      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []);
+      setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []);
       setLoading(false);
     };
     if (user) load();
@@ -259,6 +264,7 @@ export default function ERPView() {
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
+          {view === "ap_ar" && <APARView apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
           {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}
           {view === "shipping" && <ShippingView carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
@@ -2640,6 +2646,202 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={saveFacility} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AP / AR VIEW — Accounts Payable, Accounts Receivable, Payments
+// ═══════════════════════════════════════════════════════════════════════════════
+function APARView({ apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile }) {
+  const [subView, setSubView] = useState("ar");
+  const [selected, setSelected] = useState(null);
+  const [showPayment, setShowPayment] = useState(false);
+  const [payForm, setPayForm] = useState({ amount: "", payment_method: "ach", reference_number: "", notes: "" });
+  const getSupplier = id => suppliers.find(s => s.id === id);
+  const getCustomer = id => customers.find(c => c.id === id);
+  const getOrder = id => orders.find(o => o.id === id);
+  const getPO = id => purchaseOrders.find(p => p.id === id);
+
+  const apOpen = apInvoices.filter(i => i.status !== "paid" && i.status !== "voided");
+  const arOpen = arInvoices.filter(i => i.status !== "paid" && i.status !== "voided" && i.status !== "credited");
+  const apTotal = apOpen.reduce((s, i) => s + (i.balance || i.total - (i.paid_amount || 0)), 0);
+  const arTotal = arOpen.reduce((s, i) => s + (i.balance || i.total - (i.paid_amount || 0)), 0);
+
+  const recordPayment = async () => {
+    if (!selected || !payForm.amount) return;
+    const amt = parseFloat(payForm.amount);
+    const isAP = subView === "ap";
+    const pmtNum = `PMT-${Date.now().toString(36).toUpperCase()}`;
+    const { data: pmt } = await supabase.from("erp_payments").insert({
+      payment_number: pmtNum, payment_type: isAP ? "ap_payment" : "ar_payment",
+      ap_invoice_id: isAP ? selected.id : null, ar_invoice_id: !isAP ? selected.id : null,
+      supplier_id: isAP ? selected.supplier_id : null, customer_id: !isAP ? selected.customer_id : null,
+      amount: amt, payment_method: payForm.payment_method, reference_number: payForm.reference_number || null,
+      payment_date: new Date().toISOString().slice(0, 10), notes: payForm.notes,
+    }).select().single();
+    if (pmt) setPayments(p => [pmt, ...p]);
+
+    const newPaid = (selected.paid_amount || 0) + amt;
+    const newStatus = newPaid >= selected.total ? "paid" : "partial";
+    if (isAP) {
+      const { data } = await supabase.from("erp_ap_invoices").update({ paid_amount: newPaid, status: newStatus }).eq("id", selected.id).select().single();
+      if (data) { setApInvoices(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+    } else {
+      const { data } = await supabase.from("erp_ar_invoices").update({ paid_amount: newPaid, status: newStatus }).eq("id", selected.id).select().single();
+      if (data) { setArInvoices(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+    }
+    setShowPayment(false); setPayForm({ amount: "", payment_method: "ach", reference_number: "", notes: "" });
+  };
+
+  const invoices = subView === "ap" ? apInvoices : arInvoices;
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Accounts Payable / Receivable</div><div style={{ fontSize: 12, color: T.text3 }}>AP: {fmt(apTotal)} outstanding · AR: {fmt(arTotal)} outstanding · {payments.length} payments</div></div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[{ l: "AP Outstanding", v: fmt(apTotal), c: "#EF4444" }, { l: "AP Invoices", v: apInvoices.length, c: T.accent }, { l: "AR Outstanding", v: fmt(arTotal), c: "#10B981" }, { l: "AR Invoices", v: arInvoices.length, c: "#3B82F6" }, { l: "Payments", v: payments.length, c: "#8B5CF6" }].map(s => (
+          <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 16, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+        {[["ar", "📥 Receivable (AR)"], ["ap", "📤 Payable (AP)"], ["payments", "💳 Payments"]].map(([k, l]) => (
+          <button key={k} onClick={() => { setSubView(k); setSelected(null); }} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
+        ))}
+      </div>
+
+      {/* AR / AP Invoice List */}
+      {(subView === "ar" || subView === "ap") && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {invoices.length === 0 ? <EmptyState icon="💰" text={`No ${subView === "ap" ? "AP" : "AR"} invoices`} /> :
+              invoices.map(inv => {
+                const entity = subView === "ap" ? getSupplier(inv.supplier_id) : getCustomer(inv.customer_id);
+                const ref = subView === "ap" ? getPO(inv.po_id) : getOrder(inv.order_id);
+                const bal = inv.balance != null ? inv.balance : inv.total - (inv.paid_amount || 0);
+                const sel = selected?.id === inv.id;
+                const overdue = inv.due_date && new Date(inv.due_date) < new Date() && inv.status !== "paid";
+                return (
+                  <Card key={inv.id} onClick={() => setSelected(inv)} style={{ padding: "10px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${T.accent}` : overdue ? "3px solid #EF4444" : "3px solid transparent" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number}</span>
+                        <Pill status={inv.status} />
+                        {overdue && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#FEE2E2", color: "#991B1B", fontWeight: 700 }}>OVERDUE</span>}
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: bal > 0 ? T.text : "#10B981" }}>{fmt(bal)}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>
+                      {entity?.name || "Unknown"} · {ref ? (subView === "ap" ? ref.po_number : ref.order_number) : "—"} · Due {inv.due_date ? new Date(inv.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                    </div>
+                  </Card>
+                );
+              })
+            }
+          </div>
+
+          {selected && !isMobile && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.invoice_number}</div>
+                  <div style={{ fontSize: 12, color: T.text3 }}>{subView === "ap" ? getSupplier(selected.supplier_id)?.name : getCustomer(selected.customer_id)?.name}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {selected.status !== "paid" && selected.status !== "voided" && (
+                    <button onClick={() => { setPayForm({ amount: String(selected.balance != null ? selected.balance : selected.total - (selected.paid_amount || 0)), payment_method: "ach", reference_number: "", notes: "" }); setShowPayment(true); }}
+                      style={{ padding: "5px 12px", fontSize: 11, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>💳 Record Payment</button>
+                  )}
+                  {selected.status !== "voided" && <button onClick={async () => {
+                    if (!window.confirm("Void this invoice?")) return;
+                    const tbl = subView === "ap" ? "erp_ap_invoices" : "erp_ar_invoices";
+                    const { data } = await supabase.from(tbl).update({ status: "voided" }).eq("id", selected.id).select().single();
+                    if (data) { (subView === "ap" ? setApInvoices : setArInvoices)(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
+                  }} style={{ padding: "5px 10px", fontSize: 11, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 6, color: "#991B1B", cursor: "pointer" }}>Void</button>}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
+                {[
+                  { l: "Status", v: selected.status }, { l: "Invoice Date", v: selected.invoice_date ? new Date(selected.invoice_date).toLocaleDateString() : "—" }, { l: "Due Date", v: selected.due_date ? new Date(selected.due_date).toLocaleDateString() : "—" },
+                  { l: "Total", v: fmt(selected.total) }, { l: "Paid", v: fmt(selected.paid_amount || 0) }, { l: "Balance", v: fmt(selected.balance != null ? selected.balance : selected.total - (selected.paid_amount || 0)) },
+                  { l: "Currency", v: selected.currency || "USD" }, { l: "Terms", v: selected.payment_terms?.replace(/_/g, " ") || "—" }, { l: subView === "ap" ? "Match Status" : "Ref", v: subView === "ap" ? (selected.match_status || "—") : (getOrder(selected.order_id)?.order_number || "—") },
+                ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>)}
+              </div>
+
+              {/* Payment history */}
+              {(() => {
+                const invPayments = payments.filter(p => subView === "ap" ? p.ap_invoice_id === selected.id : p.ar_invoice_id === selected.id);
+                return invPayments.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>Payment History</div>
+                    {invPayments.map(p => (
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 11 }}>
+                        <div><strong style={{ fontFamily: "monospace", color: "#10B981" }}>{p.payment_number}</strong><span style={{ marginLeft: 6, color: T.text3 }}>{p.payment_method} · {new Date(p.payment_date).toLocaleDateString()}</span></div>
+                        <span style={{ fontWeight: 700 }}>{fmt(p.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {selected.notes && <div style={{ fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Payments Tab */}
+      {subView === "payments" && (
+        <div style={{ overflowX: "auto" }}>
+          {payments.length === 0 ? <EmptyState icon="💳" text="No payments recorded" /> :
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                {["Payment #", "Type", "Date", "Method", "Amount", "Ref", "To/From"].map(h => <th key={h} style={{ textAlign: "left", padding: "8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{payments.map(p => {
+                const entity = p.supplier_id ? getSupplier(p.supplier_id) : getCustomer(p.customer_id);
+                return (
+                  <tr key={p.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                    <td style={{ padding: "8px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{p.payment_number}</td>
+                    <td style={{ padding: "8px" }}><Pill status={p.payment_type} /></td>
+                    <td style={{ padding: "8px", color: T.text3 }}>{new Date(p.payment_date).toLocaleDateString()}</td>
+                    <td style={{ padding: "8px", textTransform: "uppercase", fontSize: 10, fontWeight: 600, color: T.text3 }}>{p.payment_method}</td>
+                    <td style={{ padding: "8px", fontWeight: 700, color: p.payment_type === "ap_payment" ? "#EF4444" : "#10B981" }}>{p.payment_type === "ap_payment" ? "-" : "+"}{fmt(p.amount)}</td>
+                    <td style={{ padding: "8px", fontFamily: "monospace", fontSize: 10, color: T.text3 }}>{p.reference_number || "—"}</td>
+                    <td style={{ padding: "8px", color: T.text }}>{entity?.name || "—"}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          }
+        </div>
+      )}
+
+      {/* Record Payment Modal */}
+      {showPayment && selected && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowPayment(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(440px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 4 }}>💳 Record Payment</div>
+            <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>{selected.invoice_number} · Balance: {fmt(selected.balance != null ? selected.balance : selected.total - (selected.paid_amount || 0))}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Amount *</div><input type="number" step="0.01" value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} style={{ ...inp, fontSize: 18, fontWeight: 800, textAlign: "center" }} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Method</div><Select value={payForm.payment_method} onChange={v => setPayForm(f => ({ ...f, payment_method: v }))} options={[{ value: "ach", label: "ACH" }, { value: "wire", label: "Wire Transfer" }, { value: "check", label: "Check" }, { value: "credit_card", label: "Credit Card" }, { value: "store_credit", label: "Store Credit" }]} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Reference #</div><input value={payForm.reference_number} onChange={e => setPayForm(f => ({ ...f, reference_number: e.target.value }))} placeholder="Check #, txn ID" style={{ ...inp, fontFamily: "monospace" }} /></div>
+              </div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Notes</div><input value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))} style={inp} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowPayment(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={recordPayment} disabled={!payForm.amount} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !payForm.amount ? 0.5 : 1 }}>Record Payment</button>
               </div>
             </div>
           </div>
