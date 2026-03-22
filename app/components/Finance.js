@@ -1489,7 +1489,8 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
   const [teamFilter, setTeamFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("Actual"); // Actual or Budget
   const [editingTeam, setEditingTeam] = useState(null);
-  const [sortBy, setSortBy] = useState("total"); // total, name, team
+  const [editingGA, setEditingGA] = useState(null);
+  const [sortBy, setSortBy] = useState("total");
   const [sortDir, setSortDir] = useState("desc");
 
   const TEAMS = ["Sales","Executive","Customer Success","Creative","Marketing","Tech & Data","Administrative","Finance","Legal","People Ops","Impact","R&D / Product","Operations","Manufacturing","Unassigned"];
@@ -1574,6 +1575,13 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
     setData(p => p.map(r => r.vendor_name === vendorName ? { ...r, team: newTeam } : r));
     await supabase.from("fin_vendor_spend").update({ team: newTeam }).eq("vendor_name", vendorName).eq("period", "2026-01");
     setEditingTeam(null);
+  };
+
+  // Edit G&A category for a vendor
+  const updateVendorGA = async (vendorName, newGA) => {
+    setData(p => p.map(r => r.vendor_name === vendorName ? { ...r, ga_category: newGA } : r));
+    await supabase.from("fin_vendor_spend").update({ ga_category: newGA }).eq("vendor_name", vendorName).eq("period", "2026-01");
+    setEditingGA(null);
   };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading vendor spend data…</div>;
@@ -1669,7 +1677,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
       {subView === "vendors" && (
         <div style={{ overflowX: "auto" }}>
           <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>
-            {vendorList.length} vendors · {fmt(totalSpend)} total · Click team to edit assignment
+            {vendorList.length} vendors · {fmt(totalSpend)} total · Click G&A category or team to edit
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
@@ -1684,9 +1692,16 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
                 <td style={{ padding: "6px", fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</td>
                 <td style={{ padding: "6px", textAlign: "right", fontWeight: 700, fontFamily: "monospace", color: T.text }}>{fmtD(v.total)}</td>
                 <td style={{ padding: "6px" }}>
-                  <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
-                    {[...v.ga].map(g => <span key={g} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: (GA_COLORS[g] || "#666") + "15", color: GA_COLORS[g] || "#666", fontWeight: 600 }}>{g}</span>)}
-                  </div>
+                  {editingGA === v.name ? (
+                    <select autoFocus value={[...v.ga][0] || "Unclassified"} onChange={e => updateVendorGA(v.name, e.target.value)} onBlur={() => setEditingGA(null)}
+                      style={{ padding: "2px 4px", fontSize: 11, borderRadius: 4, border: `1px solid ${T.accent}`, background: T.surface, color: T.text }}>
+                      {GA_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  ) : (
+                    <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                      {[...v.ga].map(g => <span key={g} onClick={() => setEditingGA(v.name)} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: (GA_COLORS[g] || "#666") + "15", color: GA_COLORS[g] || "#666", fontWeight: 600, cursor: "pointer", border: `1px dashed transparent` }} title="Click to edit G&A category">{g}</span>)}
+                    </div>
+                  )}
                 </td>
                 <td style={{ padding: "6px" }}>
                   {editingTeam === v.name ? (

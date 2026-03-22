@@ -3168,6 +3168,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
                   <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderBottom: `1px solid ${T.border}20`, fontSize: 12 }}>
                     <span style={{ fontFamily: "monospace", fontWeight: 700, color: T.accent, width: 50 }}>{a.account_number}</span>
                     <span style={{ flex: 1, color: T.text }}>{a.name}</span>
+                    {a.description && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: T.accentDim, color: T.accent, fontWeight: 600 }}>{a.description.replace("G&A: ", "")}</span>}
                     <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase" }}>{a.normal_balance}</span>
                     {a.is_active ? <span style={{ fontSize: 9, color: "#10B981", fontWeight: 600 }}>Active</span> : <span style={{ fontSize: 9, color: T.text3 }}>Inactive</span>}
                   </div>
