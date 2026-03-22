@@ -297,8 +297,8 @@ export default function ERPView() {
           {view === "products" && <ProductsView navigateTo={navigateTo} inventory={inventory} facilities={facilities} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} isMobile={isMobile} />}
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
           {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} landedCosts={landedCosts} setLandedCosts={setLandedCosts} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
-          {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
-          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} setArInvoices={setArInvoices} isMobile={isMobile} />}
+          {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} binLocations={binLocations} isMobile={isMobile} />}
+          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} shippingRules={shippingRules} setArInvoices={setArInvoices} isMobile={isMobile} />}
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} binLocations={binLocations} setBinLocations={setBinLocations} isMobile={isMobile} />}
@@ -1588,7 +1588,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
 // ═══════════════════════════════════════════════════════════════════════════════
 // INVENTORY VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, variants, products, facilities, suppliers, purchaseOrders, setPurchaseOrders, movements, setMovements, isMobile }) {
+function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, variants, products, facilities, suppliers, purchaseOrders, setPurchaseOrders, movements, setMovements, binLocations, isMobile }) {
   const [subView, setSubView] = useState("overview"); // overview, lots, receive, adjust, transfer
   const [showReceive, setShowReceive] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
@@ -1762,6 +1762,26 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
           <button onClick={() => { setRcvForm(f => ({ ...f, lot_number: autoLotNumber() })); setShowReceive(true); }} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>📥 Receive</button>
           <button onClick={() => setShowAdjust(true)} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "#F59E0B", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>±  Adjust</button>
           <button onClick={() => setShowTransfer(true)} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "#3B82F6", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>↔ Transfer</button>
+          <button onClick={async () => {
+            const skuInput = prompt("SKU to move:");
+            if (!skuInput) return;
+            const variant = variants.find(v => v.sku?.toLowerCase() === skuInput.toLowerCase());
+            if (!variant) { alert("SKU not found"); return; }
+            const fromBin = prompt("From bin code (e.g. A-01-01):");
+            const toBin = prompt("To bin code:");
+            if (!fromBin || !toBin) return;
+            const qty = parseInt(prompt("Quantity to move:", "1") || "0");
+            if (!qty) return;
+            // Log the bin-to-bin movement
+            const fac = facilities[0];
+            await supabase.from("erp_inventory_movements").insert({ variant_id: variant.id, facility_id: fac?.id, movement_type: "bin_transfer", quantity: qty, notes: `Bin transfer: ${fromBin} → ${toBin}, ${qty} × ${variant.sku}` });
+            // Update bin quantities
+            const fromBinRec = binLocations?.find(b => b.code === fromBin);
+            const toBinRec = binLocations?.find(b => b.code === toBin);
+            if (fromBinRec) await supabase.from("erp_bin_locations").update({ current_quantity: Math.max(0, (fromBinRec.current_quantity || 0) - qty) }).eq("id", fromBinRec.id);
+            if (toBinRec) await supabase.from("erp_bin_locations").update({ current_quantity: (toBinRec.current_quantity || 0) + qty }).eq("id", toBinRec.id);
+            alert(`✅ Moved ${qty} × ${variant.sku} from ${fromBin} → ${toBin}`);
+          }} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "#8B5CF6", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>📍 Bin Move</button>
         </div>
       </div>
 
@@ -2031,7 +2051,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
 // ═══════════════════════════════════════════════════════════════════════════════
 // ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, facilities, setArInvoices, isMobile }) {
+function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, facilities, shippingRules, setArInvoices, isMobile }) {
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -2066,8 +2086,33 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
       for (const item of items) {
         if (item.variant_id) {
           await supabase.from("erp_allocations").insert({ order_id: id, order_item_id: item.id, variant_id: item.variant_id, facility_id: facilities?.[0]?.id, allocated_quantity: item.quantity, allocation_type: "hard", status: "active" });
-          // Update reserved_quantity on inventory
-          await supabase.from("erp_inventory").update({ reserved_quantity: supabase.rpc ? item.quantity : item.quantity }).eq("variant_id", item.variant_id).eq("facility_id", facilities?.[0]?.id);
+        }
+      }
+
+      // P10: Auto-carrier assignment from shipping rules
+      const ord = orders.find(o => o.id === id) || data;
+      if (ord && shippingRules?.length > 0) {
+        const activeRules = shippingRules.filter(r => r.is_active).sort((a, b) => a.priority - b.priority);
+        for (const rule of activeRules) {
+          let match = true;
+          if (rule.channel && rule.channel !== ord.channel) match = false;
+          if (rule.min_order_value && (ord.total || 0) < rule.min_order_value) match = false;
+          if (rule.max_order_value && (ord.total || 0) > rule.max_order_value) match = false;
+          if (rule.min_weight_g && (ord.weight_g || 0) < rule.min_weight_g) match = false;
+          if (rule.max_weight_g && (ord.weight_g || 0) > rule.max_weight_g) match = false;
+          if (rule.destination_country && ord.shipping_country && rule.destination_country !== ord.shipping_country) match = false;
+          if (rule.destination_state && ord.shipping_state && rule.destination_state !== ord.shipping_state) match = false;
+          if (match && (rule.preferred_carrier_id || rule.fulfillment_source || rule.facility_id)) {
+            const routeUpdates = {};
+            if (rule.preferred_carrier_id) routeUpdates.carrier_id = rule.preferred_carrier_id;
+            if (rule.preferred_service_id) routeUpdates.service_id = rule.preferred_service_id;
+            if (rule.fulfillment_source) routeUpdates.fulfillment_source = rule.fulfillment_source;
+            if (Object.keys(routeUpdates).length > 0) {
+              const { data: updated } = await supabase.from("erp_orders").update(routeUpdates).eq("id", id).select().single();
+              if (updated) { setOrders(p => p.map(x => x.id === updated.id ? updated : x)); setSelected(updated); }
+            }
+            break; // First matching rule wins
+          }
         }
       }
     }
@@ -2243,15 +2288,18 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
               </div>
             )}
 
-            {/* Carrier info if shipped */}
+            {/* Carrier / Routing info */}
             {selected.carrier_id && (() => {
               const car = carriers.find(c => c.id === selected.carrier_id);
               const svc = carrierServices.find(s => s.id === selected.service_id);
+              const isShipped = selected.status === "shipped" || selected.status === "delivered";
               return car && (
-                <div style={{ marginTop: 8, padding: "8px 12px", background: "#10B98110", border: "1px solid #10B98130", borderRadius: 8, fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontWeight: 700, color: "#10B981" }}>✅ {car.name}</span>
+                <div style={{ marginTop: 8, padding: "8px 12px", background: isShipped ? "#10B98110" : "#3B82F610", border: `1px solid ${isShipped ? "#10B98130" : "#3B82F630"}`, borderRadius: 8, fontSize: 11, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, color: isShipped ? "#10B981" : "#3B82F6" }}>{isShipped ? "✅" : "🚚"} {car.name}</span>
                   {svc && <span style={{ color: T.text3 }}>· {svc.name}</span>}
                   {svc && <span style={{ color: T.text3 }}>· {svc.estimated_days_min}-{svc.estimated_days_max}d</span>}
+                  {selected.fulfillment_source && <span style={{ padding: "1px 5px", borderRadius: 4, background: "#EDE9FE20", color: "#5B21B6", fontWeight: 600, fontSize: 9 }}>via {selected.fulfillment_source}</span>}
+                  {!isShipped && <span style={{ fontSize: 9, color: T.text3, fontStyle: "italic" }}>Auto-assigned by routing rules</span>}
                 </div>
               );
             })()}
