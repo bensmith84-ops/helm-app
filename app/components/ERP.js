@@ -123,6 +123,8 @@ export default function ERPView() {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState("dashboard");
+  const [pendingNav, setPendingNav] = useState(null); // { view, selectId }
+  const navigateTo = (targetView, selectId) => { setPendingNav({ view: targetView, selectId }); setView(targetView); };
   const [loading, setLoading] = useState(true);
 
   // Core data
@@ -237,14 +239,14 @@ export default function ERPView() {
 
         {/* Scrollable content */}
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
-          {view === "dashboard" && <ERPDashboard products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} inventory={inventory} lots={lots} orders={orders} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} setView={setView} isMobile={isMobile} />}
-          {view === "products" && <ProductsView products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
-          {view === "suppliers" && <SuppliersView suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
-          {view === "purchase_orders" && <PurchaseOrdersView purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
-          {view === "inventory" && <InventoryView inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
-          {view === "orders" && <OrdersView orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} isMobile={isMobile} />}
-          {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
-          {view === "manufacturing" && <ManufacturingView workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
+          {view === "dashboard" && <ERPDashboard navigateTo={navigateTo} products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} inventory={inventory} lots={lots} orders={orders} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} setView={setView} isMobile={isMobile} />}
+          {view === "products" && <ProductsView navigateTo={navigateTo} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} inventory={inventory} isMobile={isMobile} />}
+          {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
+          {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
+          {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} isMobile={isMobile} />}
+          {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} isMobile={isMobile} />}
+          {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
+          {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} isMobile={isMobile} />}
           {view === "shipping" && <ShippingView carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
@@ -258,7 +260,7 @@ export default function ERPView() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ERP DASHBOARD — Overview across all modules
 // ═══════════════════════════════════════════════════════════════════════════════
-function ERPDashboard({ products, variants, suppliers, purchaseOrders, inventory, lots, orders, customers, workOrders, facilities, entities, setView, isMobile }) {
+function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrders, inventory, lots, orders, customers, workOrders, facilities, entities, setView, isMobile }) {
   const totalStock = inventory.reduce((s, i) => s + (i.quantity || 0), 0);
   const inventoryValue = inventory.reduce((s, i) => { const v = variants.find(x => x.id === i.variant_id); return s + (i.quantity || 0) * (v?.cost || 0); }, 0);
   const openPOs = purchaseOrders.filter(p => !["received", "closed", "cancelled"].includes(p.status));
@@ -331,7 +333,7 @@ function ERPDashboard({ products, variants, suppliers, purchaseOrders, inventory
             <div key={o.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 11 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: { shopify: "#95BF47", amazon: "#FF9900", retail: "#3B82F6" }[o.channel] || T.text3 }} />
-                <strong style={{ fontFamily: "monospace" }}>{o.order_number}</strong>
+                <strong onClick={() => navigateTo("orders", o.id)} style={{ fontFamily: "monospace", cursor: "pointer", color: T.accent, textDecoration: "underline dotted" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "underline dotted"}>{o.order_number}</strong>
                 <Pill status={o.status} />
               </div>
               <span style={{ fontWeight: 700 }}>{fmt(o.total)}</span>
@@ -347,7 +349,7 @@ function ERPDashboard({ products, variants, suppliers, purchaseOrders, inventory
             return (
               <div key={wo.id} style={{ padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
-                  <div><strong style={{ fontFamily: "monospace", color: T.accent }}>{wo.wo_number}</strong><span style={{ marginLeft: 6 }}><Pill status={wo.status} /></span></div>
+                  <div><strong onClick={() => navigateTo("manufacturing", wo.id)} style={{ fontFamily: "monospace", color: T.accent, cursor: "pointer", textDecoration: "underline dotted" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "underline dotted"}>{wo.wo_number}</strong><span style={{ marginLeft: 6 }}><Pill status={wo.status} /></span></div>
                   <span style={{ fontSize: 10 }}>{fmtN(wo.completed_quantity || 0)}/{fmtN(wo.planned_quantity)}</span>
                 </div>
                 <div style={{ height: 3, background: T.surface2, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "#10B981" : T.accent, borderRadius: 3 }} /></div>
@@ -389,7 +391,7 @@ function ERPDashboard({ products, variants, suppliers, purchaseOrders, inventory
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRODUCTS VIEW — SKU master, variants, BOMs
 // ═══════════════════════════════════════════════════════════════════════════════
-function ProductsView({ products, setProducts, variants, setVariants, boms, setBoms, bomItems, setBomItems, inventory, isMobile }) {
+function ProductsView({ navigateTo, products, setProducts, variants, setVariants, boms, setBoms, bomItems, setBomItems, inventory, isMobile }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -707,10 +709,11 @@ function ProductsView({ products, setProducts, variants, setVariants, boms, setB
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUPPLIERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, supplierItems, setSupplierItems, products, isMobile }) {
+function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSuppliers, entities, purchaseOrders, supplierItems, setSupplierItems, products, isMobile }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selected, setSelected] = useState(null);
+  useEffect(() => { if (pendingNav?.view === "suppliers" && pendingNav.selectId) { const s = suppliers.find(x => x.id === pendingNav.selectId); if (s) setSelected(s); setPendingNav(null); } }, [pendingNav]);
   const [showNew, setShowNew] = useState(false);
   const FORM_INIT = { name: "", code: "", supplier_type: "raw_material", website: "", email: "", phone: "", country: "US", city: "", state: "", payment_terms: "net_30", lead_time_days: "", certifications: [], rating: 3, is_intercompany: false, entity_id: "", notes: "" };
   const [form, setForm] = useState(FORM_INIT);
@@ -847,7 +850,7 @@ function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, supp
                   <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>Total spend: <strong style={{ color: T.text }}>{fmt(totalSpend)}</strong></div>
                   {supplierPOs.slice(0, 5).map(po => (
                     <div key={po.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 11 }}>
-                      <div><strong style={{ fontFamily: "monospace", color: T.accent }}>{po.po_number}</strong><span style={{ marginLeft: 6 }}><Pill status={po.status} /></span></div>
+                      <div><strong onClick={() => navigateTo("purchase_orders", po.id)} style={{ fontFamily: "monospace", color: T.accent, cursor: "pointer", textDecoration: "underline dotted" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "underline dotted"}>{po.po_number}</strong><span style={{ marginLeft: 6 }}><Pill status={po.status} /></span></div>
                       <span style={{ fontWeight: 700 }}>{fmt(po.total)}</span>
                     </div>
                   ))}
@@ -963,9 +966,10 @@ function SuppliersView({ suppliers, setSuppliers, entities, purchaseOrders, supp
 // ═══════════════════════════════════════════════════════════════════════════════
 // PURCHASE ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, entities, currencies, exchangeRates, isMobile }) {
+function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, entities, currencies, exchangeRates, isMobile }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
+  useEffect(() => { if (pendingNav?.view === "purchase_orders" && pendingNav.selectId) { const p = purchaseOrders.find(x => x.id === pendingNav.selectId); if (p) setSelected(p); setPendingNav(null); } }, [pendingNav]);
   const [showNew, setShowNew] = useState(false);
   const [showReceivePO, setShowReceivePO] = useState(false);
   const [receiveQtys, setReceiveQtys] = useState({});
@@ -1145,7 +1149,7 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.po_number}</div>
-                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getSupplier(selected.supplier_id)?.name}{selected.is_intercompany ? " (Intercompany)" : ""}</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{(() => { const s = getSupplier(selected.supplier_id); return s ? <span onClick={() => navigateTo("suppliers", s.id)} style={{ cursor: "pointer", textDecoration: "underline dotted" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "underline dotted"}>{s.name}</span> : "Unknown"; })()}{selected.is_intercompany ? " (Intercompany)" : ""}</div>
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {(selected.status === "draft" || selected.status === "submitted") && <button onClick={() => { setForm({ supplier_id: selected.supplier_id, facility_id: selected.facility_id || "", buying_entity_id: selected.buying_entity_id || "", po_currency: selected.po_currency || "USD", payment_terms: selected.payment_terms || "net_30", expected_date: selected.expected_date || "", notes: selected.notes || "", is_intercompany: selected.is_intercompany || false }); setLineItems(poItems.filter(i => i.po_id === selected.id).map(i => ({ variant_id: i.variant_id || "", description: i.description, quantity: i.quantity, unit: i.unit || "each", unit_price: i.unit_price }))); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>}
@@ -1378,7 +1382,7 @@ function PurchaseOrdersView({ purchaseOrders, setPurchaseOrders, poItems, setPoI
 // ═══════════════════════════════════════════════════════════════════════════════
 // INVENTORY VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function InventoryView({ inventory, setInventory, lots, setLots, variants, products, facilities, suppliers, purchaseOrders, setPurchaseOrders, movements, setMovements, isMobile }) {
+function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, variants, products, facilities, suppliers, purchaseOrders, setPurchaseOrders, movements, setMovements, isMobile }) {
   const [subView, setSubView] = useState("overview"); // overview, lots, receive, adjust, transfer
   const [showReceive, setShowReceive] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
@@ -1768,10 +1772,11 @@ function InventoryView({ inventory, setInventory, lots, setLots, variants, produ
 // ═══════════════════════════════════════════════════════════════════════════════
 // ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, isMobile }) {
+function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, orderItems, setOrderItems, customers, variants, carriers, carrierServices, isMobile }) {
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
+  useEffect(() => { if (pendingNav?.view === "orders" && pendingNav.selectId) { const o = orders.find(x => x.id === pendingNav.selectId); if (o) setSelected(o); setPendingNav(null); } }, [pendingNav]);
   const [showNew, setShowNew] = useState(false);
   const [lineItems, setLineItems] = useState([]);
   const FORM_INIT = { channel: "manual", customer_id: "", notes: "" };
@@ -1911,7 +1916,7 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
                   <span style={{ width: 10, height: 10, borderRadius: "50%", background: CHANNEL_COLORS[selected.channel] }} />
                   <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.text }}>{selected.order_number}</span>
                 </div>
-                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getCustomer(selected.customer_id)?.name || "DTC"} · {selected.channel}</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{(() => { const c = getCustomer(selected.customer_id); return c ? <span onClick={() => navigateTo("customers", c.id)} style={{ cursor: "pointer", textDecoration: "underline dotted" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "underline dotted"}>{c.name}</span> : "DTC"; })()} · {selected.channel}</div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 {selected.status === "pending" && <button onClick={() => { setForm({ channel: selected.channel, customer_id: selected.customer_id || "", notes: selected.notes || "" }); setLineItems(orderItems.filter(i => i.order_id === selected.id).map(i => ({ variant_id: i.variant_id || "", title: i.title, quantity: i.quantity, unit_price: i.unit_price, sku: i.sku }))); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>}
@@ -2079,9 +2084,10 @@ function OrdersView({ orders, setOrders, orderItems, setOrderItems, customers, v
 // ═══════════════════════════════════════════════════════════════════════════════
 // CUSTOMERS VIEW — with CRUD
 // ═══════════════════════════════════════════════════════════════════════════════
-function CustomersView({ customers, setCustomers, orders, isMobile }) {
+function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCustomers, orders, isMobile }) {
   const [showNew, setShowNew] = useState(false);
   const [selected, setSelected] = useState(null);
+  useEffect(() => { if (pendingNav?.view === "customers" && pendingNav.selectId) { const c = customers.find(x => x.id === pendingNav.selectId); if (c) setSelected(c); setPendingNav(null); } }, [pendingNav]);
   const [form, setForm] = useState({ name: "", customer_type: "retail", email: "", phone: "", website: "", payment_terms: "net_30", credit_limit: "", notes: "" });
   const [typeFilter, setTypeFilter] = useState("all");
   const filtered = customers.filter(c => typeFilter === "all" || c.customer_type === typeFilter);
@@ -2204,7 +2210,7 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
                   </tr></thead>
                   <tbody>{custOrders.slice(0, 10).map(o => (
                     <tr key={o.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <td style={{ padding: "6px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{o.order_number}</td>
+                      <td style={{ padding: "6px" }}><span onClick={e => { e.stopPropagation(); navigateTo("orders", o.id); }} style={{ fontFamily: "monospace", fontWeight: 700, color: T.accent, cursor: "pointer", textDecoration: "underline dotted" }} onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "underline dotted"}>{o.order_number}</span></td>
                       <td style={{ padding: "6px", color: T.text3 }}>{new Date(o.order_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
                       <td style={{ padding: "6px" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: CHANNEL_COLORS[o.channel] || T.text3, display: "inline-block", marginRight: 4 }} />{o.channel}</td>
                       <td style={{ padding: "6px" }}><Pill status={o.status} /></td>
@@ -2254,7 +2260,7 @@ function CustomersView({ customers, setCustomers, orders, isMobile }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MANUFACTURING VIEW — with work order creation
 // ═══════════════════════════════════════════════════════════════════════════════
-function ManufacturingView({ workOrders, setWorkOrders, variants, products, facilities, boms, bomItems, lots, setLots, inventory, setInventory, isMobile }) {
+function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, products, facilities, boms, bomItems, lots, setLots, inventory, setInventory, isMobile }) {
   const [showNew, setShowNew] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -2555,10 +2561,55 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, isMobi
 // ═══════════════════════════════════════════════════════════════════════════════
 function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServices, fulfillmentIntegrations, orders, isMobile }) {
   const [subView, setSubView] = useState("carriers");
+  const [showCarrierModal, setShowCarrierModal] = useState(false);
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [editingCarrier, setEditingCarrier] = useState(null);
+  const [editingService, setEditingService] = useState(null);
+  const [carrierForm, setCarrierForm] = useState({ name: "", code: "", carrier_type: "direct", integration: "shipstation", account_number: "", is_active: true });
+  const [serviceForm, setServiceForm] = useState({ carrier_id: "", name: "", code: "", service_level: "standard", estimated_days_min: "", estimated_days_max: "", base_rate: "", is_active: true });
   const CARRIER_ICONS = { usps: "📮", ups: "📦", fedex: "✈️", dhl: "🟡", stord: "🏭" };
+  const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
 
   const shippedOrders = orders.filter(o => o.status === "shipped" || o.status === "delivered");
   const pendingShip = orders.filter(o => o.status === "processing");
+
+  const saveCarrier = async () => {
+    if (!carrierForm.name.trim()) return;
+    if (editingCarrier) {
+      const { data } = await supabase.from("erp_carriers").update(carrierForm).eq("id", editingCarrier.id).select().single();
+      if (data) setCarriers(p => p.map(x => x.id === data.id ? data : x));
+    } else {
+      const { data } = await supabase.from("erp_carriers").insert(carrierForm).select().single();
+      if (data) setCarriers(p => [...p, data]);
+    }
+    setShowCarrierModal(false); setEditingCarrier(null);
+  };
+
+  const deleteCarrier = async (id) => {
+    if (!window.confirm("Delete this carrier and all its services?")) return;
+    await supabase.from("erp_carriers").delete().eq("id", id);
+    setCarriers(p => p.filter(x => x.id !== id));
+    setCarrierServices(p => p.filter(x => x.carrier_id !== id));
+  };
+
+  const saveService = async () => {
+    if (!serviceForm.name.trim() || !serviceForm.carrier_id) return;
+    const payload = { ...serviceForm, estimated_days_min: parseInt(serviceForm.estimated_days_min) || null, estimated_days_max: parseInt(serviceForm.estimated_days_max) || null, base_rate: parseFloat(serviceForm.base_rate) || null };
+    if (editingService) {
+      const { data } = await supabase.from("erp_carrier_services").update(payload).eq("id", editingService.id).select().single();
+      if (data) setCarrierServices(p => p.map(x => x.id === data.id ? data : x));
+    } else {
+      const { data } = await supabase.from("erp_carrier_services").insert(payload).select().single();
+      if (data) setCarrierServices(p => [...p, data]);
+    }
+    setShowServiceModal(false); setEditingService(null);
+  };
+
+  const deleteService = async (id) => {
+    if (!window.confirm("Delete this service?")) return;
+    await supabase.from("erp_carrier_services").delete().eq("id", id);
+    setCarrierServices(p => p.filter(x => x.id !== id));
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -2574,6 +2625,9 @@ function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServic
         {[["carriers", "🚚 Carriers"], ["services", "📋 Services"], ["integrations", "🔗 Integrations"]].map(([k, l]) => (
           <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
+        <div style={{ flex: 1 }} />
+        {subView === "carriers" && <button onClick={() => { setCarrierForm({ name: "", code: "", carrier_type: "direct", integration: "shipstation", account_number: "", is_active: true }); setEditingCarrier(null); setShowCarrierModal(true); }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ Carrier</button>}
+        {subView === "services" && <button onClick={() => { setServiceForm({ carrier_id: carriers[0]?.id || "", name: "", code: "", service_level: "standard", estimated_days_min: "", estimated_days_max: "", base_rate: "", is_active: true }); setEditingService(null); setShowServiceModal(true); }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ Service</button>}
       </div>
 
       {/* CARRIERS TAB */}
@@ -2603,6 +2657,11 @@ function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServic
                   ))}
                 </div>
                 {c.account_number && <div style={{ marginTop: 6, fontSize: 10, color: T.text3 }}>Account: {c.account_number}</div>}
+                <div style={{ display: "flex", gap: 4, marginTop: 8, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+                  <button onClick={() => { setCarrierForm({ name: c.name, code: c.code, carrier_type: c.carrier_type, integration: c.integration || "", account_number: c.account_number || "", is_active: c.is_active }); setEditingCarrier(c); setShowCarrierModal(true); }} style={{ padding: "3px 8px", fontSize: 10, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer" }}>Edit</button>
+                  <button onClick={() => { const active = !c.is_active; supabase.from("erp_carriers").update({ is_active: active }).eq("id", c.id).then(() => setCarriers(p => p.map(x => x.id === c.id ? { ...x, is_active: active } : x))); }} style={{ padding: "3px 8px", fontSize: 10, background: c.is_active ? "#FEF3C720" : "#D1FAE520", border: `1px solid ${c.is_active ? "#FCD34D" : "#6EE7B7"}`, borderRadius: 4, color: c.is_active ? "#92400E" : "#065F46", cursor: "pointer" }}>{c.is_active ? "Deactivate" : "Activate"}</button>
+                  <button onClick={() => deleteCarrier(c.id)} style={{ padding: "3px 8px", fontSize: 10, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 4, color: "#991B1B", cursor: "pointer" }}>Delete</button>
+                </div>
               </Card>
             );
           })}
@@ -2614,7 +2673,7 @@ function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServic
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
-              {["Carrier", "Service", "Code", "Level", "Est. Days", "Rate", "Status"].map(h => <th key={h} style={{ textAlign: "left", padding: "8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
+              {["Carrier", "Service", "Code", "Level", "Est. Days", "Rate", "Status", ""].map(h => <th key={h} style={{ textAlign: "left", padding: "8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>)}
             </tr></thead>
             <tbody>
               {carrierServices.map(s => {
@@ -2628,6 +2687,10 @@ function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServic
                     <td style={{ padding: "8px", color: T.text3 }}>{s.estimated_days_min}-{s.estimated_days_max}</td>
                     <td style={{ padding: "8px", fontWeight: 700, color: T.accent }}>{fmt(s.base_rate)}</td>
                     <td style={{ padding: "8px" }}>{s.is_active ? <span style={{ fontSize: 10, color: "#10B981", fontWeight: 700 }}>Active</span> : <span style={{ fontSize: 10, color: T.text3 }}>Inactive</span>}</td>
+                    <td style={{ padding: "8px", display: "flex", gap: 4 }}>
+                      <button onClick={() => { setServiceForm({ carrier_id: s.carrier_id, name: s.name, code: s.code, service_level: s.service_level, estimated_days_min: s.estimated_days_min || "", estimated_days_max: s.estimated_days_max || "", base_rate: s.base_rate || "", is_active: s.is_active }); setEditingService(s); setShowServiceModal(true); }} style={{ padding: "2px 6px", fontSize: 9, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer" }}>Edit</button>
+                      <button onClick={() => deleteService(s.id)} style={{ padding: "2px 6px", fontSize: 9, background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 4, color: "#991B1B", cursor: "pointer" }}>✕</button>
+                    </td>
                   </tr>
                 );
               })}
@@ -2665,6 +2728,56 @@ function ShippingView({ carriers, setCarriers, carrierServices, setCarrierServic
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Carrier Create/Edit Modal */}
+      {showCarrierModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowCarrierModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(480px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>{editingCarrier ? "Edit Carrier" : "New Carrier"}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={carrierForm.name} onChange={e => setCarrierForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Code *</div><input value={carrierForm.code} onChange={e => setCarrierForm(f => ({ ...f, code: e.target.value.toLowerCase() }))} placeholder="usps" style={{ ...inp, fontFamily: "monospace" }} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><Select value={carrierForm.carrier_type} onChange={v => setCarrierForm(f => ({ ...f, carrier_type: v }))} options={[{value:"direct",label:"Direct"},{value:"3pl_managed",label:"3PL Managed"},{value:"marketplace",label:"Marketplace"}]} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Integration</div><Select value={carrierForm.integration} onChange={v => setCarrierForm(f => ({ ...f, integration: v }))} options={[{value:"shipstation",label:"ShipStation"},{value:"stord",label:"STORD"},{value:"native",label:"Helm Native"},{value:"easypost",label:"EasyPost"},{value:"manual",label:"Manual"}]} /></div>
+              </div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Account Number</div><input value={carrierForm.account_number} onChange={e => setCarrierForm(f => ({ ...f, account_number: e.target.value }))} style={inp} /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowCarrierModal(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveCarrier} disabled={!carrierForm.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !carrierForm.name.trim() ? 0.5 : 1 }}>{editingCarrier ? "Save" : "Create"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Create/Edit Modal */}
+      {showServiceModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowServiceModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(520px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>{editingService ? "Edit Service" : "New Service"}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Carrier *</div><Select value={serviceForm.carrier_id} onChange={v => setServiceForm(f => ({ ...f, carrier_id: v }))} placeholder="Select carrier…" options={carriers.map(c => ({ value: c.id, label: c.name, icon: CARRIER_ICONS[c.code] || "🚚" }))} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Service Name *</div><input value={serviceForm.name} onChange={e => setServiceForm(f => ({ ...f, name: e.target.value }))} placeholder="Priority Mail" style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Code *</div><input value={serviceForm.code} onChange={e => setServiceForm(f => ({ ...f, code: e.target.value.toLowerCase() }))} placeholder="usps_priority" style={{ ...inp, fontFamily: "monospace" }} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Level</div><Select value={serviceForm.service_level} onChange={v => setServiceForm(f => ({ ...f, service_level: v }))} options={[{value:"economy",label:"Economy"},{value:"standard",label:"Standard"},{value:"express",label:"Express"},{value:"overnight",label:"Overnight"}]} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Min Days</div><input type="number" value={serviceForm.estimated_days_min} onChange={e => setServiceForm(f => ({ ...f, estimated_days_min: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Max Days</div><input type="number" value={serviceForm.estimated_days_max} onChange={e => setServiceForm(f => ({ ...f, estimated_days_max: e.target.value }))} style={inp} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Base Rate</div><input type="number" step="0.01" value={serviceForm.base_rate} onChange={e => setServiceForm(f => ({ ...f, base_rate: e.target.value }))} placeholder="8.50" style={inp} /></div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowServiceModal(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveService} disabled={!serviceForm.name.trim() || !serviceForm.carrier_id} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !serviceForm.name.trim() || !serviceForm.carrier_id ? 0.5 : 1 }}>{editingService ? "Save" : "Create"}</button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
