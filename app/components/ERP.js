@@ -72,6 +72,27 @@ function Select({ options = [], value, onChange, placeholder = "Select…", mult
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n || 0);
 const fmtN = n => new Intl.NumberFormat("en-US").format(n || 0);
 
+// GL Auto-Posting helper — creates balanced journal entries
+const postJournalEntry = async (source, refType, refId, description, lines, entityId) => {
+  const entryNum = `JE-${Date.now().toString(36).toUpperCase()}`;
+  const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0);
+  const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
+  const period = new Date().toISOString().slice(0, 7);
+  const { data: je } = await supabase.from("erp_journal_entries").insert({
+    entry_number: entryNum, entry_date: new Date().toISOString().slice(0, 10), period,
+    entity_id: entityId || null, source, reference_type: refType, reference_id: refId,
+    description, total_debit: totalDebit, total_credit: totalCredit, status: "posted",
+  }).select().single();
+  if (je) {
+    const jeLines = lines.map((l, i) => ({
+      entry_id: je.id, account_number: l.account, account_name: l.name,
+      debit: l.debit || 0, credit: l.credit || 0, description: l.desc || description, sort_order: i,
+    }));
+    await supabase.from("erp_journal_lines").insert(jeLines);
+  }
+  return je;
+};
+
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "⬡", badge: null },
   { id: "products", label: "Products", icon: "📦", badge: null },
@@ -512,7 +533,7 @@ function ProductsView({ navigateTo, products, setProducts, variants, setVariants
                     </div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                    <Pill status={p.status} />
+                    <Pill status={p.status} />{p.is_kit && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#EDE9FE", color: "#5B21B6", fontWeight: 700 }}>KIT</span>}
                     <span style={{ fontSize: 10, color: T.text3, textTransform: "capitalize" }}>{(p.category || "").replace(/_/g, " ")}</span>
                   </div>
                 </div>
@@ -546,6 +567,39 @@ function ProductsView({ navigateTo, products, setProducts, variants, setVariants
                 </div>
               ))}
             </div>
+
+            {/* Kit Info */}
+            {selected.is_kit && (
+              <div style={{ marginBottom: 16, padding: "12px 14px", background: "#EDE9FE15", border: "1px solid #C4B5FD40", borderRadius: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 16 }}>📦</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#5B21B6" }}>Kit / Bundle</span>
+                  <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#EDE9FE", color: "#5B21B6", fontWeight: 600, textTransform: "capitalize" }}>{selected.kit_type?.replace(/_/g, " ")}</span>
+                </div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 10 }}>
+                  {selected.kit_type === "assemble_to_order" ? "Components are picked and assembled at time of order fulfillment. Component inventory is consumed, not kit inventory." : "Kit is pre-assembled into finished inventory. Assemble kits in advance to maintain stock."}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={async () => {
+                    const qty = parseInt(prompt("How many kits to assemble?", "10") || "0");
+                    if (!qty) return;
+                    const kitBom = boms.find(b => prodVariants.some(v => v.id === b.variant_id) && b.status === "active");
+                    if (!kitBom) { alert("No active BOM found for this kit"); return; }
+                    const fac = prompt("Facility name:", "EB - Harrodsburg");
+                    const asmNum = `KIT-ASM-${Date.now().toString(36).toUpperCase()}`;
+                    await supabase.from("erp_kit_assemblies").insert({ assembly_number: asmNum, product_id: selected.id, variant_id: prodVariants[0]?.id, bom_id: kitBom.id, facility_id: null, assembly_type: "assembly", quantity: qty, status: "completed" });
+                    alert(`✅ Assembled ${qty} × ${selected.name}\nComponents consumed per BOM: ${kitBom.name}`);
+                  }} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>🔧 Assemble Kit</button>
+                  <button onClick={async () => {
+                    const qty = parseInt(prompt("How many kits to disassemble?", "1") || "0");
+                    if (!qty) return;
+                    const asmNum = `KIT-DIS-${Date.now().toString(36).toUpperCase()}`;
+                    await supabase.from("erp_kit_assemblies").insert({ assembly_number: asmNum, product_id: selected.id, variant_id: prodVariants[0]?.id, assembly_type: "disassembly", quantity: qty, status: "completed" });
+                    alert(`✅ Disassembled ${qty} × ${selected.name}\nComponents returned to inventory`);
+                  }} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 700, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>↩ Disassemble</button>
+                </div>
+              </div>
+            )}
 
             {/* Variants table */}
             <div style={{ marginBottom: 16 }}>
@@ -1409,6 +1463,12 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
                       dueDate.setDate(dueDate.getDate() + termDays);
                       const { data: apInv } = await supabase.from("erp_ap_invoices").insert({ invoice_number: apInvNum, supplier_id: selected.supplier_id, po_id: selected.id, status: "pending", invoice_date: new Date().toISOString().slice(0,10), due_date: dueDate.toISOString().slice(0,10), currency: selected.po_currency || "USD", subtotal: selected.subtotal || selected.total, total: selected.total, match_status: "matched", payment_terms: selected.payment_terms }).select().single();
                       if (apInv) setApInvoices(p => [apInv, ...p]);
+                      // GL: DR Inventory, CR AP Accrual (Checklist 8.1.1)
+                      await postJournalEntry("po_receipt", "purchase_order", selected.id,
+                        `PO Receipt: ${selected.po_number} — ${getSupplier(selected.supplier_id)?.name}`,
+                        [{ account: "1200", name: "Inventory - Raw Materials", debit: selected.total, desc: "Goods received" },
+                         { account: "2100", name: "AP Accrual", credit: selected.total, desc: "Vendor accrual" }],
+                        selected.buying_entity_id);
                     }
                   }
                   setShowReceivePO(false); setReceiveQtys({});
@@ -2123,6 +2183,16 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                     await supabase.from("erp_orders").update({ ar_invoice_id: inv.id }).eq("id", selected.id);
                   }
 
+                  // GL: DR AR + DR COGS, CR Revenue + CR Inventory (Checklist 8.1.3)
+                  const orderTotal = selected.total || 0;
+                  const costTotal = selItems.reduce((s, i) => { const v = variants.find(x => x.id === i.variant_id); return s + (i.quantity || 0) * (v?.cost || 0); }, 0);
+                  await postJournalEntry("shipment", "order", selected.id,
+                    `Shipment: ${selected.order_number} — ${getCustomer(selected.customer_id)?.name || "DTC"}`,
+                    [{ account: "1100", name: "Accounts Receivable", debit: orderTotal, desc: "Customer invoice" },
+                     { account: "5000", name: "Cost of Goods Sold", debit: costTotal, desc: "COGS on shipment" },
+                     { account: "4000", name: "Revenue - Product Sales", credit: orderTotal, desc: "Revenue recognized" },
+                     { account: "1210", name: "Inventory - Finished Goods", credit: costTotal, desc: "Inventory consumed" }]);
+
                   updateOrderStatus(selected.id, "shipped");
                   setShowShipModal(false);
                 }} disabled={!shipForm.carrier_id} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !shipForm.carrier_id ? 0.5 : 1 }}>✓ Confirm & Ship</button>
@@ -2716,6 +2786,31 @@ function APARView({ apInvoices, setApInvoices, arInvoices, setArInvoices, paymen
         {[["ar", "📥 Receivable (AR)"], ["ap", "📤 Payable (AP)"], ["payments", "💳 Payments"]].map(([k, l]) => (
           <button key={k} onClick={() => { setSubView(k); setSelected(null); }} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
+        <div style={{ flex: 1 }} />
+        {subView === "ap" && <button onClick={async () => {
+          const supName = prompt("Supplier name or code:");
+          if (!supName) return;
+          const sup = suppliers.find(s => s.name.toLowerCase().includes(supName.toLowerCase()) || s.code?.toLowerCase() === supName.toLowerCase());
+          if (!sup) { alert("Supplier not found"); return; }
+          const vendorInv = prompt("Vendor invoice number:");
+          const total = parseFloat(prompt("Invoice total:", "0") || "0");
+          if (!total) return;
+          const invNum = `AP-${Date.now().toString(36).toUpperCase()}`;
+          const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 30);
+          const { data } = await supabase.from("erp_ap_invoices").insert({ invoice_number: invNum, vendor_invoice_number: vendorInv || null, supplier_id: sup.id, status: "pending", invoice_date: new Date().toISOString().slice(0,10), due_date: dueDate.toISOString().slice(0,10), total, subtotal: total, payment_terms: sup.payment_terms || "net_30" }).select().single();
+          if (data) { setApInvoices(p => [data, ...p]); setSelected(data); }
+        }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ AP Invoice</button>}
+        {subView === "ar" && <button onClick={async () => {
+          const ordNum = prompt("Order number (e.g. ORD-100001):");
+          if (!ordNum) return;
+          const ord = orders.find(o => o.order_number === ordNum);
+          if (!ord) { alert("Order not found"); return; }
+          const invNum = `INV-${ord.order_number.replace("ORD-", "")}`;
+          const cust = getCustomer(ord.customer_id);
+          const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 30);
+          const { data } = await supabase.from("erp_ar_invoices").insert({ invoice_number: invNum, order_id: ord.id, customer_id: ord.customer_id, status: "sent", invoice_date: new Date().toISOString().slice(0,10), due_date: dueDate.toISOString().slice(0,10), subtotal: ord.subtotal || ord.total, total: ord.total, payment_terms: cust?.payment_terms || "net_30" }).select().single();
+          if (data) { setArInvoices(p => [data, ...p]); setSelected(data); }
+        }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ AR Invoice</button>}
       </div>
 
       {/* AR / AP Invoice List */}
