@@ -67,7 +67,7 @@ export default function PrintAIChat({ conversationId, messages: propMessages, mo
     .replace(/`(.*?)`/g, '<code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;font-size:10px">$1</code>');
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#fff", overflow: "auto" }}>
+    <div className="print-root" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#fff", overflow: "auto" }}>
       {/* Non-printable toolbar */}
       <div className="no-print" style={{ position: "sticky", top: 0, background: "#1a1a2e", padding: "10px 24px", display: "flex", alignItems: "center", gap: 12, zIndex: 10 }}>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>← Back</button>
@@ -193,7 +193,9 @@ export default function PrintAIChat({ conversationId, messages: propMessages, mo
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          body { margin: 0; padding: 0; }
+          .print-root { position: static !important; overflow: visible !important; height: auto !important; }
+          body { margin: 0; padding: 0; overflow: visible !important; }
+          html { overflow: visible !important; }
           @page { margin: 0.6in 0.5in; size: letter; }
         }
       `}</style>
