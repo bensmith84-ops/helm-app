@@ -3050,228 +3050,118 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
 // ─── PRODUCT ROADMAP ──────────────────────────────────────────────────────────
 
 function ProductRoadmap({ programs, allSkus, onSelectProgram, isMobile }) {
+  const scrollRef = useRef(null);
   const today = new Date();
   const todayStr = today.toISOString().split("T")[0];
 
-  // Build timeline items: programs with launch dates + live SKUs
   const items = [];
-
-  // Programs in pipeline (not launched) with launch dates
   programs.filter(p => p.target_launch_date && p.current_stage !== "launched").forEach(p => {
-    items.push({
-      id: "prog-" + p.id,
-      type: "program",
-      name: p.name,
-      brand: p.brand,
-      stage: p.current_stage,
-      priority: p.priority,
-      date: p.target_launch_date,
-      endDate: null,
-      color: STAGE_MAP[p.current_stage]?.color || "#6366f1",
-      program: p,
-    });
+    items.push({ id: "prog-" + p.id, type: "program", name: p.name, brand: p.brand, stage: p.current_stage, priority: p.priority, date: p.target_launch_date, color: STAGE_MAP[p.current_stage]?.color || "#6366f1", program: p });
   });
-
-  // Launched programs (live products)
   programs.filter(p => p.current_stage === "launched").forEach(p => {
-    items.push({
-      id: "live-" + p.id,
-      type: "live",
-      name: p.name,
-      brand: p.brand,
-      stage: "launched",
-      priority: p.priority,
-      date: p.target_launch_date || p.created_at?.split("T")[0],
-      endDate: null,
-      color: "#22c55e",
-      program: p,
-    });
+    items.push({ id: "live-" + p.id, type: "live", name: p.name, brand: p.brand, stage: "launched", date: p.target_launch_date || p.created_at?.split("T")[0], color: "#22c55e", program: p });
   });
-
-  // SKUs with launch dates
   allSkus.forEach(sku => {
     const prog = programs.find(p => p.id === sku.program_id);
-    items.push({
-      id: "sku-" + sku.id,
-      type: "sku",
-      name: sku.name || sku.sku_code,
-      brand: prog?.brand,
-      stage: sku.status,
-      priority: null,
-      date: sku.launch_date || sku.created_at?.split("T")[0],
-      endDate: sku.discontinue_date,
-      color: sku.status === "active" ? "#22c55e" : sku.status === "draft" ? "#8b93a8" : "#eab308",
-      programName: prog?.name,
-      sku,
-    });
+    items.push({ id: "sku-" + sku.id, type: "sku", name: sku.name || sku.sku_code, brand: prog?.brand, stage: sku.status, date: sku.launch_date || sku.created_at?.split("T")[0], endDate: sku.discontinue_date, color: sku.status === "active" ? "#22c55e" : sku.status === "draft" ? "#8b93a8" : "#eab308", programName: prog?.name, program: prog });
   });
-
-  // Sort by date
   items.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
-  // Calculate timeline range — 3 months before today to 18 months out, or to fit all items
   const allDates = items.map(i => i.date).filter(Boolean);
-  const minDate = new Date(Math.min(
-    today.getTime() - 90 * 86400000,
-    ...allDates.map(d => new Date(d).getTime())
-  ));
-  const maxDate = new Date(Math.max(
-    today.getTime() + 540 * 86400000,
-    ...allDates.map(d => new Date(d).getTime() + 30 * 86400000)
-  ));
-
-  // Generate months for the header
-  const months = [];
-  const cursor = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-  while (cursor <= maxDate) {
-    months.push(new Date(cursor));
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-
+  const minDate = new Date(Math.min(today.getTime() - 90 * 86400000, ...allDates.map(d => new Date(d).getTime())));
+  const maxDate = new Date(Math.max(today.getTime() + 540 * 86400000, ...allDates.map(d => new Date(d).getTime() + 60 * 86400000)));
   const totalDays = Math.max(1, (maxDate - minDate) / 86400000);
-  const pxPerDay = isMobile ? 3 : 4;
-  const timelineW = totalDays * pxPerDay;
-
-  const getX = (dateStr) => {
-    if (!dateStr) return 0;
-    const d = new Date(dateStr);
-    return Math.max(0, ((d - minDate) / 86400000) * pxPerDay);
-  };
-
+  const dayPx = isMobile ? 3 : 4.5;
+  const timelineW = totalDays * dayPx;
+  const getX = (dateStr) => { if (!dateStr) return 0; return Math.max(0, ((new Date(dateStr) - minDate) / 86400000) * dayPx); };
   const todayX = getX(todayStr);
 
-  // Group items
+  const months = [];
+  const cursor = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+  while (cursor <= maxDate) { months.push(new Date(cursor)); cursor.setMonth(cursor.getMonth() + 1); }
+  const monthPos = months.map((m, i) => {
+    const x = getX(m.toISOString().split("T")[0]);
+    const nx = i < months.length - 1 ? getX(months[i + 1].toISOString().split("T")[0]) : timelineW;
+    return { date: m, x, w: nx - x };
+  });
+
   const liveItems = items.filter(i => i.type === "live" || (i.type === "sku" && i.stage === "active"));
   const pipelineItems = items.filter(i => i.type === "program");
   const skuItems = items.filter(i => i.type === "sku" && i.stage !== "active");
+  const ROW_H = 38;
+  const LABEL_W = isMobile ? 150 : 230;
 
-  const ROW_H = 36;
-  const LABEL_W = isMobile ? 140 : 220;
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollLeft = Math.max(0, todayX - 200); }, [todayX]);
 
-  const renderRow = (item, idx) => {
+  const renderLabels = (arr) => arr.map(item => (
+    <div key={item.id} style={{ height: ROW_H, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", borderBottom: `1px solid ${T.border}`, overflow: "hidden", cursor: item.program ? "pointer" : "default" }}
+      onClick={() => item.program && onSelectProgram(item.program)}>
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+      <span style={{ fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{item.name}</span>
+      {item.type === "sku" && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3, flexShrink: 0 }}>SKU</span>}
+      {item.type === "program" && <span style={{ fontSize: 8, color: PRIORITY_COLORS[item.priority] || T.text3, fontWeight: 700, flexShrink: 0 }}>{(item.priority || "")[0]?.toUpperCase()}</span>}
+    </div>
+  ));
+
+  const renderBars = (arr) => arr.map(item => {
     const x = getX(item.date);
-    const endX = item.endDate ? getX(item.endDate) : null;
-    const barW = endX ? Math.max(endX - x, 8) : (item.type === "live" ? Math.max(todayX - x, 8) : 8);
-
     return (
-      <div key={item.id} style={{ display: "flex", height: ROW_H, alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
-        {/* Label */}
-        <div style={{ width: LABEL_W, flexShrink: 0, padding: "0 12px", display: "flex", alignItems: "center", gap: 6, overflow: "hidden", borderRight: `1px solid ${T.border}` }}
-          onClick={() => item.program && onSelectProgram(item.program)}
-          onMouseEnter={e => { if (item.program) e.currentTarget.style.color = T.accent; }}
-          onMouseLeave={e => e.currentTarget.style.color = T.text}
-          style2={{ cursor: item.program ? "pointer" : "default" }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 11, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: item.program ? "pointer" : "default" }}
-            onClick={() => item.program && onSelectProgram(item.program)}
-            onMouseEnter={e => { if (item.program) e.currentTarget.style.color = T.accent; }}
-            onMouseLeave={e => e.currentTarget.style.color = T.text}>
-            {item.name}
-          </span>
-          {item.type === "sku" && <span style={{ fontSize: 9, color: T.text3, background: T.surface2, padding: "1px 4px", borderRadius: 3, flexShrink: 0 }}>SKU</span>}
-        </div>
-        {/* Timeline bar */}
-        <div style={{ flex: 1, position: "relative", height: "100%", overflow: "hidden" }}>
-          <div style={{ position: "absolute", left: 0, top: 0, width: timelineW, height: "100%", minWidth: "100%" }}>
-            {/* Bar */}
-            {item.type === "live" ? (
-              // Live product: bar from launch to today with green gradient
-              <div style={{ position: "absolute", left: x, top: 10, height: 16, width: barW, borderRadius: 3, background: `linear-gradient(90deg, ${item.color}60, ${item.color})`, border: `1px solid ${item.color}80` }}
-                title={`${item.name} — Launched ${item.date}`} />
-            ) : item.type === "program" ? (
-              // Pipeline program: diamond marker at launch date
-              <>
-                <div style={{ position: "absolute", left: x - 8, top: 10, width: 16, height: 16, transform: "rotate(45deg)", borderRadius: 2, background: item.color + "30", border: `2px solid ${item.color}` }}
-                  title={`${item.name} — Target launch: ${item.date} (${STAGE_MAP[item.stage]?.label || item.stage})`} />
-                {/* Label on bar */}
-                <div style={{ position: "absolute", left: x + 14, top: 10, fontSize: 10, color: item.color, fontWeight: 600, whiteSpace: "nowrap" }}>
-                  {item.date} · <StageBadge stage={item.stage} />
-                </div>
-              </>
-            ) : (
-              // SKU: small circle marker
-              <div style={{ position: "absolute", left: x - 5, top: 13, width: 10, height: 10, borderRadius: 5, background: item.color, border: `2px solid ${T.surface}` }}
-                title={`SKU: ${item.name} — ${item.date || "No date"}`} />
-            )}
+      <div key={item.id} style={{ height: ROW_H, position: "relative", borderBottom: `1px solid ${T.border}` }}>
+        {item.type === "live" ? (
+          <div style={{ position: "absolute", left: x, top: 11, height: 16, width: Math.max(todayX - x, 12), borderRadius: 8, background: `linear-gradient(90deg, ${item.color}40, ${item.color})` }}>
+            <div style={{ position: "absolute", right: -1, top: 3, width: 10, height: 10, borderRadius: 5, background: item.color, border: "2px solid #fff" }} />
           </div>
-        </div>
+        ) : item.type === "program" ? (<>
+          <div style={{ position: "absolute", left: 0, top: 18, width: x, height: 2, background: `linear-gradient(90deg, transparent, ${item.color}40)` }} />
+          <div style={{ position: "absolute", left: x - 7, top: 12, width: 14, height: 14, transform: "rotate(45deg)", borderRadius: 2, background: item.color + "25", border: `2px solid ${item.color}` }} />
+          <div style={{ position: "absolute", left: x + 12, top: 11, fontSize: 10, color: item.color, fontWeight: 600, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>
+            {new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: item.color + "18", color: item.color, fontWeight: 700, textTransform: "uppercase" }}>{STAGE_MAP[item.stage]?.label || item.stage}</span>
+          </div>
+        </>) : (<>
+          <div style={{ position: "absolute", left: x - 5, top: 14, width: 10, height: 10, borderRadius: 5, background: item.color, border: `2px solid ${T.surface}`, boxShadow: `0 0 0 1px ${item.color}40` }} />
+          {item.date && <div style={{ position: "absolute", left: x + 10, top: 13, fontSize: 9, color: T.text3 }}>{new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>}
+        </>)}
       </div>
     );
-  };
+  });
 
-  const renderSection = (title, sectionItems, icon) => {
-    if (sectionItems.length === 0) return null;
-    return (
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "0 12px" }}>
-          <span style={{ fontSize: 13 }}>{icon}</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: 0.5 }}>{title}</span>
-          <span style={{ fontSize: 11, color: T.text3, background: T.surface2, padding: "1px 6px", borderRadius: 4 }}>{sectionItems.length}</span>
-        </div>
-        <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
-          {sectionItems.map((item, i) => renderRow(item, i))}
-        </div>
-      </div>
-    );
-  };
+  const groups = [
+    liveItems.length > 0 && { title: "Live Products", icon: "\uD83D\uDFE2", items: liveItems },
+    pipelineItems.length > 0 && { title: "Pipeline \u2014 Upcoming Launches", icon: "\uD83D\uDD37", items: pipelineItems },
+    skuItems.length > 0 && { title: "SKUs", icon: "\uD83D\uDCE6", items: skuItems },
+  ].filter(Boolean);
 
   return (
     <div>
-      {/* Legend */}
       <div style={{ display: "flex", gap: 16, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Product Roadmap</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Product Roadmap</span>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <div style={{ width: 20, height: 8, borderRadius: 2, background: "linear-gradient(90deg, #22c55e60, #22c55e)" }} />
-            <span style={{ fontSize: 10, color: T.text3 }}>Live Product</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <div style={{ width: 10, height: 10, transform: "rotate(45deg)", borderRadius: 1, background: "#6366f130", border: "2px solid #6366f1" }} />
-            <span style={{ fontSize: 10, color: T.text3 }}>Pipeline Launch</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 4, background: "#8b93a8" }} />
-            <span style={{ fontSize: 10, color: T.text3 }}>SKU</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 20, height: 8, borderRadius: 4, background: "linear-gradient(90deg, #22c55e60, #22c55e)" }} /><span style={{ fontSize: 10, color: T.text3 }}>Live</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 10, height: 10, transform: "rotate(45deg)", borderRadius: 1, background: "#6366f130", border: "2px solid #6366f1" }} /><span style={{ fontSize: 10, color: T.text3 }}>Pipeline</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: 4, background: "#8b93a8" }} /><span style={{ fontSize: 10, color: T.text3 }}>SKU</span></div>
+        </div>
+      </div>
+      <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", background: T.surface }}>
+        <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${T.border}` }}>
+          <div style={{ height: 32, borderBottom: `2px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 10px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>Product</div>
+          {groups.map(g => (<div key={g.title}><div style={{ height: 28, display: "flex", alignItems: "center", gap: 5, padding: "0 10px", background: T.surface2, borderBottom: `1px solid ${T.border}` }}><span style={{ fontSize: 10, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: 0.5 }}>{g.title}</span><span style={{ fontSize: 10, color: T.text3, marginLeft: "auto" }}>{g.items.length}</span></div>{renderLabels(g.items)}</div>))}
+        </div>
+        <div ref={scrollRef} style={{ flex: 1, overflowX: "auto", overflowY: "hidden", position: "relative" }}>
+          <div style={{ width: timelineW, minWidth: "100%" }}>
+            <div style={{ height: 32, display: "flex", borderBottom: `2px solid ${T.border}`, position: "sticky", top: 0, background: T.surface, zIndex: 2 }}>
+              {monthPos.map((mp, i) => {
+                const cur = mp.date.getMonth() === today.getMonth() && mp.date.getFullYear() === today.getFullYear();
+                const yr = mp.date.getMonth() === 0 || i === 0;
+                return <div key={i} style={{ position: "absolute", left: mp.x, width: mp.w, height: "100%", borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: cur ? 700 : 500, color: cur ? T.accent : T.text3 }}>{mp.date.toLocaleDateString("en-US", { month: "short" })}{yr ? " \u2019" + String(mp.date.getFullYear()).slice(2) : ""}</div>;
+              })}
+            </div>
+            <div style={{ position: "absolute", left: todayX, top: 0, bottom: 0, width: 2, background: T.accent, zIndex: 3, pointerEvents: "none", opacity: 0.6 }}><div style={{ position: "absolute", top: 2, left: -14, fontSize: 8, fontWeight: 800, color: "#fff", background: T.accent, padding: "1px 5px", borderRadius: 3 }}>TODAY</div></div>
+            {groups.map(g => (<div key={g.title}><div style={{ height: 28, background: T.surface2, borderBottom: `1px solid ${T.border}` }} /><div style={{ position: "relative" }}>{monthPos.map((mp, i) => <div key={i} style={{ position: "absolute", left: mp.x, top: 0, bottom: 0, width: 1, background: T.border, opacity: 0.4, pointerEvents: "none" }} />)}{renderBars(g.items)}</div></div>))}
           </div>
         </div>
       </div>
-
-      {/* Timeline header + grid */}
-      <div style={{ overflowX: "auto", position: "relative" }}>
-        {/* Month headers */}
-        <div style={{ display: "flex", marginLeft: LABEL_W, borderBottom: `2px solid ${T.border}`, position: "sticky", top: 0, background: T.surface, zIndex: 2 }}>
-          <div style={{ display: "flex", width: timelineW, minWidth: "100%" }}>
-            {months.map((m, i) => {
-              const mStart = getX(m.toISOString().split("T")[0]);
-              const nextM = new Date(m.getFullYear(), m.getMonth() + 1, 1);
-              const mEnd = getX(nextM.toISOString().split("T")[0]);
-              const mW = Math.max(mEnd - mStart, 30);
-              const isCurrentMonth = m.getMonth() === today.getMonth() && m.getFullYear() === today.getFullYear();
-              return (
-                <div key={i} style={{ width: mW, flexShrink: 0, padding: "6px 8px", borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: isCurrentMonth ? 700 : 500, color: isCurrentMonth ? T.accent : T.text3 }}>
-                  {m.toLocaleDateString("en-US", { month: "short", year: m.getMonth() === 0 ? "2-digit" : undefined })}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Today marker line */}
-        <div style={{ position: "absolute", left: LABEL_W + todayX, top: 0, bottom: 0, width: 2, background: T.accent + "60", zIndex: 1, pointerEvents: "none" }}>
-          <div style={{ position: "absolute", top: 0, left: -12, fontSize: 9, fontWeight: 700, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3 }}>Today</div>
-        </div>
-
-        {/* Sections */}
-        <div style={{ marginTop: 4 }}>
-          {renderSection("Live Products", liveItems, "🟢")}
-          {renderSection("Pipeline — Upcoming Launches", pipelineItems, "🔷")}
-          {renderSection("SKUs", skuItems, "📦")}
-        </div>
-
-        {items.length === 0 && (
-          <EmptyState icon="📅" text="No products with launch dates yet. Add target launch dates to your programs to see them here." />
-        )}
-      </div>
+      {items.length === 0 && <div style={{ marginTop: 20 }}><EmptyState icon={"\uD83D\uDCC5"} text="No products with launch dates yet. Add target launch dates to your programs to see them here." /></div>}
     </div>
   );
 }
