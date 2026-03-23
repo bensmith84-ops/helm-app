@@ -488,10 +488,12 @@ export default function OKRsView() {
     const cycleStart = cycle?.start_date ? new Date(cycle.start_date + "T00:00:00") : new Date();
     const cycleEnd = cycle?.end_date ? new Date(cycle.end_date + "T00:00:00") : new Date(cycleStart.getTime() + 90 * 86400000);
 
-    // Find the actual min/max from all KR dates
+    // Find the actual min/max from all KR dates AND milestone dates
     const allKRDates = keyResults.flatMap(kr => [kr.start_date, kr.end_date].filter(Boolean).map(d => new Date(d + "T00:00:00")));
-    const minKR = allKRDates.length > 0 ? new Date(Math.min(...allKRDates.map(d => d.getTime()))) : cycleStart;
-    const maxKR = allKRDates.length > 0 ? new Date(Math.max(...allKRDates.map(d => d.getTime()))) : cycleEnd;
+    const allMSDates = milestones.flatMap(ms => [ms.start_date, ms.end_date, ms.due_date].filter(Boolean).map(d => new Date(d + "T00:00:00")));
+    const allDates = [...allKRDates, ...allMSDates];
+    const minKR = allDates.length > 0 ? new Date(Math.min(...allDates.map(d => d.getTime()))) : cycleStart;
+    const maxKR = allDates.length > 0 ? new Date(Math.max(...allDates.map(d => d.getTime()))) : cycleEnd;
 
     // Timeline range = union of cycle range and KR range, rounded to month boundaries
     const rangeMin = new Date(Math.min(cycleStart.getTime(), minKR.getTime()));
@@ -614,7 +616,7 @@ export default function OKRsView() {
           {/* ===== HEADER ROW: Quarter ===== */}
           <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 5, background: T.surface }}>
             <div style={{ width: leftColW + krColW, flexShrink: 0, height: 24, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.surface }} />
-            <div style={{ width: timelineW, display: "flex", height: 24, overflow: "hidden", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ width: timelineW, display: "flex", height: 24, borderBottom: `1px solid ${T.border}` }}>
               {quarterPositions.map((q, i) => (
                 <div key={i} style={{ width: q.pxWidth, flexShrink: 0, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.text2, display: "flex", alignItems: "center", justifyContent: "center" }}>{q.label}</div>
               ))}
@@ -626,7 +628,7 @@ export default function OKRsView() {
               <div style={{ width: leftColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 16, position: "relative" }}>Objectives<ResizeHandle col="obj" /></div>
               <div style={{ width: krColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 12, borderLeft: `1px solid ${T.border}`, position: "relative" }}>Key Results<ResizeHandle col="kr" /></div>
             </div>
-            <div style={{ width: timelineW, display: "flex", height: 32, overflow: "hidden", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ width: timelineW, display: "flex", height: 32, borderBottom: `1px solid ${T.border}` }}>
               {monthPositions.map((m, i) => (
                 <div key={i} style={{ width: m.pxWidth, flexShrink: 0, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 500, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.label}</div>
               ))}
@@ -646,7 +648,7 @@ export default function OKRsView() {
             return (
               <div style={{ display: "flex", position: "sticky", top: 56, zIndex: 5, background: T.bg }}>
                 <div style={{ width: leftColW + krColW, flexShrink: 0, height: 18, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.bg }} />
-                <div style={{ width: timelineW, position: "relative", height: 18, overflow: "hidden", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ width: timelineW, position: "relative", height: 18, borderBottom: `1px solid ${T.border}` }}>
                   {weeks.map((w, i) => (
                     <div key={i} style={{ position: "absolute", left: w.pct / 100 * timelineW, top: 0, bottom: 0, display: "flex", alignItems: "center" }}>
                       <div style={{ width: 1, height: "100%", background: `${T.text3}30` }} />

@@ -575,7 +575,8 @@ function ProductsView({ navigateTo, inventory, products, setProducts, variants, 
 
         {/* Detail panel */}
         {selected && !isMobile && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 200px)" }}>
+          <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 200px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{selected.name}</div>
@@ -940,7 +941,8 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
 
         {/* Detail panel */}
         {selected && !isMobile && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 220px)" }}>
+          <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 220px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1302,7 +1304,8 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
 
         {/* Detail panel */}
         {selected && !isMobile && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+          <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.po_number}</div>
@@ -2292,7 +2295,8 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
 
         {/* Detail panel */}
         {selected && !isMobile && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+          <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2577,7 +2581,8 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
 
         {/* Detail panel */}
         {selected && !isMobile && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+          <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{selected.name}</div>
@@ -2827,7 +2832,8 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
         </div>
 
         {selected && !isMobile && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+          <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.wo_number}</div>
@@ -3215,7 +3221,8 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
           </div>
 
           {selected && !isMobile && (
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
+            <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.entry_number}</div>
@@ -3484,7 +3491,8 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
           </div>
 
           {selected && !isMobile && (
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
+            <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.invoice_number}</div>
@@ -3748,7 +3756,8 @@ function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems,
         </div>
 
         {selected && !isMobile && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+          <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.rma_number}</div>
@@ -4259,7 +4268,8 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
 
         {/* Detail panel */}
         {selected && !isMobile && (
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+          <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+            <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{selected.name}</div>
