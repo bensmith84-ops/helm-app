@@ -6,6 +6,7 @@ import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import PLMLibraryView from "./PLMLibrary";
 const PrintBatchRecord = lazy(() => import("./PrintBatchRecord"));
+const PrintFormulaSheet = lazy(() => import("./PrintFormulaSheet"));
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -1633,6 +1634,7 @@ function FormulationsTab({ programId }) {
   const [loading, setLoading] = useState(true);
   const [showPicker, setShowPicker] = useState(false);
   const [editingMfg, setEditingMfg] = useState(false);
+  const [printingFormula, setPrintingFormula] = useState(null);
   useEffect(()=>{ supabase.from("plm_formulations").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setFormulas(data||[]);setLoading(false);}); },[programId]);
   useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("formulation_id",selected.id).order("sort_order").order("created_at").then(({data})=>setItems(data||[])); },[selected]);
   const addFormula=async()=>{ const{data}=await supabase.from("plm_formulations").insert({program_id:programId,name:"New Formulation",version:"v1.0",status:"draft"}).select().single(); if(data){setFormulas(p=>[...p,data]);setSelected(data);} };
@@ -1641,6 +1643,11 @@ function FormulationsTab({ programId }) {
   const addItem=async({ name="", uom="", type="ingredient" }={})=>{ if(!selected)return; const{data}=await supabase.from("plm_formula_items").insert({formulation_id:selected.id,ingredient_name:name,item_type:type,quantity:0,unit:"%",input_qty:null,input_uom:uom||null}).select().single(); if(data)setItems(p=>[...p,data]); };
   const totalPct=items.filter(i=>i.unit==="%").reduce((a,b)=>a+parseFloat(b.quantity||0),0);
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
+  if(printingFormula)return (
+    <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading print view...</div>}>
+      <PrintFormulaSheet formulationId={printingFormula} onClose={() => setPrintingFormula(null)} />
+    </Suspense>
+  );
   return (
     <div className="plm-grid">
       <div style={{ borderRight:"1px solid "+T.border,paddingRight:16 }}>
@@ -1666,6 +1673,7 @@ function FormulationsTab({ programId }) {
               <div style={{ display:"flex",alignItems:"center",gap:8,marginTop:4 }}>
                 <span style={{ fontSize:12,color:totalPct>100.5?"#ef4444":totalPct>99.4?"#22c55e":"#eab308",fontWeight:600 }}>Total: {totalPct.toFixed(2)}%</span>
                 <button onClick={()=>setShowPicker(true)} style={{ display:"flex",alignItems:"center",gap:5,padding:"5px 12px",fontSize:12,fontWeight:600,background:T.accent,color:"#fff",border:"none",borderRadius:6,cursor:"pointer" }}>+ Ingredient</button>
+                <button onClick={()=>setPrintingFormula(selected.id)} style={{ padding:"5px 10px",fontSize:12,background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.text3,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }} title="Print formula sheet">🖨 Print</button>
                 <button onClick={deleteFormula} style={{ padding:"5px 10px",fontSize:12,background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.text3,cursor:"pointer" }} title="Delete formula">🗑</button>
               </div>
             </div>
