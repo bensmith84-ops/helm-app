@@ -3062,7 +3062,7 @@ function ProductRoadmap({ programs, allSkus, onSelectProgram, isMobile }) {
   programs.filter(p => p.current_stage === "launched").forEach(p => {
     items.push({ id: "live-" + p.id, type: "live", name: p.name, brand: p.brand, stage: "launched", date: p.target_launch_date || p.created_at?.split("T")[0], color: "#22c55e", program: p });
   });
-  allSkus.forEach(sku => {
+  allSkus.filter(sku => sku.launch_date || sku.status === "active").forEach(sku => {
     const prog = programs.find(p => p.id === sku.program_id);
     items.push({ id: "sku-" + sku.id, type: "sku", name: sku.name || sku.sku_code, brand: prog?.brand, stage: sku.status, date: sku.launch_date || sku.created_at?.split("T")[0], endDate: sku.discontinue_date, color: sku.status === "active" ? "#22c55e" : sku.status === "draft" ? "#8b93a8" : "#eab308", programName: prog?.name, program: prog });
   });
