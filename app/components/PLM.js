@@ -7,6 +7,7 @@ import { useAuth } from "../lib/auth";
 import PLMLibraryView from "./PLMLibrary";
 const PrintBatchRecord = lazy(() => import("./PrintBatchRecord"));
 const PrintFormulaSheet = lazy(() => import("./PrintFormulaSheet"));
+const PrintAIChat = lazy(() => import("./PrintAIChat"));
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -2557,6 +2558,7 @@ function AIAgentTab({ program }) {
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [showShare, setShowShare] = useState(false);
   const [mode, setMode] = useState("advisor");
+  const [printingChat, setPrintingChat] = useState(false);
   const chatRef = useRef(null);
 
   const MODES = [
@@ -2681,6 +2683,12 @@ function AIAgentTab({ program }) {
 
   const activeMode = MODES.find(m => m.key === mode) || MODES[0];
 
+  if (printingChat) return (
+    <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading print view...</div>}>
+      <PrintAIChat conversationId={activeConvId} messages={messages} mode={mode} programName={program?.name} onClose={() => setPrintingChat(false)} />
+    </Suspense>
+  );
+
   return (
     <div style={{ display: "flex", height: "calc(100vh - 260px)", gap: 0 }}>
       {/* Conversation sidebar */}
@@ -2729,12 +2737,20 @@ function AIAgentTab({ program }) {
             {program && <span style={{ fontSize: 11, color: T.text3 }}>· {program.name}</span>}
           </div>
           {activeConvId && (
-            <div style={{ position: "relative" }}>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 6 }}>
+              <button onClick={() => setPrintingChat(true)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                🖨 Export
+              </button>
               <button onClick={() => setShowShare(!showShare)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>
                 Share
               </button>
               {showShare && <ShareDropdown conversationId={activeConvId} onClose={() => setShowShare(false)} />}
             </div>
+          )}
+          {!activeConvId && messages.length > 0 && (
+            <button onClick={() => setPrintingChat(true)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+              🖨 Export
+            </button>
           )}
         </div>
 
