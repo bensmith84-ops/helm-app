@@ -43,6 +43,8 @@ export default function PeopleView() {
   const [showTeamForm, setShowTeamForm] = useState(false);
   const [teamForm, setTeamForm] = useState({ name: "", description: "", color: TEAM_COLORS[0], parent_team_id: null });
   const [selectedTeam, setSelectedTeam] = useState(null);
+  const [orgDragPerson, setOrgDragPerson] = useState(null);
+  const [orgDropTarget, setOrgDropTarget] = useState(null);
   const [teamSearch, setTeamSearch] = useState("");
   const [addingMemberToTeam, setAddingMemberToTeam] = useState(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
@@ -598,9 +600,11 @@ export default function PeopleView() {
           const roots = members.filter(m => !m.reports_to || !members.find(x => x.id === m.reports_to));
           const hasAnyReporting = members.some(m => m.reports_to);
 
-          // Drag state for reassigning supervisor
-          const [dragPerson, setDragPerson] = useState(null);
-          const [dropTarget, setDropTarget] = useState(null);
+          // Use top-level drag state (can't call useState inside IIFE)
+          const dragPerson = orgDragPerson;
+          const setDragPerson = setOrgDragPerson;
+          const dropTarget = orgDropTarget;
+          const setDropTarget = setOrgDropTarget;
 
           const handleDrop = async (targetId) => {
             if (!dragPerson || dragPerson === targetId) { setDragPerson(null); setDropTarget(null); return; }
