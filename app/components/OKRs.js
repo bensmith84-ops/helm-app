@@ -575,16 +575,47 @@ export default function OKRsView() {
       <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
         {(() => {
           const monthPx = 140;
-          const timelineW = Math.max(700, months.length * monthPx);
+          const timelineW = months.length * monthPx;
           const totalW = leftColW + krColW + timelineW;
+
+          // Pixel-based positioning (not percentage — avoids rounding gaps at edges)
+          const dayPx = timelineW / Math.max(1, totalDays);
+          const posBarPx = (sd, ed) => {
+            const s = new Date(sd + "T00:00:00");
+            const e = new Date(ed + "T00:00:00");
+            const left = Math.max(0, (s - startDate) / 86400000 * dayPx);
+            const width = Math.max(dayPx, (e - s) / 86400000 * dayPx);
+            return { left, width: Math.min(width, timelineW - left) };
+          };
+
+          // Month pixel positions
+          const monthPositions = [];
+          let mOffset = 0;
+          months.forEach((m, i) => {
+            const mDays = (m.end - m.start) / 86400000 + 1;
+            const mWidth = i < months.length - 1 ? Math.round(mDays * dayPx) : timelineW - mOffset;
+            monthPositions.push({ ...m, px: mOffset, pxWidth: mWidth });
+            mOffset += mWidth;
+          });
+
+          // Quarter pixel positions
+          const quarterPositions = [];
+          monthPositions.forEach(m => {
+            const qMonth = m.start.getMonth();
+            const qLabel = `Q${Math.floor(qMonth / 3) + 1} '${String(m.start.getFullYear()).slice(2)}`;
+            const last = quarterPositions[quarterPositions.length - 1];
+            if (last && last.label === qLabel) { last.pxWidth += m.pxWidth; }
+            else { quarterPositions.push({ label: qLabel, px: m.px, pxWidth: m.pxWidth }); }
+          });
+
           return (
         <div style={{ minWidth: totalW }}>
           {/* ===== HEADER ROW: Quarter ===== */}
           <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 5, background: T.surface }}>
             <div style={{ width: leftColW + krColW, flexShrink: 0, height: 24, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.surface }} />
             <div style={{ width: timelineW, display: "flex", height: 24, borderBottom: `1px solid ${T.border}` }}>
-              {quarters.map((q, i) => (
-                <div key={i} style={{ width: `${q.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.text2, display: "flex", alignItems: "center", justifyContent: "center" }}>{q.label}</div>
+              {quarterPositions.map((q, i) => (
+                <div key={i} style={{ width: q.pxWidth, flexShrink: 0, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.text2, display: "flex", alignItems: "center", justifyContent: "center" }}>{q.label}</div>
               ))}
             </div>
           </div>
@@ -595,8 +626,8 @@ export default function OKRsView() {
               <div style={{ width: krColW, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", paddingLeft: 12, borderLeft: `1px solid ${T.border}`, position: "relative" }}>Key Results<ResizeHandle col="kr" /></div>
             </div>
             <div style={{ width: timelineW, display: "flex", height: 32, borderBottom: `1px solid ${T.border}` }}>
-              {months.map((m, i) => (
-                <div key={i} style={{ width: `${m.widthPct}%`, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 500, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.label}</div>
+              {monthPositions.map((m, i) => (
+                <div key={i} style={{ width: m.pxWidth, flexShrink: 0, borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: 500, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.label}</div>
               ))}
             </div>
           </div>
@@ -616,7 +647,7 @@ export default function OKRsView() {
                 <div style={{ width: leftColW + krColW, flexShrink: 0, height: 18, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, zIndex: 6, background: T.bg }} />
                 <div style={{ width: timelineW, position: "relative", height: 18, borderBottom: `1px solid ${T.border}` }}>
                   {weeks.map((w, i) => (
-                    <div key={i} style={{ position: "absolute", left: `${w.pct}%`, top: 0, bottom: 0, display: "flex", alignItems: "center" }}>
+                    <div key={i} style={{ position: "absolute", left: w.pct / 100 * timelineW, top: 0, bottom: 0, display: "flex", alignItems: "center" }}>
                       <div style={{ width: 1, height: "100%", background: `${T.text3}30` }} />
                       <span style={{ fontSize: 8, color: T.text3, marginLeft: 3, whiteSpace: "nowrap" }}>{w.label}</span>
                     </div>
@@ -666,8 +697,8 @@ export default function OKRsView() {
                 {/* Timeline cell */}
                 <div style={{ width: timelineW, position: "relative", minHeight: Math.max(1, objKRs.length) * 34 + objMS.length * 30 + 30, display: "flex", flexDirection: "column", justifyContent: "center", padding: "4px 0" }}>
                   {/* Month grid lines */}
-                  {months.map((m, i) => (
-                    <div key={i} style={{ position: "absolute", left: `${m.startPct + m.widthPct}%`, top: 0, bottom: 0, width: 1, background: T.border, zIndex: 0 }} />
+                  {monthPositions.map((m, i) => (
+                    <div key={i} style={{ position: "absolute", left: m.px + m.pxWidth, top: 0, bottom: 0, width: 1, background: T.border, zIndex: 0 }} />
                   ))}
                   {/* Weekly grid lines */}
                   {(() => {
@@ -675,8 +706,8 @@ export default function OKRsView() {
                     const wk = new Date(startDate);
                     wk.setDate(wk.getDate() - wk.getDay() + 1);
                     if (wk < startDate) wk.setDate(wk.getDate() + 7);
-                    while (wk <= endDate) { wlines.push(((wk - startDate) / (endDate - startDate)) * 100); wk.setDate(wk.getDate() + 7); }
-                    return wlines.map((p, i) => <div key={`w${i}`} style={{ position: "absolute", left: `${p}%`, top: 0, bottom: 0, width: 1, background: `${T.text3}15`, zIndex: 0 }} />);
+                    while (wk <= endDate) { wlines.push((wk - startDate) / 86400000 * dayPx); wk.setDate(wk.getDate() + 7); }
+                    return wlines.map((px, i) => <div key={`w${i}`} style={{ position: "absolute", left: px, top: 0, bottom: 0, width: 1, background: `${T.text3}15`, zIndex: 0 }} />);
                   })()}
                   {/* Milestone status bars — grouped by KR */}
                   {(() => {
