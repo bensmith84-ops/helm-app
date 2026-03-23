@@ -365,6 +365,32 @@ export default function PeopleView() {
             {ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
           </select>
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 12, color: T.text3, width: 60 }}>Reports to</span>
+          <select value={selected.reports_to || ""} onChange={async (e) => {
+            const val = e.target.value || null;
+            await supabase.from("profiles").update({ reports_to: val }).eq("id", selected.id);
+            setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: val } : m));
+            setSelected(s => ({ ...s, reports_to: val }));
+          }} style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, cursor: "pointer", outline: "none" }}>
+            <option value="">— No supervisor —</option>
+            {members.filter(m => m.id !== selected.id).map(m => (
+              <option key={m.id} value={m.id}>{m.display_name || m.email || "Unknown"}</option>
+            ))}
+          </select>
+        </div>
+        {selected.reports_to && (() => {
+          const sup = members.find(m => m.id === selected.reports_to);
+          return sup ? (
+            <div onClick={() => setSelected(sup)} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "6px 10px", background: T.surface2, borderRadius: 6, cursor: "pointer" }}>
+              <div style={{ width: 24, height: 24, borderRadius: 12, background: acol(sup.id) + "20", color: acol(sup.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(sup.display_name)}</div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{sup.display_name}</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>Direct Supervisor</div>
+              </div>
+            </div>
+          ) : null;
+        })()}
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           {!isMe && <button onClick={async () => {
             try {
@@ -557,6 +583,7 @@ export default function PeopleView() {
               <button onClick={() => setView("cards")} title="Cards" style={{ padding: "7px 10px", background: viewMode === "cards" ? T.accent : T.surface2, color: viewMode === "cards" ? "#fff" : T.text3, border: "none", cursor: "pointer", display: "flex", alignItems: "center" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
               <button onClick={() => setView("list")} title="List" style={{ padding: "7px 10px", background: viewMode === "list" ? T.accent : T.surface2, color: viewMode === "list" ? "#fff" : T.text3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", borderLeft: `1px solid ${T.border}` }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
               <button onClick={() => setView("teams")} title="Teams" style={{ padding: "7px 10px", background: viewMode === "teams" ? T.accent : T.surface2, color: viewMode === "teams" ? "#fff" : T.text3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", borderLeft: `1px solid ${T.border}` }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></button>
+              <button onClick={() => setView("orgchart")} title="Org Chart" style={{ padding: "7px 10px", background: viewMode === "orgchart" ? T.accent : T.surface2, color: viewMode === "orgchart" ? "#fff" : T.text3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", borderLeft: `1px solid ${T.border}`, borderRadius: "0 8px 8px 0" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="2" width="6" height="4" rx="1"/><rect x="2" y="14" width="6" height="4" rx="1"/><rect x="9" y="14" width="6" height="4" rx="1"/><rect x="16" y="14" width="6" height="4" rx="1"/><path d="M12 6v4M5 14v-2a2 2 0 012-2h10a2 2 0 012 2v2M12 10v4"/></svg></button>
             </div>
             {viewMode !== "teams" && <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: filterRole ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">All roles</option>{ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}</select>}
             {viewMode !== "teams" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search team…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: 140, fontFamily: "inherit" }} /></div>}
@@ -566,8 +593,83 @@ export default function PeopleView() {
         {viewMode === "cards" && <MemberCards />}
         {viewMode === "list" && <MemberList key="members" />}
         {viewMode === "teams" && <TeamsView key="teams" />}
+        {viewMode === "orgchart" && (() => {
+          // Build tree from reports_to relationships
+          const getChildren = (parentId) => members.filter(m => m.reports_to === parentId).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
+          const roots = members.filter(m => !m.reports_to || !members.find(x => x.id === m.reports_to));
+          const directReports = (id) => members.filter(m => m.reports_to === id);
+
+          const OrgNode = ({ person, depth = 0 }) => {
+            const c = acol(person.id);
+            const om = getMembership(person.id);
+            const children = getChildren(person.id);
+            const isSelected = selected?.id === person.id;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                {/* Person card */}
+                <div onClick={() => setSelected(person)} style={{
+                  padding: "12px 16px", borderRadius: 10, background: isSelected ? T.accentDim : T.surface,
+                  border: `1.5px solid ${isSelected ? T.accent : T.border}`, cursor: "pointer", textAlign: "center",
+                  minWidth: 140, maxWidth: 200, boxShadow: depth === 0 ? "0 2px 8px rgba(0,0,0,0.08)" : "0 1px 3px rgba(0,0,0,0.04)",
+                  transition: "all 0.15s"
+                }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 20, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: c, margin: "0 auto 6px" }}>{ini(person.display_name)}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{person.display_name || "Unknown"}</div>
+                  {person.title && <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{person.title}</div>}
+                  {om?.role && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: om.role === "owner" ? "#8B5CF620" : om.role === "admin" ? "#3B82F620" : T.surface2, color: om.role === "owner" ? "#8B5CF6" : om.role === "admin" ? "#3B82F6" : T.text3, fontWeight: 600, marginTop: 4, display: "inline-block" }}>{om.role}</span>}
+                  {children.length > 0 && <div style={{ fontSize: 9, color: T.text3, marginTop: 4 }}>{children.length} direct report{children.length !== 1 ? "s" : ""}</div>}
+                </div>
+                {/* Children */}
+                {children.length > 0 && (
+                  <>
+                    {/* Vertical connector line */}
+                    <div style={{ width: 2, height: 20, background: T.border }} />
+                    {/* Horizontal connector + children */}
+                    {children.length === 1 ? (
+                      <OrgNode person={children[0]} depth={depth + 1} />
+                    ) : (
+                      <div style={{ position: "relative" }}>
+                        {/* Horizontal line spanning all children */}
+                        <div style={{ position: "absolute", top: 0, left: "calc(50% / " + children.length + ")", right: "calc(50% / " + children.length + ")", height: 2, background: T.border }} />
+                        <div style={{ display: "flex", gap: depth < 2 ? 24 : 12, alignItems: "flex-start" }}>
+                          {children.map(child => (
+                            <div key={child.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                              <div style={{ width: 2, height: 16, background: T.border }} />
+                              <OrgNode person={child} depth={depth + 1} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          };
+
+          const hasAnyReporting = members.some(m => m.reports_to);
+
+          return (
+            <div style={{ padding: 20, overflow: "auto" }}>
+              {!hasAnyReporting ? (
+                <div style={{ textAlign: "center", padding: 40 }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>🏢</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>No Reporting Structure Set</div>
+                  <div style={{ fontSize: 12, color: T.text3, maxWidth: 400, margin: "0 auto", lineHeight: 1.5 }}>
+                    Select a team member and set their "Reports to" field in the detail panel to build the org chart. Start with your CEO/leader and work down.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, minWidth: "fit-content" }}>
+                  {roots.map(root => <OrgNode key={root.id} person={root} />)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
-      {viewMode !== "teams" && <DetailPanel key={selected?.id || "none"} />}
+      {viewMode !== "teams" && viewMode !== "orgchart" && <DetailPanel key={selected?.id || "none"} />}
+      {viewMode === "orgchart" && selected && <DetailPanel key={selected?.id || "none"} />}
       {inviteModal}
       {teamFormModal}
     </div>
