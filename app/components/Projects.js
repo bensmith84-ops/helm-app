@@ -49,9 +49,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [addingSubtaskTo, setAddingSubtaskTo] = useState(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [showProjectForm, setShowProjectForm] = useState(false);
-  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: "", start_date: "", target_end_date: "", default_view: "List", plm_program_id: "", members: [] });
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", key_result_id: "", owner_id: "", start_date: "", target_end_date: "", default_view: "List", plm_program_id: "", members: [] });
   const [teams, setTeams] = useState([]);
   const [objectives, setObjectives] = useState([]);
+  const [keyResultsForLink, setKeyResultsForLink] = useState([]);
+
+  // Add key_result_id to project form default
   const [allProfiles, setAllProfiles] = useState([]);
   const [formStep, setFormStep] = useState(1);
   // Filter state with persistence
@@ -166,10 +169,14 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         );
         setProjects(visibleProjects); setSections(sR.data || []); setTasks(tR.data || []);
         setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
+        // Load key results for OKR linking
+        supabase.from("key_results").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
         setFavorites(new Set((favR.data || []).map(f => f.project_id)));
         setProjMembersList(allPmR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
+        // Load key results for linking
+        supabase.from("key_results").select("id,title,objective_id,progress,unit,target_value,current_value").eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
         // Load labels, assignments, custom fields
         const [lblR, lblAR] = await Promise.all([
           supabase.from("task_labels").select("*").order("name"),
@@ -420,8 +427,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       supabase.from("sections").update({ sort_order: newOrderB }).eq("id", b.id),
     ]);
   };
-  const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", owner_id: user?.id || "", start_date: "", target_end_date: "", default_view: "List", plm_program_id: "", members: [] }); setFormStep(1); setShowProjectForm("new"); };
-  const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active", visibility: proj.visibility || "private", join_policy: proj.join_policy || "invite_only", team_id: proj.team_id || "", objective_id: proj.objective_id || "", owner_id: proj.owner_id || "", start_date: proj.start_date || "", target_end_date: proj.target_end_date || "", default_view: proj.default_view || "List", plm_program_id: proj.plm_program_id || "", members: [] }); setFormStep(1); setShowProjectForm("edit"); };
+  const openNewProject = () => { setProjectForm({ name: "", description: "", color: "#3b82f6", status: "active", visibility: "private", join_policy: "invite_only", team_id: "", objective_id: "", key_result_id: "", owner_id: user?.id || "", start_date: "", target_end_date: "", default_view: "List", plm_program_id: "", members: [] }); setFormStep(1); setShowProjectForm("new"); };
+  const openEditProject = () => { if (!proj) return; setProjectForm({ name: proj.name, description: proj.description || "", color: proj.color || "#3b82f6", status: proj.status || "active", visibility: proj.visibility || "private", join_policy: proj.join_policy || "invite_only", team_id: proj.team_id || "", objective_id: proj.objective_id || "", key_result_id: proj.key_result_id || "", owner_id: proj.owner_id || "", start_date: proj.start_date || "", target_end_date: proj.target_end_date || "", default_view: proj.default_view || "List", plm_program_id: proj.plm_program_id || "", members: [] }); setFormStep(1); setShowProjectForm("edit"); };
   const createProjectFromTemplate = async (template) => {
     if (!profile?.org_id) return showToast("No organization found");
     const secs = template.sections || [];
@@ -547,7 +554,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     showToast(`"${srcProject.name}" saved as template`, "success");
   };
 
-  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
+  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, key_result_id: projectForm.key_result_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
   const addCommentFromRef = async (text) => { if (!text || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: text }).select().single(); if (!error && data) setComments(p => [...p, data]); };
   const editComment = async (id, newContent) => {
     if (!newContent?.trim()) return;
@@ -927,6 +934,15 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
             ⚠ {projOverdue.length} overdue
           </span>
         )}
+        {proj.objective_id && (() => {
+          const obj = objectives.find(o => o.id === proj.objective_id);
+          const kr = proj.key_result_id ? keyResultsForLink.find(k => k.id === proj.key_result_id) : null;
+          return obj ? (
+            <span style={{ ...S.pill, background: T.accentDim, color: T.accent, fontSize: 10, fontWeight: 600, gap: 3, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Objective: ${obj.title}${kr ? "\nKR: " + kr.title : ""}`}>
+              ◎ {kr ? kr.title : obj.title}
+            </span>
+          ) : null;
+        })()}
         {/* Progress ring */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <div style={{ position: "relative", width: 32, height: 32 }}>
@@ -1671,11 +1687,22 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               {/* Link to OKR KR */}
               {objectives.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Linked OKR</label>
-                  <SearchableMultiSelect multi={false} placeholder="No linked KR"
+                  <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Linked Objective</label>
+                  <SearchableMultiSelect multi={false} placeholder="No linked objective"
                     options={objectives.map(o => ({ value: o.id, label: o.title, icon: "◎" }))}
-                    selected={task.linked_kr_id || ""} onChange={val => updateField(task.id, "linked_kr_id", val || null)} />
-                  {task.linked_kr_id && <div style={{ fontSize: 10, color: T.accent, marginTop: 4 }}>✓ Contributes to OKR progress</div>}
+                    selected={task.objective_id || ""} onChange={val => { updateField(task.id, "objective_id", val || null); if (!val) updateField(task.id, "key_result_id", null); }} />
+                  {task.objective_id && (() => {
+                    const filteredKRs = keyResultsForLink.filter(kr => kr.objective_id === task.objective_id);
+                    return filteredKRs.length > 0 ? (
+                      <div style={{ marginTop: 8 }}>
+                        <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 4 }}>Linked Key Result</label>
+                        <SearchableMultiSelect multi={false} placeholder="All KRs (optional)"
+                          options={filteredKRs.map(kr => ({ value: kr.id, label: kr.title, sublabel: `${Math.round(kr.progress || 0)}%`, icon: "◉" }))}
+                          selected={task.key_result_id || ""} onChange={val => updateField(task.id, "key_result_id", val || null)} />
+                      </div>
+                    ) : null;
+                  })()}
+                  {(task.objective_id || task.key_result_id) && <div style={{ fontSize: 10, color: T.accent, marginTop: 4 }}>✓ Contributes to OKR progress</div>}
                 </div>
               )}
 
@@ -2027,7 +2054,13 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               <div><label style={lbl}>Default View</label><SearchableMultiSelect multi={false} placeholder="View" options={[{value:"List",label:"List"},{value:"Board",label:"Board"},{value:"Timeline",label:"Timeline"},{value:"Calendar",label:"Calendar"}]} selected={f.default_view||"List"} onChange={val => set("default_view", val)} /></div>
             </div>
             <div style={{ marginBottom: 12 }}><label style={lbl}>Color</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{colors.map(c => <div key={c} onClick={() => set("color", c)} style={{ width: 28, height: 28, borderRadius: 14, background: c, cursor: "pointer", border: f.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: f.color === c ? `0 0 0 2px ${c}` : "none", transition: "all 0.15s" }} />)}</div></div>
-            <div style={{ marginBottom: 12 }}><label style={lbl}>Link to Goal / OKR</label><SearchableMultiSelect multi={false} placeholder="None" options={objectives.map(o => ({ value: o.id, label: o.title, icon: "◎" }))} selected={f.objective_id||""} onChange={val => set("objective_id", val)} />{f.objective_id && <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: T.accentDim, fontSize: 11, color: T.accent }}>Linked to: {objectives.find(o => o.id === f.objective_id)?.title}</div>}</div>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Link to Objective</label><SearchableMultiSelect multi={false} placeholder="None" options={objectives.map(o => ({ value: o.id, label: o.title, icon: "◎" }))} selected={f.objective_id||""} onChange={val => { set("objective_id", val); if (!val) set("key_result_id", ""); }} />{f.objective_id && <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: T.accentDim, fontSize: 11, color: T.accent }}>◎ {objectives.find(o => o.id === f.objective_id)?.title}</div>}</div>
+            {f.objective_id && (() => {
+              const filteredKRs = keyResultsForLink.filter(kr => kr.objective_id === f.objective_id);
+              return filteredKRs.length > 0 ? (
+                <div style={{ marginBottom: 12 }}><label style={lbl}>Link to Key Result</label><SearchableMultiSelect multi={false} placeholder="All KRs (optional)" options={filteredKRs.map(kr => ({ value: kr.id, label: kr.title, sublabel: `${Math.round(kr.progress || 0)}% · ${kr.current_value || 0}/${kr.target_value || 100}${kr.unit ? " " + kr.unit : ""}`, icon: "◉" }))} selected={f.key_result_id||""} onChange={val => set("key_result_id", val)} />{f.key_result_id && <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: "#22c55e20", fontSize: 11, color: "#22c55e" }}>◉ {keyResultsForLink.find(k => k.id === f.key_result_id)?.title}</div>}</div>
+              ) : null;
+            })()}
           </>}
           {formStep === 2 && <>
             {/* Visibility */}
