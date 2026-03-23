@@ -228,13 +228,9 @@ export default function PrintFormulaSheet({ formulationId, onClose }) {
         </div>
       </div>
 
-      {/* Print styles */}
+      {/* Print styles — global CSS in page.js handles visibility */}
       <style>{`
         @media print {
-          .no-print { display: none !important; }
-          .print-root { position: static !important; overflow: visible !important; height: auto !important; }
-          body { margin: 0; padding: 0; overflow: visible !important; }
-          html { overflow: visible !important; }
           @page { margin: 0.6in 0.5in; size: letter; }
         }
       `}</style>

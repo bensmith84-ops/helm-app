@@ -327,6 +327,13 @@ export default function HelmApp() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${T.border2}; border-radius: 3px; }
         button:hover { opacity: 0.85; }
+        @media print {
+          html, body, #__next, #__next > * { height: auto !important; overflow: visible !important; background: #fff !important; display: block !important; }
+          * { visibility: hidden !important; overflow: visible !important; }
+          .print-root, .print-root * { visibility: visible !important; }
+          .print-root { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; z-index: 99999 !important; background: #fff !important; }
+          .print-root .no-print { display: none !important; }
+        }
       `}</style>
       <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", background: T.bg }}>
         {/* Mobile sidebar backdrop */}
