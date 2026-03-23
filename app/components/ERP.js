@@ -464,7 +464,7 @@ function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrder
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRODUCTS VIEW — SKU master, variants, BOMs
 // ═══════════════════════════════════════════════════════════════════════════════
-function ProductsView({ navigateTo, inventory, products, setProducts, variants, setVariants, boms, setBoms, bomItems, setBomItems, isMobile }) {
+function ProductsView({ navigateTo, inventory, facilities, products, setProducts, variants, setVariants, boms, setBoms, bomItems, setBomItems, isMobile }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selected, setSelected] = useState(null);
