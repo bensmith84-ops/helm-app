@@ -1,9 +1,11 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 import { useResponsive } from "../lib/responsive";
+
+const FinanceEmbed = lazy(() => import("./Finance"));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ERP MODULE — Products, Suppliers, POs, Inventory, Orders, Customers, Mfg, Facilities
@@ -110,6 +112,9 @@ const ERP_NAV = [
   { type: "header", label: "Finance" },
   { id: "ap_ar", label: "AP / AR", icon: "💰" },
   { id: "gl", label: "General Ledger", icon: "📒" },
+  { id: "vendor_spend", label: "Vendor Spend", icon: "📑" },
+  { id: "approvals", label: "Approvals", icon: "✅" },
+  { id: "budgets", label: "Budgets", icon: "💵" },
   { id: "entities", label: "Entities", icon: "🌐" },
   { id: "facilities", label: "Facilities", icon: "🏢" },
   { id: "reports", label: "Reports", icon: "📈" },
@@ -310,6 +315,12 @@ export default function ERPView() {
           {view === "shipping" && <ShippingView shippingRules={shippingRules} setShippingRules={setShippingRules} carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
+          {/* Finance module views (embedded from Finance.js) */}
+          {(view === "vendor_spend" || view === "approvals" || view === "budgets") && (
+            <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>Loading Finance…</div>}>
+              <FinanceEmbed initialView={view === "approvals" ? "dashboard" : view} embedded={true} />
+            </Suspense>
+          )}
         </div>
       </div>
     </div>

@@ -158,7 +158,7 @@ export default function HelmApp() {
     if (params.get("qbo_connected")) {
       const co = params.get("company");
       setGlobalToast({ msg: `QuickBooks${co ? ` (${decodeURIComponent(co)})` : ""} connected successfully ✓`, color: "#22c55e" });
-      setActive("finance");
+      setActive("erp");
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("qbo_disconnected")) {
       setGlobalToast({ msg: "QuickBooks disconnected", color: "#8b93a8" });

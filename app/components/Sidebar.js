@@ -20,7 +20,6 @@ const NAV_GROUPS = [
     { key: "plm", icon: "⬢", label: "PLM" },
     { key: "erp", icon: "◧", label: "ERP" },
     { key: "wms", icon: "◨", label: "WMS" },
-    { key: "finance", icon: "◆", label: "Finance" },
     { key: "scoreboard", icon: "▩", label: "Scoreboard" },
   ]},
   { label: "System", items: [

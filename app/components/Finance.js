@@ -117,10 +117,10 @@ const ApprovalChain = ({ req, members }) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function FinanceView() {
+export default function FinanceView({ initialView, embedded } = {}) {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
-  const [view, setView] = useState("dashboard");
+  const [view, setView] = useState(initialView || "dashboard");
   const [loading, setLoading] = useState(true);
 
   // Core data
@@ -169,6 +169,9 @@ export default function FinanceView() {
     };
     if (user) load();
   }, [user]);
+
+  // Sync view when embedded parent changes the initial view
+  useEffect(() => { if (initialView && initialView !== view) setView(initialView); }, [initialView]);
 
   // ── CRUD helpers ───────────────────────────────────────────────────────────
   const addRequest = async (req) => {
@@ -227,8 +230,8 @@ export default function FinanceView() {
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Left nav — desktop only */}
-      {!isMobile && (
+      {/* Left nav — desktop only, hidden when embedded in ERP */}
+      {!embedded && !isMobile && (
         <div style={{ width: 180, borderRight: `1px solid ${T.border}`, padding: "12px 8px", flexShrink: 0, overflow: "auto" }}>
           {NAV.map(n => (
             <button key={n.id} onClick={() => setView(n.id)}
@@ -242,8 +245,8 @@ export default function FinanceView() {
 
       {/* Content column */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* Mobile tab bar */}
-        {isMobile && (
+        {/* Mobile tab bar — hidden when embedded */}
+        {!embedded && isMobile && (
           <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0, background: T.bg, WebkitOverflowScrolling: "touch" }}>
             {NAV.map(n => (
               <button key={n.id} onClick={() => setView(n.id)}
