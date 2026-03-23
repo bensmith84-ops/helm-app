@@ -7,6 +7,7 @@ const NAV_GROUPS = [
     { key: "dashboard", icon: "⬡", label: "Home" },
     { key: "okrs", icon: "◎", label: "OKRs" },
     { key: "projects", icon: "◫", label: "Projects" },
+    { key: "launches", icon: "🚀", label: "Launches" },
     { key: "scorecard", icon: "▣", label: "Scorecard" },
     { key: "docs", icon: "▤", label: "Docs" },
   ]},
