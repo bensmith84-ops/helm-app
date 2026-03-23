@@ -3047,6 +3047,235 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
 }
 
 
+// ─── PRODUCT ROADMAP ──────────────────────────────────────────────────────────
+
+function ProductRoadmap({ programs, allSkus, onSelectProgram, isMobile }) {
+  const today = new Date();
+  const todayStr = today.toISOString().split("T")[0];
+
+  // Build timeline items: programs with launch dates + live SKUs
+  const items = [];
+
+  // Programs in pipeline (not launched) with launch dates
+  programs.filter(p => p.target_launch_date && p.current_stage !== "launched").forEach(p => {
+    items.push({
+      id: "prog-" + p.id,
+      type: "program",
+      name: p.name,
+      brand: p.brand,
+      stage: p.current_stage,
+      priority: p.priority,
+      date: p.target_launch_date,
+      endDate: null,
+      color: STAGE_MAP[p.current_stage]?.color || "#6366f1",
+      program: p,
+    });
+  });
+
+  // Launched programs (live products)
+  programs.filter(p => p.current_stage === "launched").forEach(p => {
+    items.push({
+      id: "live-" + p.id,
+      type: "live",
+      name: p.name,
+      brand: p.brand,
+      stage: "launched",
+      priority: p.priority,
+      date: p.target_launch_date || p.created_at?.split("T")[0],
+      endDate: null,
+      color: "#22c55e",
+      program: p,
+    });
+  });
+
+  // SKUs with launch dates
+  allSkus.forEach(sku => {
+    const prog = programs.find(p => p.id === sku.program_id);
+    items.push({
+      id: "sku-" + sku.id,
+      type: "sku",
+      name: sku.name || sku.sku_code,
+      brand: prog?.brand,
+      stage: sku.status,
+      priority: null,
+      date: sku.launch_date || sku.created_at?.split("T")[0],
+      endDate: sku.discontinue_date,
+      color: sku.status === "active" ? "#22c55e" : sku.status === "draft" ? "#8b93a8" : "#eab308",
+      programName: prog?.name,
+      sku,
+    });
+  });
+
+  // Sort by date
+  items.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  // Calculate timeline range — 3 months before today to 18 months out, or to fit all items
+  const allDates = items.map(i => i.date).filter(Boolean);
+  const minDate = new Date(Math.min(
+    today.getTime() - 90 * 86400000,
+    ...allDates.map(d => new Date(d).getTime())
+  ));
+  const maxDate = new Date(Math.max(
+    today.getTime() + 540 * 86400000,
+    ...allDates.map(d => new Date(d).getTime() + 30 * 86400000)
+  ));
+
+  // Generate months for the header
+  const months = [];
+  const cursor = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+  while (cursor <= maxDate) {
+    months.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  const totalDays = Math.max(1, (maxDate - minDate) / 86400000);
+  const pxPerDay = isMobile ? 3 : 4;
+  const timelineW = totalDays * pxPerDay;
+
+  const getX = (dateStr) => {
+    if (!dateStr) return 0;
+    const d = new Date(dateStr);
+    return Math.max(0, ((d - minDate) / 86400000) * pxPerDay);
+  };
+
+  const todayX = getX(todayStr);
+
+  // Group items
+  const liveItems = items.filter(i => i.type === "live" || (i.type === "sku" && i.stage === "active"));
+  const pipelineItems = items.filter(i => i.type === "program");
+  const skuItems = items.filter(i => i.type === "sku" && i.stage !== "active");
+
+  const ROW_H = 36;
+  const LABEL_W = isMobile ? 140 : 220;
+
+  const renderRow = (item, idx) => {
+    const x = getX(item.date);
+    const endX = item.endDate ? getX(item.endDate) : null;
+    const barW = endX ? Math.max(endX - x, 8) : (item.type === "live" ? Math.max(todayX - x, 8) : 8);
+
+    return (
+      <div key={item.id} style={{ display: "flex", height: ROW_H, alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+        {/* Label */}
+        <div style={{ width: LABEL_W, flexShrink: 0, padding: "0 12px", display: "flex", alignItems: "center", gap: 6, overflow: "hidden", borderRight: `1px solid ${T.border}` }}
+          onClick={() => item.program && onSelectProgram(item.program)}
+          onMouseEnter={e => { if (item.program) e.currentTarget.style.color = T.accent; }}
+          onMouseLeave={e => e.currentTarget.style.color = T.text}
+          style2={{ cursor: item.program ? "pointer" : "default" }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 11, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: item.program ? "pointer" : "default" }}
+            onClick={() => item.program && onSelectProgram(item.program)}
+            onMouseEnter={e => { if (item.program) e.currentTarget.style.color = T.accent; }}
+            onMouseLeave={e => e.currentTarget.style.color = T.text}>
+            {item.name}
+          </span>
+          {item.type === "sku" && <span style={{ fontSize: 9, color: T.text3, background: T.surface2, padding: "1px 4px", borderRadius: 3, flexShrink: 0 }}>SKU</span>}
+        </div>
+        {/* Timeline bar */}
+        <div style={{ flex: 1, position: "relative", height: "100%", overflow: "hidden" }}>
+          <div style={{ position: "absolute", left: 0, top: 0, width: timelineW, height: "100%", minWidth: "100%" }}>
+            {/* Bar */}
+            {item.type === "live" ? (
+              // Live product: bar from launch to today with green gradient
+              <div style={{ position: "absolute", left: x, top: 10, height: 16, width: barW, borderRadius: 3, background: `linear-gradient(90deg, ${item.color}60, ${item.color})`, border: `1px solid ${item.color}80` }}
+                title={`${item.name} — Launched ${item.date}`} />
+            ) : item.type === "program" ? (
+              // Pipeline program: diamond marker at launch date
+              <>
+                <div style={{ position: "absolute", left: x - 8, top: 10, width: 16, height: 16, transform: "rotate(45deg)", borderRadius: 2, background: item.color + "30", border: `2px solid ${item.color}` }}
+                  title={`${item.name} — Target launch: ${item.date} (${STAGE_MAP[item.stage]?.label || item.stage})`} />
+                {/* Label on bar */}
+                <div style={{ position: "absolute", left: x + 14, top: 10, fontSize: 10, color: item.color, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {item.date} · <StageBadge stage={item.stage} />
+                </div>
+              </>
+            ) : (
+              // SKU: small circle marker
+              <div style={{ position: "absolute", left: x - 5, top: 13, width: 10, height: 10, borderRadius: 5, background: item.color, border: `2px solid ${T.surface}` }}
+                title={`SKU: ${item.name} — ${item.date || "No date"}`} />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSection = (title, sectionItems, icon) => {
+    if (sectionItems.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "0 12px" }}>
+          <span style={{ fontSize: 13 }}>{icon}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: 0.5 }}>{title}</span>
+          <span style={{ fontSize: 11, color: T.text3, background: T.surface2, padding: "1px 6px", borderRadius: 4 }}>{sectionItems.length}</span>
+        </div>
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+          {sectionItems.map((item, i) => renderRow(item, i))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Product Roadmap</span>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ width: 20, height: 8, borderRadius: 2, background: "linear-gradient(90deg, #22c55e60, #22c55e)" }} />
+            <span style={{ fontSize: 10, color: T.text3 }}>Live Product</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ width: 10, height: 10, transform: "rotate(45deg)", borderRadius: 1, background: "#6366f130", border: "2px solid #6366f1" }} />
+            <span style={{ fontSize: 10, color: T.text3 }}>Pipeline Launch</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 4, background: "#8b93a8" }} />
+            <span style={{ fontSize: 10, color: T.text3 }}>SKU</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Timeline header + grid */}
+      <div style={{ overflowX: "auto", position: "relative" }}>
+        {/* Month headers */}
+        <div style={{ display: "flex", marginLeft: LABEL_W, borderBottom: `2px solid ${T.border}`, position: "sticky", top: 0, background: T.surface, zIndex: 2 }}>
+          <div style={{ display: "flex", width: timelineW, minWidth: "100%" }}>
+            {months.map((m, i) => {
+              const mStart = getX(m.toISOString().split("T")[0]);
+              const nextM = new Date(m.getFullYear(), m.getMonth() + 1, 1);
+              const mEnd = getX(nextM.toISOString().split("T")[0]);
+              const mW = Math.max(mEnd - mStart, 30);
+              const isCurrentMonth = m.getMonth() === today.getMonth() && m.getFullYear() === today.getFullYear();
+              return (
+                <div key={i} style={{ width: mW, flexShrink: 0, padding: "6px 8px", borderRight: `1px solid ${T.border}`, fontSize: 10, fontWeight: isCurrentMonth ? 700 : 500, color: isCurrentMonth ? T.accent : T.text3 }}>
+                  {m.toLocaleDateString("en-US", { month: "short", year: m.getMonth() === 0 ? "2-digit" : undefined })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Today marker line */}
+        <div style={{ position: "absolute", left: LABEL_W + todayX, top: 0, bottom: 0, width: 2, background: T.accent + "60", zIndex: 1, pointerEvents: "none" }}>
+          <div style={{ position: "absolute", top: 0, left: -12, fontSize: 9, fontWeight: 700, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3 }}>Today</div>
+        </div>
+
+        {/* Sections */}
+        <div style={{ marginTop: 4 }}>
+          {renderSection("Live Products", liveItems, "🟢")}
+          {renderSection("Pipeline — Upcoming Launches", pipelineItems, "🔷")}
+          {renderSection("SKUs", skuItems, "📦")}
+        </div>
+
+        {items.length === 0 && (
+          <EmptyState icon="📅" text="No products with launch dates yet. Add target launch dates to your programs to see them here." />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN PLM VIEW ────────────────────────────────────────────────────────────
 
 export default function PLMView() {
@@ -3058,6 +3287,7 @@ export default function PLMView() {
   const [showNew, setShowNew]   = useState(false);
   const [search, setSearch]     = useState("");
   const [orgId, setOrgId]       = useState(null);
+  const [allSkus, setAllSkus]   = useState([]);
 
   useEffect(()=>{
     const load=async()=>{
@@ -3075,6 +3305,8 @@ export default function PLMView() {
       }
       const{data}=await supabase.from("plm_programs").select("*").is("deleted_at",null).order("created_at",{ascending:false});
       setPrograms(data||[]); setLoading(false);
+      // Load all SKUs for roadmap view
+      supabase.from("plm_skus").select("*").order("launch_date").then(({ data: skuData }) => setAllSkus(skuData || []));
     };
     load();
   },[]);
@@ -3096,7 +3328,7 @@ export default function PLMView() {
         <div style={{ fontSize:18,fontWeight:700,color:T.text,flex:1 }}>Product Lifecycle</div>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search programs…" style={{ fontSize:12,padding:"6px 12px",background:T.surface2,border:"1px solid "+T.border,borderRadius:7,color:T.text,width:200,outline:"none" }} />
         <div style={{ display:"flex",background:T.surface2,border:"1px solid "+T.border,borderRadius:6,overflow:"hidden" }}>
-          {[["pipeline","⬢ Pipeline"],["list","☰ List"],["library","🧪 Library"],["ai","🤖 AI Agent"]].map(([k,label])=>(
+          {[["pipeline","⬢ Pipeline"],["roadmap","📅 Roadmap"],["list","☰ List"],["library","🧪 Library"],["ai","🤖 AI Agent"]].map(([k,label])=>(
             <button key={k} onClick={()=>setView(k)} style={{ padding:"5px 12px",fontSize:12,fontWeight:600,background:view===k?T.accent:"transparent",color:view===k?"#fff":T.text3,border:"none",cursor:"pointer" }}>{label}</button>
           ))}
         </div>
@@ -3119,6 +3351,10 @@ export default function PLMView() {
       ) : view==="library" ? (
         <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
           <PLMLibraryView />
+        </div>
+      ) : view==="roadmap" ? (
+        <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
+          <ProductRoadmap programs={programs} allSkus={allSkus} onSelectProgram={setSelected} isMobile={isMobile} />
         </div>
       ) : (
         <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
