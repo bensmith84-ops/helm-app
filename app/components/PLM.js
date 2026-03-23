@@ -2958,13 +2958,14 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
     const DATES=["target_launch_date","actual_launch_date"];
     const raw={...form,org_id:orgId};
     const payload=Object.fromEntries(Object.entries(raw).map(([k,v])=>{
-      if(NUMERIC.includes(k)) return [k, v!==""&&v!==null?parseFloat(v):null];
-      if(ARRAYS.includes(k)) return [k, Array.isArray(v)?v:[]];
-      if(DATES.includes(k)) return [k, v&&v!==""?v:null];
-      return [k,v===""?null:v];
+      if(NUMERIC.includes(k)) { const n = parseFloat(v); return [k, !isNaN(n) ? n : null]; }
+      if(ARRAYS.includes(k)) return [k, Array.isArray(v) ? v : []];
+      if(DATES.includes(k)) return [k, v && String(v).trim() !== "" ? v : null];
+      return [k, v === "" || v === undefined ? null : v];
     }));
     if(!payload.org_id){ setSaving(false); alert("Unable to determine your organization. Please refresh and try again."); return; }
-    const{data}=await supabase.from("plm_programs").insert(payload).select().single();
+    const{data,error}=await supabase.from("plm_programs").insert(payload).select().single();
+    if(error){ console.error("Program create error:", error, "Payload:", JSON.stringify(payload)); setSaving(false); alert("Failed to create program: " + (error.message || error.details || "Unknown error")); return; }
     if(data)onCreated(data); setSaving(false);
   };
 
