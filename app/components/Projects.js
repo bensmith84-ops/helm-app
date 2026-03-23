@@ -169,14 +169,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         );
         setProjects(visibleProjects); setSections(sR.data || []); setTasks(tR.data || []);
         setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
-        // Load key results for OKR linking
-        supabase.from("key_results").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
+        // Load key results for linking
+        supabase.from("key_results").select("id,title,objective_id,progress,unit,target_value,current_value").eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
         setFavorites(new Set((favR.data || []).map(f => f.project_id)));
         setProjMembersList(allPmR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
-        // Load key results for linking
-        supabase.from("key_results").select("id,title,objective_id,progress,unit,target_value,current_value").eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
         // Load labels, assignments, custom fields
         const [lblR, lblAR] = await Promise.all([
           supabase.from("task_labels").select("*").order("name"),
@@ -811,6 +809,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: pHealth, display: "inline-block" }} />
                 {pt.length} tasks · {pp}%
                 {pOverdue > 0 && <span style={{ color: "#ef4444" }}>· {pOverdue} late</span>}
+                {p.objective_id && <span style={{ color: T.accent }} title={objectives.find(o => o.id === p.objective_id)?.title || "Linked OKR"}>· ◎</span>}
               </div>
             </div>
             <div style={{ width: 28, height: 3, borderRadius: 2, background: T.surface3, flexShrink: 0 }}><div style={{ width: `${pp}%`, height: "100%", borderRadius: 2, background: p.color || T.accent, transition: "width 0.4s" }} /></div>
@@ -846,6 +845,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: pHealth, display: "inline-block" }} />
                 {pt.length} tasks · {pp}%
                 {pOverdue > 0 && <span style={{ color: "#ef4444" }}>· {pOverdue} late</span>}
+                {p.objective_id && <span style={{ color: T.accent }} title={objectives.find(o => o.id === p.objective_id)?.title || "Linked OKR"}>· ◎</span>}
               </div>
             </div>
             <div style={{ width: 28, height: 3, borderRadius: 2, background: T.surface3, flexShrink: 0 }}><div style={{ width: `${pp}%`, height: "100%", borderRadius: 2, background: p.color || T.accent, transition: "width 0.4s" }} /></div>
@@ -2684,6 +2684,53 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                     <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Default View</div>
                     <div style={{ fontSize: 13, color: T.text }}>{proj.default_view || "List"}</div>
                   </div>
+
+                  {/* Linked OKR */}
+                  {proj.objective_id && (() => {
+                    const obj = objectives.find(o => o.id === proj.objective_id);
+                    const kr = proj.key_result_id ? keyResultsForLink.find(k => k.id === proj.key_result_id) : null;
+                    if (!obj) return null;
+                    const krsForObj = keyResultsForLink.filter(k => k.objective_id === obj.id);
+                    return (
+                      <div style={{ padding: "16px 18px", borderRadius: 10, background: T.accentDim, border: `1px solid ${T.accent}30`, marginBottom: 20 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Linked OKR</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: kr ? 10 : 0 }}>
+                          <span style={{ fontSize: 16 }}>◎</span>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>{obj.title}</div>
+                            {obj.time_frame && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{obj.time_frame}</div>}
+                          </div>
+                        </div>
+                        {kr && (
+                          <div style={{ marginLeft: 24, padding: "8px 12px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 12 }}>◉</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{kr.title}</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                              <div style={{ flex: 1, maxWidth: 160, height: 4, borderRadius: 2, background: T.surface3 }}>
+                                <div style={{ width: `${Math.min(100, Math.round(kr.progress || 0))}%`, height: "100%", borderRadius: 2, background: T.accent }} />
+                              </div>
+                              <span style={{ fontSize: 11, color: T.text3, fontWeight: 600 }}>{Math.round(kr.progress || 0)}%</span>
+                              <span style={{ fontSize: 10, color: T.text3 }}>{kr.current_value || 0}/{kr.target_value || 100}{kr.unit ? " " + kr.unit : ""}</span>
+                            </div>
+                          </div>
+                        )}
+                        {!kr && krsForObj.length > 0 && (
+                          <div style={{ marginLeft: 24, marginTop: 6 }}>
+                            {krsForObj.slice(0, 4).map(k => (
+                              <div key={k.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 11, color: T.text2 }}>
+                                <span style={{ width: 4, height: 4, borderRadius: 2, background: T.text3, flexShrink: 0 }} />
+                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.title}</span>
+                                <span style={{ color: T.text3, flexShrink: 0 }}>{Math.round(k.progress || 0)}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <button onClick={openEditProject} style={{ marginTop: 10, fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: 0, fontWeight: 600 }}>Change linked OKR →</button>
+                      </div>
+                    );
+                  })()}
 
                   {/* Overdue warning */}
                   {projOverdue.length > 0 && (
