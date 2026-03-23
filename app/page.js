@@ -309,6 +309,12 @@ export default function HelmApp() {
       case "activity": return <ActivityView setActive={setActive} />;
       case "settings": return <SettingsView isAdmin={isAdmin} />;
       case "ai-builder": return <AIBuilderView />;
+      case "adolfas": return (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 120 }}>😊</div>
+          <div style={{ fontSize: 32, fontWeight: 800, color: T.text }}>Adolfas is Cool</div>
+        </div>
+      );
       default: return <DashboardView setActive={setActive} />;
     }
   };
