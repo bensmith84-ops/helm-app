@@ -2845,7 +2845,7 @@ const DETAIL_TABS = [
   { key:"gate_reviews",  label:"Gate Reviews"   },
 ];
 
-function ProgramDetail({ program, onBack, onUpdate }) {
+function ProgramDetail({ program, onBack, onUpdate, onDelete }) {
   const [tab, setTab] = useState("overview");
   const [counts, setCounts] = useState({});
 
@@ -2895,6 +2895,10 @@ function ProgramDetail({ program, onBack, onUpdate }) {
           </div>
           {program.code&&<div style={{ fontSize:11,color:T.text3,marginTop:2 }}>{program.code}</div>}
         </div>
+        {onDelete && <button onClick={()=>{if(confirm(`Delete "${program.name}"? This will soft-delete the program and all its data. This cannot be undone from the UI.`))onDelete();}} style={{ background:"none",border:"1px solid #ef444440",color:"#ef4444",cursor:"pointer",borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4 }} onMouseEnter={e=>{e.currentTarget.style.background="#ef444415";}} onMouseLeave={e=>{e.currentTarget.style.background="none";}}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+          Delete
+        </button>}
       </div>
       <div style={{ display:"flex",gap:0,borderBottom:"1px solid "+T.border,paddingLeft:24,flexShrink:0,overflowX:"auto" }}>
         {DETAIL_TABS.map(t=>(
@@ -3060,7 +3064,7 @@ export default function PLMView() {
     if(selected?.id===id)setSelected(null);
   };
 
-  if(selected)return <ProgramDetail program={selected} onBack={()=>setSelected(null)} onUpdate={handleUpdate} />;
+  if(selected)return <ProgramDetail program={selected} onBack={()=>setSelected(null)} onUpdate={handleUpdate} onDelete={()=>deleteProgram(selected.id)} />;
 
   return (
     <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
