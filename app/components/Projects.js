@@ -1511,11 +1511,28 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       </div>
     );
   })();
-  // DetailPane uses hooks — must be inline component (useRef pattern causes stale closures)
-  const DetailPane = () => {
-    const [activeDetailTab, setActiveDetailTab] = useState("details");
-    const [activity, setActivity] = useState([]);
-    const [activityLoading, setActivityLoading] = useState(false);
+  // DetailPane state lifted to parent to prevent unmount/remount flicker
+  const [activeDetailTab, setActiveDetailTab] = useState("details");
+  const [activity, setActivity] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const detailPaneRef = useRef(null);
+  const prevSelectedTaskId = useRef(null);
+  // Reset tab & activity when switching tasks
+  useEffect(() => {
+    if (selectedTask && selectedTask.id !== prevSelectedTaskId.current) {
+      prevSelectedTaskId.current = selectedTask.id;
+      setActiveDetailTab("details");
+      setActivity([]);
+      // Trigger slide animation
+      if (detailPaneRef.current) {
+        detailPaneRef.current.style.animation = "none";
+        detailPaneRef.current.offsetHeight;
+        detailPaneRef.current.style.animation = "slideIn 0.2s ease";
+      }
+    }
+    if (!selectedTask) prevSelectedTaskId.current = null;
+  }, [selectedTask?.id]);
+  const detailPane = (() => {
     if (!selectedTask) return null;
     const task = selectedTask;
     const subs = getSubtasks(task.id);
@@ -1551,7 +1568,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const FIELD_LABEL = { fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 };
 
     return (
-      <div style={{ width: isMobile ? "100%" : 420, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideIn 0.2s ease", ...(isMobile ? { position: "fixed", inset: 0, zIndex: 100 } : {}) }}>
+      <div ref={detailPaneRef} style={{ width: isMobile ? "100%" : 420, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden", ...(isMobile ? { position: "fixed", inset: 0, zIndex: 100 } : {}) }}>
         {/* Header */}
         <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
@@ -2025,7 +2042,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         </div>
       </div>
     );
-  };
+  })();
     const projectFormModalEl = (() => { if (!showProjectForm) return null; const isNew = showProjectForm === "new"; const colors = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"]; const f = projectForm; const set = (k, v) => setProjectForm(p => ({ ...p, [k]: v })); const toggleMember = (uid) => set("members", f.members.includes(uid) ? f.members.filter(id => id !== uid) : [...f.members, uid]); const lbl = { fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }; const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }; const sel = { ...inp, cursor: "pointer" }; const stepNames = ["Details", "Access & Privacy", "People"]; return (
     <div onClick={() => setShowProjectForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -2606,7 +2623,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         {showMyTasks ? (
           <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
             {myTasksViewEl}
-            <DetailPane key={selectedTask?.id || "none"} />
+            {detailPane}
           </div>
         ) : proj ? (<>
           {projectHeaderEl}
@@ -3027,7 +3044,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 </div>
               )}
             </div>
-            <DetailPane key={selectedTask?.id || "none"} />
+            {detailPane}
           </div>
         </>) : (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.text3 }}>
