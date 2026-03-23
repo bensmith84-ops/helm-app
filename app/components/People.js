@@ -594,74 +594,150 @@ export default function PeopleView() {
         {viewMode === "list" && <MemberList key="members" />}
         {viewMode === "teams" && <TeamsView key="teams" />}
         {viewMode === "orgchart" && (() => {
-          // Build tree from reports_to relationships
           const getChildren = (parentId) => members.filter(m => m.reports_to === parentId).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
           const roots = members.filter(m => !m.reports_to || !members.find(x => x.id === m.reports_to));
-          const directReports = (id) => members.filter(m => m.reports_to === id);
+          const hasAnyReporting = members.some(m => m.reports_to);
 
-          const OrgNode = ({ person, depth = 0 }) => {
+          // Drag state for reassigning supervisor
+          const [dragPerson, setDragPerson] = useState(null);
+          const [dropTarget, setDropTarget] = useState(null);
+
+          const handleDrop = async (targetId) => {
+            if (!dragPerson || dragPerson === targetId) { setDragPerson(null); setDropTarget(null); return; }
+            // Prevent circular: can't drop onto own descendant
+            const isDescendant = (parentId, checkId) => {
+              const kids = getChildren(parentId);
+              if (kids.some(k => k.id === checkId)) return true;
+              return kids.some(k => isDescendant(k.id, checkId));
+            };
+            if (isDescendant(dragPerson, targetId)) { setDragPerson(null); setDropTarget(null); return; }
+            await supabase.from("profiles").update({ reports_to: targetId }).eq("id", dragPerson);
+            setMembers(p => p.map(m => m.id === dragPerson ? { ...m, reports_to: targetId } : m));
+            if (selected?.id === dragPerson) setSelected(s => ({ ...s, reports_to: targetId }));
+            setDragPerson(null); setDropTarget(null);
+          };
+
+          // Remove from chart (set reports_to = null) when dragged to "unassign" zone
+          const handleUnassign = async () => {
+            if (!dragPerson) return;
+            await supabase.from("profiles").update({ reports_to: null }).eq("id", dragPerson);
+            setMembers(p => p.map(m => m.id === dragPerson ? { ...m, reports_to: null } : m));
+            if (selected?.id === dragPerson) setSelected(s => ({ ...s, reports_to: null }));
+            setDragPerson(null); setDropTarget(null);
+          };
+
+          const CARD_W = 156;
+          const CARD_H_MIN = 72;
+          const V_GAP = 40;
+          const H_GAP = 16;
+
+          const OrgCard = ({ person, depth = 0 }) => {
             const c = acol(person.id);
             const om = getMembership(person.id);
             const children = getChildren(person.id);
-            const isSelected = selected?.id === person.id;
+            const isSel = selected?.id === person.id;
+            const isDrag = dragPerson === person.id;
+            const isDrop = dropTarget === person.id;
+
             return (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                {/* Person card */}
-                <div onClick={() => setSelected(person)} style={{
-                  padding: "12px 16px", borderRadius: 10, background: isSelected ? T.accentDim : T.surface,
-                  border: `1.5px solid ${isSelected ? T.accent : T.border}`, cursor: "pointer", textAlign: "center",
-                  minWidth: 140, maxWidth: 200, boxShadow: depth === 0 ? "0 2px 8px rgba(0,0,0,0.08)" : "0 1px 3px rgba(0,0,0,0.04)",
-                  transition: "all 0.15s"
-                }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 20, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: c, margin: "0 auto 6px" }}>{ini(person.display_name)}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{person.display_name || "Unknown"}</div>
-                  {person.title && <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{person.title}</div>}
-                  {om?.role && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: om.role === "owner" ? "#8B5CF620" : om.role === "admin" ? "#3B82F620" : T.surface2, color: om.role === "owner" ? "#8B5CF6" : om.role === "admin" ? "#3B82F6" : T.text3, fontWeight: 600, marginTop: 4, display: "inline-block" }}>{om.role}</span>}
-                  {children.length > 0 && <div style={{ fontSize: 9, color: T.text3, marginTop: 4 }}>{children.length} direct report{children.length !== 1 ? "s" : ""}</div>}
+                {/* Card */}
+                <div
+                  draggable
+                  onDragStart={(e) => { setDragPerson(person.id); e.dataTransfer.effectAllowed = "move"; }}
+                  onDragEnd={() => { setDragPerson(null); setDropTarget(null); }}
+                  onDragOver={(e) => { e.preventDefault(); if (dragPerson && dragPerson !== person.id) setDropTarget(person.id); }}
+                  onDragLeave={() => { if (dropTarget === person.id) setDropTarget(null); }}
+                  onDrop={(e) => { e.preventDefault(); handleDrop(person.id); }}
+                  onClick={() => setSelected(person)}
+                  style={{
+                    width: CARD_W, padding: "10px 12px", borderRadius: 10, textAlign: "center",
+                    background: isDrop ? T.accentDim : isSel ? `${T.accent}08` : T.surface,
+                    border: `1.5px solid ${isDrop ? T.accent : isSel ? T.accent : T.border}`,
+                    boxShadow: isDrop ? `0 0 0 3px ${T.accent}25` : depth === 0 ? "0 3px 12px rgba(0,0,0,0.08)" : "0 1px 4px rgba(0,0,0,0.04)",
+                    cursor: isDrag ? "grabbing" : "grab", opacity: isDrag ? 0.45 : 1,
+                    transition: "all 0.2s ease", transform: isDrop ? "scale(1.03)" : "scale(1)"
+                  }}
+                >
+                  <div style={{ width: 36, height: 36, borderRadius: 18, background: `${c}15`, border: `2px solid ${c}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: c, margin: "0 auto 5px" }}>{ini(person.display_name)}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.display_name || "Unknown"}</div>
+                  {person.title && <div style={{ fontSize: 9, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.title}</div>}
+                  {children.length > 0 && <div style={{ fontSize: 8, color: T.accent, marginTop: 3, fontWeight: 600 }}>{children.length} report{children.length !== 1 ? "s" : ""}</div>}
                 </div>
-                {/* Children */}
+
+                {/* Connector line down from card + children */}
                 {children.length > 0 && (
-                  <>
-                    {/* Vertical connector line */}
-                    <div style={{ width: 2, height: 20, background: T.border }} />
-                    {/* Horizontal connector + children */}
-                    {children.length === 1 ? (
-                      <OrgNode person={children[0]} depth={depth + 1} />
-                    ) : (
-                      <div style={{ position: "relative" }}>
-                        {/* Horizontal line spanning all children */}
-                        <div style={{ position: "absolute", top: 0, left: "calc(50% / " + children.length + ")", right: "calc(50% / " + children.length + ")", height: 2, background: T.border }} />
-                        <div style={{ display: "flex", gap: depth < 2 ? 24 : 12, alignItems: "flex-start" }}>
-                          {children.map(child => (
-                            <div key={child.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                              <div style={{ width: 2, height: 16, background: T.border }} />
-                              <OrgNode person={child} depth={depth + 1} />
-                            </div>
-                          ))}
-                        </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    {/* Vertical line from parent */}
+                    <svg width="2" height={V_GAP / 2} style={{ display: "block" }}>
+                      <line x1="1" y1="0" x2="1" y2={V_GAP / 2} stroke={T.accent + "40"} strokeWidth="1.5" strokeDasharray="4 2" />
+                    </svg>
+
+                    {/* Children row with horizontal connector */}
+                    <div style={{ position: "relative", display: "flex", justifyContent: "center" }}>
+                      {/* Horizontal bar across children */}
+                      {children.length > 1 && (
+                        <svg width="100%" height={V_GAP / 2} style={{ position: "absolute", top: 0, left: 0, right: 0, overflow: "visible" }}>
+                          <line x1={`${100 / (2 * children.length)}%`} y1="0" x2={`${100 - 100 / (2 * children.length)}%`} y2="0" stroke={T.accent + "40"} strokeWidth="1.5" strokeDasharray="4 2" />
+                        </svg>
+                      )}
+                      <div style={{ display: "flex", gap: H_GAP, alignItems: "flex-start" }}>
+                        {children.map(child => (
+                          <div key={child.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                            {/* Vertical line down to child */}
+                            <svg width="2" height={V_GAP / 2} style={{ display: "block" }}>
+                              <line x1="1" y1="0" x2="1" y2={V_GAP / 2} stroke={T.accent + "40"} strokeWidth="1.5" strokeDasharray="4 2" />
+                            </svg>
+                            <OrgCard person={child} depth={depth + 1} />
+                          </div>
+                        ))}
                       </div>
-                    )}
-                  </>
+                    </div>
+                  </div>
                 )}
               </div>
             );
           };
 
-          const hasAnyReporting = members.some(m => m.reports_to);
-
           return (
-            <div style={{ padding: 20, overflow: "auto" }}>
+            <div style={{ padding: 20, overflow: "auto", position: "relative", minHeight: 300 }}>
+              {/* Drag-to-unassign zone */}
+              {dragPerson && (
+                <div
+                  onDragOver={e => { e.preventDefault(); setDropTarget("__unassign__"); }}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={e => { e.preventDefault(); handleUnassign(); }}
+                  style={{
+                    position: "sticky", top: 0, zIndex: 10, marginBottom: 12,
+                    padding: "10px 20px", borderRadius: 8, textAlign: "center",
+                    border: `2px dashed ${dropTarget === "__unassign__" ? "#EF4444" : T.border}`,
+                    background: dropTarget === "__unassign__" ? "#EF444410" : T.surface2,
+                    color: dropTarget === "__unassign__" ? "#EF4444" : T.text3,
+                    fontSize: 12, fontWeight: 600, transition: "all 0.15s"
+                  }}
+                >
+                  Drop here to remove from reporting chain
+                </div>
+              )}
+
               {!hasAnyReporting ? (
                 <div style={{ textAlign: "center", padding: 40 }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>🏢</div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>No Reporting Structure Set</div>
                   <div style={{ fontSize: 12, color: T.text3, maxWidth: 400, margin: "0 auto", lineHeight: 1.5 }}>
-                    Select a team member and set their "Reports to" field in the detail panel to build the org chart. Start with your CEO/leader and work down.
+                    Select a team member and set their "Reports to" field to build the org chart. Or drag and drop people onto each other to assign supervisors.
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, minWidth: "fit-content" }}>
-                  {roots.map(root => <OrgNode key={root.id} person={root} />)}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, minWidth: "fit-content", paddingBottom: 40 }}>
+                  {roots.map(root => <OrgCard key={root.id} person={root} />)}
+                </div>
+              )}
+
+              {/* Hint */}
+              {hasAnyReporting && !dragPerson && (
+                <div style={{ textAlign: "center", fontSize: 10, color: T.text3, marginTop: 8, opacity: 0.6 }}>
+                  Drag a person onto another to change their supervisor
                 </div>
               )}
             </div>
