@@ -96,8 +96,6 @@ export default function LaunchHub() {
   const liveProd = launched.length;
   const avgProgress = pipeline.length > 0 ? Math.round(pipeline.reduce((a, l) => a + l.progress, 0) / pipeline.length) : 0;
 
-  if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading launch hub…</div>;
-
   // ─── TIMELINE VIEW ─────────────────────────────────────────────────────────
   const renderTimeline = () => {
     const today = new Date();
@@ -306,12 +304,13 @@ export default function LaunchHub() {
       const allDates = launches.map(l => l.launchDate).filter(Boolean);
       if (allDates.length === 0) return;
       const minDate = new Date(Math.min(today.getTime() - 90 * 86400000, ...allDates.map(d => new Date(d).getTime())));
-      const totalDays = Math.max(1, (new Date(Math.max(today.getTime() + 540 * 86400000, ...allDates.map(d => new Date(d).getTime() + 60 * 86400000))) - minDate) / 86400000);
       const dayPx = isMobile ? 3 : 4.5;
       const todayX = ((today - minDate) / 86400000) * dayPx;
       scrollRef.current.scrollLeft = Math.max(0, todayX - 200);
     }
   }, [view]);
+
+  if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}>Loading launch hub…</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
