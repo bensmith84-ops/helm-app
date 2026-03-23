@@ -29,7 +29,6 @@ const NAV_GROUPS = [
     { key: "activity", icon: "◑", label: "Activity" },
     { key: "settings", icon: "⚙", label: "Settings" },
     { key: "ai-builder", icon: "✦", label: "AI Builder", adminOnly: true },
-    { key: "adolfas", icon: "😊", label: "Adolfas" },
   ]},
 ];
 
