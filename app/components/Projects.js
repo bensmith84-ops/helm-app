@@ -80,6 +80,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [attachments, setAttachments] = useState([]);
   const [dependencies, setDependencies] = useState([]);
   const [customFields, setCustomFields] = useState([]);
+  const [projectLabels, setProjectLabels] = useState([]);
   const [customFieldValues, setCustomFieldValues] = useState({});
   const [milestones, setMilestones] = useState([]);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
@@ -176,6 +177,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         ]);
         setLabels(lblR.data || []);
         setLabelAssignments(lblAR.data || []);
+        // Load custom project labels
+        supabase.from("project_labels").select("*").eq("org_id", profile.org_id).order("sort_order").then(({ data }) => setProjectLabels(data || []));
         // Load PLM programs for linking
         supabase.from("plm_programs").select("id, name, category, current_stage, brand").is("deleted_at", null).order("name").then(({ data }) => setPlmPrograms(data || []));
         // Load templates and docs
@@ -1215,7 +1218,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                     {task.labels?.length > 0 && (
                       <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginBottom: 6 }}>
                         {task.labels.slice(0, 3).map(l => {
-                          const lc = { bug: "#ef4444", feature: "#22c55e", improvement: "#3b82f6", design: "#a855f7", urgent: "#f97316", research: "#06b6d4" }[l] || T.accent;
+                          const pl = projectLabels.find(x => x.name === l);
+                          const lc = pl?.color || { bug: "#ef4444", feature: "#22c55e", improvement: "#3b82f6", design: "#a855f7", urgent: "#f97316", research: "#06b6d4" }[l] || T.accent;
                           return <span key={l} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: lc+"20", color: lc, fontWeight: 700 }}>{l}</span>;
                         })}
                       </div>
@@ -1505,8 +1509,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : null;
 
     const DETAIL_TABS = ["Details", "Activity", "Subtasks", "Files"];
-    const LABEL_COLORS = { bug: "#ef4444", feature: "#22c55e", improvement: "#3b82f6", design: "#a855f7", urgent: "#f97316", research: "#06b6d4" };
-    const ALL_LABELS = Object.keys(LABEL_COLORS);
+    // Build label color map from DB
+    const LABEL_COLORS = {};
+    projectLabels.forEach(l => { LABEL_COLORS[l.name] = l.color; });
+    // Fallback defaults if DB labels not loaded yet
+    if (projectLabels.length === 0) { Object.assign(LABEL_COLORS, { bug: "#ef4444", feature: "#22c55e", improvement: "#3b82f6", design: "#a855f7", urgent: "#f97316", research: "#06b6d4" }); }
+    const ALL_LABELS = projectLabels.length > 0 ? projectLabels.map(l => l.name) : Object.keys(LABEL_COLORS);
     const taskLabels = task.labels || [];
     const toggleLabel = (label) => {
       const newLabels = taskLabels.includes(label) ? taskLabels.filter(l => l !== label) : [...taskLabels, label];
@@ -1555,17 +1563,53 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 onClick={e => { e.stopPropagation(); const m = e.currentTarget.nextSibling; m.style.display = m.style.display === "none" ? "block" : "none"; }}>
                 + label
               </button>
-              <div style={{ display: "none", position: "absolute", top: "100%", left: 0, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 6, minWidth: 120, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", marginTop: 4 }}>
-                {ALL_LABELS.map(l => (
-                  <div key={l} onClick={e => { e.stopPropagation(); toggleLabel(l); e.currentTarget.closest("[style*='display: block']").style.display = "none"; }}
-                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11 }}
+              <div style={{ display: "none", position: "absolute", top: "100%", left: 0, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 6, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", marginTop: 4 }}>
+                {ALL_LABELS.map(l => {
+                  const lbl = projectLabels.find(pl => pl.name === l);
+                  return (
+                    <div key={l} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11 }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <span onClick={e => { e.stopPropagation(); toggleLabel(l); }} style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 4, background: LABEL_COLORS[l], flexShrink: 0 }} />
+                        <span style={{ color: taskLabels.includes(l) ? T.accent : T.text }}>{l}</span>
+                        {taskLabels.includes(l) && <span style={{ fontSize: 10, color: T.accent }}>✓</span>}
+                      </span>
+                      {lbl && <button onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!window.confirm(`Delete label "${l}"? It will be removed from all tasks.`)) return;
+                        await supabase.from("project_labels").delete().eq("id", lbl.id);
+                        setProjectLabels(p => p.filter(x => x.id !== lbl.id));
+                        // Remove from all tasks that have this label
+                        const affected = tasks.filter(t => (t.labels || []).includes(l));
+                        for (const t of affected) {
+                          const newLabels = (t.labels || []).filter(x => x !== l);
+                          await supabase.from("tasks").update({ labels: newLabels }).eq("id", t.id);
+                        }
+                        setTasks(p => p.map(t => (t.labels || []).includes(l) ? { ...t, labels: (t.labels || []).filter(x => x !== l) } : t));
+                      }} style={{ fontSize: 8, padding: "1px 3px", background: "none", border: `1px solid ${T.border}`, borderRadius: 3, color: T.text3, cursor: "pointer", opacity: 0.5 }} title="Delete label">✕</button>}
+                    </div>
+                  );
+                })}
+                {/* Divider + Create new label */}
+                <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
+                  <div onClick={async (e) => {
+                    e.stopPropagation();
+                    const name = prompt("Label name:");
+                    if (!name?.trim()) return;
+                    const PRESET_COLORS = ["#ef4444","#f97316","#eab308","#22c55e","#06b6d4","#3b82f6","#8b5cf6","#ec4899","#64748b","#14b8a6"];
+                    const color = prompt("Color (hex):", PRESET_COLORS[projectLabels.length % PRESET_COLORS.length]);
+                    if (!color) return;
+                    const { data } = await supabase.from("project_labels").insert({
+                      org_id: profile.org_id, name: name.trim().toLowerCase(), color, sort_order: projectLabels.length + 1
+                    }).select().single();
+                    if (data) setProjectLabels(p => [...p, data]);
+                  }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11, color: T.accent, fontWeight: 600 }}
                     onMouseEnter={e => e.currentTarget.style.background = T.surface2}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    <span style={{ width: 8, height: 8, borderRadius: 4, background: LABEL_COLORS[l] }} />
-                    <span style={{ color: taskLabels.includes(l) ? T.accent : T.text }}>{l}</span>
-                    {taskLabels.includes(l) && <span style={{ marginLeft: "auto", fontSize: 10, color: T.accent }}>✓</span>}
+                    <span style={{ fontSize: 12 }}>+</span> Create new label
                   </div>
-                ))}
+                </div>
               </div>
             </div>
           </div>
