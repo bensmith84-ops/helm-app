@@ -46,6 +46,9 @@ export default function PeopleView() {
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [orgDragPerson, setOrgDragPerson] = useState(null);
   const [orgDropTarget, setOrgDropTarget] = useState(null);
+  const [orgCollapsed, setOrgCollapsed] = useState(new Set());
+  const [orgZoom, setOrgZoom] = useState(1);
+  const [orgInitialized, setOrgInitialized] = useState(false);
   const [teamSearch, setTeamSearch] = useState("");
   const [addingMemberToTeam, setAddingMemberToTeam] = useState(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
@@ -620,15 +623,48 @@ export default function PeopleView() {
           const roots = members.filter(m => !m.reports_to || !members.find(x => x.id === m.reports_to));
           const hasAnyReporting = members.some(m => m.reports_to);
 
-          // Use top-level drag state (can't call useState inside IIFE)
           const dragPerson = orgDragPerson;
           const setDragPerson = setOrgDragPerson;
           const dropTarget = orgDropTarget;
           const setDropTarget = setOrgDropTarget;
 
+          // Auto-collapse depth 2+ on first render
+          if (!orgInitialized && hasAnyReporting) {
+            const toCollapse = new Set();
+            const walk = (pid, depth) => {
+              const kids = getChildren(pid);
+              if (depth >= 2 && kids.length > 0) toCollapse.add(pid);
+              kids.forEach(k => walk(k.id, depth + 1));
+            };
+            roots.forEach(r => walk(r.id, 0));
+            if (toCollapse.size > 0) { setOrgCollapsed(toCollapse); setOrgInitialized(true); }
+            else setOrgInitialized(true);
+          }
+
+          const countDescendants = (pid) => {
+            const kids = getChildren(pid);
+            return kids.length + kids.reduce((s, k) => s + countDescendants(k.id), 0);
+          };
+
+          const toggleCollapse = (id, e) => {
+            e.stopPropagation();
+            setOrgCollapsed(prev => {
+              const next = new Set(prev);
+              next.has(id) ? next.delete(id) : next.add(id);
+              return next;
+            });
+          };
+
+          const expandAll = () => setOrgCollapsed(new Set());
+          const collapseAll = () => {
+            const all = new Set();
+            const walk = (pid) => { const kids = getChildren(pid); if (kids.length > 0) all.add(pid); kids.forEach(k => walk(k.id)); };
+            roots.forEach(r => walk(r.id));
+            setOrgCollapsed(all);
+          };
+
           const handleDrop = async (targetId) => {
             if (!dragPerson || dragPerson === targetId) { setDragPerson(null); setDropTarget(null); return; }
-            // Prevent circular: can't drop onto own descendant
             const isDescendant = (parentId, checkId) => {
               const kids = getChildren(parentId);
               if (kids.some(k => k.id === checkId)) return true;
@@ -641,7 +677,6 @@ export default function PeopleView() {
             setDragPerson(null); setDropTarget(null);
           };
 
-          // Remove from chart (set reports_to = null) when dragged to "unassign" zone
           const handleUnassign = async () => {
             if (!dragPerson) return;
             await supabase.from("profiles").update({ reports_to: null }).eq("id", dragPerson);
@@ -650,22 +685,23 @@ export default function PeopleView() {
             setDragPerson(null); setDropTarget(null);
           };
 
-          const CARD_W = 156;
-          const CARD_H_MIN = 72;
-          const V_GAP = 40;
-          const H_GAP = 16;
+          const DEPT_COLORS = { "Operations": "#3b82f6", "Marketing": "#f59e0b", "Customer Delight": "#ec4899", "R&D/Product": "#8b5cf6", "Executive": "#10b981", "Retail Sales": "#06b6d4", "Community Engagement": "#f97316" };
+          const CARD_W = 152;
+          const V_GAP = 36;
+          const H_GAP = 12;
 
           const OrgCard = ({ person, depth = 0 }) => {
             const c = acol(person.id);
-            const om = getMembership(person.id);
             const children = getChildren(person.id);
             const isSel = selected?.id === person.id;
             const isDrag = dragPerson === person.id;
             const isDrop = dropTarget === person.id;
+            const isCollapsed = orgCollapsed.has(person.id);
+            const descCount = children.length > 0 ? countDescendants(person.id) : 0;
+            const deptColor = DEPT_COLORS[person.department] || T.text3;
 
             return (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                {/* Card */}
                 <div
                   draggable
                   onDragStart={(e) => { setDragPerson(person.id); e.dataTransfer.effectAllowed = "move"; }}
@@ -675,43 +711,61 @@ export default function PeopleView() {
                   onDrop={(e) => { e.preventDefault(); handleDrop(person.id); }}
                   onClick={() => setSelected(person)}
                   style={{
-                    width: CARD_W, padding: "10px 12px", borderRadius: 10, textAlign: "center",
-                    background: isDrop ? T.accentDim : isSel ? `${T.accent}08` : T.surface,
-                    border: `1.5px solid ${isDrop ? T.accent : isSel ? T.accent : T.border}`,
-                    boxShadow: isDrop ? `0 0 0 3px ${T.accent}25` : depth === 0 ? "0 3px 12px rgba(0,0,0,0.08)" : "0 1px 4px rgba(0,0,0,0.04)",
-                    cursor: isDrag ? "grabbing" : "grab", opacity: isDrag ? 0.45 : 1,
-                    transition: "all 0.2s ease", transform: isDrop ? "scale(1.03)" : "scale(1)"
+                    width: CARD_W, padding: "8px 10px", borderRadius: 10, textAlign: "center", position: "relative",
+                    background: isDrop ? T.accentDim : isSel ? T.accent + "08" : T.surface,
+                    border: "1.5px solid " + (isDrop ? T.accent : isSel ? T.accent : T.border),
+                    borderTop: "3px solid " + deptColor,
+                    boxShadow: isDrop ? "0 0 0 3px " + T.accent + "25" : depth === 0 ? "0 3px 12px rgba(0,0,0,0.1)" : "0 1px 4px rgba(0,0,0,0.05)",
+                    cursor: isDrag ? "grabbing" : "grab", opacity: isDrag ? 0.4 : 1,
+                    transition: "all 0.15s"
                   }}
                 >
-                  <div style={{ width: 36, height: 36, borderRadius: 18, background: `${c}15`, border: `2px solid ${c}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: c, margin: "0 auto 5px" }}>{ini(person.display_name)}</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.display_name || "Unknown"}</div>
-                  {person.title && <div style={{ fontSize: 9, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.title}</div>}
-                  {person.department && <div style={{ fontSize: 8, color: T.accent, marginTop: 2, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.department}{person.sub_department ? ` / ${person.sub_department}` : ""}</div>}
-                  {children.length > 0 && <div style={{ fontSize: 8, color: T.text3, marginTop: 2, fontWeight: 600 }}>{children.length} report{children.length !== 1 ? "s" : ""}</div>}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 15, background: c + "15", border: "2px solid " + c + "40", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: c, flexShrink: 0 }}>{ini(person.display_name)}</div>
+                    <div style={{ textAlign: "left", minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3 }}>{person.display_name || "Unknown"}</div>
+                      {person.title && <div style={{ fontSize: 8, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3 }}>{person.title}</div>}
+                    </div>
+                  </div>
+                  {person.department && (
+                    <div style={{ marginTop: 4, fontSize: 7, fontWeight: 700, color: deptColor, textTransform: "uppercase", letterSpacing: "0.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {person.department}{person.sub_department ? " / " + person.sub_department : ""}
+                    </div>
+                  )}
+                  {children.length > 0 && (
+                    <button
+                      onClick={(e) => toggleCollapse(person.id, e)}
+                      style={{
+                        position: "absolute", bottom: -11, left: "50%", transform: "translateX(-50%)", zIndex: 5,
+                        width: 22, height: 22, borderRadius: 11,
+                        background: isCollapsed ? T.accent : T.surface, border: "1.5px solid " + (isCollapsed ? T.accent : T.border),
+                        color: isCollapsed ? "#fff" : T.text3, fontSize: 9, fontWeight: 700,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.12)", lineHeight: 1
+                      }}
+                      title={isCollapsed ? "Expand (" + descCount + " people)" : "Collapse"}
+                    >
+                      {isCollapsed ? descCount : "−"}
+                    </button>
+                  )}
                 </div>
 
-                {/* Connector line down from card + children */}
-                {children.length > 0 && (
+                {children.length > 0 && !isCollapsed && (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                    {/* Vertical line from parent */}
                     <svg width="2" height={V_GAP / 2} style={{ display: "block" }}>
-                      <line x1="1" y1="0" x2="1" y2={V_GAP / 2} stroke={T.accent + "40"} strokeWidth="1.5" strokeDasharray="4 2" />
+                      <line x1="1" y1="0" x2="1" y2={V_GAP / 2} stroke={T.border} strokeWidth="1.5" />
                     </svg>
-
-                    {/* Children row with horizontal connector */}
                     <div style={{ position: "relative", display: "flex", justifyContent: "center" }}>
-                      {/* Horizontal bar across children */}
                       {children.length > 1 && (
                         <svg width="100%" height={V_GAP / 2} style={{ position: "absolute", top: 0, left: 0, right: 0, overflow: "visible" }}>
-                          <line x1={`${100 / (2 * children.length)}%`} y1="0" x2={`${100 - 100 / (2 * children.length)}%`} y2="0" stroke={T.accent + "40"} strokeWidth="1.5" strokeDasharray="4 2" />
+                          <line x1={100 / (2 * children.length) + "%"} y1="0" x2={(100 - 100 / (2 * children.length)) + "%"} y2="0" stroke={T.border} strokeWidth="1.5" />
                         </svg>
                       )}
                       <div style={{ display: "flex", gap: H_GAP, alignItems: "flex-start" }}>
                         {children.map(child => (
                           <div key={child.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                            {/* Vertical line down to child */}
                             <svg width="2" height={V_GAP / 2} style={{ display: "block" }}>
-                              <line x1="1" y1="0" x2="1" y2={V_GAP / 2} stroke={T.accent + "40"} strokeWidth="1.5" strokeDasharray="4 2" />
+                              <line x1="1" y1="0" x2="1" y2={V_GAP / 2} stroke={T.border} strokeWidth="1.5" />
                             </svg>
                             <OrgCard person={child} depth={depth + 1} />
                           </div>
@@ -725,46 +779,61 @@ export default function PeopleView() {
           };
 
           return (
-            <div style={{ padding: 20, overflow: "auto", position: "relative", minHeight: 300 }}>
-              {/* Drag-to-unassign zone */}
+            <div style={{ position: "relative", minHeight: 300 }}>
+              {/* Toolbar */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderBottom: "1px solid " + T.border, background: T.surface, position: "sticky", top: 0, zIndex: 15 }}>
+                <button onClick={expandAll} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer" }}>Expand all</button>
+                <button onClick={collapseAll} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer" }}>Collapse all</button>
+                <div style={{ flex: 1 }} />
+                <span style={{ fontSize: 10, color: T.text3 }}>{Math.round(orgZoom * 100)}%</span>
+                <button onClick={() => setOrgZoom(z => Math.max(0.3, z - 0.1))} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                <button onClick={() => setOrgZoom(1)} style={{ padding: "3px 8px", fontSize: 10, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer" }}>Reset</button>
+                <button onClick={() => setOrgZoom(z => Math.min(2, z + 0.1))} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
+                  {Object.entries(DEPT_COLORS).map(([dept, color]) => (
+                    <div key={dept} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: 3, background: color }} />
+                      <span style={{ fontSize: 8, color: T.text3 }}>{dept.split(" ")[0]}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {dragPerson && (
                 <div
                   onDragOver={e => { e.preventDefault(); setDropTarget("__unassign__"); }}
                   onDragLeave={() => setDropTarget(null)}
                   onDrop={e => { e.preventDefault(); handleUnassign(); }}
                   style={{
-                    position: "sticky", top: 0, zIndex: 10, marginBottom: 12,
-                    padding: "10px 20px", borderRadius: 8, textAlign: "center",
-                    border: `2px dashed ${dropTarget === "__unassign__" ? "#EF4444" : T.border}`,
+                    position: "sticky", top: 41, zIndex: 10, margin: "0 16px 8px",
+                    padding: "8px 20px", borderRadius: 8, textAlign: "center",
+                    border: "2px dashed " + (dropTarget === "__unassign__" ? "#EF4444" : T.border),
                     background: dropTarget === "__unassign__" ? "#EF444410" : T.surface2,
                     color: dropTarget === "__unassign__" ? "#EF4444" : T.text3,
-                    fontSize: 12, fontWeight: 600, transition: "all 0.15s"
+                    fontSize: 11, fontWeight: 600
                   }}
                 >
                   Drop here to remove from reporting chain
                 </div>
               )}
 
-              {!hasAnyReporting ? (
-                <div style={{ textAlign: "center", padding: 40 }}>
-                  <div style={{ fontSize: 40, marginBottom: 12 }}>🏢</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>No Reporting Structure Set</div>
-                  <div style={{ fontSize: 12, color: T.text3, maxWidth: 400, margin: "0 auto", lineHeight: 1.5 }}>
-                    Select a team member and set their "Reports to" field to build the org chart. Or drag and drop people onto each other to assign supervisors.
+              <div style={{ padding: 20, overflow: "auto" }}>
+                {!hasAnyReporting ? (
+                  <div style={{ textAlign: "center", padding: 40 }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>🏢</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>No Reporting Structure Set</div>
+                    <div style={{ fontSize: 12, color: T.text3, maxWidth: 400, margin: "0 auto", lineHeight: 1.5 }}>
+                      Select a team member and set their ).replace(\u201d,Reports to\u201d field to build the org chart. Or drag and drop people onto each other to assign supervisors.
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, minWidth: "fit-content", paddingBottom: 40 }}>
-                  {roots.map(root => <OrgCard key={root.id} person={root} />)}
-                </div>
-              )}
-
-              {/* Hint */}
-              {hasAnyReporting && !dragPerson && (
-                <div style={{ textAlign: "center", fontSize: 10, color: T.text3, marginTop: 8, opacity: 0.6 }}>
-                  Drag a person onto another to change their supervisor
-                </div>
-              )}
+                ) : (
+                  <div style={{ transform: "scale(" + orgZoom + ")", transformOrigin: "top center", transition: "transform 0.2s" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, minWidth: "fit-content", paddingBottom: 40 }}>
+                      {roots.map(root => <OrgCard key={root.id} person={root} />)}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
