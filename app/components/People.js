@@ -49,6 +49,7 @@ export default function PeopleView() {
   const [orgCollapsed, setOrgCollapsed] = useState(new Set());
   const [orgZoom, setOrgZoom] = useState(1);
   const [orgInitialized, setOrgInitialized] = useState(false);
+  const [orgFocusId, setOrgFocusId] = useState(null);
   const [teamSearch, setTeamSearch] = useState("");
   const [addingMemberToTeam, setAddingMemberToTeam] = useState(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
@@ -646,6 +647,12 @@ export default function PeopleView() {
             return kids.length + kids.reduce((s, k) => s + countDescendants(k.id), 0);
           };
 
+          const getDepth = (pid) => {
+            const kids = getChildren(pid);
+            if (kids.length === 0) return 0;
+            return 1 + Math.max(...kids.map(k => getDepth(k.id)));
+          };
+
           const toggleCollapse = (id, e) => {
             e.stopPropagation();
             setOrgCollapsed(prev => {
@@ -661,6 +668,17 @@ export default function PeopleView() {
             const walk = (pid) => { const kids = getChildren(pid); if (kids.length > 0) all.add(pid); kids.forEach(k => walk(k.id)); };
             roots.forEach(r => walk(r.id));
             setOrgCollapsed(all);
+          };
+
+          const collapseToDepth = (maxDepth) => {
+            const collapsed = new Set();
+            const walk = (pid, depth) => {
+              const kids = getChildren(pid);
+              if (kids.length > 0 && depth >= maxDepth) collapsed.add(pid);
+              kids.forEach(k => walk(k.id, depth + 1));
+            };
+            roots.forEach(r => walk(r.id, 0));
+            setOrgCollapsed(collapsed);
           };
 
           const handleDrop = async (targetId) => {
@@ -685,10 +703,34 @@ export default function PeopleView() {
             setDragPerson(null); setDropTarget(null);
           };
 
+          // Focus on subtree
+          const focusOnPerson = (pid) => {
+            setOrgFocusId(pid);
+            // Expand path to this person
+            setOrgCollapsed(prev => {
+              const next = new Set(prev);
+              next.delete(pid);
+              return next;
+            });
+          };
+
+          const clearFocus = () => setOrgFocusId(null);
+
+          // Build breadcrumb path for focused person
+          const buildBreadcrumb = (pid) => {
+            const path = [];
+            let current = members.find(m => m.id === pid);
+            while (current) {
+              path.unshift(current);
+              current = current.reports_to ? members.find(m => m.id === current.reports_to) : null;
+            }
+            return path;
+          };
+
           const DEPT_COLORS = { "Operations": "#3b82f6", "Marketing": "#f59e0b", "Customer Delight": "#ec4899", "R&D/Product": "#8b5cf6", "Executive": "#10b981", "Retail Sales": "#06b6d4", "Community Engagement": "#f97316" };
-          const CARD_W = 152;
-          const V_GAP = 36;
-          const H_GAP = 12;
+          const CARD_W = 164;
+          const V_GAP = 40;
+          const H_GAP = 10;
 
           const OrgCard = ({ person, depth = 0 }) => {
             const c = acol(person.id);
@@ -702,6 +744,7 @@ export default function PeopleView() {
 
             return (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                {/* Card */}
                 <div
                   draggable
                   onDragStart={(e) => { setDragPerson(person.id); e.dataTransfer.effectAllowed = "move"; }}
@@ -710,46 +753,60 @@ export default function PeopleView() {
                   onDragLeave={() => { if (dropTarget === person.id) setDropTarget(null); }}
                   onDrop={(e) => { e.preventDefault(); handleDrop(person.id); }}
                   onClick={() => setSelected(person)}
+                  onDoubleClick={() => { if (children.length > 0) focusOnPerson(person.id); }}
                   style={{
                     width: CARD_W, padding: "8px 10px", borderRadius: 10, textAlign: "center", position: "relative",
                     background: isDrop ? T.accentDim : isSel ? T.accent + "08" : T.surface,
                     border: "1.5px solid " + (isDrop ? T.accent : isSel ? T.accent : T.border),
-                    borderTop: "3px solid " + deptColor,
+                    borderLeft: "3px solid " + deptColor,
                     boxShadow: isDrop ? "0 0 0 3px " + T.accent + "25" : depth === 0 ? "0 3px 12px rgba(0,0,0,0.1)" : "0 1px 4px rgba(0,0,0,0.05)",
                     cursor: isDrag ? "grabbing" : "grab", opacity: isDrag ? 0.4 : 1,
                     transition: "all 0.15s"
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: 15, background: c + "15", border: "2px solid " + c + "40", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: c, flexShrink: 0 }}>{ini(person.display_name)}</div>
+                    <div style={{ width: 28, height: 28, borderRadius: 14, background: c + "15", border: "2px solid " + c + "40", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: c, flexShrink: 0 }}>{ini(person.display_name)}</div>
                     <div style={{ textAlign: "left", minWidth: 0, flex: 1 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3 }}>{person.display_name || "Unknown"}</div>
                       {person.title && <div style={{ fontSize: 8, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3 }}>{person.title}</div>}
                     </div>
                   </div>
-                  {person.department && (
-                    <div style={{ marginTop: 4, fontSize: 7, fontWeight: 700, color: deptColor, textTransform: "uppercase", letterSpacing: "0.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {person.department}{person.sub_department ? " / " + person.sub_department : ""}
-                    </div>
-                  )}
+
+                  {/* Collapse/expand toggle */}
                   {children.length > 0 && (
                     <button
                       onClick={(e) => toggleCollapse(person.id, e)}
                       style={{
-                        position: "absolute", bottom: -11, left: "50%", transform: "translateX(-50%)", zIndex: 5,
-                        width: 22, height: 22, borderRadius: 11,
+                        position: "absolute", bottom: -12, left: "50%", transform: "translateX(-50%)", zIndex: 5,
+                        height: 20, borderRadius: 10, padding: "0 7px", minWidth: 20,
                         background: isCollapsed ? T.accent : T.surface, border: "1.5px solid " + (isCollapsed ? T.accent : T.border),
                         color: isCollapsed ? "#fff" : T.text3, fontSize: 9, fontWeight: 700,
-                        display: "flex", alignItems: "center", justifyContent: "center",
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
                         cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.12)", lineHeight: 1
                       }}
-                      title={isCollapsed ? "Expand (" + descCount + " people)" : "Collapse"}
+                      title={isCollapsed ? `Expand (${descCount} people)` : "Collapse"}
                     >
-                      {isCollapsed ? descCount : "−"}
+                      {isCollapsed ? <>{descCount} <span style={{ fontSize: 8 }}>▸</span></> : <span style={{ fontSize: 10 }}>−</span>}
                     </button>
+                  )}
+
+                  {/* Focus button */}
+                  {children.length > 0 && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); focusOnPerson(person.id); }}
+                      style={{
+                        position: "absolute", top: 4, right: 4, width: 16, height: 16, borderRadius: 4,
+                        background: "transparent", border: "none", color: T.text3, fontSize: 9,
+                        cursor: "pointer", opacity: 0.4, display: "flex", alignItems: "center", justifyContent: "center"
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                      onMouseLeave={e => e.currentTarget.style.opacity = "0.4"}
+                      title="Focus on this subtree"
+                    >⤢</button>
                   )}
                 </div>
 
+                {/* Children connector + rendering */}
                 {children.length > 0 && !isCollapsed && (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
                     <svg width="2" height={V_GAP / 2} style={{ display: "block" }}>
@@ -778,27 +835,65 @@ export default function PeopleView() {
             );
           };
 
+          const focusedPerson = orgFocusId ? members.find(m => m.id === orgFocusId) : null;
+          const breadcrumb = focusedPerson ? buildBreadcrumb(orgFocusId) : [];
+          const displayRoots = focusedPerson ? [focusedPerson] : roots;
+
           return (
             <div style={{ position: "relative", minHeight: 300 }}>
               {/* Toolbar */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderBottom: "1px solid " + T.border, background: T.surface, position: "sticky", top: 0, zIndex: 15 }}>
-                <button onClick={expandAll} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer" }}>Expand all</button>
-                <button onClick={collapseAll} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer" }}>Collapse all</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderBottom: "1px solid " + T.border, background: T.surface, position: "sticky", top: 0, zIndex: 15, flexWrap: "wrap" }}>
+                {/* Depth buttons */}
+                <div style={{ display: "flex", alignItems: "center", border: "1px solid " + T.border, borderRadius: 6, overflow: "hidden" }}>
+                  {[["All", expandAll], ["L1", () => collapseToDepth(1)], ["L2", () => collapseToDepth(2)], ["L3", () => collapseToDepth(3)]].map(([label, fn], i) => (
+                    <button key={label} onClick={fn} style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, background: T.surface2, color: T.text3, border: "none", borderLeft: i > 0 ? "1px solid " + T.border : "none", cursor: "pointer" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.color = T.text3; }}
+                    >{label}</button>
+                  ))}
+                  <button onClick={collapseAll} style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, background: T.surface2, color: T.text3, border: "none", borderLeft: "1px solid " + T.border, cursor: "pointer" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.color = T.text3; }}
+                  >▪</button>
+                </div>
+
                 <div style={{ flex: 1 }} />
+
+                {/* Zoom controls */}
                 <span style={{ fontSize: 10, color: T.text3 }}>{Math.round(orgZoom * 100)}%</span>
                 <button onClick={() => setOrgZoom(z => Math.max(0.3, z - 0.1))} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                <button onClick={() => setOrgZoom(1)} style={{ padding: "3px 8px", fontSize: 10, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer" }}>Reset</button>
+                <button onClick={() => setOrgZoom(1)} style={{ padding: "3px 8px", fontSize: 10, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer" }}>Fit</button>
                 <button onClick={() => setOrgZoom(z => Math.min(2, z + 0.1))} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-                <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
+
+                {/* Dept legend */}
+                <div style={{ display: "flex", gap: 6, marginLeft: 8, flexWrap: "wrap" }}>
                   {Object.entries(DEPT_COLORS).map(([dept, color]) => (
                     <div key={dept} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: 3, background: color }} />
-                      <span style={{ fontSize: 8, color: T.text3 }}>{dept.split(" ")[0]}</span>
+                      <div style={{ width: 8, height: 3, borderRadius: 1, background: color }} />
+                      <span style={{ fontSize: 8, color: T.text3 }}>{dept.length > 12 ? dept.split(" ")[0] : dept}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
+              {/* Breadcrumb (when focused) */}
+              {focusedPerson && (
+                <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 16px", borderBottom: "1px solid " + T.border, background: T.surface2, fontSize: 11 }}>
+                  <button onClick={clearFocus} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, fontWeight: 600, padding: 0 }}>🏢 All</button>
+                  {breadcrumb.map((p, i) => (
+                    <span key={p.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <span style={{ color: T.text3 }}>›</span>
+                      <button
+                        onClick={() => i < breadcrumb.length - 1 ? focusOnPerson(p.id) : null}
+                        style={{ background: "none", border: "none", color: i < breadcrumb.length - 1 ? T.accent : T.text, cursor: i < breadcrumb.length - 1 ? "pointer" : "default", fontSize: 11, fontWeight: i === breadcrumb.length - 1 ? 700 : 400, padding: 0 }}
+                      >{p.display_name}</button>
+                    </span>
+                  ))}
+                  <span style={{ color: T.text3, marginLeft: 4 }}>({countDescendants(orgFocusId)} people)</span>
+                </div>
+              )}
+
+              {/* Drag-to-unassign zone */}
               {dragPerson && (
                 <div
                   onDragOver={e => { e.preventDefault(); setDropTarget("__unassign__"); }}
@@ -817,19 +912,28 @@ export default function PeopleView() {
                 </div>
               )}
 
-              <div style={{ padding: 20, overflow: "auto" }}>
+              {/* Chart area with scroll wheel zoom */}
+              <div
+                style={{ padding: 20, overflow: "auto" }}
+                onWheel={e => {
+                  if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    setOrgZoom(z => Math.max(0.3, Math.min(2, z - e.deltaY * 0.002)));
+                  }
+                }}
+              >
                 {!hasAnyReporting ? (
                   <div style={{ textAlign: "center", padding: 40 }}>
                     <div style={{ fontSize: 40, marginBottom: 12 }}>🏢</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>No Reporting Structure Set</div>
                     <div style={{ fontSize: 12, color: T.text3, maxWidth: 400, margin: "0 auto", lineHeight: 1.5 }}>
-                      Select a team member and set their ).replace(\u201d,Reports to\u201d field to build the org chart. Or drag and drop people onto each other to assign supervisors.
+                      Select a team member and set their "Reports to" field to build the org chart. Or drag and drop people onto each other to assign supervisors.
                     </div>
                   </div>
                 ) : (
                   <div style={{ transform: "scale(" + orgZoom + ")", transformOrigin: "top center", transition: "transform 0.2s" }}>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, minWidth: "fit-content", paddingBottom: 40 }}>
-                      {roots.map(root => <OrgCard key={root.id} person={root} />)}
+                      {displayRoots.map(root => <OrgCard key={root.id} person={root} />)}
                     </div>
                   </div>
                 )}
