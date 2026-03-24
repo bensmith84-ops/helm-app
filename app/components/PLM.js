@@ -2963,6 +2963,9 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
       if(DATES.includes(k)) return [k, v && String(v).trim() !== "" ? v : null];
       return [k, v === "" || v === undefined ? null : v];
     }));
+    // Remove null values for NOT NULL columns so DB defaults apply
+    const NOT_NULL_DEFAULTS = ["program_type", "current_stage", "priority", "regulatory_status"];
+    NOT_NULL_DEFAULTS.forEach(k => { if (payload[k] === null || payload[k] === undefined) delete payload[k]; });
     if(!payload.org_id){ setSaving(false); alert("Unable to determine your organization. Please refresh and try again."); return; }
     const{data,error}=await supabase.from("plm_programs").insert(payload).select().single();
     if(error){ console.error("Program create error:", error, "Payload:", JSON.stringify(payload)); setSaving(false); alert("Failed to create program: " + (error.message || error.details || "Unknown error")); return; }
