@@ -138,6 +138,7 @@ export default function ScorecardView() {
   const [saving, setSaving] = useState(false);
   const [orgId, setOrgId] = useState(null);
   const [autoCalcRunning, setAutoCalcRunning] = useState(false);
+  const [editAutoSource, setEditAutoSource] = useState(null); // { metricId, auto_source, auto_agg, auto_weight_key }
 
   const DAILY_KEYS = ["revenue","amazon_revenue","ad_spend","cpa","dtc_cac","x_cac","gwp_cpa","nc_aov","net_dollars","total_orders","new_orders","amazon_total_orders","units_shipped","dtc_new_customers","amz_new_customers","traffic","blended_cvr","new_gwp_subs","new_shopify_subs","daily_cancels","net_daily_subs","amz_net_subs","sub_rate","upsell_take_rate","comp_yago","opex_pct_rev"];
   const AGG_METHODS = [
@@ -602,22 +603,7 @@ export default function ScorecardView() {
                     })}
                     <td style={{ padding:"6px 4px", textAlign:"center", whiteSpace:"nowrap" }}>
                       <button onClick={() => {
-                        const current = m.auto_source || "";
-                        const source = prompt("Auto-source from Scoreboard metric key:\n\nAvailable: " + DAILY_KEYS.join(", ") + "\n\nCurrent: " + (current || "none") + "\n\nEnter key (or leave blank to disable):", current);
-                        if (source === null) return; // cancelled
-                        if (source === "") {
-                          updateMetricAutoSource(m.id, "auto_source", null);
-                          updateMetricAutoSource(m.id, "auto_agg", null);
-                          updateMetricAutoSource(m.id, "auto_weight_key", null);
-                          return;
-                        }
-                        updateMetricAutoSource(m.id, "auto_source", source);
-                        const agg = prompt("Aggregation method:\n\nsum = Total for the week\naverage = Simple daily average\nweighted_average = Weighted by another metric\nlast = Last day's value\n\nCurrent: " + (m.auto_agg || "sum"), m.auto_agg || "sum");
-                        if (agg) updateMetricAutoSource(m.id, "auto_agg", agg);
-                        if (agg === "weighted_average") {
-                          const wk = prompt("Weight by which metric?\n\nAvailable: " + DAILY_KEYS.filter(k => k !== source).join(", "), m.auto_weight_key || "");
-                          if (wk) updateMetricAutoSource(m.id, "auto_weight_key", wk);
-                        }
+                        setEditAutoSource({ metricId: m.id, auto_source: m.auto_source || "", auto_agg: m.auto_agg || "sum", auto_weight_key: m.auto_weight_key || "" });
                       }}
                         title={m.auto_source ? `Auto: ${m.auto_agg} of ${m.auto_source}${m.auto_weight_key ? " weighted by " + m.auto_weight_key : ""}` : "Configure auto-calculate"}
                         style={{ background:"none", border:"none", color: m.auto_source ? T.accent : T.text3, cursor:"pointer", fontSize:11, opacity: m.auto_source ? 1 : 0.5 }}>⚡</button>
@@ -752,6 +738,66 @@ export default function ScorecardView() {
             <div>Click any cell to enter or edit a value · Bool metrics: click to toggle</div>
           </div>
         )}
+
+        {/* Auto-Source Edit Modal */}
+        {editAutoSource && (() => {
+          const eas = editAutoSource;
+          const set = (k, v) => setEditAutoSource(p => ({ ...p, [k]: v }));
+          const save = async () => {
+            if (eas.auto_source) {
+              await updateMetricAutoSource(eas.metricId, "auto_source", eas.auto_source);
+              await updateMetricAutoSource(eas.metricId, "auto_agg", eas.auto_agg || "sum");
+              await updateMetricAutoSource(eas.metricId, "auto_weight_key", eas.auto_agg === "weighted_average" ? eas.auto_weight_key : null);
+            } else {
+              await updateMetricAutoSource(eas.metricId, "auto_source", null);
+              await updateMetricAutoSource(eas.metricId, "auto_agg", null);
+              await updateMetricAutoSource(eas.metricId, "auto_weight_key", null);
+            }
+            setEditAutoSource(null);
+          };
+          const lbl = { fontSize: 11, color: T.text3, fontWeight: 600, display: "block", marginBottom: 4 };
+          const sel = { width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", cursor: "pointer", boxSizing: "border-box" };
+          return (
+            <div onClick={() => setEditAutoSource(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 400, maxWidth: "95vw" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16 }}>Configure auto-source</div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={lbl}>Scoreboard metric key</label>
+                  <select value={eas.auto_source} onChange={e => set("auto_source", e.target.value)} style={sel}>
+                    <option value="">— Disabled —</option>
+                    {DAILY_KEYS.map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+                  </select>
+                </div>
+                {eas.auto_source && (
+                  <>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={lbl}>Aggregation method</label>
+                      <select value={eas.auto_agg} onChange={e => set("auto_agg", e.target.value)} style={sel}>
+                        <option value="sum">Sum — Total for the week</option>
+                        <option value="average">Average — Simple daily average</option>
+                        <option value="weighted_average">Weighted average — By another metric</option>
+                        <option value="last">Last — Last day's value</option>
+                      </select>
+                    </div>
+                    {eas.auto_agg === "weighted_average" && (
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={lbl}>Weight by metric</label>
+                        <select value={eas.auto_weight_key} onChange={e => set("auto_weight_key", e.target.value)} style={sel}>
+                          <option value="">— Select —</option>
+                          {DAILY_KEYS.filter(k => k !== eas.auto_source).map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+                  <button onClick={() => setEditAutoSource(null)} style={{ padding: "7px 16px", fontSize: 12, background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={save} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Save</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

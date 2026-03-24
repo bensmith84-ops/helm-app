@@ -376,7 +376,7 @@ export default function LaunchHub() {
           <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{pg.name}</div>
           {l.launchDate && (
             <div style={{ fontSize: 11, color: isOverdue ? "#ef4444" : T.text3, marginTop: 2, fontWeight: isOverdue ? 600 : 400 }}>
-              {isOverdue ? `${Math.abs(daysToLaunch)}d overdue` : pg.current_stage === "launched" ? `Launched ${l.launchDate}` : `${daysToLaunch}d to launch \u00b7 ${l.launchDate}`}
+              {isOverdue ? `${Math.abs(daysToLaunch)}d overdue` : pg.current_stage === "launched" ? `Launched ${l.launchDate}` : `${daysToLaunch}d to launch · ${l.launchDate}`}
             </div>
           )}
         </div>
@@ -395,8 +395,8 @@ export default function LaunchHub() {
                     onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <span style={{ width: 8, height: 8, borderRadius: 4, background: tag.color, flexShrink: 0 }} />
                     <span style={{ color: programTagIds.has(tag.id) ? T.accent : T.text, flex: 1 }}>{tag.name}</span>
-                    {programTagIds.has(tag.id) && <span style={{ fontSize: 10, color: T.accent }}>\u2713</span>}
-                    <button onClick={e => { e.stopPropagation(); deleteTag(tag.id); }} style={{ fontSize: 8, padding: "1px 3px", background: "none", border: `1px solid ${T.border}`, borderRadius: 3, color: T.text3, cursor: "pointer", opacity: 0.4 }} title="Delete tag">\u2715</button>
+                    {programTagIds.has(tag.id) && <span style={{ fontSize: 10, color: T.accent }}>✓</span>}
+                    <button onClick={e => { e.stopPropagation(); deleteTag(tag.id); }} style={{ fontSize: 8, padding: "1px 3px", background: "none", border: `1px solid ${T.border}`, borderRadius: 3, color: T.text3, cursor: "pointer", opacity: 0.4 }} title="Delete tag">✕</button>
                   </div>
                 ))}
                 <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
@@ -443,11 +443,11 @@ export default function LaunchHub() {
           <div style={{ padding: "8px 10px", borderRadius: 6, background: T.accentDim, border: `1px solid ${T.accent}30` }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>OKR</div>
             {l.objectives.map(o => (
-              <div key={o.id} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>\u25ce {o.title}</div>
+              <div key={o.id} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>◎ {o.title}</div>
             ))}
             {l.keyResults.map(kr => (
               <div key={kr.id} style={{ fontSize: 10, color: T.text2, marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}>
-                <span>\u25c9 {kr.title}</span>
+                <span>◉ {kr.title}</span>
                 <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, color: T.accent }}>{Math.round(kr.progress || 0)}%</span>
               </div>
             ))}
