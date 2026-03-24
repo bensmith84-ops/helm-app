@@ -39,6 +39,15 @@ export default function LaunchHub() {
   const [showCreateTag, setShowCreateTag] = useState(false);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef(null);
+  const tagMenuRef = useRef(null);
+
+  // Close tag menu on click outside
+  useEffect(() => {
+    if (!tagMenuId) return;
+    const handler = (e) => { if (tagMenuRef.current && !tagMenuRef.current.contains(e.target)) { setTagMenuId(null); setShowCreateTag(false); setNewTagName(""); } };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [tagMenuId]);
 
   useEffect(() => {
     if (!profile?.org_id) return;
@@ -102,12 +111,55 @@ export default function LaunchHub() {
   const orphanProjects = projects.filter(p => !p.plm_program_id && p.objective_id && p.status !== "archived");
 
   // Edit functions
-  const startEdit = (pg) => { setEditingId(pg.id); setEditForm({ name: pg.name, brand: pg.brand || "", priority: pg.priority || "medium", target_launch_date: pg.target_launch_date || "", current_stage: pg.current_stage, target_gross_margin_pct: pg.target_gross_margin_pct || "" }); };
+  const startEdit = (pg, linkedProjects, linkedObjs) => {
+    const linkedProjId = linkedProjects.length > 0 ? linkedProjects[0].id : "";
+    const linkedObjId = linkedObjs.length > 0 ? linkedObjs[0].id : "";
+    setEditingId(pg.id);
+    setEditForm({
+      name: pg.name, brand: pg.brand || "", priority: pg.priority || "medium",
+      target_launch_date: pg.target_launch_date || "", current_stage: pg.current_stage,
+      target_gross_margin_pct: pg.target_gross_margin_pct || "",
+      linked_project_id: linkedProjId, linked_objective_id: linkedObjId,
+    });
+  };
   const cancelEdit = () => { setEditingId(null); setEditForm({}); };
   const saveEdit = async (pgId) => {
-    const payload = { ...editForm, target_gross_margin_pct: editForm.target_gross_margin_pct !== "" ? parseFloat(editForm.target_gross_margin_pct) : null, target_launch_date: editForm.target_launch_date || null, brand: editForm.brand || null };
+    const { linked_project_id, linked_objective_id, ...pgFields } = editForm;
+    const payload = { ...pgFields, target_gross_margin_pct: pgFields.target_gross_margin_pct !== "" ? parseFloat(pgFields.target_gross_margin_pct) : null, target_launch_date: pgFields.target_launch_date || null, brand: pgFields.brand || null };
     const { error } = await supabase.from("plm_programs").update(payload).eq("id", pgId);
     if (!error) setPrograms(p => p.map(x => x.id === pgId ? { ...x, ...payload } : x));
+
+    // Handle project linking
+    if (linked_project_id) {
+      // Unlink any previously linked project
+      const prevLinked = projects.filter(p => p.plm_program_id === pgId && p.id !== linked_project_id);
+      for (const p of prevLinked) {
+        await supabase.from("projects").update({ plm_program_id: null }).eq("id", p.id);
+      }
+      // Link the selected project + set objective
+      const projUpdate = { plm_program_id: pgId };
+      if (linked_objective_id) projUpdate.objective_id = linked_objective_id;
+      await supabase.from("projects").update(projUpdate).eq("id", linked_project_id);
+      setProjects(p => p.map(x => {
+        if (prevLinked.some(pp => pp.id === x.id)) return { ...x, plm_program_id: null };
+        if (x.id === linked_project_id) return { ...x, ...projUpdate };
+        return x;
+      }));
+    } else {
+      // Unlink all projects from this program
+      const prevLinked = projects.filter(p => p.plm_program_id === pgId);
+      for (const p of prevLinked) {
+        await supabase.from("projects").update({ plm_program_id: null }).eq("id", p.id);
+      }
+      if (prevLinked.length > 0) setProjects(p => p.map(x => x.plm_program_id === pgId ? { ...x, plm_program_id: null } : x));
+    }
+
+    // Handle objective linking on project (if project selected but objective changed)
+    if (linked_project_id && linked_objective_id) {
+      await supabase.from("projects").update({ objective_id: linked_objective_id }).eq("id", linked_project_id);
+      setProjects(p => p.map(x => x.id === linked_project_id ? { ...x, objective_id: linked_objective_id } : x));
+    }
+
     setEditingId(null);
   };
 
@@ -284,6 +336,24 @@ export default function LaunchHub() {
             <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Stage</label><select value={ef.current_stage} onChange={e => setEditForm(p => ({ ...p, current_stage: e.target.value }))} style={sel}>{STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select></div>
           </div>
           <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>GM% Target</label><input type="number" value={ef.target_gross_margin_pct} onChange={e => setEditForm(p => ({ ...p, target_gross_margin_pct: e.target.value }))} placeholder="e.g. 65" style={inp} /></div>
+          {/* Link to Project */}
+          <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Linked Project</label>
+            <select value={ef.linked_project_id || ""} onChange={e => setEditForm(p => ({ ...p, linked_project_id: e.target.value }))} style={sel}>
+              <option value="">— None —</option>
+              {projects.filter(p => !p.plm_program_id || p.plm_program_id === pg.id).filter(p => p.status !== "archived").map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          {/* Link to OKR */}
+          <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Linked Objective</label>
+            <select value={ef.linked_objective_id || ""} onChange={e => setEditForm(p => ({ ...p, linked_objective_id: e.target.value }))} style={sel}>
+              <option value="">— None —</option>
+              {objectives.map(o => (
+                <option key={o.id} value={o.id}>{o.title}</option>
+              ))}
+            </select>
+          </div>
         </div>
       );
     }
@@ -295,7 +365,7 @@ export default function LaunchHub() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             {pg.brand && <span style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{pg.brand}</span>}
             <span style={{ marginLeft: "auto", fontSize: 10, padding: "2px 8px", borderRadius: 4, background: l.stage.color + "18", color: l.stage.color, fontWeight: 700 }}>{l.stage.label}</span>
-            <button onClick={() => startEdit(pg)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: "0 2px", opacity: 0.5 }} title="Edit"
+            <button onClick={() => startEdit(pg, l.projects, l.objectives)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: "0 2px", opacity: 0.5 }} title="Edit"
               onMouseEnter={e => e.currentTarget.style.opacity = "1"} onMouseLeave={e => e.currentTarget.style.opacity = "0.5"}>✎</button>
           </div>
           <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{pg.name}</div>
@@ -311,7 +381,7 @@ export default function LaunchHub() {
           {l.tags.map(tag => (
             <span key={tag.id} style={{ fontSize: 9, padding: "2px 7px", borderRadius: 8, background: tag.color + "20", color: tag.color, fontWeight: 700 }}>{tag.name}</span>
           ))}
-          <div style={{ position: "relative" }}>
+          <div style={{ position: "relative" }} ref={tagMenuId === l.id ? tagMenuRef : null}>
             <button onClick={e => { e.stopPropagation(); setTagMenuId(tagMenuId === l.id ? null : l.id); }} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 8, border: `1px dashed ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>+ tag</button>
             {tagMenuId === l.id && (
               <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 6, minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", marginTop: 4 }}>
