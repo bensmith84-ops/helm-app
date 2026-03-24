@@ -33,6 +33,7 @@ export default function PeopleView() {
   const [inviteRole, setInviteRole] = useState("member");
   const [tab, setTab] = useState("overview");
   const [filterRole, setFilterRole] = useState("");
+  const [filterDept, setFilterDept] = useState("");
   const [viewMode, setViewMode] = useState(() => {
     if (typeof window !== "undefined") { try { return localStorage.getItem("people_view") || "cards"; } catch {} }
     return "cards";
@@ -90,10 +91,12 @@ export default function PeopleView() {
   const getStats = (uid) => { const ut = tasks.filter(t => t.assignee_id === uid); return { open: ut.filter(t => t.status !== "done").length, done: ut.filter(t => t.status === "done").length, total: ut.length, overdue: ut.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== "done").length, projs: [...new Set(ut.map(t => t.project_id).filter(Boolean))] }; };
 
   const filtered = members.filter(m => {
-    if (search && !m.display_name?.toLowerCase().includes(search.toLowerCase()) && !m.email?.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search && !m.display_name?.toLowerCase().includes(search.toLowerCase()) && !m.email?.toLowerCase().includes(search.toLowerCase()) && !m.title?.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterRole) { const om = getMembership(m.id); if (om?.role !== filterRole) return false; }
+    if (filterDept && m.department !== filterDept) return false;
     return true;
   });
+  const departments = [...new Set(members.map(m => m.department).filter(Boolean))].sort();
 
   const inviteUser = async () => {
     if (!inviteEmail.trim()) return showToast("Email required");
@@ -232,10 +235,13 @@ export default function PeopleView() {
           </div>
           <div onClick={() => setSelected(member)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
             <div style={{ width: 32, height: 32, borderRadius: 16, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: c, flexShrink: 0 }}>{ini(member.display_name)}</div>
-            <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.display_name || "Unknown"}</span>
-              {isMe && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: T.accentDim, color: T.accent }}>You</span>}
-              {!active && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: T.redDim, color: T.red }}>Off</span>}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.display_name || "Unknown"}</span>
+                {isMe && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: T.accentDim, color: T.accent }}>You</span>}
+                {!active && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: T.redDim, color: T.red }}>Off</span>}
+              </div>
+              {(member.title || member.department) && <div style={{ fontSize: 10, color: T.text3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.title}{member.title && member.department ? " · " : ""}{member.department}{member.sub_department ? ` / ${member.sub_department}` : ""}</div>}
             </div>
           </div>
           <div style={{ padding: "0 12px", fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.email || "—"}</div>
@@ -393,6 +399,19 @@ export default function PeopleView() {
             </div>
           ) : null;
         })()}
+        {/* Profile fields */}
+        <div style={{ background: T.surface2, borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+          {[["Title", "title"], ["Department", "department"], ["Sub-Department", "sub_department"], ["Location", "location"]].map(([label, field]) => (
+            <div key={field} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: T.text3, width: 90, flexShrink: 0 }}>{label}</span>
+              <input defaultValue={selected[field] || ""} key={selected.id + "-" + field}
+                onBlur={async (e) => { const v = e.target.value.trim() || null; if (v === (selected[field] || null)) return; await supabase.from("profiles").update({ [field]: v }).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, [field]: v } : m)); setSelected(s => ({ ...s, [field]: v })); }}
+                onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+                placeholder={`No ${label.toLowerCase()}`}
+                style={{ flex: 1, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          ))}
+        </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           {!isMe && <button onClick={async () => {
             try {
@@ -588,6 +607,7 @@ export default function PeopleView() {
               <button onClick={() => setView("orgchart")} title="Org Chart" style={{ padding: "7px 10px", background: viewMode === "orgchart" ? T.accent : T.surface2, color: viewMode === "orgchart" ? "#fff" : T.text3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", borderLeft: `1px solid ${T.border}`, borderRadius: "0 8px 8px 0" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="2" width="6" height="4" rx="1"/><rect x="2" y="14" width="6" height="4" rx="1"/><rect x="9" y="14" width="6" height="4" rx="1"/><rect x="16" y="14" width="6" height="4" rx="1"/><path d="M12 6v4M5 14v-2a2 2 0 012-2h10a2 2 0 012 2v2M12 10v4"/></svg></button>
             </div>
             {viewMode !== "teams" && <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: filterRole ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">All roles</option>{ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}</select>}
+            {viewMode !== "teams" && <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: filterDept ? T.text : T.text3, fontSize: 12, cursor: "pointer", outline: "none" }}><option value="">All departments</option>{departments.map(d => <option key={d} value={d}>{d}</option>)}</select>}
             {viewMode !== "teams" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search team…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: 140, fontFamily: "inherit" }} /></div>}
             <button onClick={() => setShowInvite(true)} style={{ padding: "7px 16px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>Add Member</button>
           </div>
@@ -666,7 +686,8 @@ export default function PeopleView() {
                   <div style={{ width: 36, height: 36, borderRadius: 18, background: `${c}15`, border: `2px solid ${c}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: c, margin: "0 auto 5px" }}>{ini(person.display_name)}</div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: T.text, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.display_name || "Unknown"}</div>
                   {person.title && <div style={{ fontSize: 9, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.title}</div>}
-                  {children.length > 0 && <div style={{ fontSize: 8, color: T.accent, marginTop: 3, fontWeight: 600 }}>{children.length} report{children.length !== 1 ? "s" : ""}</div>}
+                  {person.department && <div style={{ fontSize: 8, color: T.accent, marginTop: 2, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.department}{person.sub_department ? ` / ${person.sub_department}` : ""}</div>}
+                  {children.length > 0 && <div style={{ fontSize: 8, color: T.text3, marginTop: 2, fontWeight: 600 }}>{children.length} report{children.length !== 1 ? "s" : ""}</div>}
                 </div>
 
                 {/* Connector line down from card + children */}
