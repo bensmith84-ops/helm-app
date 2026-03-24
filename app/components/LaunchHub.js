@@ -80,9 +80,15 @@ export default function LaunchHub() {
     const projTasks = tasks.filter(t => linkedProjectIds.has(t.project_id) && !t.parent_task_id);
     const doneTasks = projTasks.filter(t => t.status === "done").length;
 
-    // Find linked OKRs (through projects or directly)
-    const objIds = new Set(linkedProjects.map(p => p.objective_id).filter(Boolean));
-    const krIds = new Set(linkedProjects.map(p => p.key_result_id).filter(Boolean));
+    // Find linked OKRs — from direct program link AND through projects
+    const objIds = new Set([
+      ...linkedProjects.map(p => p.objective_id).filter(Boolean),
+      pg.objective_id, // direct link on program
+    ].filter(Boolean));
+    const krIds = new Set([
+      ...linkedProjects.map(p => p.key_result_id).filter(Boolean),
+      pg.key_result_id,
+    ].filter(Boolean));
     const linkedObjs = objectives.filter(o => objIds.has(o.id));
     const linkedKRs = keyResults.filter(kr => krIds.has(kr.id));
 
@@ -113,7 +119,7 @@ export default function LaunchHub() {
   // Edit functions
   const startEdit = (pg, linkedProjects, linkedObjs) => {
     const linkedProjId = linkedProjects.length > 0 ? linkedProjects[0].id : "";
-    const linkedObjId = linkedObjs.length > 0 ? linkedObjs[0].id : "";
+    const linkedObjId = pg.objective_id || (linkedObjs.length > 0 ? linkedObjs[0].id : "");
     setEditingId(pg.id);
     setEditForm({
       name: pg.name, brand: pg.brand || "", priority: pg.priority || "medium",
@@ -125,39 +131,38 @@ export default function LaunchHub() {
   const cancelEdit = () => { setEditingId(null); setEditForm({}); };
   const saveEdit = async (pgId) => {
     const { linked_project_id, linked_objective_id, ...pgFields } = editForm;
-    const payload = { ...pgFields, target_gross_margin_pct: pgFields.target_gross_margin_pct !== "" ? parseFloat(pgFields.target_gross_margin_pct) : null, target_launch_date: pgFields.target_launch_date || null, brand: pgFields.brand || null };
+    const payload = {
+      ...pgFields,
+      target_gross_margin_pct: pgFields.target_gross_margin_pct !== "" ? parseFloat(pgFields.target_gross_margin_pct) : null,
+      target_launch_date: pgFields.target_launch_date || null,
+      brand: pgFields.brand || null,
+      objective_id: linked_objective_id || null,
+    };
     const { error } = await supabase.from("plm_programs").update(payload).eq("id", pgId);
     if (!error) setPrograms(p => p.map(x => x.id === pgId ? { ...x, ...payload } : x));
 
     // Handle project linking
+    const prevLinked = projects.filter(p => p.plm_program_id === pgId);
     if (linked_project_id) {
-      // Unlink any previously linked project
-      const prevLinked = projects.filter(p => p.plm_program_id === pgId && p.id !== linked_project_id);
-      for (const p of prevLinked) {
+      // Unlink previously linked projects that aren't the selected one
+      for (const p of prevLinked.filter(p => p.id !== linked_project_id)) {
         await supabase.from("projects").update({ plm_program_id: null }).eq("id", p.id);
       }
-      // Link the selected project + set objective
+      // Link selected project + set its objective
       const projUpdate = { plm_program_id: pgId };
       if (linked_objective_id) projUpdate.objective_id = linked_objective_id;
       await supabase.from("projects").update(projUpdate).eq("id", linked_project_id);
       setProjects(p => p.map(x => {
-        if (prevLinked.some(pp => pp.id === x.id)) return { ...x, plm_program_id: null };
+        if (x.plm_program_id === pgId && x.id !== linked_project_id) return { ...x, plm_program_id: null };
         if (x.id === linked_project_id) return { ...x, ...projUpdate };
         return x;
       }));
     } else {
-      // Unlink all projects from this program
-      const prevLinked = projects.filter(p => p.plm_program_id === pgId);
+      // Unlink all
       for (const p of prevLinked) {
         await supabase.from("projects").update({ plm_program_id: null }).eq("id", p.id);
       }
       if (prevLinked.length > 0) setProjects(p => p.map(x => x.plm_program_id === pgId ? { ...x, plm_program_id: null } : x));
-    }
-
-    // Handle objective linking on project (if project selected but objective changed)
-    if (linked_project_id && linked_objective_id) {
-      await supabase.from("projects").update({ objective_id: linked_objective_id }).eq("id", linked_project_id);
-      setProjects(p => p.map(x => x.id === linked_project_id ? { ...x, objective_id: linked_objective_id } : x));
     }
 
     setEditingId(null);
