@@ -29,24 +29,33 @@ export default function LaunchHub() {
   const [tasks, setTasks] = useState([]);
   const [objectives, setObjectives] = useState([]);
   const [keyResults, setKeyResults] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [tagAssignments, setTagAssignments] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [tagMenuId, setTagMenuId] = useState(null);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef(null);
 
   useEffect(() => {
     if (!profile?.org_id) return;
     const load = async () => {
-      const [pgR, prR, tR, oR, krR] = await Promise.all([
+      const [pgR, prR, tR, oR, krR, tagR, taR] = await Promise.all([
         supabase.from("plm_programs").select("*").is("deleted_at", null).order("target_launch_date"),
         supabase.from("projects").select("*").is("deleted_at", null).order("name"),
         supabase.from("tasks").select("id,project_id,status,parent_task_id").is("deleted_at", null),
         supabase.from("objectives").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
         supabase.from("key_results").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
+        supabase.from("launch_tags").select("*").eq("org_id", profile.org_id).order("sort_order"),
+        supabase.from("launch_tag_assignments").select("*"),
       ]);
       setPrograms(pgR.data || []);
       setProjects(prR.data || []);
       setTasks(tR.data || []);
       setObjectives(oR.data || []);
       setKeyResults(krR.data || []);
+      setTags(tagR.data || []);
+      setTagAssignments(taR.data || []);
       setLoading(false);
     };
     load();
@@ -68,6 +77,8 @@ export default function LaunchHub() {
     // Also find objectives that mention this program by name (loose coupling)
     const progress = projTasks.length > 0 ? Math.round((doneTasks / projTasks.length) * 100) : 0;
 
+    const programTags = tagAssignments.filter(a => a.program_id === pg.id).map(a => tags.find(t => t.id === a.tag_id)).filter(Boolean);
+
     return {
       id: pg.id,
       program: pg,
@@ -79,12 +90,51 @@ export default function LaunchHub() {
       progress,
       stage: STAGE_MAP[pg.current_stage] || { label: pg.current_stage, color: "#8b93a8" },
       launchDate: pg.target_launch_date,
+      tags: programTags,
     };
   });
 
   // Also find orphan projects linked to OKRs but not PLM
   const plmLinkedProjectIds = new Set(projects.filter(p => p.plm_program_id).map(p => p.id));
   const orphanProjects = projects.filter(p => !p.plm_program_id && p.objective_id && p.status !== "archived");
+
+  // Edit functions
+  const startEdit = (pg) => { setEditingId(pg.id); setEditForm({ name: pg.name, brand: pg.brand || "", priority: pg.priority || "medium", target_launch_date: pg.target_launch_date || "", current_stage: pg.current_stage, target_gross_margin_pct: pg.target_gross_margin_pct || "" }); };
+  const cancelEdit = () => { setEditingId(null); setEditForm({}); };
+  const saveEdit = async (pgId) => {
+    const payload = { ...editForm, target_gross_margin_pct: editForm.target_gross_margin_pct !== "" ? parseFloat(editForm.target_gross_margin_pct) : null, target_launch_date: editForm.target_launch_date || null, brand: editForm.brand || null };
+    const { error } = await supabase.from("plm_programs").update(payload).eq("id", pgId);
+    if (!error) setPrograms(p => p.map(x => x.id === pgId ? { ...x, ...payload } : x));
+    setEditingId(null);
+  };
+
+  // Tag functions
+  const toggleTag = async (programId, tagId) => {
+    const existing = tagAssignments.find(a => a.program_id === programId && a.tag_id === tagId);
+    if (existing) {
+      await supabase.from("launch_tag_assignments").delete().eq("id", existing.id);
+      setTagAssignments(p => p.filter(a => a.id !== existing.id));
+    } else {
+      const { data } = await supabase.from("launch_tag_assignments").insert({ program_id: programId, tag_id: tagId }).select().single();
+      if (data) setTagAssignments(p => [...p, data]);
+    }
+  };
+  const createTag = async () => {
+    const name = prompt("Tag name:");
+    if (!name?.trim()) return;
+    const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f97316", "#8b5cf6", "#ec4899", "#06b6d4", "#eab308", "#14b8a6", "#64748b"];
+    const color = prompt("Color (hex):", COLORS[tags.length % COLORS.length]);
+    if (!color) return;
+    const { data } = await supabase.from("launch_tags").insert({ org_id: profile.org_id, name: name.trim(), color, sort_order: tags.length + 1 }).select().single();
+    if (data) setTags(p => [...p, data]);
+  };
+  const deleteTag = async (tagId) => {
+    if (!confirm("Delete this tag?")) return;
+    await supabase.from("launch_tag_assignments").delete().eq("tag_id", tagId);
+    await supabase.from("launch_tags").delete().eq("id", tagId);
+    setTagAssignments(p => p.filter(a => a.tag_id !== tagId));
+    setTags(p => p.filter(t => t.id !== tagId));
+  };
 
   // Sort: pipeline first (by launch date), then launched
   const pipeline = launches.filter(l => l.program.current_stage !== "launched").sort((a, b) => (a.launchDate || "9999").localeCompare(b.launchDate || "9999"));
@@ -205,6 +255,36 @@ export default function LaunchHub() {
     const isOverdue = daysToLaunch !== null && daysToLaunch < 0 && pg.current_stage !== "launched";
     const stageIdx = STAGES.findIndex(s => s.key === pg.current_stage);
     const stageProgress = STAGES.length > 0 ? Math.round(((stageIdx + 1) / STAGES.length) * 100) : 0;
+    const isEditing = editingId === l.id;
+    const ef = editForm;
+    const programTagIds = new Set(tagAssignments.filter(a => a.program_id === pg.id).map(a => a.tag_id));
+
+    // Edit mode
+    if (isEditing) {
+      const inp = { width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box", fontFamily: "inherit" };
+      const sel = { ...inp, cursor: "pointer" };
+      return (
+        <div key={l.id} style={{ background: T.surface, border: `2px solid ${T.accent}`, borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: T.accent }}>Editing</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => saveEdit(pg.id)} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Save</button>
+              <button onClick={cancelEdit} style={{ padding: "4px 12px", fontSize: 11, background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.text3, cursor: "pointer" }}>Cancel</button>
+            </div>
+          </div>
+          <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Name</label><input value={ef.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} style={inp} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Brand</label><input value={ef.brand} onChange={e => setEditForm(p => ({ ...p, brand: e.target.value }))} style={inp} /></div>
+            <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Priority</label><select value={ef.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value }))} style={sel}>{["critical","high","medium","low"].map(x => <option key={x} value={x}>{x}</option>)}</select></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Launch Date</label><input type="date" value={ef.target_launch_date} onChange={e => setEditForm(p => ({ ...p, target_launch_date: e.target.value }))} style={inp} /></div>
+            <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Stage</label><select value={ef.current_stage} onChange={e => setEditForm(p => ({ ...p, current_stage: e.target.value }))} style={sel}>{STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select></div>
+          </div>
+          <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>GM% Target</label><input type="number" value={ef.target_gross_margin_pct} onChange={e => setEditForm(p => ({ ...p, target_gross_margin_pct: e.target.value }))} placeholder="e.g. 65" style={inp} /></div>
+        </div>
+      );
+    }
 
     return (
       <div key={l.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -213,13 +293,44 @@ export default function LaunchHub() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             {pg.brand && <span style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{pg.brand}</span>}
             <span style={{ marginLeft: "auto", fontSize: 10, padding: "2px 8px", borderRadius: 4, background: l.stage.color + "18", color: l.stage.color, fontWeight: 700 }}>{l.stage.label}</span>
+            <button onClick={() => startEdit(pg)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: "0 2px", opacity: 0.5 }} title="Edit"
+              onMouseEnter={e => e.currentTarget.style.opacity = "1"} onMouseLeave={e => e.currentTarget.style.opacity = "0.5"}>✎</button>
           </div>
           <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{pg.name}</div>
           {l.launchDate && (
             <div style={{ fontSize: 11, color: isOverdue ? "#ef4444" : T.text3, marginTop: 2, fontWeight: isOverdue ? 600 : 400 }}>
-              {isOverdue ? `${Math.abs(daysToLaunch)}d overdue` : pg.current_stage === "launched" ? `Launched ${l.launchDate}` : `${daysToLaunch}d to launch · ${l.launchDate}`}
+              {isOverdue ? `${Math.abs(daysToLaunch)}d overdue` : pg.current_stage === "launched" ? `Launched ${l.launchDate}` : `${daysToLaunch}d to launch \u00b7 ${l.launchDate}`}
             </div>
           )}
+        </div>
+
+        {/* Tags */}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+          {l.tags.map(tag => (
+            <span key={tag.id} style={{ fontSize: 9, padding: "2px 7px", borderRadius: 8, background: tag.color + "20", color: tag.color, fontWeight: 700 }}>{tag.name}</span>
+          ))}
+          <div style={{ position: "relative" }}>
+            <button onClick={e => { e.stopPropagation(); setTagMenuId(tagMenuId === l.id ? null : l.id); }} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 8, border: `1px dashed ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>+ tag</button>
+            {tagMenuId === l.id && (
+              <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 6, minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", marginTop: 4 }}>
+                {tags.map(tag => (
+                  <div key={tag.id} onClick={() => toggleTag(pg.id, tag.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11 }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <span style={{ width: 8, height: 8, borderRadius: 4, background: tag.color, flexShrink: 0 }} />
+                    <span style={{ color: programTagIds.has(tag.id) ? T.accent : T.text, flex: 1 }}>{tag.name}</span>
+                    {programTagIds.has(tag.id) && <span style={{ fontSize: 10, color: T.accent }}>\u2713</span>}
+                    <button onClick={e => { e.stopPropagation(); deleteTag(tag.id); }} style={{ fontSize: 8, padding: "1px 3px", background: "none", border: `1px solid ${T.border}`, borderRadius: 3, color: T.text3, cursor: "pointer", opacity: 0.4 }} title="Delete tag">\u2715</button>
+                  </div>
+                ))}
+                <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
+                  <div onClick={() => { createTag(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11, color: T.accent, fontWeight: 600 }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    + Create new tag
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Stage progress bar */}
@@ -238,11 +349,11 @@ export default function LaunchHub() {
           <div style={{ padding: "8px 10px", borderRadius: 6, background: T.accentDim, border: `1px solid ${T.accent}30` }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>OKR</div>
             {l.objectives.map(o => (
-              <div key={o.id} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>◎ {o.title}</div>
+              <div key={o.id} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>\u25ce {o.title}</div>
             ))}
             {l.keyResults.map(kr => (
               <div key={kr.id} style={{ fontSize: 10, color: T.text2, marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}>
-                <span>◉ {kr.title}</span>
+                <span>\u25c9 {kr.title}</span>
                 <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, color: T.accent }}>{Math.round(kr.progress || 0)}%</span>
               </div>
             ))}
@@ -285,7 +396,7 @@ export default function LaunchHub() {
           </div>
         )}
 
-        {/* Priority */}
+        {/* Priority + Markets */}
         {pg.priority && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: (PRI_COLORS[pg.priority] || T.text3) + "15", color: PRI_COLORS[pg.priority] || T.text3, fontWeight: 700, textTransform: "uppercase" }}>{pg.priority}</span>
