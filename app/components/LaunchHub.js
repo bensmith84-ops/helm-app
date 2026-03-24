@@ -34,6 +34,9 @@ export default function LaunchHub() {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [tagMenuId, setTagMenuId] = useState(null);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#3b82f6");
+  const [showCreateTag, setShowCreateTag] = useState(false);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef(null);
 
@@ -120,13 +123,12 @@ export default function LaunchHub() {
     }
   };
   const createTag = async () => {
-    const name = prompt("Tag name:");
-    if (!name?.trim()) return;
-    const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f97316", "#8b5cf6", "#ec4899", "#06b6d4", "#eab308", "#14b8a6", "#64748b"];
-    const color = prompt("Color (hex):", COLORS[tags.length % COLORS.length]);
-    if (!color) return;
-    const { data } = await supabase.from("launch_tags").insert({ org_id: profile.org_id, name: name.trim(), color, sort_order: tags.length + 1 }).select().single();
+    if (!newTagName.trim()) return;
+    const { data } = await supabase.from("launch_tags").insert({ org_id: profile.org_id, name: newTagName.trim(), color: newTagColor, sort_order: tags.length + 1 }).select().single();
     if (data) setTags(p => [...p, data]);
+    setNewTagName("");
+    setNewTagColor("#3b82f6");
+    setShowCreateTag(false);
   };
   const deleteTag = async (tagId) => {
     if (!confirm("Delete this tag?")) return;
@@ -323,10 +325,27 @@ export default function LaunchHub() {
                   </div>
                 ))}
                 <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
-                  <div onClick={() => { createTag(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11, color: T.accent, fontWeight: 600 }}
-                    onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    + Create new tag
-                  </div>
+                  {showCreateTag ? (
+                    <div style={{ padding: "6px 8px" }}>
+                      <input value={newTagName} onChange={e => setNewTagName(e.target.value)} placeholder="Tag name" autoFocus
+                        onKeyDown={e => { if (e.key === "Enter") createTag(); if (e.key === "Escape") { setShowCreateTag(false); setNewTagName(""); } }}
+                        style={{ width: "100%", padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                        {["#3b82f6","#ef4444","#22c55e","#f97316","#8b5cf6","#ec4899","#06b6d4","#eab308","#14b8a6","#64748b"].map(c => (
+                          <div key={c} onClick={() => setNewTagColor(c)} style={{ width: 18, height: 18, borderRadius: 9, background: c, cursor: "pointer", border: newTagColor === c ? "2px solid #fff" : "2px solid transparent", boxShadow: newTagColor === c ? `0 0 0 1.5px ${c}` : "none", transition: "all 0.1s" }} />
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button onClick={createTag} disabled={!newTagName.trim()} style={{ flex: 1, padding: "4px 0", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 5, cursor: newTagName.trim() ? "pointer" : "default", opacity: newTagName.trim() ? 1 : 0.4 }}>Add</button>
+                        <button onClick={() => { setShowCreateTag(false); setNewTagName(""); }} style={{ padding: "4px 8px", fontSize: 11, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div onClick={() => setShowCreateTag(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11, color: T.accent, fontWeight: 600 }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      + Create new tag
+                    </div>
+                  )}
                 </div>
               </div>
             )}
