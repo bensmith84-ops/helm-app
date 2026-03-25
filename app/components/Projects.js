@@ -2075,7 +2075,6 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                   <div style={{ width: 24, height: 24, borderRadius: 12, background: acol(user?.id) + "30", color: acol(user?.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{ini(user?.id)}</div>
                   <MentionInput
-                    members={members}
                     profiles={profiles}
                     onSubmit={(text) => { addCommentFromRef(text); }}
                     placeholder="Write a comment… Type @ to mention"
