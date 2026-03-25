@@ -840,6 +840,7 @@ export default function DashboardView({ setActive }) {
   const [finMonthly, setFinMonthly] = useState({});
   const [plmPrograms, setPlmPrograms] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
+  const [scoreboardData, setScoreboardData] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
   const [focusItems, setFocusItems] = useState([]);
   const [showNewTask, setShowNewTask] = useState(false);
@@ -861,7 +862,7 @@ export default function DashboardView({ setActive }) {
         { data: projects }, { data: sections }, { data: tasks }, { data: profiles },
         { data: objectives }, { data: keyResults }, { data: cycles },
         { data: approvals }, { data: fmData }, { data: plm },
-        { data: activity }, { data: focus },
+        { data: activity }, { data: focus }, { data: scoreboardDaily },
       ] = await Promise.all([
         supabase.from("projects").select("*").is("deleted_at", null).order("name"),
         supabase.from("sections").select("*").order("sort_order"),
@@ -875,6 +876,7 @@ export default function DashboardView({ setActive }) {
         supabase.from("plm_programs").select("*").is("deleted_at", null).order("created_at", { ascending: false }).limit(10),
         supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(20),
         supabase.from("dashboard_focus_items").select("*").eq("focus_date", todayStr).order("sort_order"),
+        supabase.from("scoreboard_daily").select("date,metric_key,value").in("metric_key", ["revenue", "amazon_revenue", "net_dollars"]).gte("date", `${yr}-01-01`).order("date"),
       ]);
 
       const profMap = {};
@@ -889,6 +891,7 @@ export default function DashboardView({ setActive }) {
       setPendingApprovals(approvals || []);
       setPlmPrograms(plm || []);
       setRecentActivity(activity || []);
+      setScoreboardData(scoreboardDaily || []);
       setFocusItems(focus || []);
 
       if (cycleKRs.length > 0) {
@@ -942,13 +945,19 @@ export default function DashboardView({ setActive }) {
   const myTasks      = openTasks.filter(t => t.assignee_id === profile?.id && !t.parent_task_id)
     .sort((a,b) => { if(!a.due_date&&!b.due_date) return 0; if(!a.due_date) return 1; if(!b.due_date) return -1; return a.due_date.localeCompare(b.due_date); }).slice(0, 6);
 
-  const revMetric = finMetrics.find(m => m.metric_key === "revenue");
-  const netMetric = finMetrics.find(m => m.metric_key === "net_dollars");
-  const ytdRev = revMetric ? Object.entries(finMonthly[revMetric.id]||{})
-    .filter(([m]) => Number(m) <= curMonth).reduce((s,[,r]) => s+(r.actual||0), 0) : null;
-  const ytdNet = netMetric ? Object.entries(finMonthly[netMetric.id]||{})
-    .filter(([m]) => Number(m) <= curMonth).reduce((s,[,r]) => s+(r.actual||0), 0) : null;
-  const revSparkline = revMetric ? Array.from({length:curMonth},(_,i)=>i+1).map(m=>finMonthly[revMetric.id]?.[m]?.actual||0) : [];
+  // YTD from Daily Scoreboard — sum Shopify (revenue) + Amazon (amazon_revenue)
+  const sbShopifyRev = scoreboardData.filter(r => r.metric_key === "revenue").reduce((s, r) => s + (Number(r.value) || 0), 0);
+  const sbAmazonRev = scoreboardData.filter(r => r.metric_key === "amazon_revenue").reduce((s, r) => s + (Number(r.value) || 0), 0);
+  const ytdRev = (sbShopifyRev + sbAmazonRev) || null;
+  const ytdNet = scoreboardData.filter(r => r.metric_key === "net_dollars").reduce((s, r) => s + (Number(r.value) || 0), 0) || null;
+
+  // Monthly sparkline from scoreboard — group by month, sum shopify + amazon per month
+  const revByMonth = {};
+  scoreboardData.filter(r => r.metric_key === "revenue" || r.metric_key === "amazon_revenue").forEach(r => {
+    const m = new Date(r.date + "T00:00:00").getMonth() + 1;
+    revByMonth[m] = (revByMonth[m] || 0) + (Number(r.value) || 0);
+  });
+  const revSparkline = Array.from({ length: curMonth }, (_, i) => revByMonth[i + 1] || 0);
 
   const inDev = plmPrograms.filter(p => ["development","optimization","validation","scale_up"].includes(p.current_stage)).length;
   const launchReady = plmPrograms.filter(p => p.current_stage === "launch_ready").length;
@@ -1117,7 +1126,7 @@ export default function DashboardView({ setActive }) {
         {/* ── KPI Row ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>
           <KPICard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"—"}
-            sub={revMetric?.target_annual ? `Target: ${fmt$(revMetric.target_annual)}` : "Sync from Sheet for data"}
+            sub={ytdRev ? `Shopify ${fmt$(sbShopifyRev)} · Amazon ${fmt$(sbAmazonRev)}` : "Sync Daily Scoreboard for data"}
             color="#22c55e" onClick={() => setActive("okrs")} />
           <KPICard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"—"}
             sub={ytdRev&&ytdNet ? `${((ytdNet/ytdRev)*100).toFixed(1)}% margin` : ""}
@@ -1141,9 +1150,11 @@ export default function DashboardView({ setActive }) {
             } />
             {revSparkline.some(v=>v>0) ? (
               <div>
-                <div style={{ display:"flex", gap:24, marginBottom:16 }}>
-                  <div><div style={{ fontSize:24, fontWeight:800, color:"#22c55e" }}>{fmt$(ytdRev)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Revenue</div></div>
+                <div style={{ display:"flex", gap:24, marginBottom:16, flexWrap:"wrap" }}>
+                  <div><div style={{ fontSize:24, fontWeight:800, color:"#22c55e" }}>{fmt$(ytdRev)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Revenue (Shopify + Amazon)</div></div>
                   {ytdNet!=null&&<div><div style={{ fontSize:24, fontWeight:800, color:ytdNet>=0?"#22c55e":"#ef4444" }}>{fmt$(ytdNet)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Net $</div></div>}
+                  <div><div style={{ fontSize:16, fontWeight:700, color:T.text2 }}>{fmt$(sbShopifyRev)}</div><div style={{ fontSize:10, color:T.text3 }}>Shopify</div></div>
+                  <div><div style={{ fontSize:16, fontWeight:700, color:T.text2 }}>{fmt$(sbAmazonRev)}</div><div style={{ fontSize:10, color:T.text3 }}>Amazon</div></div>
                 </div>
                 <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:80 }}>
                   {revSparkline.map((v, i) => {
