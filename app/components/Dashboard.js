@@ -1151,6 +1151,123 @@ export default function DashboardView({ setActive }) {
             color={T.accent} onClick={() => setActive("plm")} />
         </div>
 
+        {/* ── My Tasks + Inbox — TOP POSITION ── */}
+        <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
+          <Card>
+            <SectionHeader title="My Tasks" icon="👤" action={
+              <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
+            } />
+            {myTasks.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"24px 0", color:T.text3, fontSize:13 }}>No open tasks assigned to you 🎉</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {myTasks.map(t => {
+                  const proj = projects.find(p => p.id === t.project_id);
+                  const isOverdue = t.due_date && t.due_date < todayStr;
+                  const isDueToday = t.due_date === todayStr;
+                  const priColors = { urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" };
+                  const priColor = priColors[t.priority] || T.text3;
+                  return (
+                    <div key={t.id} onClick={() => setActive("projects", t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}` }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
+                        <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{proj?.name || "—"}</div>
+                      </div>
+                      {t.due_date && (
+                        <span style={{ fontSize:10, fontWeight:600, padding:"2px 7px", borderRadius:4, flexShrink:0,
+                          background: isOverdue ? "#ef444420" : isDueToday ? T.accent+"20" : T.surface3,
+                          color: isOverdue ? "#ef4444" : isDueToday ? T.accent : T.text3 }}>
+                          {isDueToday ? "Today" : isOverdue ? `${Math.ceil((now - new Date(t.due_date))/86400000)}d late` : new Date(t.due_date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {overdueTasks.length > 0 && (
+              <div style={{ marginTop:10, padding:"8px 12px", borderRadius:8, background:"#ef444408", border:"1px solid #ef444430" }}>
+                <span style={{ fontSize:11, color:"#ef4444", fontWeight:600 }}>⚠️ {overdueTasks.length} overdue task{overdueTasks.length!==1?"s":""} across all projects</span>
+              </div>
+            )}
+          </Card>
+
+          {/* ── Inbox ── */}
+          <Card>
+            <SectionHeader title="Inbox" icon="📥" action={
+              inbox.filter(n => !n.is_read).length > 0 ? (
+                <button onClick={async () => {
+                  const unread = inbox.filter(n => !n.is_read).map(n => n.id);
+                  if (unread.length === 0) return;
+                  await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).in("id", unread);
+                  setInbox(p => p.map(n => ({ ...n, is_read: true, read_at: new Date().toISOString() })));
+                }} style={{ background:"none", border:"none", color:T.accent, fontSize:11, cursor:"pointer", fontWeight:500 }}>Mark all read</button>
+              ) : <span style={{ fontSize:10, color:T.text3 }}>All caught up</span>
+            } />
+            {inbox.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"30px 0", color:T.text3 }}>
+                <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
+                <div style={{ fontSize:13, fontWeight:500 }}>No notifications yet</div>
+                <div style={{ fontSize:11, marginTop:4 }}>When someone @mentions you or assigns you a task, it will show up here.</div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:2, maxHeight:400, overflow:"auto" }}>
+                {inbox.map(n => {
+                  const actor = profiles[n.actor_id];
+                  const ac = acol(n.actor_id);
+                  const isUnread = !n.is_read;
+                  const meta = n.metadata || {};
+                  const typeIcon = n.type === "mention" ? "💬" : n.type === "assignment" ? "📋" : n.type === "status_change" ? "🔄" : "🔔";
+                  const age = relTime(n.created_at);
+                  return (
+                    <div key={n.id}
+                      onClick={async () => {
+                        if (isUnread) {
+                          await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("id", n.id);
+                          setInbox(p => p.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                        }
+                        if (n.entity_type === "task" && n.entity_id) setActive("projects", n.entity_id);
+                      }}
+                      style={{
+                        display:"flex", gap:10, padding:"10px 12px", borderRadius:8, cursor:"pointer",
+                        background: isUnread ? T.accent + "08" : "transparent",
+                        borderLeft: isUnread ? `3px solid ${T.accent}` : "3px solid transparent",
+                      }}
+                      onMouseEnter={e => { if (!isUnread) e.currentTarget.style.background = T.surface2; }}
+                      onMouseLeave={e => { if (!isUnread) e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <div style={{ width:28, height:28, borderRadius:14, background:ac+"15", border:"2px solid "+ac+"30", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:ac, flexShrink:0, marginTop:1 }}>
+                        {actor?.display_name ? actor.display_name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase() : "?"}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                          <span style={{ fontSize:12, fontWeight: isUnread ? 700 : 500, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{n.title}</span>
+                          <span style={{ fontSize:9, color:T.text3, flexShrink:0 }}>{age}</span>
+                        </div>
+                        {n.body && (
+                          <div style={{ fontSize:11, color:T.text3, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {n.body.split(/(@[A-Za-z\u00C0-\u024F' ]+)/g).map((part, i) =>
+                              part.startsWith("@") ? <span key={i} style={{ color:T.accent, fontWeight:600 }}>{part}</span> : part
+                            )}
+                          </div>
+                        )}
+                        {meta.task_title && (
+                          <div style={{ fontSize:10, color:T.text3, marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
+                            <span>{typeIcon}</span>
+                            <span style={{ fontWeight:500 }}>{meta.task_title}</span>
+                            {meta.project_name && <span>in {meta.project_name}</span>}
+                          </div>
+                        )}
+                      </div>
+                      {isUnread && <div style={{ width:8, height:8, borderRadius:4, background:T.accent, flexShrink:0, marginTop:8 }} />}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
+
         {/* ── Revenue trend + OKRs ── */}
         <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
           <Card>
@@ -1234,126 +1351,6 @@ export default function DashboardView({ setActive }) {
           </Card>
         </div>
 
-        {/* ── My Tasks + Inbox ── */}
-        <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
-          <Card>
-            <SectionHeader title="My Tasks" icon="👤" action={
-              <button onClick={() => setActive("projects")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
-            } />
-            {myTasks.length === 0 ? (
-              <div style={{ textAlign:"center", padding:"24px 0", color:T.text3, fontSize:13 }}>No open tasks assigned to you 🎉</div>
-            ) : (
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {myTasks.map(t => {
-                  const proj = projects.find(p => p.id === t.project_id);
-                  const isOverdue = t.due_date && t.due_date < todayStr;
-                  const isDueToday = t.due_date === todayStr;
-                  const priColors = { urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" };
-                  const priColor = priColors[t.priority] || T.text3;
-                  return (
-                    <div key={t.id} onClick={() => setActive("projects", t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}` }}>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
-                        <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{proj?.name || "—"}</div>
-                      </div>
-                      {t.due_date && (
-                        <span style={{ fontSize:10, fontWeight:600, padding:"2px 7px", borderRadius:4, flexShrink:0,
-                          background: isOverdue ? "#ef444420" : isDueToday ? T.accent+"20" : T.surface3,
-                          color: isOverdue ? "#ef4444" : isDueToday ? T.accent : T.text3 }}>
-                          {isDueToday ? "Today" : isOverdue ? `${Math.ceil((now - new Date(t.due_date))/86400000)}d late` : new Date(t.due_date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {overdueTasks.length > 0 && (
-              <div style={{ marginTop:10, padding:"8px 12px", borderRadius:8, background:"#ef444408", border:"1px solid #ef444430" }}>
-                <span style={{ fontSize:11, color:"#ef4444", fontWeight:600 }}>⚠️ {overdueTasks.length} overdue task{overdueTasks.length!==1?"s":""} across all projects</span>
-              </div>
-            )}
-          </Card>
-
-          {/* ── Inbox (Asana-style) ── */}
-          <Card>
-            <SectionHeader title="Inbox" icon="📥" action={
-              inbox.filter(n => !n.is_read).length > 0 ? (
-                <button onClick={async () => {
-                  const unread = inbox.filter(n => !n.is_read).map(n => n.id);
-                  if (unread.length === 0) return;
-                  await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).in("id", unread);
-                  setInbox(p => p.map(n => ({ ...n, is_read: true, read_at: new Date().toISOString() })));
-                }} style={{ background:"none", border:"none", color:T.accent, fontSize:11, cursor:"pointer", fontWeight:500 }}>Mark all read</button>
-              ) : <span style={{ fontSize:10, color:T.text3 }}>All caught up</span>
-            } />
-            {inbox.length === 0 ? (
-              <div style={{ textAlign:"center", padding:"30px 0", color:T.text3 }}>
-                <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
-                <div style={{ fontSize:13, fontWeight:500 }}>No notifications yet</div>
-                <div style={{ fontSize:11, marginTop:4 }}>When someone @mentions you in a comment or assigns you a task, it will show up here.</div>
-              </div>
-            ) : (
-              <div style={{ display:"flex", flexDirection:"column", gap:2, maxHeight:400, overflow:"auto" }}>
-                {inbox.map(n => {
-                  const actor = profiles[n.actor_id];
-                  const ac = acol(n.actor_id);
-                  const isUnread = !n.is_read;
-                  const meta = n.metadata || {};
-                  const typeIcon = n.type === "mention" ? "💬" : n.type === "assignment" ? "📋" : n.type === "status_change" ? "🔄" : n.type === "comment" ? "💬" : "🔔";
-                  const age = relTime(n.created_at);
-                  return (
-                    <div key={n.id}
-                      onClick={async () => {
-                        if (isUnread) {
-                          await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("id", n.id);
-                          setInbox(p => p.map(x => x.id === n.id ? { ...x, is_read: true } : x));
-                        }
-                        if (n.entity_type === "task" && n.entity_id) setActive("projects", n.entity_id);
-                      }}
-                      style={{
-                        display:"flex", gap:10, padding:"10px 12px", borderRadius:8, cursor:"pointer",
-                        background: isUnread ? T.accent + "08" : "transparent",
-                        borderLeft: isUnread ? `3px solid ${T.accent}` : "3px solid transparent",
-                        transition:"background 0.15s"
-                      }}
-                      onMouseEnter={e => { if (!isUnread) e.currentTarget.style.background = T.surface2; }}
-                      onMouseLeave={e => { if (!isUnread) e.currentTarget.style.background = "transparent"; }}
-                    >
-                      {/* Actor avatar */}
-                      <div style={{ width:28, height:28, borderRadius:14, background:ac+"15", border:"2px solid "+ac+"30", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:ac, flexShrink:0, marginTop:1 }}>
-                        {actor?.display_name ? actor.display_name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase() : "?"}
-                      </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                          <span style={{ fontSize:12, fontWeight: isUnread ? 700 : 500, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>
-                            {n.title}
-                          </span>
-                          <span style={{ fontSize:9, color:T.text3, flexShrink:0 }}>{age}</span>
-                        </div>
-                        {n.body && (
-                          <div style={{ fontSize:11, color:T.text3, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>
-                            {n.body.split(/(@[A-Za-z\u00C0-\u024F' ]+)/g).map((part, i) =>
-                              part.startsWith("@") ? <span key={i} style={{ color:T.accent, fontWeight:600 }}>{part}</span> : part
-                            )}
-                          </div>
-                        )}
-                        {meta.task_title && (
-                          <div style={{ fontSize:10, color:T.text3, marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
-                            <span>{typeIcon}</span>
-                            <span style={{ fontWeight:500 }}>{meta.task_title}</span>
-                            {meta.project_name && <span style={{ color:T.text3 }}>in {meta.project_name}</span>}
-                          </div>
-                        )}
-                      </div>
-                      {isUnread && <div style={{ width:8, height:8, borderRadius:4, background:T.accent, flexShrink:0, marginTop:8 }} />}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-        </div>
 
         {/* ── PLM Pipeline ── */}
         <div style={{ marginBottom:20 }}>

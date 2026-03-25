@@ -677,7 +677,6 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       // Create notifications for mentioned users
       const proj = projects.find(p => p.id === selectedTask.project_id);
       for (const uid of mentionIds) {
-        if (uid === user.id) continue; // don't notify yourself
         await supabase.from("notifications").insert({
           org_id: profile.org_id, user_id: uid, type: "mention",
           title: `${uname(user.id)} mentioned you in a comment`,
