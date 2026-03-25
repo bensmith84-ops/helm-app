@@ -15,6 +15,99 @@ const TABS = ["Info", "List", "Board", "Timeline", "Calendar", "Updates", "Docs"
 const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
 
+// @Mention Input Component
+function MentionInput({ members, profiles, onSubmit, placeholder, T, ini, acol }) {
+  const [text, setText] = useState("");
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const inputRef = useRef(null);
+
+  const allPeople = useMemo(() => {
+    const list = members?.length > 0 ? members : Object.values(profiles || {});
+    return list.filter(m => m.display_name).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
+  }, [members, profiles]);
+
+  const filtered = allPeople.filter(m =>
+    !mentionFilter || m.display_name?.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+    m.title?.toLowerCase().includes(mentionFilter.toLowerCase())
+  ).slice(0, 8);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setText(val);
+    // Check if we're in a @mention context
+    const cursorPos = e.target.selectionStart;
+    const beforeCursor = val.slice(0, cursorPos);
+    const atMatch = beforeCursor.match(/@([A-Za-z\u00C0-\u024F' ]*)$/);
+    if (atMatch) {
+      setShowMentions(true);
+      setMentionFilter(atMatch[1]);
+      setMentionIdx(0);
+    } else {
+      setShowMentions(false);
+    }
+  };
+
+  const insertMention = (person) => {
+    const cursorPos = inputRef.current.selectionStart;
+    const beforeCursor = text.slice(0, cursorPos);
+    const afterCursor = text.slice(cursorPos);
+    const atIdx = beforeCursor.lastIndexOf("@");
+    const newText = beforeCursor.slice(0, atIdx) + `@[${person.display_name}](${person.id}) ` + afterCursor;
+    setText(newText);
+    setShowMentions(false);
+    setTimeout(() => inputRef.current?.focus(), 10);
+  };
+
+  const handleKeyDown = (e) => {
+    if (showMentions && filtered.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setMentionIdx(i => Math.min(i + 1, filtered.length - 1)); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setMentionIdx(i => Math.max(i - 1, 0)); return; }
+      if (e.key === "Tab" || e.key === "Enter") { e.preventDefault(); insertMention(filtered[mentionIdx]); return; }
+      if (e.key === "Escape") { setShowMentions(false); return; }
+    }
+    if (e.key === "Enter" && !showMentions) {
+      e.preventDefault();
+      if (text.trim()) { onSubmit(text.trim()); setText(""); }
+    }
+  };
+
+  // Display text with mentions rendered nicely
+  const displayValue = text.replace(/@\[([^\]]+)\]\([^)]+\)/g, "@$1");
+
+  return (
+    <div style={{ flex: 1, position: "relative" }}>
+      <input
+        ref={inputRef}
+        value={displayValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={() => setTimeout(() => setShowMentions(false), 200)}
+        placeholder={placeholder}
+        style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box" }}
+      />
+      {showMentions && filtered.length > 0 && (
+        <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", maxHeight: 220, overflow: "auto", zIndex: 100 }}>
+          <div style={{ padding: "6px 10px", fontSize: 10, color: T.text3, fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>People</div>
+          {filtered.map((m, i) => (
+            <div key={m.id} onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", cursor: "pointer", background: i === mentionIdx ? T.accent + "15" : "transparent", transition: "background 0.1s" }}
+              onMouseEnter={() => setMentionIdx(i)}
+            >
+              <div style={{ width: 22, height: 22, borderRadius: 11, background: acol(m.id) + "20", color: acol(m.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>{ini(m.id)}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.display_name}</div>
+                {m.title && <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.title}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const { user, profile } = useAuth();
   const { isMobile, isTablet } = useResponsive();
@@ -368,7 +461,20 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const createStandaloneTask = async (title) => { if (!title?.trim() || !profile?.org_id) return; const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, title: title.trim(), status: "todo", priority: "none", assignee_id: user.id, sort_order: 0, created_by: user.id }).select().single(); if (error) return showToast("Failed to create task"); setTasks(p => [...p, data]); showToast("Personal task created", "success"); };
   const createSubtask = async (parentTask, titleOverride) => { const title = titleOverride || _newSubTitleRef.current || newSubtaskTitle; if (!title.trim()) return; const currentTasks = _tasksRef.current; const mx = currentTasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id, title: title.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create subtask"); setTasks(p => [...p, data]); setExpandedTasks(p => ({ ...p, [parentTask.id]: true })); setNewSubtaskTitle(""); setAddingSubtaskTo(null); executeRules(data.id, "__created", true, null, data); };
   const startAddSubtask = (task, e) => { e?.stopPropagation(); setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); setExpandedTasks(p => ({ ...p, [task.id]: true })); };
-  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); return; } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); } executeRules(taskId, field, value, old?.[field]); };
+  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); return; } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); }
+    // Notify on assignment
+    if (field === "assignee_id" && value && value !== user?.id && value !== old?.assignee_id) {
+      const proj = projects.find(p => p.id === (old?.project_id || activeProject));
+      supabase.from("notifications").insert({
+        org_id: profile?.org_id, user_id: value, type: "assignment",
+        title: `${uname(user?.id)} assigned you a task`,
+        body: old?.title || "Untitled task",
+        entity_type: "task", entity_id: taskId,
+        actor_id: user?.id, is_read: false, category: "assignment",
+        metadata: { task_title: old?.title, project_name: proj?.name || null }
+      });
+    }
+    executeRules(taskId, field, value, old?.[field]); };
   const toggleDone = async (task, e) => {
     e?.stopPropagation();
     const newStatus = task.status === "done" ? "todo" : "done";
@@ -553,7 +659,36 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   };
 
   const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, key_result_id: projectForm.key_result_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
-  const addCommentFromRef = async (text) => { if (!text || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: text }).select().single(); if (!error && data) setComments(p => [...p, data]); };
+  const addCommentFromRef = async (text) => {
+    if (!text || !selectedTask) return;
+    // Extract @mentions — pattern: @[Name](userId)
+    const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
+    const mentionIds = [];
+    let match;
+    while ((match = mentionRegex.exec(text)) !== null) mentionIds.push(match[2]);
+    // Store display text with @Name highlighted but strip the ID syntax for storage
+    const displayText = text.replace(/@\[([^\]]+)\]\([^)]+\)/g, "@$1");
+    const { data, error } = await supabase.from("comments").insert({
+      org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id,
+      author_id: user.id, content: displayText, mentions: mentionIds.length > 0 ? mentionIds : null
+    }).select().single();
+    if (!error && data) {
+      setComments(p => [...p, data]);
+      // Create notifications for mentioned users
+      const proj = projects.find(p => p.id === selectedTask.project_id);
+      for (const uid of mentionIds) {
+        if (uid === user.id) continue; // don't notify yourself
+        await supabase.from("notifications").insert({
+          org_id: profile.org_id, user_id: uid, type: "mention",
+          title: `${uname(user.id)} mentioned you in a comment`,
+          body: displayText.length > 120 ? displayText.slice(0, 120) + "…" : displayText,
+          entity_type: "task", entity_id: selectedTask.id,
+          actor_id: user.id, is_read: false, category: "mention",
+          metadata: { task_title: selectedTask.title, project_name: proj?.name || null, comment_id: data.id }
+        });
+      }
+    }
+  };
   const editComment = async (id, newContent) => {
     if (!newContent?.trim()) return;
     const { data, error } = await supabase.from("comments").update({ content: newContent.trim(), is_edited: true, edited_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id).select().single();
@@ -1921,7 +2056,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                         </div>
                       ) : (
                         <div style={{ position: "relative" }}>
-                          <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.4 }}>{c.content}</div>
+                          <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.4 }}>{
+                            c.content.split(/(@[A-Za-z\u00C0-\u024F' ]+)/g).map((part, i) =>
+                              part.startsWith("@") ? <span key={i} style={{ color: T.accent, fontWeight: 600, background: T.accent + "12", padding: "0 3px", borderRadius: 3 }}>{part}</span> : part
+                            )
+                          }</div>
                           {c.author_id === user?.id && (
                             <div style={{ display: "flex", gap: 4, marginTop: 3, opacity: 0.5, transition: "opacity 0.15s" }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
                               <button onClick={() => setEditingCommentId(c.id)} style={{ padding: "1px 6px", fontSize: 9, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer" }}>Edit</button>
@@ -1935,10 +2074,15 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 ))}
                 <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                   <div style={{ width: 24, height: 24, borderRadius: 12, background: acol(user?.id) + "30", color: acol(user?.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{ini(user?.id)}</div>
-                  <input ref={commentRef} defaultValue="" onKeyDown={e => { if (e.key === "Enter") { const val = e.target.value.trim(); if (val) { addCommentFromRef(val); e.target.value = ""; } } }}
-                    placeholder="Write a comment…"
-                    style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }} />
-                  <button onClick={() => { const val = commentRef.current?.value?.trim(); if (val) { addCommentFromRef(val); commentRef.current.value = ""; } }} style={{ padding: "6px 12px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer" }}>→</button>
+                  <MentionInput
+                    members={members}
+                    profiles={profiles}
+                    onSubmit={(text) => { addCommentFromRef(text); }}
+                    placeholder="Write a comment… Type @ to mention"
+                    T={T}
+                    ini={ini}
+                    acol={acol}
+                  />
                 </div>
               </div>
             </div>

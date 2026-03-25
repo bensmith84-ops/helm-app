@@ -841,6 +841,7 @@ export default function DashboardView({ setActive }) {
   const [plmPrograms, setPlmPrograms] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [scoreboardData, setScoreboardData] = useState([]);
+  const [inbox, setInbox] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
   const [focusItems, setFocusItems] = useState([]);
   const [showNewTask, setShowNewTask] = useState(false);
@@ -893,6 +894,14 @@ export default function DashboardView({ setActive }) {
       setRecentActivity(activity || []);
       setScoreboardData(scoreboardDaily || []);
       setFocusItems(focus || []);
+
+      // Load inbox notifications for current user
+      if (profMap[user?.id]) {
+        const { data: notifs } = await supabase.from("notifications")
+          .select("*").eq("user_id", user.id)
+          .order("created_at", { ascending: false }).limit(50);
+        setInbox(notifs || []);
+      }
 
       if (cycleKRs.length > 0) {
         const krIds = cycleKRs.map(k => k.id);
@@ -1225,7 +1234,7 @@ export default function DashboardView({ setActive }) {
           </Card>
         </div>
 
-        {/* ── My Tasks + PLM Pipeline ── */}
+        {/* ── My Tasks + Inbox ── */}
         <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
           <Card>
             <SectionHeader title="My Tasks" icon="👤" action={
@@ -1266,6 +1275,88 @@ export default function DashboardView({ setActive }) {
             )}
           </Card>
 
+          {/* ── Inbox (Asana-style) ── */}
+          <Card>
+            <SectionHeader title="Inbox" icon="📥" action={
+              inbox.filter(n => !n.is_read).length > 0 ? (
+                <button onClick={async () => {
+                  const unread = inbox.filter(n => !n.is_read).map(n => n.id);
+                  if (unread.length === 0) return;
+                  await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).in("id", unread);
+                  setInbox(p => p.map(n => ({ ...n, is_read: true, read_at: new Date().toISOString() })));
+                }} style={{ background:"none", border:"none", color:T.accent, fontSize:11, cursor:"pointer", fontWeight:500 }}>Mark all read</button>
+              ) : <span style={{ fontSize:10, color:T.text3 }}>All caught up</span>
+            } />
+            {inbox.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"30px 0", color:T.text3 }}>
+                <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
+                <div style={{ fontSize:13, fontWeight:500 }}>No notifications yet</div>
+                <div style={{ fontSize:11, marginTop:4 }}>When someone @mentions you in a comment or assigns you a task, it will show up here.</div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:2, maxHeight:400, overflow:"auto" }}>
+                {inbox.map(n => {
+                  const actor = profiles[n.actor_id];
+                  const ac = acol(n.actor_id);
+                  const isUnread = !n.is_read;
+                  const meta = n.metadata || {};
+                  const typeIcon = n.type === "mention" ? "💬" : n.type === "assignment" ? "📋" : n.type === "status_change" ? "🔄" : n.type === "comment" ? "💬" : "🔔";
+                  const age = relTime(n.created_at);
+                  return (
+                    <div key={n.id}
+                      onClick={async () => {
+                        if (isUnread) {
+                          await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("id", n.id);
+                          setInbox(p => p.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                        }
+                        if (n.entity_type === "task" && n.entity_id) setActive("projects", n.entity_id);
+                      }}
+                      style={{
+                        display:"flex", gap:10, padding:"10px 12px", borderRadius:8, cursor:"pointer",
+                        background: isUnread ? T.accent + "08" : "transparent",
+                        borderLeft: isUnread ? `3px solid ${T.accent}` : "3px solid transparent",
+                        transition:"background 0.15s"
+                      }}
+                      onMouseEnter={e => { if (!isUnread) e.currentTarget.style.background = T.surface2; }}
+                      onMouseLeave={e => { if (!isUnread) e.currentTarget.style.background = "transparent"; }}
+                    >
+                      {/* Actor avatar */}
+                      <div style={{ width:28, height:28, borderRadius:14, background:ac+"15", border:"2px solid "+ac+"30", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:ac, flexShrink:0, marginTop:1 }}>
+                        {actor?.display_name ? actor.display_name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase() : "?"}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                          <span style={{ fontSize:12, fontWeight: isUnread ? 700 : 500, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>
+                            {n.title}
+                          </span>
+                          <span style={{ fontSize:9, color:T.text3, flexShrink:0 }}>{age}</span>
+                        </div>
+                        {n.body && (
+                          <div style={{ fontSize:11, color:T.text3, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>
+                            {n.body.split(/(@[A-Za-z\u00C0-\u024F' ]+)/g).map((part, i) =>
+                              part.startsWith("@") ? <span key={i} style={{ color:T.accent, fontWeight:600 }}>{part}</span> : part
+                            )}
+                          </div>
+                        )}
+                        {meta.task_title && (
+                          <div style={{ fontSize:10, color:T.text3, marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
+                            <span>{typeIcon}</span>
+                            <span style={{ fontWeight:500 }}>{meta.task_title}</span>
+                            {meta.project_name && <span style={{ color:T.text3 }}>in {meta.project_name}</span>}
+                          </div>
+                        )}
+                      </div>
+                      {isUnread && <div style={{ width:8, height:8, borderRadius:4, background:T.accent, flexShrink:0, marginTop:8 }} />}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* ── PLM Pipeline ── */}
+        <div style={{ marginBottom:20 }}>
           <Card>
             <SectionHeader title="PLM Pipeline" icon="⬢" action={
               <button onClick={() => setActive("plm")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
