@@ -896,9 +896,9 @@ export default function DashboardView({ setActive }) {
       setFocusItems(focus || []);
 
       // Load inbox notifications for current user
-      if (profMap[user?.id]) {
+      if (profile?.id) {
         const { data: notifs } = await supabase.from("notifications")
-          .select("*").eq("user_id", user.id)
+          .select("*").eq("user_id", profile.id)
           .order("created_at", { ascending: false }).limit(50);
         setInbox(notifs || []);
       }
