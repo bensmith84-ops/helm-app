@@ -64,6 +64,15 @@ export default function SettingsView({ isAdmin }) {
   const [members, setMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState("");
 
+  // QBO connection
+  const [qboConn, setQboConn] = useState(null);
+  const [qboSyncing, setQboSyncing] = useState(false);
+  useEffect(() => {
+    supabase.from("qbo_connections").select("*").order("connected_at", { ascending: false }).limit(1).then(({ data }) => {
+      if (data && data.length > 0) setQboConn(data[0]);
+    });
+  }, []);
+
   // Notifications
   const [notifSettings, setNotifSettings] = useState({
     task_overdue: true, okr_deadline: true, approval: true, mention: true, weekly_digest: true,
@@ -583,7 +592,7 @@ export default function SettingsView({ isAdmin }) {
             <h1 style={{ fontSize:20, fontWeight:800, marginBottom:20 }}>Integrations</h1>
             {[
               { name:"Google Sheets", desc:"Sync financial data from your Google Sheets", icon:"📊", status:"connected", detail:"Earth Breeze Hydrogen tab" },
-              { name:"QuickBooks Online", desc:"Sync P&L, Chart of Accounts, Vendors, Bills & Invoices", icon:"📒", status:"qbo", detail:"Connect to Earth Breeze QBO account" },
+              { name:"QuickBooks Online", desc:"Sync P&L, Chart of Accounts, Vendors, Bills & Invoices", icon:"📒", status: qboConn ? "qbo_connected" : "qbo", detail: qboConn ? `✓ Connected to ${qboConn.company_name} (${qboConn.environment})${qboConn.last_synced_at ? " · Last sync " + new Date(qboConn.last_synced_at).toLocaleString() : " · Not yet synced"}` : "Connect to Earth Breeze QBO account" },
               { name:"Slack", desc:"Receive notifications and updates in Slack", icon:"💬", status:"connected", detail:"Connected · DM to Ben · Earth Breeze workspace", testable:true },
               { name:"Shopify", desc:"Pull revenue, orders, and product data", icon:"🛍️", status:"available", detail:"Real-time revenue sync" },
               { name:"Amazon Seller Central", desc:"Import Amazon revenue and ad spend", icon:"📦", status:"available", detail:"Daily sales sync" },
@@ -596,16 +605,16 @@ export default function SettingsView({ isAdmin }) {
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:14, fontWeight:600, marginBottom:2 }}>{integ.name}</div>
                   <div style={{ fontSize:12, color:T.text3 }}>{integ.desc}</div>
-                  {integ.detail && <div style={{ fontSize:11, color:integ.status==="connected"?"#22c55e":T.text3, marginTop:3, fontWeight:integ.status==="connected"?600:400 }}>
-                    {integ.status==="connected"?"✓ ":""}{integ.detail}
+                  {integ.detail && <div style={{ fontSize:11, color:(integ.status==="connected"||integ.status==="qbo_connected")?"#22c55e":T.text3, marginTop:3, fontWeight:(integ.status==="connected"||integ.status==="qbo_connected")?600:400 }}>
+                    {integ.detail}
                   </div>}
                 </div>
                 <div style={{ display:"flex", gap:6, flexShrink:0 }}>
                   <button style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer",
-                    background: integ.status==="connected"?"#22c55e15":integ.status==="qbo"?T.surface2:T.accentDim,
-                    color: integ.status==="connected"?"#22c55e":integ.status==="qbo"?T.text3:T.accent,
-                    border: `1px solid ${integ.status==="connected"?"#22c55e40":T.border}` }}>
-                    {integ.status==="connected"?"Connected":integ.status==="qbo"?"Connect QBO":"Connect"}
+                    background: (integ.status==="connected"||integ.status==="qbo_connected")?"#22c55e15":integ.status==="qbo"?T.surface2:T.accentDim,
+                    color: (integ.status==="connected"||integ.status==="qbo_connected")?"#22c55e":integ.status==="qbo"?T.text3:T.accent,
+                    border: `1px solid ${(integ.status==="connected"||integ.status==="qbo_connected")?"#22c55e40":T.border}` }}>
+                    {(integ.status==="connected"||integ.status==="qbo_connected")?"Connected":integ.status==="qbo"?"Connect QBO":"Connect"}
                   </button>
                   {integ.status==="qbo" && (
                     <button onClick={async ()=>{
@@ -644,6 +653,37 @@ export default function SettingsView({ isAdmin }) {
                     }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", flexShrink:0, background:T.accent, color:"#fff", border:"none" }}>
                       Connect →
                     </button>
+                  )}
+                  {integ.status==="qbo_connected" && (
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={async ()=>{
+                        setQboSyncing(true);
+                        try {
+                          const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-sync", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({}),
+                          });
+                          const data = await res.json();
+                          if (data.error) { showToast("QBO sync error: " + data.error, "#ef4444"); }
+                          else { showToast(`QBO synced: ${data.accounts||0} accounts, ${data.vendors||0} vendors, ${data.bills||0} bills, ${data.customers||0} customers, ${data.invoices||0} invoices`, "#22c55e"); }
+                          // Refresh connection state
+                          const { data: conn } = await supabase.from("qbo_connections").select("*").order("connected_at", { ascending: false }).limit(1);
+                          if (conn && conn.length > 0) setQboConn(conn[0]);
+                        } catch(e) { showToast("Sync failed: " + e, "#ef4444"); }
+                        setQboSyncing(false);
+                      }} disabled={qboSyncing} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor: qboSyncing ? "wait" : "pointer", flexShrink:0, background: qboSyncing ? T.surface3 : T.accent, color: qboSyncing ? T.text3 : "#fff", border:"none" }}>
+                        {qboSyncing ? "Syncing…" : "⟲ Sync Now"}
+                      </button>
+                      <button onClick={async ()=>{
+                        if (!confirm("Disconnect QuickBooks? You can reconnect later.")) return;
+                        await supabase.from("qbo_connections").delete().eq("id", qboConn.id);
+                        setQboConn(null);
+                        showToast("QuickBooks disconnected", "#f59e0b");
+                      }} style={{ padding:"7px 14px", fontSize:12, fontWeight:500, borderRadius:7, cursor:"pointer", flexShrink:0, background:T.surface2, color:T.text3, border:`1px solid ${T.border}` }}>
+                        Disconnect
+                      </button>
+                    </div>
                   )}
                   {integ.testable && (
                     <button onClick={async () => {
