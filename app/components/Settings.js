@@ -609,11 +609,33 @@ export default function SettingsView({ isAdmin }) {
                   </button>
                   {integ.status==="qbo" && (
                     <button onClick={async ()=>{
-                      // Uses edge function: fetches endpoint from Intuit discovery doc + stores CSRF state server-side
+                      // reCAPTCHA v3 + edge function: fetches endpoint from Intuit discovery doc + stores CSRF state server-side
                       try {
+                        // Load reCAPTCHA v3 script if not already loaded
+                        const RECAPTCHA_SITE_KEY = "6Ld0n5ksAAAAAA6w244DzsYtmcNoJeJTyN4pEKhy";
+                        if (!window.grecaptcha) {
+                          await new Promise((resolve, reject) => {
+                            const s = document.createElement("script");
+                            s.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
+                            s.onload = () => {
+                              // grecaptcha.ready fires when the library is fully loaded
+                              window.grecaptcha.ready(resolve);
+                            };
+                            s.onerror = reject;
+                            document.head.appendChild(s);
+                          });
+                        }
+                        // Execute reCAPTCHA v3 and get token
+                        const recaptchaToken = await new Promise((resolve, reject) => {
+                          window.grecaptcha.ready(() => {
+                            window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: "qbo_connect" })
+                              .then(resolve).catch(reject);
+                          });
+                        });
                         const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-auth-url", {
                           method: "POST",
                           headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
+                          body: JSON.stringify({ recaptcha_token: recaptchaToken }),
                         });
                         const data = await res.json();
                         if (data.auth_url) { window.location.href = data.auth_url; }
