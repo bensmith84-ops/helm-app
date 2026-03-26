@@ -110,6 +110,7 @@ const ERP_NAV = [
   { id: "shipping", label: "Shipping", icon: "🚚" },
   { id: "returns", label: "Returns", icon: "↩️" },
   { type: "header", label: "Finance" },
+  { id: "expenses", label: "Ramp Expenses", icon: "💳" },
   { id: "ap_ar", label: "AP / AR", icon: "💰" },
   { id: "gl", label: "General Ledger", icon: "📒" },
   { id: "vendor_spend", label: "Vendor Spend", icon: "📑" },
@@ -151,6 +152,327 @@ const EmptyState = ({ icon, text }) => (
     <div style={{ fontSize: 13 }}>{text}</div>
   </div>
 );
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RAMP EXPENSES VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+function RampExpensesView({ isMobile, orgId }) {
+  const [transactions, setTransactions] = useState([]);
+  const [cards, setCards] = useState([]);
+  const [syncLog, setSyncLog] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterState, setFilterState] = useState("");
+  const [filterHolder, setFilterHolder] = useState("");
+  const [subView, setSubView] = useState("transactions");
+  const [syncError, setSyncError] = useState(null);
+
+  const EDGE_BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
+  const ORG = orgId || "a0000000-0000-0000-0000-000000000001";
+
+  const load = async () => {
+    const [{ data: tx }, { data: cd }, { data: sl }] = await Promise.all([
+      supabase.from("ramp_transactions").select("*").eq("org_id", ORG).order("transaction_date", { ascending: false }).limit(500),
+      supabase.from("ramp_cards").select("*").eq("org_id", ORG).order("card_name"),
+      supabase.from("ramp_sync_log").select("*").eq("org_id", ORG).order("started_at", { ascending: false }).limit(5),
+    ]);
+    setTransactions(tx || []);
+    setCards(cd || []);
+    setSyncLog(sl || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const triggerSync = async (syncType = "all") => {
+    setSyncing(true); setSyncError(null);
+    try {
+      const res = await fetch(`${EDGE_BASE}/ramp-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ org_id: ORG, sync_type: syncType, from_date: "2025-01-01" }),
+      });
+      const data = await res.json();
+      if (data.error) { setSyncError(data.error); }
+      else { setSyncError(null); }
+      await load(); // reload data
+    } catch (e) { setSyncError(e.message); }
+    setSyncing(false);
+  };
+
+  const fmt$ = (v) => { const n = Number(v) || 0; if (Math.abs(n) >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M"; if (Math.abs(n) >= 1e3) return "$" + (n / 1e3).toFixed(1) + "K"; return "$" + n.toFixed(2); };
+  const fmtFull = (v) => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Filters
+  const filtered = transactions.filter(t => {
+    if (search && !(t.merchant_name || "").toLowerCase().includes(search.toLowerCase()) && !(t.card_holder_name || "").toLowerCase().includes(search.toLowerCase()) && !(t.memo || "").toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterState && t.state !== filterState) return false;
+    if (filterHolder && t.card_holder_name !== filterHolder) return false;
+    return true;
+  });
+
+  // Stats
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const mtdTxns = transactions.filter(t => t.transaction_date && t.transaction_date.startsWith(thisMonth));
+  const mtdSpend = mtdTxns.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const ytdSpend = transactions.filter(t => t.transaction_date && t.transaction_date.startsWith(String(now.getFullYear()))).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const pendingCount = transactions.filter(t => t.state === "PENDING").length;
+  const missingReceipts = transactions.filter(t => !t.has_receipt && t.state !== "DECLINED" && Number(t.amount) > 25).length;
+  const missingMemos = transactions.filter(t => !t.has_memo && t.state !== "DECLINED").length;
+
+  // Top merchants
+  const merchantSpend = {};
+  transactions.forEach(t => { const m = t.merchant_name || "Unknown"; merchantSpend[m] = (merchantSpend[m] || 0) + (Number(t.amount) || 0); });
+  const topMerchants = Object.entries(merchantSpend).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  // Top cardholders
+  const holderSpend = {};
+  transactions.forEach(t => { const h = t.card_holder_name || "Unknown"; holderSpend[h] = (holderSpend[h] || 0) + (Number(t.amount) || 0); });
+  const topHolders = Object.entries(holderSpend).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const uniqueHolders = [...new Set(transactions.map(t => t.card_holder_name).filter(Boolean))].sort();
+  const uniqueStates = [...new Set(transactions.map(t => t.state).filter(Boolean))].sort();
+
+  // Department spend
+  const deptSpend = {};
+  transactions.forEach(t => { const d = t.department_name || "Unassigned"; deptSpend[d] = (deptSpend[d] || 0) + (Number(t.amount) || 0); });
+  const topDepts = Object.entries(deptSpend).sort((a, b) => b[1] - a[1]);
+
+  const lastSync = syncLog[0];
+
+  const lbl = { fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4, display: "block" };
+  const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16 };
+  const statCard = (icon, label, value, sub, color) => (
+    <div style={{ ...card, textAlign: "center" }}>
+      <div style={{ fontSize: 20, marginBottom: 4 }}>{icon}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: color || T.text }}>{value}</div>
+      <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{label}</div>
+      {sub && <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+
+  if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 60, color: T.text3, fontSize: 13 }}>Loading Ramp data…</div>;
+
+  return (
+    <div style={{ padding: isMobile ? 12 : 24 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between", marginBottom: 20, flexDirection: isMobile ? "column" : "row", gap: 12 }}>
+        <div>
+          <h2 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, margin: 0 }}>💳 Ramp Expenses</h2>
+          <p style={{ fontSize: 12, color: T.text3, margin: "4px 0 0" }}>
+            {transactions.length} transactions · {cards.length} cards
+            {lastSync && <span> · Last synced {new Date(lastSync.completed_at || lastSync.started_at).toLocaleString()}</span>}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => triggerSync("all")} disabled={syncing}
+            style={{ padding: "8px 16px", borderRadius: 8, background: syncing ? T.surface3 : T.accent, color: syncing ? T.text3 : "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: syncing ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            {syncing ? "Syncing…" : "⟲ Sync from Ramp"}
+          </button>
+        </div>
+      </div>
+
+      {syncError && <div style={{ padding: "10px 14px", borderRadius: 8, background: "#FEE2E220", border: "1px solid #FCA5A5", color: "#DC2626", fontSize: 12, marginBottom: 16 }}>Sync error: {syncError}</div>}
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
+        {statCard("📅", "MTD Spend", fmt$(mtdSpend), `${mtdTxns.length} transactions`, "#3b82f6")}
+        {statCard("📊", "YTD Spend", fmt$(ytdSpend), `${transactions.length} total`, "#10b981")}
+        {statCard("⏳", "Pending", pendingCount, "awaiting clearing")}
+        {statCard("🧾", "Missing Receipts", missingReceipts, "over $25", missingReceipts > 0 ? "#f59e0b" : T.text3)}
+        {statCard("📝", "Missing Memos", missingMemos, "", missingMemos > 0 ? "#f59e0b" : T.text3)}
+      </div>
+
+      {/* Sub-nav */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${T.border}`, marginBottom: 16 }}>
+        {[["transactions", "Transactions"], ["cards", "Cards"], ["merchants", "By Merchant"], ["people", "By Person"], ["departments", "By Department"]].map(([k, l]) => (
+          <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500, marginBottom: -2 }}>{l}</button>
+        ))}
+      </div>
+
+      {/* TRANSACTIONS VIEW */}
+      {subView === "transactions" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, flex: isMobile ? "1 1 100%" : "0 1 auto" }}>
+              <span style={{ fontSize: 12, color: T.text3 }}>🔍</span>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search merchant, person, memo…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: isMobile ? "100%" : 200 }} />
+            </div>
+            <select value={filterState} onChange={e => setFilterState(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterState ? T.text : T.text3, fontSize: 12, cursor: "pointer" }}>
+              <option value="">All states</option>
+              {uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={filterHolder} onChange={e => setFilterHolder(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: filterHolder ? T.text : T.text3, fontSize: 12, cursor: "pointer" }}>
+              <option value="">All cardholders</option>
+              {uniqueHolders.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 40, color: T.text3 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>💳</div>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>{transactions.length === 0 ? "No transactions synced yet" : "No matching transactions"}</div>
+              <div style={{ fontSize: 12 }}>{transactions.length === 0 ? "Click \"Sync from Ramp\" to pull your transaction data" : "Try adjusting your filters"}</div>
+            </div>
+          ) : (
+            <div style={{ overflowX: isMobile ? "auto" : "visible" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Date</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Merchant</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Cardholder</th>
+                    <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Amount</th>
+                    <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>State</th>
+                    <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>🧾</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Memo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, 100).map((t, i) => {
+                    const stateColors = { CLEARED: "#22c55e", PENDING: "#f59e0b", DECLINED: "#ef4444" };
+                    const sc = stateColors[t.state] || T.text3;
+                    return (
+                      <tr key={t.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
+                        <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{t.transaction_date ? new Date(t.transaction_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.merchant_name || "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{t.card_holder_name || "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtFull(t.amount)}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: sc + "18", color: sc }}>{t.state || "—"}</span></td>
+                        <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 12 }}>{t.has_receipt ? "✅" : <span style={{ color: Number(t.amount) > 25 ? "#f59e0b" : T.text3 }}>—</span>}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.memo || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {filtered.length > 100 && <div style={{ textAlign: "center", padding: 12, fontSize: 11, color: T.text3 }}>Showing 100 of {filtered.length} transactions</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* CARDS VIEW */}
+      {subView === "cards" && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+          {cards.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 40, color: T.text3, gridColumn: "1/-1" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>💳</div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>No cards synced yet</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Click "Sync from Ramp" to pull card data</div>
+            </div>
+          ) : cards.map(c => {
+            const cardTxns = transactions.filter(t => t.card_last_four === c.last_four || t.card_id === c.ramp_id);
+            const cardSpend = cardTxns.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+            return (
+              <div key={c.id} style={{ ...card, borderLeft: `3px solid ${c.is_locked ? "#ef4444" : c.card_type === "PHYSICAL" ? T.accent : "#8b5cf6"}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{c.card_name || "Unnamed Card"}</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>•••• {c.last_four}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: c.card_type === "PHYSICAL" ? T.accent + "18" : "#8b5cf618", color: c.card_type === "PHYSICAL" ? T.accent : "#8b5cf6" }}>{c.card_type}</span>
+                    {c.is_locked && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#ef444418", color: "#ef4444" }}>LOCKED</span>}
+                  </div>
+                </div>
+                {c.card_holder_name && <div style={{ fontSize: 11, color: T.text2 }}>{c.card_holder_name}</div>}
+                {c.department_name && <div style={{ fontSize: 10, color: T.text3 }}>{c.department_name}</div>}
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+                  <div><div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{fmt$(cardSpend)}</div><div style={{ fontSize: 9, color: T.text3 }}>Total spend</div></div>
+                  <div style={{ textAlign: "right" }}><div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{cardTxns.length}</div><div style={{ fontSize: 9, color: T.text3 }}>Transactions</div></div>
+                  {c.spending_limit && <div style={{ textAlign: "right" }}><div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{fmt$(c.spending_limit)}</div><div style={{ fontSize: 9, color: T.text3 }}>{(c.spending_limit_interval || "").toLowerCase()} limit</div></div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* BY MERCHANT VIEW */}
+      {subView === "merchants" && (
+        <div>
+          {topMerchants.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: T.text3, fontSize: 13 }}>No transaction data yet</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {topMerchants.map(([name, amount], i) => {
+                const pct = topMerchants[0][1] > 0 ? (amount / topMerchants[0][1]) * 100 : 0;
+                const count = transactions.filter(t => t.merchant_name === name).length;
+                return (
+                  <div key={name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: T.surface }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text3, width: 24 }}>#{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{name}</div>
+                      <div style={{ marginTop: 4, height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", borderRadius: 3, background: T.accent }} /></div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{fmtFull(amount)}</div>
+                      <div style={{ fontSize: 10, color: T.text3 }}>{count} txn{count !== 1 ? "s" : ""}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* BY PERSON VIEW */}
+      {subView === "people" && (
+        <div>
+          {topHolders.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: T.text3, fontSize: 13 }}>No transaction data yet</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {topHolders.map(([name, amount], i) => {
+                const pct = topHolders[0][1] > 0 ? (amount / topHolders[0][1]) * 100 : 0;
+                const count = transactions.filter(t => t.card_holder_name === name).length;
+                return (
+                  <div key={name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: T.surface }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text3, width: 24 }}>#{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{name}</div>
+                      <div style={{ marginTop: 4, height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", borderRadius: 3, background: "#8b5cf6" }} /></div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{fmtFull(amount)}</div>
+                      <div style={{ fontSize: 10, color: T.text3 }}>{count} txn{count !== 1 ? "s" : ""}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* BY DEPARTMENT VIEW */}
+      {subView === "departments" && (
+        <div>
+          {topDepts.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: T.text3, fontSize: 13 }}>No transaction data yet</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {topDepts.map(([name, amount], i) => {
+                const pct = topDepts[0][1] > 0 ? (amount / topDepts[0][1]) * 100 : 0;
+                const count = transactions.filter(t => (t.department_name || "Unassigned") === name).length;
+                return (
+                  <div key={name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: T.surface }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text3, width: 24 }}>#{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{name}</div>
+                      <div style={{ marginTop: 4, height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", borderRadius: 3, background: "#10b981" }} /></div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{fmtFull(amount)}</div>
+                      <div style={{ fontSize: 10, color: T.text3 }}>{count} txn{count !== 1 ? "s" : ""}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
@@ -312,6 +634,7 @@ export default function ERPView() {
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} binLocations={binLocations} setBinLocations={setBinLocations} isMobile={isMobile} />}
+          {view === "expenses" && <RampExpensesView isMobile={isMobile} orgId={profile?.org_id} />}
           {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} journalLines={journalLines} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} />}
           {view === "ap_ar" && <APARView creditMemos={creditMemos} setCreditMemos={setCreditMemos} apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
           {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}

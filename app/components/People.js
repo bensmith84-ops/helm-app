@@ -596,13 +596,13 @@ export default function PeopleView() {
   if (loading) return <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 13 }}><div style={{ width: 28, height: 28, border: `3px solid ${T.border}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.8s linear infinite", marginRight: 10 }} />Loading team…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+    <div style={{ display: "flex", height: "100%", overflow: "hidden", flexDirection: isMobile && selected ? "column" : "row" }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
       {toast && <div style={{ position: "fixed", top: 16, right: 16, zIndex: 200, padding: "10px 16px", borderRadius: 8, background: toast.type === "success" ? T.greenDim : T.redDim, color: toast.type === "success" ? T.green : T.red, fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", animation: "slideIn 0.2s ease" }}>{toast.msg}</div>}
-      <div style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-          <div><h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>Team</h1><p style={{ fontSize: 12, color: T.text3 }}>{members.length} member{members.length !== 1 ? "s" : ""} · {memberships.filter(m => m.is_active !== false).length} active · {teams.length} team{teams.length !== 1 ? "s" : ""}</p></div>
-          <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "16px 12px" : "28px 32px", display: isMobile && selected ? "none" : "block" }}>
+        <div style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between", marginBottom: 20, flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0 }}>
+          <div><h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, marginBottom: 4 }}>Team</h1><p style={{ fontSize: 12, color: T.text3 }}>{members.length} member{members.length !== 1 ? "s" : ""} · {memberships.filter(m => m.is_active !== false).length} active · {teams.length} team{teams.length !== 1 ? "s" : ""}</p></div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {/* View toggle: Cards | List | Teams */}
             <div style={{ display: "flex", borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
               <button onClick={() => setView("cards")} title="Cards" style={{ padding: "7px 10px", background: viewMode === "cards" ? T.accent : T.surface2, color: viewMode === "cards" ? "#fff" : T.text3, border: "none", cursor: "pointer", display: "flex", alignItems: "center" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
@@ -617,7 +617,7 @@ export default function PeopleView() {
           </div>
         </div>
         {viewMode === "cards" && <MemberCards />}
-        {viewMode === "list" && <MemberList key="members" />}
+        {viewMode === "list" && <div style={{ overflowX: isMobile ? "auto" : "visible" }}><MemberList key="members" /></div>}
         {viewMode === "teams" && <TeamsView key="teams" />}
         {viewMode === "orgchart" && (() => {
           const getChildren = (parentId) => members.filter(m => m.reports_to === parentId).sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
