@@ -522,6 +522,14 @@ export default function ERPView() {
   const [currencies, setCurrencies] = useState([]);
   const [exchangeRates, setExchangeRates] = useState([]);
 
+  // QBO synced data
+  const [qboAccounts, setQboAccounts] = useState([]);
+  const [qboVendors, setQboVendors] = useState([]);
+  const [qboBills, setQboBills] = useState([]);
+  const [qboCustomers, setQboCustomers] = useState([]);
+  const [qboInvoices, setQboInvoices] = useState([]);
+  const [qboPL, setQboPL] = useState([]);
+
   useEffect(() => {
     const load = async () => {
       const [
@@ -576,6 +584,18 @@ export default function ERPView() {
       setSupplierItems(supItems || []);
       setMovements(mvmts || []);
       setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []); setBinLocations(bins || []); setShippingRules(shipRules || []); setLandedCosts(lcData || []); setJournalLines(jlData || []); setCreditMemos(cmData || []);
+
+      // Load QBO synced data
+      const [{ data: qa }, { data: qv }, { data: qb }, { data: qc }, { data: qi }, { data: qp }] = await Promise.all([
+        supabase.from("qbo_accounts").select("*").order("account_type, name"),
+        supabase.from("qbo_vendors").select("*").order("display_name"),
+        supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
+        supabase.from("qbo_customers").select("*").order("display_name"),
+        supabase.from("qbo_invoices").select("*").order("txn_date", { ascending: false }),
+        supabase.from("qbo_pl").select("*").order("account_type, account_name"),
+      ]);
+      setQboAccounts(qa || []); setQboVendors(qv || []); setQboBills(qb || []); setQboCustomers(qc || []); setQboInvoices(qi || []); setQboPL(qp || []);
+
       setLoading(false);
     };
     if (user) load();
@@ -627,7 +647,7 @@ export default function ERPView() {
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
           {view === "dashboard" && <ERPDashboard navigateTo={navigateTo} products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} inventory={inventory} lots={lots} orders={orders} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} setView={setView} isMobile={isMobile} />}
           {view === "products" && <ProductsView navigateTo={navigateTo} inventory={inventory} facilities={facilities} products={products} setProducts={setProducts} variants={variants} setVariants={setVariants} boms={boms} setBoms={setBoms} bomItems={bomItems} setBomItems={setBomItems} isMobile={isMobile} />}
-          {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} />}
+          {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} qboVendors={qboVendors} />}
           {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} landedCosts={landedCosts} setLandedCosts={setLandedCosts} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} binLocations={binLocations} isMobile={isMobile} />}
           {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} shippingRules={shippingRules} setArInvoices={setArInvoices} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
@@ -635,8 +655,8 @@ export default function ERPView() {
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} binLocations={binLocations} setBinLocations={setBinLocations} isMobile={isMobile} />}
           {view === "expenses" && <RampExpensesView isMobile={isMobile} orgId={profile?.org_id} />}
-          {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} journalLines={journalLines} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} />}
-          {view === "ap_ar" && <APARView creditMemos={creditMemos} setCreditMemos={setCreditMemos} apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} />}
+          {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} journalLines={journalLines} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} qboAccounts={qboAccounts} qboPL={qboPL} />}
+          {view === "ap_ar" && <APARView creditMemos={creditMemos} setCreditMemos={setCreditMemos} apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} qboBills={qboBills} qboInvoices={qboInvoices} />}
           {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}
           {view === "shipping" && <ShippingView shippingRules={shippingRules} setShippingRules={setShippingRules} carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
@@ -1180,10 +1200,12 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUPPLIERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSuppliers, entities, purchaseOrders, supplierItems, setSupplierItems, products, isMobile }) {
+function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSuppliers, entities, purchaseOrders, supplierItems, setSupplierItems, products, isMobile, qboVendors = [] }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selected, setSelected] = useState(null);
+  const [viewTab, setViewTab] = useState(qboVendors.length > 0 ? "qbo" : "erp");
+  const [qboSearch, setQboSearch] = useState("");
   useEffect(() => { if (pendingNav?.view === "suppliers" && pendingNav.selectId) { const s = suppliers.find(x => x.id === pendingNav.selectId); if (s) setSelected(s); setPendingNav(null); } }, [pendingNav]);
   const [showNew, setShowNew] = useState(false);
   const FORM_INIT = { name: "", code: "", supplier_type: "raw_material", website: "", email: "", phone: "", country: "US", city: "", state: "", payment_terms: "net_30", lead_time_days: "", certifications: [], rating: 3, is_intercompany: false, entity_id: "", notes: "" };
@@ -1228,12 +1250,64 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Suppliers</div><div style={{ fontSize: 12, color: T.text3 }}>{suppliers.length} vendors</div></div>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Suppliers</div><div style={{ fontSize: 12, color: T.text3 }}>{qboVendors.length > 0 ? `${qboVendors.length} QBO vendors · ` : ""}{suppliers.length} ERP suppliers</div></div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ padding: "6px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, width: isMobile ? 120 : 180, outline: "none" }} />
+          <input value={viewTab === "qbo" ? qboSearch : search} onChange={e => viewTab === "qbo" ? setQboSearch(e.target.value) : setSearch(e.target.value)} placeholder="Search…" style={{ padding: "6px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, width: isMobile ? 120 : 180, outline: "none" }} />
           <button onClick={() => { setForm(FORM_INIT); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Supplier</button>
         </div>
       </div>
+
+      {qboVendors.length > 0 && (
+        <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+          <button onClick={() => setViewTab("qbo")} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: viewTab === "qbo" ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: viewTab === "qbo" ? T.accent : T.text3, fontSize: 12, fontWeight: viewTab === "qbo" ? 700 : 500 }}>📒 QBO Vendors ({qboVendors.length})</button>
+          <button onClick={() => setViewTab("erp")} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: viewTab === "erp" ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: viewTab === "erp" ? T.accent : T.text3, fontSize: 12, fontWeight: viewTab === "erp" ? 700 : 500 }}>🏭 ERP Suppliers ({suppliers.length})</button>
+        </div>
+      )}
+
+      {/* QBO VENDORS */}
+      {viewTab === "qbo" && qboVendors.length > 0 && (() => {
+        const filt = qboVendors.filter(v => {
+          if (!qboSearch) return true;
+          const q = qboSearch.toLowerCase();
+          return (v.display_name || "").toLowerCase().includes(q) || (v.company_name || "").toLowerCase().includes(q) || (v.email || "").toLowerCase().includes(q);
+        });
+        return (
+          <div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>{filt.length} of {qboVendors.length} vendors · Synced from QuickBooks Online</div>
+            <div style={{ overflowX: isMobile ? "auto" : "visible" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 550 }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Vendor</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Email</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Phone</th>
+                    <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Balance</th>
+                    <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filt.slice(0, 200).map((v, i) => (
+                    <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
+                      <td style={{ padding: "8px 10px" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{v.display_name || "—"}</div>
+                        {v.company_name && v.company_name !== v.display_name && <div style={{ fontSize: 10, color: T.text3 }}>{v.company_name}</div>}
+                      </td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{v.email || "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{v.phone || "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, textAlign: "right", color: Number(v.balance) > 0 ? "#EF4444" : T.text3 }}>{Number(v.balance) > 0 ? fmt(Number(v.balance)) : "—"}</td>
+                      <td style={{ padding: "8px 10px", textAlign: "center" }}>{v.active ? <span style={{ fontSize: 9, fontWeight: 600, color: "#10B981" }}>Active</span> : <span style={{ fontSize: 9, color: T.text3 }}>Inactive</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filt.length > 200 && <div style={{ textAlign: "center", padding: 12, fontSize: 11, color: T.text3 }}>Showing 200 of {filt.length}</div>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ERP SUPPLIERS */}
+      {viewTab === "erp" && <>
       <div style={{ display: "flex", gap: 3, background: T.surface2, borderRadius: 7, padding: 2, flexWrap: "wrap" }}>
         {[["all","All"],["raw_material","🧪 Raw"],["packaging","📋 Pack"],["contract_manufacturer","🏭 CM"],["3pl","🚚 3PL"],["white_label","📦 WL"]].map(([v,l]) => (
           <button key={v} onClick={() => setTypeFilter(v)} style={{ padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: typeFilter === v ? T.surface : "transparent", color: typeFilter === v ? T.text : T.text3 }}>{l}</button>
@@ -1444,6 +1518,7 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }
@@ -3443,22 +3518,34 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, binLoc
 // ═══════════════════════════════════════════════════════════════════════════════
 // GL VIEW — Chart of Accounts, Journal Entries, Trial Balance
 // ═══════════════════════════════════════════════════════════════════════════════
-function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, entities, isMobile }) {
-  const [subView, setSubView] = useState("coa");
+function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, entities, isMobile, qboAccounts = [], qboPL = [] }) {
+  const [subView, setSubView] = useState(qboAccounts.length > 0 ? "qbo_coa" : "coa");
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [jeForm, setJeForm] = useState({ description: "", lines: [{ account: "", debit: "", credit: "", desc: "" }, { account: "", debit: "", credit: "", desc: "" }] });
+  const [qboSearch, setQboSearch] = useState("");
+  const [qboFilter, setQboFilter] = useState("");
   const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
 
-  const TYPE_COLORS = { asset: "#3B82F6", liability: "#EF4444", equity: "#8B5CF6", revenue: "#10B981", expense: "#F59E0B", cogs: "#EC4899" };
+  const TYPE_COLORS = { Asset: "#3B82F6", Liability: "#EF4444", Equity: "#8B5CF6", Revenue: "#10B981", Expense: "#F59E0B", asset: "#3B82F6", liability: "#EF4444", equity: "#8B5CF6", revenue: "#10B981", expense: "#F59E0B", cogs: "#EC4899" };
   const typeAccounts = (type) => glAccounts.filter(a => a.account_type === type);
 
-  // Trial balance calculation
-  const trialBalance = glAccounts.map(a => {
-    const entries = journalEntries.flatMap(je => []);
-    // Simplified: just show account structure
-    return { ...a, balance: 0 };
+  // QBO filtering
+  const qboClassifications = [...new Set(qboAccounts.map(a => a.classification).filter(Boolean))].sort();
+  const filteredQbo = qboAccounts.filter(a => {
+    if (qboFilter && a.classification !== qboFilter) return false;
+    if (qboSearch && !(a.name || "").toLowerCase().includes(qboSearch.toLowerCase()) && !(a.fully_qualified_name || "").toLowerCase().includes(qboSearch.toLowerCase()) && !(a.account_type || "").toLowerCase().includes(qboSearch.toLowerCase())) return false;
+    return true;
   });
+  const qboByClassification = {};
+  filteredQbo.forEach(a => { const c = a.classification || "Other"; if (!qboByClassification[c]) qboByClassification[c] = []; qboByClassification[c].push(a); });
+
+  // P&L summary
+  const plRevenue = qboPL.filter(r => r.classification === "Revenue");
+  const plExpense = qboPL.filter(r => r.classification === "Expense");
+  const totalRev = plRevenue.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalExp = plExpense.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const netIncome = totalRev - totalExp;
 
   const createJournalEntry = async () => {
     if (!jeForm.description.trim()) return;
@@ -3479,24 +3566,93 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>General Ledger</div><div style={{ fontSize: 12, color: T.text3 }}>{glAccounts.length} accounts · {journalEntries.length} journal entries</div></div>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>General Ledger</div><div style={{ fontSize: 12, color: T.text3 }}>{qboAccounts.length > 0 ? `${qboAccounts.length} QBO accounts` : `${glAccounts.length} accounts`} · {journalEntries.length} journal entries{qboPL.length > 0 ? ` · ${qboPL.length} P&L lines` : ""}</div></div>
         <button onClick={() => { setJeForm({ description: "", lines: [{ account: "", debit: "", credit: "", desc: "" }, { account: "", debit: "", credit: "", desc: "" }] }); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Journal Entry</button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
-        {[["asset", "Assets"], ["liability", "Liabilities"], ["equity", "Equity"], ["revenue", "Revenue"], ["cogs", "COGS"], ["expense", "Expenses"]].map(([type, label]) => (
+        {(qboAccounts.length > 0 ? [["Asset", "Assets"], ["Liability", "Liabilities"], ["Equity", "Equity"], ["Revenue", "Revenue"], ["Expense", "Expenses"]] : [["asset", "Assets"], ["liability", "Liabilities"], ["equity", "Equity"], ["revenue", "Revenue"], ["cogs", "COGS"], ["expense", "Expenses"]]).map(([type, label]) => {
+          const count = qboAccounts.length > 0 ? qboAccounts.filter(a => a.classification === type).length : typeAccounts(type).length;
+          return (
           <Card key={type} style={{ textAlign: "center", padding: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 900, color: TYPE_COLORS[type] }}>{typeAccounts(type).length}</div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: TYPE_COLORS[type] || T.text }}>{count}</div>
             <div style={{ fontSize: 9, color: T.text3 }}>{label}</div>
           </Card>
-        ))}
+          );
+        })}
+        {qboPL.length > 0 && <Card style={{ textAlign: "center", padding: 8 }}>
+          <div style={{ fontSize: 16, fontWeight: 900, color: netIncome >= 0 ? "#10B981" : "#EF4444" }}>${Math.abs(netIncome) >= 1e6 ? (netIncome/1e6).toFixed(1)+"M" : Math.abs(netIncome) >= 1e3 ? (netIncome/1e3).toFixed(0)+"K" : netIncome.toFixed(0)}</div>
+          <div style={{ fontSize: 9, color: T.text3 }}>Net Income</div>
+        </Card>}
       </div>
 
-      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
-        {[["coa", "📒 Chart of Accounts"], ["journal", "📝 Journal Entries"], ["trial", "⚖ Trial Balance"]].map(([k, l]) => (
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+        {qboAccounts.length > 0 && <button onClick={() => setSubView("qbo_coa")} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === "qbo_coa" ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === "qbo_coa" ? T.accent : T.text3, fontSize: 12, fontWeight: subView === "qbo_coa" ? 700 : 500 }}>📒 QBO Chart of Accounts</button>}
+        {qboPL.length > 0 && <button onClick={() => setSubView("pl")} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === "pl" ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === "pl" ? T.accent : T.text3, fontSize: 12, fontWeight: subView === "pl" ? 700 : 500 }}>📊 P&L</button>}
+        {[["coa", "📒 Manual COA"], ["journal", "📝 Journal Entries"], ["trial", "⚖ Trial Balance"]].map(([k, l]) => (
           <button key={k} onClick={() => setSubView(k)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
       </div>
+
+      {/* QBO CHART OF ACCOUNTS */}
+      {subView === "qbo_coa" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, flex: isMobile ? "1 1 100%" : "0 1 auto" }}>
+              <span style={{ fontSize: 12, color: T.text3 }}>🔍</span>
+              <input value={qboSearch} onChange={e => setQboSearch(e.target.value)} placeholder="Search accounts…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: isMobile ? "100%" : 200 }} />
+            </div>
+            <select value={qboFilter} onChange={e => setQboFilter(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: qboFilter ? T.text : T.text3, fontSize: 12, cursor: "pointer" }}>
+              <option value="">All classifications</option>
+              {qboClassifications.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <span style={{ fontSize: 11, color: T.text3, padding: "6px 0", alignSelf: "center" }}>{filteredQbo.length} of {qboAccounts.length} accounts</span>
+          </div>
+          {Object.entries(qboByClassification).map(([classification, accounts]) => (
+            <div key={classification} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: TYPE_COLORS[classification] || T.text2, textTransform: "uppercase", marginBottom: 6, letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
+                {classification} <span style={{ fontSize: 9, fontWeight: 500, color: T.text3 }}>({accounts.length})</span>
+              </div>
+              {accounts.map(a => (
+                <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderBottom: `1px solid ${T.border}20`, fontSize: 12 }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 700, color: T.accent, width: 40, textAlign: "right", flexShrink: 0 }}>{a.qbo_id}</span>
+                  <span style={{ flex: 1, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.fully_qualified_name || a.name}</span>
+                  <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: T.surface2, color: T.text3, fontWeight: 500, flexShrink: 0 }}>{a.account_type}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: a.current_balance > 0 ? "#10B981" : a.current_balance < 0 ? "#EF4444" : T.text3, flexShrink: 0, textAlign: "right", width: 80 }}>{a.current_balance !== 0 ? "$" + Math.abs(a.current_balance).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "—"}</span>
+                  {a.active ? <span style={{ fontSize: 9, color: "#10B981", fontWeight: 600, flexShrink: 0 }}>✓</span> : <span style={{ fontSize: 9, color: T.text3, flexShrink: 0 }}>Off</span>}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* P&L VIEW */}
+      {subView === "pl" && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <Card style={{ textAlign: "center", padding: 12 }}><div style={{ fontSize: 20, fontWeight: 900, color: "#10B981" }}>${(totalRev/1e6).toFixed(2)}M</div><div style={{ fontSize: 11, color: T.text3 }}>Total Revenue</div></Card>
+            <Card style={{ textAlign: "center", padding: 12 }}><div style={{ fontSize: 20, fontWeight: 900, color: "#F59E0B" }}>${(totalExp/1e6).toFixed(2)}M</div><div style={{ fontSize: 11, color: T.text3 }}>Total Expenses</div></Card>
+            <Card style={{ textAlign: "center", padding: 12 }}><div style={{ fontSize: 20, fontWeight: 900, color: netIncome >= 0 ? "#10B981" : "#EF4444" }}>${(netIncome/1e6).toFixed(2)}M</div><div style={{ fontSize: 11, color: T.text3 }}>Net Income</div></Card>
+          </div>
+          {[{ label: "Revenue", items: plRevenue, color: "#10B981" }, { label: "Expenses", items: plExpense, color: "#F59E0B" }].map(({ label, items, color }) => (
+            <div key={label} style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color, marginBottom: 8 }}>{label} ({items.length} line items)</div>
+              {items.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))).map(r => {
+                const pct = (label === "Revenue" ? totalRev : totalExp) > 0 ? (Math.abs(Number(r.amount)) / (label === "Revenue" ? totalRev : totalExp)) * 100 : 0;
+                return (
+                  <div key={r.id || r.account_name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 10px", borderBottom: `1px solid ${T.border}15` }}>
+                    <span style={{ flex: 1, fontSize: 12, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</span>
+                    <div style={{ width: 80, height: 5, borderRadius: 3, background: T.surface3, overflow: "hidden", flexShrink: 0 }}><div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: color, borderRadius: 3 }} /></div>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: T.text, textAlign: "right", width: 90, flexShrink: 0 }}>${Math.abs(Number(r.amount)).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                    <span style={{ fontSize: 9, color: T.text3, width: 35, textAlign: "right", flexShrink: 0 }}>{pct.toFixed(1)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* CHART OF ACCOUNTS */}
       {subView === "coa" && (
@@ -3701,11 +3857,13 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
 // ═══════════════════════════════════════════════════════════════════════════════
 // AP / AR VIEW — Accounts Payable, Accounts Receivable, Payments
 // ═══════════════════════════════════════════════════════════════════════════════
-function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile }) {
-  const [subView, setSubView] = useState("ar");
+function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile, qboBills = [], qboInvoices = [] }) {
+  const [subView, setSubView] = useState(qboBills.length > 0 ? "qbo_ap" : "ar");
   const [selected, setSelected] = useState(null);
   const [showPayment, setShowPayment] = useState(false);
   const [payForm, setPayForm] = useState({ amount: "", payment_method: "ach", reference_number: "", notes: "" });
+  const [qboSearch, setQboSearch] = useState("");
+  const [qboStatus, setQboStatus] = useState("");
   const getSupplier = id => suppliers.find(s => s.id === id);
   const getCustomer = id => customers.find(c => c.id === id);
   const getOrder = id => orders.find(o => o.id === id);
@@ -3715,6 +3873,15 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
   const arOpen = arInvoices.filter(i => i.status !== "paid" && i.status !== "voided" && i.status !== "credited");
   const apTotal = apOpen.reduce((s, i) => s + (i.balance || i.total - (i.paid_amount || 0)), 0);
   const arTotal = arOpen.reduce((s, i) => s + (i.balance || i.total - (i.paid_amount || 0)), 0);
+  const qboAPOpen = qboBills.filter(b => b.payment_status === "open");
+  const qboAPTotal = qboAPOpen.reduce((s, b) => s + Number(b.balance || 0), 0);
+
+  // QBO bills filtering
+  const filteredQboBills = qboBills.filter(b => {
+    if (qboStatus && b.payment_status !== qboStatus) return false;
+    if (qboSearch && !(b.vendor_name || "").toLowerCase().includes(qboSearch.toLowerCase()) && !(b.memo || "").toLowerCase().includes(qboSearch.toLowerCase())) return false;
+    return true;
+  });
 
   const recordPayment = async () => {
     if (!selected || !payForm.amount) return;
@@ -3747,15 +3914,23 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Accounts Payable / Receivable</div><div style={{ fontSize: 12, color: T.text3 }}>AP: {fmt(apTotal)} outstanding · AR: {fmt(arTotal)} outstanding · {payments.length} payments</div></div>
+      <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Accounts Payable / Receivable</div><div style={{ fontSize: 12, color: T.text3 }}>AP: {fmt(apTotal + qboAPTotal)} outstanding · AR: {fmt(arTotal)} outstanding · {payments.length} payments{qboBills.length > 0 ? ` · ${qboBills.length} QBO bills` : ""}</div></div>
 
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
-        {[{ l: "AP Outstanding", v: fmt(apTotal), c: "#EF4444" }, { l: "AP Invoices", v: apInvoices.length, c: T.accent }, { l: "AR Outstanding", v: fmt(arTotal), c: "#10B981" }, { l: "AR Invoices", v: arInvoices.length, c: "#3B82F6" }, { l: "Payments", v: payments.length, c: "#8B5CF6" }].map(s => (
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr 1fr" : "repeat(6, 1fr)", gap: 8 }}>
+        {[
+          { l: "AP Outstanding", v: fmt(apTotal + qboAPTotal), c: "#EF4444" },
+          { l: "QBO Open Bills", v: qboAPOpen.length, c: "#F59E0B" },
+          { l: "QBO Paid Bills", v: qboBills.filter(b => b.payment_status === "paid").length, c: "#10B981" },
+          { l: "AP Invoices", v: apInvoices.length, c: T.accent },
+          { l: "AR Outstanding", v: fmt(arTotal), c: "#3B82F6" },
+          { l: "Payments", v: payments.length, c: "#8B5CF6" },
+        ].map(s => (
           <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 16, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+        {qboBills.length > 0 && <button onClick={() => { setSubView("qbo_ap"); setSelected(null); }} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === "qbo_ap" ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === "qbo_ap" ? T.accent : T.text3, fontSize: 12, fontWeight: subView === "qbo_ap" ? 700 : 500 }}>📒 QBO Bills</button>}
         {[["ar", "📥 Receivable (AR)"], ["ap", "📤 Payable (AP)"], ["payments", "💳 Payments"], ["credits", "📄 Credit Memos"]].map(([k, l]) => (
           <button key={k} onClick={() => { setSubView(k); setSelected(null); }} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
@@ -3785,6 +3960,55 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
           if (data) { setArInvoices(p => [data, ...p]); setSelected(data); }
         }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ AR Invoice</button>}
       </div>
+
+      {/* QBO BILLS */}
+      {subView === "qbo_ap" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, flex: isMobile ? "1 1 100%" : "0 1 auto" }}>
+              <span style={{ fontSize: 12, color: T.text3 }}>🔍</span>
+              <input value={qboSearch} onChange={e => setQboSearch(e.target.value)} placeholder="Search vendor, memo…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: isMobile ? "100%" : 200 }} />
+            </div>
+            <select value={qboStatus} onChange={e => setQboStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: qboStatus ? T.text : T.text3, fontSize: 12, cursor: "pointer" }}>
+              <option value="">All statuses</option>
+              <option value="open">Open</option>
+              <option value="paid">Paid</option>
+            </select>
+            <span style={{ fontSize: 11, color: T.text3, padding: "6px 0", alignSelf: "center" }}>{filteredQboBills.length} of {qboBills.length} bills</span>
+          </div>
+          <div style={{ overflowX: isMobile ? "auto" : "visible" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 650 }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Date</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Vendor</th>
+                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Total</th>
+                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Balance</th>
+                  <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Status</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Due</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Memo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredQboBills.map((b, i) => {
+                  const overdue = b.due_date && b.payment_status === "open" && new Date(b.due_date) < new Date();
+                  return (
+                    <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.vendor_name || "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right" }}>{fmt(Number(b.total_amount))}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: Number(b.balance) > 0 ? "#EF4444" : "#10B981", textAlign: "right" }}>{fmt(Number(b.balance))}</td>
+                      <td style={{ padding: "8px 10px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: b.payment_status === "paid" ? "#10B98118" : overdue ? "#EF444418" : "#F59E0B18", color: b.payment_status === "paid" ? "#10B981" : overdue ? "#EF4444" : "#F59E0B" }}>{b.payment_status === "paid" ? "PAID" : overdue ? "OVERDUE" : "OPEN"}</span></td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, color: overdue ? "#EF4444" : T.text3, fontWeight: overdue ? 600 : 400, whiteSpace: "nowrap" }}>{b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* AR / AP Invoice List */}
       {(subView === "ar" || subView === "ap") && (
