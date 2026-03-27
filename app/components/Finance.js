@@ -1502,6 +1502,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
 
   // QBO P&L data
   const [qboPL, setQboPL] = useState([]);
+  const [customMappings, setCustomMappings] = useState({});
 
   // Auto-map QBO P&L account names to GA categories
   const QBO_GA_MAP = {
@@ -1518,6 +1519,8 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
     "Non-Fixed and Other": ["Misc Supplies","Depreciation","Bank Charges","Rent & Lease","Taxes","Postage"],
   };
   const mapToGA = (accountName) => {
+    // Check custom mappings first
+    if (customMappings[accountName]) return customMappings[accountName];
     const lower = (accountName || "").toLowerCase();
     for (const [cat, keywords] of Object.entries(QBO_GA_MAP)) {
       for (const kw of keywords) {
@@ -1525,6 +1528,11 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
       }
     }
     return null;
+  };
+
+  const assignCategory = async (accountName, category) => {
+    setCustomMappings(p => ({ ...p, [accountName]: category }));
+    await supabase.from("qbo_category_mappings").upsert({ org_id: "a0000000-0000-0000-0000-000000000001", account_name: accountName, ga_category: category }, { onConflict: "org_id,account_name" });
   };
 
   // Load seed data
@@ -1552,6 +1560,13 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
         // Load QBO P&L
         const { data: pl } = await supabase.from("qbo_pl").select("*").order("account_type, account_name");
         setQboPL(pl || []);
+        // Load custom category mappings
+        const { data: maps } = await supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001");
+        if (maps) {
+          const m = {};
+          maps.forEach(r => { m[r.account_name] = r.ga_category; });
+          setCustomMappings(m);
+        }
       } catch (e) { console.error("Vendor spend load error:", e); }
       setLoading(false);
     })();
@@ -1770,15 +1785,26 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
                 {/* Unmatched section */}
                 {unmatched.length > 0 && (
                   <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#EF4444", marginBottom: 8 }}>⚠ Unmatched Accounts — Need Category Assignment ({unmatched.length})</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#EF4444", marginBottom: 8 }}>⚠ Unmatched Accounts — Assign a Category ({unmatched.length})</div>
                     <div style={{ background: T.surface, border: `1px solid #EF444430`, borderRadius: 8, padding: 12 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr auto auto", gap: 0 }}>
+                        <div style={{ padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", borderBottom: `2px solid ${T.border}` }}>Account</div>
+                        {!isMobile && <div style={{ padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", borderBottom: `2px solid ${T.border}`, textAlign: "right" }}>Amount</div>}
+                        <div style={{ padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", borderBottom: `2px solid ${T.border}`, textAlign: "right" }}>Category</div>
+                      </div>
                       {unmatched.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))).map(r => (
-                        <div key={r.account_name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", fontSize: 12, borderBottom: `1px solid ${T.border}15` }}>
-                          <div>
-                            <span style={{ color: T.text, fontWeight: 500 }}>{r.account_name}</span>
+                        <div key={r.account_name} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr auto auto", gap: 0, alignItems: "center", borderBottom: `1px solid ${T.border}15` }}>
+                          <div style={{ padding: "6px 8px" }}>
+                            <span style={{ color: T.text, fontWeight: 500, fontSize: 12 }}>{r.account_name}</span>
                             <span style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>{r.account_type}</span>
                           </div>
-                          <span style={{ fontWeight: 700, color: T.text }}>{fmt(Number(r.amount))}</span>
+                          {!isMobile && <div style={{ padding: "6px 8px", textAlign: "right" }}><span style={{ fontWeight: 700, color: T.text, fontSize: 12 }}>{fmt(Number(r.amount))}</span></div>}
+                          <div style={{ padding: "4px 8px", textAlign: "right" }}>
+                            <select onChange={e => { if (e.target.value) assignCategory(r.account_name, e.target.value); }} value="" style={{ padding: "4px 8px", borderRadius: 5, border: `1px solid #EF444450`, background: "#EF444408", color: "#EF4444", fontSize: 11, fontWeight: 600, cursor: "pointer", outline: "none" }}>
+                              <option value="">Assign →</option>
+                              {GA_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </div>
                         </div>
                       ))}
                       <div style={{ marginTop: 8, padding: "8px 0", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 12 }}>
