@@ -965,7 +965,29 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       qboByCategory[cat] += Number(r.amount) || 0;
     }
   });
-  const getQBOSpend = (catName) => qboByCategory[catName] || 0;
+  // Normalize category names for matching (handles "and" vs "&", slight name differences)
+  const normalizeCat = (name) => (name || "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "").trim();
+  const QBO_TO_BUDGET_MAP = {
+    "Brand/Other/Marketing": "Brand / Other Marketing",
+    "Consultants": "Consultants & Prof. Services",
+    "Software and Subscriptions": "Software & Subscriptions",
+    "T&E": "Travel & Entertainment",
+    "Non-Fixed and Other": "Non-Fixed & Other",
+  };
+  const getQBOSpend = (catName) => {
+    // Direct match first
+    if (qboByCategory[catName]) return qboByCategory[catName];
+    // Check reverse map (budget name → qbo name)
+    for (const [qboName, budgetName] of Object.entries(QBO_TO_BUDGET_MAP)) {
+      if (budgetName === catName && qboByCategory[qboName]) return qboByCategory[qboName];
+    }
+    // Fuzzy match by normalized name
+    const norm = normalizeCat(catName);
+    for (const [key, val] of Object.entries(qboByCategory)) {
+      if (normalizeCat(key) === norm) return val;
+    }
+    return 0;
+  };
 
   const getSpend = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "approved").reduce((s, r) => s + annualiseAmount(r), 0);
   const getPending = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "pending").reduce((s, r) => s + annualiseAmount(r), 0);
