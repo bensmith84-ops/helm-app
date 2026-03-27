@@ -941,6 +941,31 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [saveName, setSaveName] = useState("");
   const [showSave, setShowSave] = useState(false);
   const [showLoad, setShowLoad] = useState(false);
+  const [qboPL, setQboPL] = useState([]);
+  const [customMappings, setCustomMappings] = useState({});
+
+  // Load QBO P&L + custom mappings
+  useEffect(() => {
+    (async () => {
+      const [{ data: pl }, { data: maps }] = await Promise.all([
+        supabase.from("qbo_pl").select("*").eq("classification", "Expense"),
+        supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
+      ]);
+      setQboPL(pl || []);
+      if (maps) { const m = {}; maps.forEach(r => { m[r.account_name] = r.ga_category; }); setCustomMappings(m); }
+    })();
+  }, []);
+
+  // Map QBO accounts to GA categories
+  const qboByCategory = {};
+  qboPL.forEach(r => {
+    const cat = customMappings[r.account_name] || null;
+    if (cat) {
+      if (!qboByCategory[cat]) qboByCategory[cat] = 0;
+      qboByCategory[cat] += Number(r.amount) || 0;
+    }
+  });
+  const getQBOSpend = (catName) => qboByCategory[catName] || 0;
 
   const getSpend = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "approved").reduce((s, r) => s + annualiseAmount(r), 0);
   const getPending = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "pending").reduce((s, r) => s + annualiseAmount(r), 0);
@@ -948,6 +973,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const totalBudget = budgetData.reduce((s, b) => s + (b.companyBudget || 0), 0);
   const totalSpent = budgetData.reduce((s, b) => s + getSpend(b.id), 0);
   const totalPending = budgetData.reduce((s, b) => s + getPending(b.id), 0);
+  const totalQBO = Object.values(qboByCategory).reduce((s, v) => s + v, 0);
 
   const saveVersion = async () => {
     if (!saveName.trim()) return;
@@ -985,12 +1011,13 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       </div>
 
       {/* Summary bar */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
         {[
           { l: "Total Budget", v: fmt(totalBudget), c: T.text },
-          { l: "Spent", v: fmt(totalSpent), c: "#10B981" },
+          { l: "QBO Actuals", v: fmt(totalQBO), c: "#6366f1" },
+          { l: "Requests Spent", v: fmt(totalSpent), c: "#10B981" },
           { l: "Pending", v: fmt(totalPending), c: "#F59E0B" },
-          { l: "Remaining", v: fmt(totalBudget - totalSpent), c: totalSpent > totalBudget ? "#EF4444" : T.text },
+          { l: "Remaining", v: fmt(totalBudget - totalQBO), c: totalQBO > totalBudget && totalBudget > 0 ? "#EF4444" : T.text },
         ].map(f => (
           <div key={f.l} style={{ background: T.surface2, borderRadius: 10, padding: "12px 14px" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{f.l}</div>
@@ -1003,8 +1030,10 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       {budgetData.map(cat => {
         const spent = getSpend(cat.id);
         const pend = getPending(cat.id);
-        const utilPct = cat.companyBudget > 0 ? pct(spent, cat.companyBudget) : 0;
-        const isOver = cat.companyBudget > 0 && spent > cat.companyBudget;
+        const qboSpend = getQBOSpend(cat.name);
+        const primarySpend = qboSpend > 0 ? qboSpend : spent; // QBO actuals take priority if available
+        const utilPct = cat.companyBudget > 0 ? pct(primarySpend, cat.companyBudget) : 0;
+        const isOver = cat.companyBudget > 0 && primarySpend > cat.companyBudget;
         return (
           <Card key={cat.id} style={{ borderLeft: `4px solid ${cat.color || T.accent}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
@@ -1032,17 +1061,18 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                 )}
               </div>
             </div>
-            {cat.companyBudget > 0 && (
+            {(cat.companyBudget > 0 || qboSpend > 0) && (
               <>
                 <div style={{ height: 8, background: T.surface2, borderRadius: 4, overflow: "hidden", display: "flex", marginBottom: 8 }}>
                   <div style={{ height: "100%", background: isOver ? "#EF4444" : cat.color || T.accent, width: `${Math.min(100, utilPct)}%`, transition: "width 0.5s" }} />
-                  <div style={{ height: "100%", background: (cat.color || T.accent) + "40", width: `${Math.min(100 - Math.min(100, utilPct), pct(pend, cat.companyBudget))}%` }} />
+                  {pend > 0 && <div style={{ height: "100%", background: (cat.color || T.accent) + "40", width: `${Math.min(100 - Math.min(100, utilPct), cat.companyBudget > 0 ? pct(pend, cat.companyBudget) : 0)}%` }} />}
                 </div>
-                <div style={{ display: "flex", gap: 16, fontSize: 11, color: T.text3 }}>
-                  <span>Spent: <strong style={{ color: isOver ? "#EF4444" : "#10B981" }}>{fmt(spent)}</strong></span>
-                  <span>Pending: <strong style={{ color: "#F59E0B" }}>{fmt(pend)}</strong></span>
-                  <span>Remaining: <strong style={{ color: isOver ? "#EF4444" : T.text }}>{fmt(cat.companyBudget - spent)}</strong></span>
-                  <span>{utilPct}% used</span>
+                <div style={{ display: "flex", gap: 16, fontSize: 11, color: T.text3, flexWrap: "wrap" }}>
+                  {qboSpend > 0 && <span>QBO Actual: <strong style={{ color: "#6366f1" }}>{fmt(qboSpend)}</strong></span>}
+                  {spent > 0 && <span>Requests: <strong style={{ color: "#10B981" }}>{fmt(spent)}</strong></span>}
+                  {pend > 0 && <span>Pending: <strong style={{ color: "#F59E0B" }}>{fmt(pend)}</strong></span>}
+                  {cat.companyBudget > 0 && <span>Remaining: <strong style={{ color: isOver ? "#EF4444" : T.text }}>{fmt(cat.companyBudget - primarySpend)}</strong></span>}
+                  {cat.companyBudget > 0 && <span>{utilPct}% used</span>}
                 </div>
               </>
             )}
