@@ -993,22 +993,35 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     }).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
   };
 
-  // Get vendors for a given budget category (from bills whose GL matches accounts in that category)
+  // Get vendors for a given budget category — matches bills directly via GL codes
   const getVendorsForCat = (catName) => {
-    const accounts = getAccountsForCat(catName);
-    const acctNums = accounts.map(a => (a.account_name || "").split(" ")[0]).filter(Boolean);
-    const acctNames = accounts.map(a => a.account_name).filter(Boolean);
+    // Build a set of all GL account numbers that map to this budget category
+    const reverseMap = {};
+    Object.entries(QBO_TO_BUDGET_MAP).forEach(([qbo, budget]) => { reverseMap[budget] = qbo; });
+    const qboName = reverseMap[catName] || catName;
+    const norm = normalizeCat(catName);
+
+    const catAccountNums = new Set();
+    Object.entries(customMappings).forEach(([acctName, mappedCat]) => {
+      // Check if this mapping matches the budget category
+      if (mappedCat === catName || mappedCat === qboName || normalizeCat(mappedCat) === norm) {
+        const num = acctName.split(" ")[0];
+        if (num && /^\d+$/.test(num)) catAccountNums.add(num);
+      }
+    });
+
     const matchingBills = qboBills.filter(b => {
       if (!b.gl_accounts) return false;
-      return acctNums.some(n => b.gl_accounts.includes(n)) || acctNames.some(n => b.gl_accounts.includes(n));
+      // Check if any account number in the bill matches our category
+      return [...catAccountNums].some(n => b.gl_accounts.includes(n));
     });
+
     const byVendor = {};
     matchingBills.forEach(b => {
       const v = b.vendor_name || "Unknown";
-      if (!byVendor[v]) byVendor[v] = { name: v, total: 0, count: 0, bills: [] };
+      if (!byVendor[v]) byVendor[v] = { name: v, total: 0, count: 0 };
       byVendor[v].total += Number(b.total_amount) || 0;
       byVendor[v].count++;
-      byVendor[v].bills.push(b);
     });
     return Object.values(byVendor).sort((a, b) => b.total - a.total);
   };
