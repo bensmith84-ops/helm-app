@@ -942,16 +942,21 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [showSave, setShowSave] = useState(false);
   const [showLoad, setShowLoad] = useState(false);
   const [qboPL, setQboPL] = useState([]);
+  const [qboBills, setQboBills] = useState([]);
   const [customMappings, setCustomMappings] = useState({});
+  const [expandedCat, setExpandedCat] = useState(null);
+  const [detailMode, setDetailMode] = useState("accounts"); // "accounts" or "vendors"
 
-  // Load QBO P&L + custom mappings
+  // Load QBO P&L + custom mappings + bills
   useEffect(() => {
     (async () => {
-      const [{ data: pl }, { data: maps }] = await Promise.all([
+      const [{ data: pl }, { data: maps }, { data: bills }] = await Promise.all([
         supabase.from("qbo_pl").select("*").eq("classification", "Expense"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
+        supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
       ]);
       setQboPL(pl || []);
+      setQboBills(bills || []);
       if (maps) { const m = {}; maps.forEach(r => { m[r.account_name] = r.ga_category; }); setCustomMappings(m); }
     })();
   }, []);
@@ -974,6 +979,40 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     "T&E": "Travel & Entertainment",
     "Non-Fixed and Other": "Non-Fixed & Other",
   };
+  // Get P&L accounts mapped to a given budget category name
+  const getAccountsForCat = (catName) => {
+    const reverseMap = {};
+    Object.entries(QBO_TO_BUDGET_MAP).forEach(([qbo, budget]) => { reverseMap[budget] = qbo; });
+    const qboName = reverseMap[catName] || catName;
+    const norm = normalizeCat(catName);
+    return qboPL.filter(r => {
+      const mapped = customMappings[r.account_name];
+      if (mapped === catName || mapped === qboName) return true;
+      if (mapped && normalizeCat(mapped) === norm) return true;
+      return false;
+    }).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
+  };
+
+  // Get vendors for a given budget category (from bills whose GL matches accounts in that category)
+  const getVendorsForCat = (catName) => {
+    const accounts = getAccountsForCat(catName);
+    const acctNums = accounts.map(a => (a.account_name || "").split(" ")[0]).filter(Boolean);
+    const acctNames = accounts.map(a => a.account_name).filter(Boolean);
+    const matchingBills = qboBills.filter(b => {
+      if (!b.gl_accounts) return false;
+      return acctNums.some(n => b.gl_accounts.includes(n)) || acctNames.some(n => b.gl_accounts.includes(n));
+    });
+    const byVendor = {};
+    matchingBills.forEach(b => {
+      const v = b.vendor_name || "Unknown";
+      if (!byVendor[v]) byVendor[v] = { name: v, total: 0, count: 0, bills: [] };
+      byVendor[v].total += Number(b.total_amount) || 0;
+      byVendor[v].count++;
+      byVendor[v].bills.push(b);
+    });
+    return Object.values(byVendor).sort((a, b) => b.total - a.total);
+  };
+
   const getQBOSpend = (catName) => {
     // Direct match first
     if (qboByCategory[catName]) return qboByCategory[catName];
@@ -1053,20 +1092,24 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         const spent = getSpend(cat.id);
         const pend = getPending(cat.id);
         const qboSpend = getQBOSpend(cat.name);
-        const primarySpend = qboSpend > 0 ? qboSpend : spent; // QBO actuals take priority if available
+        const primarySpend = qboSpend > 0 ? qboSpend : spent;
         const utilPct = cat.companyBudget > 0 ? pct(primarySpend, cat.companyBudget) : 0;
         const isOver = cat.companyBudget > 0 && primarySpend > cat.companyBudget;
+        const isExpanded = expandedCat === cat.id;
+        const catAccounts = isExpanded ? getAccountsForCat(cat.name) : [];
+        const catVendors = isExpanded && detailMode === "vendors" ? getVendorsForCat(cat.name) : [];
         return (
           <Card key={cat.id} style={{ borderLeft: `4px solid ${cat.color || T.accent}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+            <div onClick={() => setExpandedCat(isExpanded ? null : cat.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, cursor: "pointer" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 9, color: T.text3 }}>{isExpanded ? "▼" : "▶"}</span>
                 <span style={{ fontSize: 18 }}>{cat.icon}</span>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{cat.name}</div>
                   {isOver && <span style={{ fontSize: 10, fontWeight: 700, color: "#991B1B", background: "#FEE2E2", padding: "1px 6px", borderRadius: 8 }}>🚨 Over budget</span>}
                 </div>
               </div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "right" }} onClick={e => e.stopPropagation()}>
                 <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Company Budget</div>
                 {editingCat?.id === cat.id ? (
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -1097,6 +1140,69 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                   {cat.companyBudget > 0 && <span>{utilPct}% used</span>}
                 </div>
               </>
+            )}
+
+            {/* Expanded detail */}
+            {isExpanded && qboSpend > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>
+                    {detailMode === "accounts" ? `GL Accounts (${catAccounts.length})` : `Vendors (${catVendors.length})`}
+                  </div>
+                  <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${T.border}` }}>
+                    <button onClick={() => setDetailMode("accounts")} style={{ padding: "3px 10px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: detailMode === "accounts" ? T.accent : T.surface2, color: detailMode === "accounts" ? "#fff" : T.text3 }}>By Account</button>
+                    <button onClick={() => setDetailMode("vendors")} style={{ padding: "3px 10px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: detailMode === "vendors" ? T.accent : T.surface2, color: detailMode === "vendors" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>By Vendor</button>
+                  </div>
+                </div>
+
+                {detailMode === "accounts" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {catAccounts.map(r => {
+                      const acctPct = qboSpend > 0 ? (Math.abs(Number(r.amount)) / qboSpend) * 100 : 0;
+                      return (
+                        <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.border}10` }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+                          </div>
+                          <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
+                            <div style={{ width: `${Math.min(acctPct, 100)}%`, height: "100%", background: cat.color || T.accent, borderRadius: 2 }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{fmt(Number(r.amount))}</span>
+                          <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right", flexShrink: 0 }}>{acctPct.toFixed(0)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {detailMode === "vendors" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {catVendors.length === 0 ? (
+                      <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: "8px 0" }}>No bill-level vendor data for this category. Vendor detail requires bills with GL account tags.</div>
+                    ) : catVendors.map(v => {
+                      const vPct = qboSpend > 0 ? (v.total / qboSpend) * 100 : 0;
+                      return (
+                        <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.border}10` }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 11, color: T.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</div>
+                            <div style={{ fontSize: 9, color: T.text3 }}>{v.count} bill{v.count !== 1 ? "s" : ""}</div>
+                          </div>
+                          <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
+                            <div style={{ width: `${Math.min(vPct, 100)}%`, height: "100%", background: cat.color || T.accent, borderRadius: 2 }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{fmt(v.total)}</span>
+                          <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right", flexShrink: 0 }}>{vPct.toFixed(0)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {isExpanded && qboSpend === 0 && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.text3, fontStyle: "italic" }}>
+                No QBO data mapped to this category yet. Sync QuickBooks and assign accounts in Vendor Spend → QBO Actuals.
+              </div>
             )}
           </Card>
         );
