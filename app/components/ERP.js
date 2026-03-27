@@ -3864,6 +3864,7 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
   const [payForm, setPayForm] = useState({ amount: "", payment_method: "ach", reference_number: "", notes: "" });
   const [qboSearch, setQboSearch] = useState("");
   const [qboStatus, setQboStatus] = useState("");
+  const [qboSort, setQboSort] = useState(null);
   const getSupplier = id => suppliers.find(s => s.id === id);
   const getCustomer = id => customers.find(c => c.id === id);
   const getOrder = id => orders.find(o => o.id === id);
@@ -3876,10 +3877,13 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
   const qboAPOpen = qboBills.filter(b => b.payment_status === "open");
   const qboAPTotal = qboAPOpen.reduce((s, b) => s + Number(b.balance || 0), 0);
 
-  // QBO bills filtering
+  // QBO bills filtering — search includes GL accounts
   const filteredQboBills = qboBills.filter(b => {
     if (qboStatus && b.payment_status !== qboStatus) return false;
-    if (qboSearch && !(b.vendor_name || "").toLowerCase().includes(qboSearch.toLowerCase()) && !(b.memo || "").toLowerCase().includes(qboSearch.toLowerCase())) return false;
+    if (qboSearch) {
+      const q = qboSearch.toLowerCase();
+      if (!(b.vendor_name || "").toLowerCase().includes(q) && !(b.memo || "").toLowerCase().includes(q) && !(b.gl_accounts || "").toLowerCase().includes(q)) return false;
+    }
     return true;
   });
 
@@ -3961,57 +3965,90 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
         }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ AR Invoice</button>}
       </div>
 
-      {/* QBO BILLS */}
-      {subView === "qbo_ap" && (
+      {/* QBO BILLS — sortable, filterable, with GL accounts */}
+      {(subView === "qbo_ap" || subView === "ap") && (() => {
+        // Merge QBO bills into AP view when on "ap" tab too
+        const isQboTab = subView === "qbo_ap";
+        const allBills = isQboTab ? filteredQboBills : filteredQboBills;
+        // Unique vendors and GL accounts for multi-select filters
+        const uniqueVendors = [...new Set(qboBills.map(b => b.vendor_name).filter(Boolean))].sort();
+        const uniqueGLs = [...new Set(qboBills.map(b => b.gl_accounts).filter(Boolean))].sort();
+        return (
         <div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, flex: isMobile ? "1 1 100%" : "0 1 auto" }}>
               <span style={{ fontSize: 12, color: T.text3 }}>🔍</span>
-              <input value={qboSearch} onChange={e => setQboSearch(e.target.value)} placeholder="Search vendor, memo…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: isMobile ? "100%" : 200 }} />
+              <input value={qboSearch} onChange={e => setQboSearch(e.target.value)} placeholder="Search vendor, memo, GL…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: isMobile ? "100%" : 220 }} />
             </div>
-            <select value={qboStatus} onChange={e => setQboStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: qboStatus ? T.text : T.text3, fontSize: 12, cursor: "pointer" }}>
+            <select value={qboStatus} onChange={e => setQboStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: qboStatus ? T.text : T.text3, fontSize: 12 }}>
               <option value="">All statuses</option>
               <option value="open">Open</option>
               <option value="paid">Paid</option>
             </select>
-            <span style={{ fontSize: 11, color: T.text3, padding: "6px 0", alignSelf: "center" }}>{filteredQboBills.length} of {qboBills.length} bills</span>
+            <span style={{ fontSize: 11, color: T.text3 }}>{filteredQboBills.length} of {qboBills.length} bills</span>
           </div>
-          <div style={{ overflowX: isMobile ? "auto" : "visible" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 650 }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${T.border}` }}>
-                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Date</th>
-                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Vendor</th>
-                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Total</th>
-                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Balance</th>
-                  <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Status</th>
-                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Due</th>
-                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Memo</th>
+                  {[
+                    { key: "txn_date", label: "Date", align: "left" },
+                    { key: "vendor_name", label: "Vendor", align: "left" },
+                    { key: "gl_accounts", label: "GL Account", align: "left" },
+                    { key: "total_amount", label: "Total", align: "right" },
+                    { key: "balance", label: "Balance", align: "right" },
+                    { key: "payment_status", label: "Status", align: "center" },
+                    { key: "due_date", label: "Due", align: "left" },
+                    { key: "memo", label: "Memo", align: "left" },
+                  ].map(col => (
+                    <th key={col.key} onClick={() => {
+                      const [sk, sd] = [col.key, col.key === (qboSort||"")[0] && (qboSort||[])[1] === "asc" ? "desc" : "asc"];
+                      setQboSort([sk, sd]);
+                    }} style={{ padding: "8px 10px", textAlign: col.align, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
+                      {col.label} {(qboSort||[])[0] === col.key ? ((qboSort||[])[1] === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {filteredQboBills.map((b, i) => {
-                  const overdue = b.due_date && b.payment_status === "open" && new Date(b.due_date) < new Date();
-                  return (
-                    <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
-                      <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.vendor_name || "—"}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right" }}>{fmt(Number(b.total_amount))}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: Number(b.balance) > 0 ? "#EF4444" : "#10B981", textAlign: "right" }}>{fmt(Number(b.balance))}</td>
-                      <td style={{ padding: "8px 10px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: b.payment_status === "paid" ? "#10B98118" : overdue ? "#EF444418" : "#F59E0B18", color: b.payment_status === "paid" ? "#10B981" : overdue ? "#EF4444" : "#F59E0B" }}>{b.payment_status === "paid" ? "PAID" : overdue ? "OVERDUE" : "OPEN"}</span></td>
-                      <td style={{ padding: "8px 10px", fontSize: 11, color: overdue ? "#EF4444" : T.text3, fontWeight: overdue ? 600 : 400, whiteSpace: "nowrap" }}>{b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || "—"}</td>
-                    </tr>
-                  );
-                })}
+                {(() => {
+                  let sorted = [...filteredQboBills];
+                  if (qboSort && qboSort[0]) {
+                    const [sk, sd] = qboSort;
+                    sorted.sort((a, b) => {
+                      let va = a[sk], vb = b[sk];
+                      if (sk === "total_amount" || sk === "balance") { va = Number(va) || 0; vb = Number(vb) || 0; }
+                      if (va == null) return 1; if (vb == null) return -1;
+                      const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+                      return sd === "desc" ? -cmp : cmp;
+                    });
+                  }
+                  return sorted.slice(0, 200).map((b, i) => {
+                    const overdue = b.due_date && b.payment_status === "open" && new Date(b.due_date) < new Date();
+                    return (
+                      <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
+                        <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.vendor_name || "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.accent, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.gl_accounts || "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right" }}>{fmt(Number(b.total_amount))}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: Number(b.balance) > 0 ? "#EF4444" : "#10B981", textAlign: "right" }}>{fmt(Number(b.balance))}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: b.payment_status === "paid" ? "#10B98118" : overdue ? "#EF444418" : "#F59E0B18", color: b.payment_status === "paid" ? "#10B981" : overdue ? "#EF4444" : "#F59E0B" }}>{b.payment_status === "paid" ? "PAID" : overdue ? "OVERDUE" : "OPEN"}</span></td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: overdue ? "#EF4444" : T.text3, fontWeight: overdue ? 600 : 400, whiteSpace: "nowrap" }}>{b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || "—"}</td>
+                      </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
+            {filteredQboBills.length > 200 && <div style={{ textAlign: "center", padding: 12, fontSize: 11, color: T.text3 }}>Showing 200 of {filteredQboBills.length}</div>}
           </div>
         </div>
-      )}
+        );
+      })()}
 
-      {/* AR / AP Invoice List */}
-      {(subView === "ar" || subView === "ap") && (
+      {/* AR / AP Invoice List — ERP only (QBO bills show in their own table above) */}
+      {(subView === "ar" || (subView === "ap" && qboBills.length === 0)) && (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr", gap: 16 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {invoices.length === 0 ? <EmptyState icon="💰" text={`No ${subView === "ap" ? "AP" : "AR"} invoices`} /> :
