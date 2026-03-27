@@ -1497,8 +1497,35 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
   const [sortDir, setSortDir] = useState("desc");
 
   const TEAMS = ["Sales","Executive","Customer Success","Creative","Marketing","Tech & Data","Administrative","Finance","Legal","People Ops","Impact","R&D / Product","Operations","Manufacturing","Unassigned"];
-  const GA_CATS = ["People Costs","Direct Ad Spend","Brand/Other/Marketing","Consultants","Non-Fixed and Other","Software and Subscriptions","T&E","R&D","Insurance","Legal"];
-  const GA_COLORS = { "People Costs":"#8B5CF6", "Direct Ad Spend":"#EF4444", "Brand/Other/Marketing":"#F59E0B", "Consultants":"#3B82F6", "Non-Fixed and Other":"#6B7280", "Software and Subscriptions":"#10B981", "T&E":"#EC4899", "R&D":"#06B6D4", "Insurance":"#14B8A6", "Legal":"#A855F7" };
+  const GA_CATS = ["People Costs","Direct Ad Spend","Brand/Other/Marketing","Consultants","Non-Fixed and Other","Software and Subscriptions","T&E","R&D","Insurance","Legal","COGS"];
+  const GA_COLORS = { "People Costs":"#8B5CF6", "Direct Ad Spend":"#EF4444", "Brand/Other/Marketing":"#F59E0B", "Consultants":"#3B82F6", "Non-Fixed and Other":"#6B7280", "Software and Subscriptions":"#10B981", "T&E":"#EC4899", "R&D":"#06B6D4", "Insurance":"#14B8A6", "Legal":"#A855F7", "COGS":"#EC4899", "Unmatched":"#9CA3AF" };
+
+  // QBO P&L data
+  const [qboPL, setQboPL] = useState([]);
+
+  // Auto-map QBO P&L account names to GA categories
+  const QBO_GA_MAP = {
+    "Direct Ad Spend": ["Social Media Ads","Google Ads","TV Ads","Walmart Product Advertising","Affiliate Programs","Amazon Ads","TikTok Ads"],
+    "People Costs": ["Executives","Marketing","Operations SG&A","R&D/Product","Sales","Customer Delight","Payroll Taxes","Benefits","401k","Workers Comp","Stock Compensation","Impact Team","Tech & Data","Warehouse Employees"],
+    "Brand/Other/Marketing": ["Sampling","Film Production","Influencer Marketing","PR","Creative Services","Ad & Mktg Consultants","Brand Partnerships"],
+    "Consultants": ["Consulting Services","Accounting"],
+    "Software and Subscriptions": ["Software & Subscriptions"],
+    "T&E": ["Meals and Entertainment","Team Building","Airfare","Hotel","Ground Transportation","Office Supplies","Employee Perks"],
+    "R&D": ["R&D"],
+    "Insurance": ["Insurance"],
+    "Legal": ["Legal Fees"],
+    "COGS": ["Sold Product","Freight Out","Merchant Processing","Amazon FBA","Amazon Processing","Shipping Materials","Warehouse Employees","Utilities","Storage & Warehouse","Rent","In Kind Donations"],
+    "Non-Fixed and Other": ["Misc Supplies","Depreciation","Bank Charges","Rent & Lease","Taxes","Postage"],
+  };
+  const mapToGA = (accountName) => {
+    const lower = (accountName || "").toLowerCase();
+    for (const [cat, keywords] of Object.entries(QBO_GA_MAP)) {
+      for (const kw of keywords) {
+        if (lower.includes(kw.toLowerCase())) return cat;
+      }
+    }
+    return null;
+  };
 
   // Load seed data
   useEffect(() => {
@@ -1518,11 +1545,13 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
             amount: r.a, budget_or_actual: r.b, ga_category: r.c, team: r.t
           }));
           setData(rows);
-          // Batch insert into DB (fire and forget)
           for (let i = 0; i < rows.length; i += 100) {
             supabase.from("fin_vendor_spend").insert(rows.slice(i, i + 100).map(r => ({ ...r, org_id: "a0000000-0000-0000-0000-000000000001" }))).then(() => {});
           }
         }
+        // Load QBO P&L
+        const { data: pl } = await supabase.from("qbo_pl").select("*").order("account_type, account_name");
+        setQboPL(pl || []);
       } catch (e) { console.error("Vendor spend load error:", e); }
       setLoading(false);
     })();
@@ -1615,7 +1644,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
 
       {/* Filters + Sub-nav */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
-        {[["summary","📊 Summary"],["vendors","🏢 By Vendor"],["by_team","👥 By Team"],["gl_map","📒 GL Mapping"]].map(([k,l]) => (
+        {[["summary","📊 Summary"],["qbo_actuals","📒 QBO Actuals"],["vendors","🏢 By Vendor"],["by_team","👥 By Team"],["gl_map","📒 GL Mapping"]].map(([k,l]) => (
           <button key={k} onClick={() => setSubView(k)} style={{ padding: "6px 14px", borderRadius: 8, background: subView === k ? T.accent : T.surface2, color: subView === k ? "#fff" : T.text3, border: `1px solid ${subView === k ? T.accent : T.border}`, fontSize: 12, fontWeight: subView === k ? 700 : 500, cursor: "pointer" }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
@@ -1675,6 +1704,95 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
           </div>
         </div>
       )}
+
+      {/* QBO ACTUALS — P&L mapped to budget categories */}
+      {subView === "qbo_actuals" && (() => {
+        const plExpenses = qboPL.filter(r => r.classification === "Expense");
+        const mapped = plExpenses.map(r => ({ ...r, ga_category: mapToGA(r.account_name) }));
+        const matched = mapped.filter(r => r.ga_category);
+        const unmatched = mapped.filter(r => !r.ga_category);
+        const byCategory = {};
+        matched.forEach(r => {
+          if (!byCategory[r.ga_category]) byCategory[r.ga_category] = { items: [], total: 0 };
+          byCategory[r.ga_category].items.push(r);
+          byCategory[r.ga_category].total += Number(r.amount) || 0;
+        });
+        const catList = Object.entries(byCategory).sort((a, b) => b[1].total - a[1].total);
+        const matchedTotal = matched.reduce((s, r) => s + Number(r.amount || 0), 0);
+        const unmatchedTotal = unmatched.reduce((s, r) => s + Number(r.amount || 0), 0);
+        const qboTotal = plExpenses.reduce((s, r) => s + Number(r.amount || 0), 0);
+
+        return (
+          <div>
+            {qboPL.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: T.text3 }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📒</div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>No QBO P&L data</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>Sync QuickBooks in Settings → Integrations to see actuals here</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+                  <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: "#F59E0B" }}>{fmt(qboTotal)}</div><div style={{ fontSize: 10, color: T.text3 }}>Total QBO Expenses</div></div>
+                  <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: "#10B981" }}>{fmt(matchedTotal)}</div><div style={{ fontSize: 10, color: T.text3 }}>Matched ({matched.length} items)</div></div>
+                  <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: unmatched.length > 0 ? "#EF4444" : T.text3 }}>{fmt(unmatchedTotal)}</div><div style={{ fontSize: 10, color: T.text3 }}>Unmatched ({unmatched.length} items)</div></div>
+                  <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: T.accent }}>{catList.length}</div><div style={{ fontSize: 10, color: T.text3 }}>Budget Categories</div></div>
+                </div>
+
+                {/* Matched by category */}
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8 }}>Spend by Budget Category (from QBO P&L)</div>
+                {catList.map(([cat, { items, total }]) => {
+                  const pct = qboTotal > 0 ? (total / qboTotal) * 100 : 0;
+                  return (
+                    <div key={cat} style={{ marginBottom: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 4, background: GA_COLORS[cat] || T.text3 }} />
+                          <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{cat}</span>
+                          <span style={{ fontSize: 10, color: T.text3 }}>({items.length} accounts)</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{fmt(total)}</span>
+                          <span style={{ fontSize: 10, color: T.text3 }}>{pct.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden", marginBottom: 6 }}><div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: GA_COLORS[cat] || T.text3, borderRadius: 3 }} /></div>
+                      {items.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))).map(r => (
+                        <div key={r.account_name} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
+                          <span style={{ color: T.text2 }}>{r.account_name}</span>
+                          <span style={{ fontWeight: 600, color: T.text }}>{fmt(Number(r.amount))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+
+                {/* Unmatched section */}
+                {unmatched.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#EF4444", marginBottom: 8 }}>⚠ Unmatched Accounts — Need Category Assignment ({unmatched.length})</div>
+                    <div style={{ background: T.surface, border: `1px solid #EF444430`, borderRadius: 8, padding: 12 }}>
+                      {unmatched.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))).map(r => (
+                        <div key={r.account_name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", fontSize: 12, borderBottom: `1px solid ${T.border}15` }}>
+                          <div>
+                            <span style={{ color: T.text, fontWeight: 500 }}>{r.account_name}</span>
+                            <span style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>{r.account_type}</span>
+                          </div>
+                          <span style={{ fontWeight: 700, color: T.text }}>{fmt(Number(r.amount))}</span>
+                        </div>
+                      ))}
+                      <div style={{ marginTop: 8, padding: "8px 0", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 12 }}>
+                        <span style={{ color: "#EF4444" }}>Unmatched Total</span>
+                        <span style={{ color: "#EF4444" }}>{fmt(unmatchedTotal)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* VENDORS VIEW */}
       {subView === "vendors" && (
