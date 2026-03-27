@@ -996,31 +996,40 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     }).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
   };
 
-  // Get vendors for a given budget category — matches bills directly via GL codes
+  // Get vendors for a given budget category — matches bills AND purchases via GL codes + names
   const getVendorsForCat = (catName) => {
-    // Build a set of all GL account numbers that map to this budget category
     const reverseMap = {};
     Object.entries(QBO_TO_BUDGET_MAP).forEach(([qbo, budget]) => { reverseMap[budget] = qbo; });
     const qboName = reverseMap[catName] || catName;
     const norm = normalizeCat(catName);
 
+    // Collect GL account numbers AND name fragments for matching
     const catAccountNums = new Set();
+    const catAccountNames = new Set();
     Object.entries(customMappings).forEach(([acctName, mappedCat]) => {
-      // Check if this mapping matches the budget category
       if (mappedCat === catName || mappedCat === qboName || normalizeCat(mappedCat) === norm) {
-        const num = acctName.split(" ")[0];
+        const parts = acctName.split(" ");
+        const num = parts[0];
         if (num && /^\d+$/.test(num)) catAccountNums.add(num);
+        // Also extract the name portion after the number (e.g. "Social Media Ads" from "60210 Social Media Ads")
+        const namePart = parts.slice(1).join(" ");
+        if (namePart) catAccountNames.add(namePart.toLowerCase());
       }
     });
 
-    const matchingBills = qboBills.filter(b => {
+    const matchingTxns = qboBills.filter(b => {
       if (!b.gl_accounts) return false;
-      // Check if any account number in the bill matches our category
-      return [...catAccountNums].some(n => b.gl_accounts.includes(n));
+      const gl = b.gl_accounts;
+      const glLower = gl.toLowerCase();
+      // Match by account number (for bills: "60320 Travel:Airfare")
+      if ([...catAccountNums].some(n => gl.includes(n))) return true;
+      // Match by account name fragment (for purchases: "Travel & Entertainment:Airfare")
+      if ([...catAccountNames].some(name => glLower.includes(name))) return true;
+      return false;
     });
 
     const byVendor = {};
-    matchingBills.forEach(b => {
+    matchingTxns.forEach(b => {
       const v = b.vendor_name || "Unknown";
       if (!byVendor[v]) byVendor[v] = { name: v, total: 0, count: 0 };
       byVendor[v].total += Number(b.total_amount) || 0;
