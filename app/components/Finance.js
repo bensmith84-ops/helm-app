@@ -1502,7 +1502,9 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
 
   // QBO P&L data
   const [qboPL, setQboPL] = useState([]);
+  const [qboBills, setQboBills] = useState([]);
   const [customMappings, setCustomMappings] = useState({});
+  const [expandedAccount, setExpandedAccount] = useState(null);
 
   // Auto-map QBO P&L account names to GA categories
   const QBO_GA_MAP = {
@@ -1557,9 +1559,13 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
             supabase.from("fin_vendor_spend").insert(rows.slice(i, i + 100).map(r => ({ ...r, org_id: "a0000000-0000-0000-0000-000000000001" }))).then(() => {});
           }
         }
-        // Load QBO P&L
-        const { data: pl } = await supabase.from("qbo_pl").select("*").order("account_type, account_name");
+        // Load QBO P&L and Bills
+        const [{ data: pl }, { data: bills }] = await Promise.all([
+          supabase.from("qbo_pl").select("*").order("account_type, account_name"),
+          supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
+        ]);
         setQboPL(pl || []);
+        setQboBills(bills || []);
         // Load custom category mappings
         const { data: maps } = await supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001");
         if (maps) {
@@ -1772,12 +1778,48 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
                         </div>
                       </div>
                       <div style={{ height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden", marginBottom: 6 }}><div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: GA_COLORS[cat] || T.text3, borderRadius: 3 }} /></div>
-                      {items.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))).map(r => (
-                        <div key={r.account_name} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
-                          <span style={{ color: T.text2 }}>{r.account_name}</span>
-                          <span style={{ fontWeight: 600, color: T.text }}>{fmt(Number(r.amount))}</span>
+                      {items.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))).map(r => {
+                        const isExpanded = expandedAccount === r.account_name;
+                        // Find bills that hit this GL account (match by account name substring in gl_accounts field)
+                        const acctNum = (r.account_name || "").split(" ")[0]; // e.g. "60210" from "60210 Social Media Ads"
+                        const relatedBills = isExpanded ? qboBills.filter(b => b.gl_accounts && (b.gl_accounts.includes(r.account_name) || b.gl_accounts.includes(acctNum))) : [];
+                        return (
+                        <div key={r.account_name}>
+                          <div onClick={() => setExpandedAccount(isExpanded ? null : r.account_name)} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10`, cursor: "pointer" }}
+                            onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <span style={{ color: T.text2 }}><span style={{ color: T.text3, fontSize: 9, marginRight: 4 }}>{isExpanded ? "▼" : "▶"}</span>{r.account_name}</span>
+                            <span style={{ fontWeight: 600, color: T.text }}>{fmt(Number(r.amount))}</span>
+                          </div>
+                          {isExpanded && (
+                            <div style={{ background: T.surface2, borderRadius: 6, padding: "8px 10px", marginBottom: 4, marginTop: 2 }}>
+                              {relatedBills.length === 0 ? (
+                                <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>No bill-level detail available for this account. This is a P&L summary total from QuickBooks.</div>
+                              ) : (
+                                <>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>BILLS HITTING THIS ACCOUNT ({relatedBills.length})</div>
+                                  <div style={{ maxHeight: 200, overflow: "auto" }}>
+                                    {relatedBills.slice(0, 50).map(b => (
+                                      <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <span style={{ fontWeight: 600, color: T.text }}>{b.vendor_name || "—"}</span>
+                                          {b.memo && <span style={{ color: T.text3, marginLeft: 6, fontSize: 10 }}>— {b.memo.slice(0, 60)}</span>}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                                          <span style={{ fontSize: 10, color: T.text3 }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
+                                          <span style={{ fontWeight: 600, color: T.text, minWidth: 60, textAlign: "right" }}>{fmt(Number(b.total_amount))}</span>
+                                          <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 3, background: b.payment_status === "paid" ? "#10B98118" : "#F59E0B18", color: b.payment_status === "paid" ? "#10B981" : "#F59E0B" }}>{b.payment_status === "paid" ? "PAID" : "OPEN"}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {relatedBills.length > 50 && <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>Showing 50 of {relatedBills.length} bills</div>}
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -1792,21 +1834,56 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
                         {!isMobile && <div style={{ padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", borderBottom: `2px solid ${T.border}`, textAlign: "right" }}>Amount</div>}
                         <div style={{ padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", borderBottom: `2px solid ${T.border}`, textAlign: "right" }}>Category</div>
                       </div>
-                      {unmatched.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))).map(r => (
-                        <div key={r.account_name} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr auto auto", gap: 0, alignItems: "center", borderBottom: `1px solid ${T.border}15` }}>
-                          <div style={{ padding: "6px 8px" }}>
-                            <span style={{ color: T.text, fontWeight: 500, fontSize: 12 }}>{r.account_name}</span>
-                            <span style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>{r.account_type}</span>
+                      {unmatched.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))).map(r => {
+                        const isExp = expandedAccount === r.account_name;
+                        const acctNum = (r.account_name || "").split(" ")[0];
+                        const relBills = isExp ? qboBills.filter(b => b.gl_accounts && (b.gl_accounts.includes(r.account_name) || b.gl_accounts.includes(acctNum))) : [];
+                        return (
+                        <div key={r.account_name}>
+                          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr auto auto", gap: 0, alignItems: "center", borderBottom: `1px solid ${T.border}15` }}>
+                            <div onClick={() => setExpandedAccount(isExp ? null : r.account_name)} style={{ padding: "6px 8px", cursor: "pointer" }}
+                              onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                              <span style={{ color: T.text3, fontSize: 9, marginRight: 4 }}>{isExp ? "▼" : "▶"}</span>
+                              <span style={{ color: T.text, fontWeight: 500, fontSize: 12 }}>{r.account_name}</span>
+                              <span style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>{r.account_type}</span>
+                            </div>
+                            {!isMobile && <div style={{ padding: "6px 8px", textAlign: "right" }}><span style={{ fontWeight: 700, color: T.text, fontSize: 12 }}>{fmt(Number(r.amount))}</span></div>}
+                            <div style={{ padding: "4px 8px", textAlign: "right" }}>
+                              <select onChange={e => { if (e.target.value) assignCategory(r.account_name, e.target.value); }} value="" style={{ padding: "4px 8px", borderRadius: 5, border: `1px solid #EF444450`, background: "#EF444408", color: "#EF4444", fontSize: 11, fontWeight: 600, cursor: "pointer", outline: "none" }}>
+                                <option value="">Assign →</option>
+                                {GA_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                            </div>
                           </div>
-                          {!isMobile && <div style={{ padding: "6px 8px", textAlign: "right" }}><span style={{ fontWeight: 700, color: T.text, fontSize: 12 }}>{fmt(Number(r.amount))}</span></div>}
-                          <div style={{ padding: "4px 8px", textAlign: "right" }}>
-                            <select onChange={e => { if (e.target.value) assignCategory(r.account_name, e.target.value); }} value="" style={{ padding: "4px 8px", borderRadius: 5, border: `1px solid #EF444450`, background: "#EF444408", color: "#EF4444", fontSize: 11, fontWeight: 600, cursor: "pointer", outline: "none" }}>
-                              <option value="">Assign →</option>
-                              {GA_CATS.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                          </div>
+                          {isExp && (
+                            <div style={{ background: T.surface2, borderRadius: 6, padding: "8px 10px", margin: "2px 0 4px" }}>
+                              {relBills.length === 0 ? (
+                                <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>No bill-level detail available. This is a P&L summary total from QuickBooks.</div>
+                              ) : (
+                                <>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>BILLS ({relBills.length})</div>
+                                  <div style={{ maxHeight: 200, overflow: "auto" }}>
+                                    {relBills.slice(0, 50).map(b => (
+                                      <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <span style={{ fontWeight: 600, color: T.text }}>{b.vendor_name || "—"}</span>
+                                          {b.memo && <span style={{ color: T.text3, marginLeft: 6, fontSize: 10 }}>— {b.memo.slice(0, 60)}</span>}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                                          <span style={{ fontSize: 10, color: T.text3 }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
+                                          <span style={{ fontWeight: 600, color: T.text, minWidth: 60, textAlign: "right" }}>{fmt(Number(b.total_amount))}</span>
+                                          <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 3, background: b.payment_status === "paid" ? "#10B98118" : "#F59E0B18", color: b.payment_status === "paid" ? "#10B981" : "#F59E0B" }}>{b.payment_status === "paid" ? "PAID" : "OPEN"}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      ))}
+                        );
+                      })}
                       <div style={{ marginTop: 8, padding: "8px 0", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 12 }}>
                         <span style={{ color: "#EF4444" }}>Unmatched Total</span>
                         <span style={{ color: "#EF4444" }}>{fmt(unmatchedTotal)}</span>
