@@ -947,16 +947,19 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [expandedCat, setExpandedCat] = useState(null);
   const [detailMode, setDetailMode] = useState("accounts"); // "accounts" or "vendors"
 
-  // Load QBO P&L + custom mappings + bills
+  // Load QBO P&L + custom mappings + bills + purchases
   useEffect(() => {
     (async () => {
-      const [{ data: pl }, { data: maps }, { data: bills }] = await Promise.all([
+      const [{ data: pl }, { data: maps }, { data: bills }, { data: purchases }] = await Promise.all([
         supabase.from("qbo_pl").select("*").eq("classification", "Expense"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
         supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
+        supabase.from("qbo_purchases").select("*").order("txn_date", { ascending: false }),
       ]);
       setQboPL(pl || []);
-      setQboBills(bills || []);
+      // Merge bills + purchases into one list for vendor matching
+      const allTxns = [...(bills || []), ...(purchases || []).map(p => ({ ...p, payment_status: "paid", total_amount: p.total_amount }))];
+      setQboBills(allTxns);
       if (maps) { const m = {}; maps.forEach(r => { m[r.account_name] = r.ga_category; }); setCustomMappings(m); }
     })();
   }, []);
