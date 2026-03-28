@@ -1046,20 +1046,20 @@ export default function ScoreboardView() {
                               <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:6, marginTop:2, display:"flex", flexDirection:"column", gap:2 }}>
                                 {dailyArr != null && (
                                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>Day ARR</span>
-                                    <span style={{ fontSize:10, fontWeight:700, color:dailyArr<0?"#ef4444":T.text2 }}>{fmt$(dailyArr, true)}</span>
+                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>{unit === "$" ? "Day ARR" : "Day Ann."}</span>
+                                    <span style={{ fontSize:10, fontWeight:700, color:dailyArr<0?"#ef4444":T.text2 }}>{fmtVal(dailyArr, unit, true)}</span>
                                   </div>
                                 )}
                                 {monthlyArr != null && (
                                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>Mo ARR</span>
-                                    <span style={{ fontSize:10, fontWeight:700, color:monthlyArr<0?"#ef4444":T.text2 }}>{fmt$(monthlyArr, true)}</span>
+                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>{unit === "$" ? "Mo ARR" : "Mo Ann."}</span>
+                                    <span style={{ fontSize:10, fontWeight:700, color:monthlyArr<0?"#ef4444":T.text2 }}>{fmtVal(monthlyArr, unit, true)}</span>
                                   </div>
                                 )}
                                 {ytdArr != null && (
                                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>YTD ARR</span>
-                                    <span style={{ fontSize:10, fontWeight:700, color:ytdArr<0?"#ef4444":color }}>{fmt$(ytdArr, true)}</span>
+                                    <span style={{ fontSize:9, color:T.text3, fontWeight:600, textTransform:"uppercase" }}>{unit === "$" ? "YTD ARR" : "YTD Ann."}</span>
+                                    <span style={{ fontSize:10, fontWeight:700, color:ytdArr<0?"#ef4444":color }}>{fmtVal(ytdArr, unit, true)}</span>
                                   </div>
                                 )}
                               </div>
