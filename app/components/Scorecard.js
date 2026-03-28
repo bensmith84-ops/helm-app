@@ -134,11 +134,15 @@ export default function ScorecardView() {
   const [keyResults, setKeyResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddMetric, setShowAddMetric] = useState(false);
-  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above" });
+  const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above", metric_type:"quantitative" });
   const [saving, setSaving] = useState(false);
   const [orgId, setOrgId] = useState(null);
   const [autoCalcRunning, setAutoCalcRunning] = useState(false);
-  const [editAutoSource, setEditAutoSource] = useState(null); // { metricId, auto_source, auto_agg, auto_weight_key }
+  const [editAutoSource, setEditAutoSource] = useState(null);
+  const [ragModal, setRagModal] = useState(null); // { metricId, weekStart, currentColor, currentComment }
+  const [ragEntries, setRagEntries] = useState({}); // { metricId: { weekStart: { color, comment, comment_by, comment_at } } }
+  const [ragPick, setRagPick] = useState("");
+  const [ragText, setRagText] = useState(""); // { metricId, auto_source, auto_agg, auto_weight_key }
 
   const DAILY_KEYS = ["revenue","amazon_revenue","ad_spend","cpa","dtc_cac","x_cac","gwp_cpa","nc_aov","net_dollars","total_orders","new_orders","amazon_total_orders","units_shipped","dtc_new_customers","amz_new_customers","traffic","blended_cvr","new_gwp_subs","new_shopify_subs","daily_cancels","net_daily_subs","amz_net_subs","sub_rate","upsell_take_rate","comp_yago","opex_pct_rev"];
   const AGG_METHODS = [
@@ -180,6 +184,15 @@ export default function ScorecardView() {
         });
         setEntries(map);
         setComments(cMap);
+        // Build RAG entries map
+        const rMap = {};
+        (ent || []).forEach(e => {
+          if (e.rag_color) {
+            if (!rMap[e.metric_id]) rMap[e.metric_id] = {};
+            rMap[e.metric_id][e.week_start] = { color: e.rag_color, comment: e.comment, comment_by: e.comment_by, comment_at: e.comment_at };
+          }
+        });
+        setRagEntries(rMap);
         const gpMap = {};
         (gp || []).forEach(g => {
           if (!gpMap[g.metric_id]) gpMap[g.metric_id] = [];
@@ -239,25 +252,50 @@ export default function ScorecardView() {
     if (error) console.error("[Scorecard] saveComment error:", error);
   };
 
+  const saveRag = async (metricId, weekStart, color, comment) => {
+    const trimmed = comment?.trim() || null;
+    setRagEntries(p => {
+      const next = { ...p };
+      if (!next[metricId]) next[metricId] = {};
+      next[metricId] = { ...next[metricId], [weekStart]: { color, comment: trimmed, comment_by: user?.id, comment_at: new Date().toISOString() } };
+      return next;
+    });
+    // Also store the comment in the regular comments map
+    if (trimmed) {
+      setComments(p => {
+        const next = { ...p };
+        if (!next[metricId]) next[metricId] = {};
+        next[metricId] = { ...next[metricId], [weekStart]: { comment: trimmed, comment_by: user?.id, comment_at: new Date().toISOString() } };
+        return next;
+      });
+    }
+    const { error } = await supabase.from("scorecard_entries").upsert(
+      { metric_id: metricId, week_start: weekStart, rag_color: color, comment: trimmed, comment_by: user?.id, comment_at: new Date().toISOString() },
+      { onConflict: "metric_id,week_start" }
+    );
+    if (error) console.error("[Scorecard] saveRag error:", error);
+  };
+
   const addMetric = async () => {
     if (!newMetric.name.trim()) return;
     setSaving(true);
+    const isRag = newMetric.metric_type === "rag";
     const { data } = await supabase.from("scorecard_metrics").insert({
-      name: newMetric.name, unit: newMetric.unit,
-      goal: newMetric.goal ? parseFloat(newMetric.goal) : null,
-      frequency: newMetric.frequency, description: newMetric.description,
+      name: newMetric.name, unit: isRag ? "rag" : newMetric.unit,
+      goal: isRag ? null : (newMetric.goal ? parseFloat(newMetric.goal) : null),
+      frequency: newMetric.frequency || "weekly", description: newMetric.description,
       linked_kr_id: newMetric.linked_kr_id || null,
-      target_direction: newMetric.target_direction || "above",
-      auto_source: newMetric.auto_source || null,
-      auto_agg: newMetric.auto_source ? (newMetric.auto_agg || "sum") : null,
+      target_direction: isRag ? null : (newMetric.target_direction || "above"),
+      metric_type: newMetric.metric_type || "quantitative",
+      auto_source: isRag ? null : (newMetric.auto_source || null),
+      auto_agg: !isRag && newMetric.auto_source ? (newMetric.auto_agg || "sum") : null,
       auto_weight_key: newMetric.auto_agg === "weighted_average" ? (newMetric.auto_weight_key || null) : null,
       org_id: orgId, owner_id: user.id, sort_order: metrics.length,
     }).select().single();
     if (data) { setMetrics(p => [...p, data]); setEntries(p => ({...p, [data.id]: {}})); }
-    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above" });
+    setNewMetric({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above", metric_type:"quantitative" });
     setShowAddMetric(false);
     setSaving(false);
-    // Auto-calc if this metric has a source
     if (data?.auto_source) runAutoCalc();
   };
 
@@ -386,6 +424,47 @@ export default function ScorecardView() {
       {/* Add Metric Panel */}
       {showAddMetric && (
         <div style={{ padding:"16px 28px", background:T.surface2, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+          {/* Metric Type Toggle */}
+          <div style={{ display:"flex", gap:0, marginBottom:12, borderRadius:8, overflow:"hidden", border:`1px solid ${T.border}`, alignSelf:"flex-start", width:"fit-content" }}>
+            <button onClick={() => setNewMetric(p => ({ ...p, metric_type:"quantitative" }))} style={{ padding:"6px 16px", fontSize:12, fontWeight:600, border:"none", cursor:"pointer", background: newMetric.metric_type === "quantitative" ? T.accent : T.surface, color: newMetric.metric_type === "quantitative" ? "#fff" : T.text3 }}>📊 Quantitative</button>
+            <button onClick={() => setNewMetric(p => ({ ...p, metric_type:"rag", unit:"rag", goal:"" }))} style={{ padding:"6px 16px", fontSize:12, fontWeight:600, border:"none", cursor:"pointer", background: newMetric.metric_type === "rag" ? T.accent : T.surface, color: newMetric.metric_type === "rag" ? "#fff" : T.text3, borderLeft:`1px solid ${T.border}` }}>🚦 RAG Status</button>
+          </div>
+
+          {newMetric.metric_type === "rag" ? (
+            /* RAG Metric Form */
+            <div style={{ display:"grid", gridTemplateColumns:"2fr 2fr 2fr auto", gap:10, alignItems:"end" }}>
+              <div>
+                <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>Metric Name *</div>
+                <input value={newMetric.name} onChange={e => setNewMetric(p => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Brand Health, Team Morale, Product Quality"
+                  style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"7px 8px", color:T.text, outline:"none", boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>Description</div>
+                <input value={newMetric.description} onChange={e => setNewMetric(p => ({ ...p, description: e.target.value }))}
+                  placeholder="What does this track?"
+                  style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"7px 8px", color:T.text, outline:"none", boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>Owner</div>
+                <select value={newMetric.linked_kr_id} onChange={e => setNewMetric(p => ({ ...p, linked_kr_id: e.target.value }))}
+                  style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"7px 8px", color:T.text, outline:"none" }}>
+                  <option value="">Link to KR (optional)</option>
+                  {keyResults.map(kr => <option key={kr.id} value={kr.id}>{kr.title}</option>)}
+                </select>
+              </div>
+              <div style={{ display:"flex", gap:6 }}>
+                <button onClick={addMetric} disabled={saving || !newMetric.name.trim()}
+                  style={{ padding:"7px 14px", fontSize:12, fontWeight:700, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", opacity: saving || !newMetric.name.trim() ? 0.5 : 1 }}>
+                  {saving ? "…" : "Add"}
+                </button>
+                <button onClick={() => setShowAddMetric(false)} style={{ padding:"7px 10px", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer", color:T.text3 }}>✕</button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Quantitative Metric Form */}
+          {newMetric.metric_type !== "rag" && (<>
           <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 2fr 2fr auto", gap:10, alignItems:"end" }}>
             {[
               { label:"Metric Name *", key:"name", placeholder:"e.g. Weekly Revenue" },
@@ -461,6 +540,7 @@ export default function ScorecardView() {
               {saving?"Adding…":"Add"}
             </button>
           </div>
+          </>)}
         </div>
       )}
 
@@ -531,21 +611,37 @@ export default function ScorecardView() {
                         )}
                       </div>
                     </td>
-                    {/* Goal */}
+                    {/* Goal — hide for RAG metrics */}
                     <td style={{ padding:"10px 8px", textAlign:"center" }}>
+                      {m.metric_type === "rag" ? (
+                        <span style={{ fontSize:9, padding:"2px 6px", borderRadius:4, background:"#6366f115", color:"#6366f1", fontWeight:600 }}>RAG</span>
+                      ) : (
                       <span style={{ fontSize:12, color:T.text2, fontWeight:500 }}>
                         {m.currentGoal != null ? <span onClick={e => { e.stopPropagation(); setEditingGoals(editingGoals === m.id ? null : m.id); }} style={{ cursor: "pointer" }} title="Click to manage goal periods">{fmt(m.currentGoal, m.unit)}</span> : <span onClick={e => { e.stopPropagation(); setEditingGoals(m.id); }} style={{ cursor: "pointer" }} title="Set goal">—</span>}
                       </span>
+                      )}
                     </td>
-                    {/* Sparkline */}
+                    {/* Sparkline — RAG dots for RAG metrics */}
                     <td style={{ padding:"10px 8px", textAlign:"center" }}>
+                      {m.metric_type === "rag" ? (
+                        <div style={{ display:"flex", gap:2, justifyContent:"center" }}>
+                          {WEEKS.slice(-8).map(w => {
+                            const re = ragEntries[m.id]?.[w];
+                            const c = re?.color === "green" ? "#22c55e" : re?.color === "amber" ? "#f59e0b" : re?.color === "red" ? "#ef4444" : T.surface3;
+                            return <div key={w} style={{ width:6, height:6, borderRadius:3, background:c }} />;
+                          })}
+                        </div>
+                      ) : (
                       <div style={{ display:"flex", justifyContent:"center" }}>
                         <SparkTrend values={m.vals} />
                       </div>
+                      )}
                     </td>
-                    {/* Hit % */}
+                    {/* Hit % — hide for RAG */}
                     <td style={{ padding:"10px 8px", textAlign:"center" }}>
-                      {hitPct != null ? (
+                      {m.metric_type === "rag" ? (
+                        <span style={{ color:T.border, fontSize:11 }}>—</span>
+                      ) : hitPct != null ? (
                         <span style={{ fontSize:11, fontWeight:700,
                           color: hitPct>=80?"#22c55e":hitPct>=60?"#eab308":"#ef4444" }}>
                           {hitPct}%
@@ -555,6 +651,40 @@ export default function ScorecardView() {
                     {/* Weekly cells */}
                     {WEEKS.map(w => {
                       const isThis = w === thisWeek;
+                      if (m.metric_type === "rag") {
+                        // RAG cell — colored circle with click to update
+                        const re = ragEntries[m.id]?.[w];
+                        const ragColor = re?.color;
+                        const bgColor = ragColor === "green" ? "#22c55e" : ragColor === "amber" ? "#f59e0b" : ragColor === "red" ? "#ef4444" : null;
+                        const cm = comments[m.id]?.[w];
+                        return (
+                          <td key={w} style={{ padding:"6px 4px", background: isThis ? T.accentDim+"80" : "transparent", textAlign:"center", position:"relative" }}>
+                            {cm && (
+                              <div style={{ position:"absolute", top:-1, right:1, zIndex:2, fontSize:10 }}
+                                onMouseEnter={e => { const tip = e.currentTarget.querySelector("[data-tip]"); if (tip) tip.style.display = "block"; }}
+                                onMouseLeave={e => { const tip = e.currentTarget.querySelector("[data-tip]"); if (tip) tip.style.display = "none"; }}>
+                                💬
+                                <div data-tip="1" style={{ display:"none", position:"absolute", top:"calc(100% + 6px)", right:-8, zIndex:100,
+                                  minWidth:200, maxWidth:300, padding:"10px 14px", borderRadius:10,
+                                  background:T.surface, border:`1px solid ${T.border}`, boxShadow:"0 8px 24px rgba(0,0,0,0.3)", pointerEvents:"none" }}>
+                                  <div style={{ fontSize:12, color:T.text, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{cm.comment}</div>
+                                  <div style={{ fontSize:10, color:T.text3, marginTop:4, borderTop:`1px solid ${T.border}`, paddingTop:4 }}>
+                                    {profiles[cm.comment_by]?.display_name || "Someone"} · {cm.comment_at ? new Date(cm.comment_at).toLocaleDateString("en-US", { month:"short", day:"numeric" }) : ""}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            <div onClick={() => { setRagPick(ragColor || ""); setRagText(re?.comment || ""); setRagModal({ metricId: m.id, weekStart: w }); }}
+                              style={{ width:24, height:24, borderRadius:12, margin:"0 auto", cursor:"pointer",
+                                background: bgColor || "transparent", border: bgColor ? `2px solid ${bgColor}` : `2px dashed ${T.border}`,
+                                display:"flex", alignItems:"center", justifyContent:"center", transition:"transform 0.1s" }}
+                              onMouseEnter={e => e.currentTarget.style.transform = "scale(1.2)"} onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}>
+                              {!bgColor && <span style={{ fontSize:8, color:T.text3 }}>+</span>}
+                            </div>
+                          </td>
+                        );
+                      }
+                      // Regular quantitative cell
                       const v = entries[m.id]?.[w] ?? null;
                       const weekGoal = getGoalForDate(m, w);
                       const onTarget = v!=null && weekGoal!=null && (m.unit==="bool"?v>=1: m.target_direction==="below" ? v<=weekGoal : v>=weekGoal);
@@ -738,6 +868,63 @@ export default function ScorecardView() {
             <div>Click any cell to enter or edit a value · Bool metrics: click to toggle</div>
           </div>
         )}
+
+        {/* RAG Status Update Modal */}
+        {ragModal && (() => {
+          const rm = ragModal;
+          const metric = metrics.find(x => x.id === rm.metricId);
+          const weekDate = new Date(rm.weekStart + "T12:00:00");
+          const weekLabel = weekDate.toLocaleDateString("en-US", { month:"short", day:"numeric" });
+          const RAG_OPTIONS = [
+            { key:"green", label:"Green", desc:"On track", color:"#22c55e", bg:"#22c55e18" },
+            { key:"amber", label:"Amber", desc:"At risk / needs attention", color:"#f59e0b", bg:"#f59e0b18" },
+            { key:"red", label:"Red", desc:"Off track / blocked", color:"#ef4444", bg:"#ef444418" },
+          ];
+          return (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }} onClick={() => setRagModal(null)}>
+              <div onClick={e => e.stopPropagation()} style={{ background:T.surface, borderRadius:16, padding:24, width:"min(440px, 92vw)", boxShadow:"0 20px 60px rgba(0,0,0,0.4)" }}>
+                <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:4 }}>{metric?.name || "RAG Status"}</div>
+                <div style={{ fontSize:12, color:T.text3, marginBottom:16 }}>Week of {weekLabel}</div>
+
+                {/* Color picker */}
+                <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+                  {RAG_OPTIONS.map(opt => (
+                    <button key={opt.key} onClick={() => setRagPick(opt.key)}
+                      style={{ flex:1, padding:"14px 12px", borderRadius:12, border: ragPick === opt.key ? `2px solid ${opt.color}` : `2px solid ${T.border}`,
+                        background: ragPick === opt.key ? opt.bg : "transparent", cursor:"pointer", textAlign:"center", transition:"all 0.15s" }}>
+                      <div style={{ width:28, height:28, borderRadius:14, background:opt.color, margin:"0 auto 6px", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        {ragPick === opt.key && <span style={{ color:"#fff", fontSize:14, fontWeight:700 }}>✓</span>}
+                      </div>
+                      <div style={{ fontSize:12, fontWeight:700, color:opt.color }}>{opt.label}</div>
+                      <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Comment */}
+                <div style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:T.text3, marginBottom:4 }}>Comment (required)</div>
+                  <textarea value={ragText} onChange={e => setRagText(e.target.value)}
+                    placeholder="What's the status? What changed? Any blockers?"
+                    rows={3} style={{ width:"100%", padding:"10px 12px", fontSize:13, background:T.surface2, border:`1px solid ${T.border}`,
+                      borderRadius:10, color:T.text, outline:"none", resize:"vertical", boxSizing:"border-box", lineHeight:1.5 }} />
+                </div>
+
+                {/* Actions */}
+                <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+                  <button onClick={() => setRagModal(null)}
+                    style={{ padding:"8px 16px", fontSize:12, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, color:T.text3, cursor:"pointer" }}>Cancel</button>
+                  <button onClick={() => { if (ragPick && ragText.trim()) { saveRag(rm.metricId, rm.weekStart, ragPick, ragText.trim()); setRagModal(null); } }}
+                    disabled={!ragPick || !ragText.trim()}
+                    style={{ padding:"8px 16px", fontSize:12, fontWeight:700, background: ragPick ? (ragPick === "green" ? "#22c55e" : ragPick === "amber" ? "#f59e0b" : "#ef4444") : T.accent,
+                      color:"#fff", border:"none", borderRadius:8, cursor:"pointer", opacity: !ragPick || !ragText.trim() ? 0.5 : 1 }}>
+                    Save Status
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Auto-Source Edit Modal */}
         {editAutoSource && (() => {
