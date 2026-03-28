@@ -217,6 +217,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
   // ── Navigation ─────────────────────────────────────────────────────────────
   const NAV = [
     { id: "cfo",           label: "CFO Dashboard", icon: "📈" },
+    { id: "pl_explorer",   label: "P&L Explorer",  icon: "📊" },
     { id: "dashboard",     label: "Spend Mgmt",    icon: "◉" },
     { id: "vendor_spend",  label: "Vendor Spend",  icon: "📑" },
     { id: "requests",      label: "Requests",      icon: "📋" },
@@ -262,6 +263,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {/* Scrollable content area */}
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
         {view === "cfo" && <CFODashboard isMobile={isMobile} />}
+        {view === "pl_explorer" && <PLExplorer isMobile={isMobile} />}
         {view === "dashboard" && <DashboardView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
@@ -271,6 +273,212 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
         {view === "vendor_spend" && <VendorSpendView isMobile={isMobile} glCodes={glCodes} glCategories={glCategories} departments={departments} />}
       </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// P&L EXPLORER — Monthly drill-down
+// ═══════════════════════════════════════════════════════════════════════════════
+function PLExplorer({ isMobile }) {
+  const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
+    ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" }
+    : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" };
+  const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
+
+  const [loading, setLoading] = useState(true);
+  const [plMonthly, setPLMonthly] = useState([]);
+  const [plYTD, setPLYTD] = useState([]);
+  const [bills, setBills] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [expandedRow, setExpandedRow] = useState(null);
+  const [viewMode, setViewMode] = useState("monthly"); // monthly, quarterly, ytd
+  const [showType, setShowType] = useState("all"); // all, revenue, expense
+
+  useEffect(() => {
+    (async () => {
+      const [r1, r2, r3, r4] = await Promise.all([
+        supabase.from("qbo_pl_monthly").select("*").order("period_month"),
+        supabase.from("qbo_pl").select("*"),
+        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo"),
+      ]);
+      setPLMonthly(r1.data || []); setPLYTD(r2.data || []);
+      setBills(r3.data || []); setPurchases(r4.data || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading P&L data…</div>;
+
+  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const monthLabels = months.map(m => new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }));
+
+  // Build all unique accounts
+  const allAccounts = [...new Set([...plMonthly.map(r => r.account_name), ...plYTD.map(r => r.account_name)])];
+  const getClassification = (acct) => {
+    const row = plMonthly.find(r => r.account_name === acct) || plYTD.find(r => r.account_name === acct);
+    return row?.classification || "Expense";
+  };
+  const getAccountType = (acct) => {
+    const row = plMonthly.find(r => r.account_name === acct) || plYTD.find(r => r.account_name === acct);
+    return row?.account_type || "";
+  };
+
+  // Group accounts by section
+  const sections = [];
+  const revenueAccts = allAccounts.filter(a => getClassification(a) === "Revenue");
+  const cogsAccts = allAccounts.filter(a => getAccountType(a) === "Cost of Goods Sold");
+  const opexAccts = allAccounts.filter(a => getClassification(a) === "Expense" && getAccountType(a) !== "Cost of Goods Sold" && getAccountType(a) !== "Other Expenses");
+  const otherAccts = allAccounts.filter(a => getAccountType(a) === "Other Expenses");
+
+  if (showType === "all" || showType === "revenue") sections.push({ label: "Revenue", accounts: revenueAccts, color: T.green, sign: 1 });
+  if (showType === "all" || showType === "expense") {
+    sections.push({ label: "Cost of Goods Sold", accounts: cogsAccts, color: T.red, sign: 1 });
+    sections.push({ label: "Operating Expenses", accounts: opexAccts, color: T.yellow, sign: 1 });
+    if (otherAccts.length > 0) sections.push({ label: "Other Expenses", accounts: otherAccts, color: T.text3, sign: 1 });
+  }
+
+  // Get amount for account in a given month
+  const getMonthAmt = (acct, month) => {
+    const row = plMonthly.find(r => r.account_name === acct && r.period_month === month);
+    return row ? Number(row.amount) : 0;
+  };
+  const getYTDAmt = (acct) => {
+    const row = plYTD.find(r => r.account_name === acct);
+    return row ? Number(row.amount) : 0;
+  };
+
+  // Section totals
+  const getSectionMonthTotal = (accounts, month) => accounts.reduce((s, a) => s + getMonthAmt(a, month), 0);
+  const getSectionYTDTotal = (accounts) => accounts.reduce((s, a) => s + getYTDAmt(a), 0);
+
+  // Grand totals
+  const revMonthly = months.map(m => getSectionMonthTotal(revenueAccts, m));
+  const expMonthly = months.map(m => getSectionMonthTotal([...cogsAccts, ...opexAccts, ...otherAccts], m));
+  const revYTD = getSectionYTDTotal(revenueAccts);
+  const expYTD = getSectionYTDTotal([...cogsAccts, ...opexAccts, ...otherAccts]);
+
+  // Find transactions for expanded row
+  const getTransactions = (acctName) => {
+    const num = acctName.split(" ")[0];
+    const name = acctName.split(" ").slice(1).join(" ").toLowerCase();
+    const allTxns = [...bills, ...purchases].filter(t => {
+      if (!t.gl_accounts) return false;
+      return t.gl_accounts.includes(num) || t.gl_accounts.toLowerCase().includes(name);
+    }).sort((a, b) => (b.txn_date || "").localeCompare(a.txn_date || ""));
+    return allTxns.slice(0, 30);
+  };
+
+  const TH = { padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right", whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface, zIndex: 1 };
+  const TD = { padding: "5px 8px", fontSize: 11, textAlign: "right", whiteSpace: "nowrap", borderBottom: `1px solid ${T.border}08` };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>P&L Explorer</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>2026 · {months.length} months · Click any line to see transactions</div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${T.border}` }}>
+            {[["all","All"],["revenue","Revenue"],["expense","Expenses"]].map(([k,l]) => (
+              <button key={k} onClick={() => setShowType(k)} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: showType === k ? T.accent : T.surface2, color: showType === k ? "#fff" : T.text3, borderRight: `1px solid ${T.border}` }}>{l}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* P&L Table */}
+      <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+          <thead>
+            <tr>
+              <th style={{ ...TH, textAlign: "left", minWidth: 200, position: "sticky", left: 0, background: T.surface, zIndex: 2 }}>Account</th>
+              {months.map((m, i) => <th key={m} style={TH}>{monthLabels[i]}</th>)}
+              <th style={{ ...TH, fontWeight: 800, color: T.text }}>YTD</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sections.map(section => {
+              const sortedAccts = section.accounts.sort((a, b) => Math.abs(getYTDAmt(b)) - Math.abs(getYTDAmt(a)));
+              return (
+                <React.Fragment key={section.label}>
+                  {/* Section header */}
+                  <tr style={{ background: T.surface2 }}>
+                    <td style={{ padding: "8px 8px", fontSize: 12, fontWeight: 800, color: section.color, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>{section.label}</td>
+                    {months.map(m => <td key={m} style={{ ...TD, fontWeight: 700, color: section.color, background: T.surface2 }}>{fmtK(getSectionMonthTotal(section.accounts, m))}</td>)}
+                    <td style={{ ...TD, fontWeight: 800, color: section.color, background: T.surface2 }}>{fmtK(getSectionYTDTotal(section.accounts))}</td>
+                  </tr>
+                  {/* Account rows */}
+                  {sortedAccts.map(acct => {
+                    const ytd = getYTDAmt(acct);
+                    const isExpanded = expandedRow === acct;
+                    const txns = isExpanded ? getTransactions(acct) : [];
+                    return (
+                      <React.Fragment key={acct}>
+                        <tr onClick={() => setExpandedRow(isExpanded ? null : acct)} style={{ cursor: "pointer" }}
+                          onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                          <td style={{ padding: "5px 8px 5px 16px", fontSize: 11, color: T.text2, position: "sticky", left: 0, background: "inherit", zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 }}>
+                            <span style={{ color: T.text3, fontSize: 9, marginRight: 4 }}>{isExpanded ? "▼" : "▶"}</span>
+                            {acct}
+                          </td>
+                          {months.map(m => {
+                            const val = getMonthAmt(acct, m);
+                            return <td key={m} style={{ ...TD, color: val === 0 ? T.text3 + "60" : T.text2 }}>{val === 0 ? "—" : fmtK(val)}</td>;
+                          })}
+                          <td style={{ ...TD, fontWeight: 600, color: T.text }}>{fmtK(ytd)}</td>
+                        </tr>
+                        {/* Expanded transaction detail */}
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={months.length + 2} style={{ padding: 0 }}>
+                              <div style={{ background: T.surface2, padding: "8px 16px", borderBottom: `1px solid ${T.border}` }}>
+                                {txns.length === 0 ? (
+                                  <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>No bill/purchase transactions found. This may be payroll or journal entry based.</div>
+                                ) : (
+                                  <>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>TRANSACTIONS ({txns.length}{txns.length >= 30 ? "+" : ""})</div>
+                                    {txns.map((t, i) => (
+                                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
+                                        <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 8, alignItems: "center" }}>
+                                          <span style={{ fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>{t.vendor_name || "—"}</span>
+                                          {t.memo && <span style={{ color: T.text3, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>— {t.memo.slice(0, 50)}</span>}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
+                                          <span style={{ fontSize: 10, color: T.text3 }}>{t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
+                                          <span style={{ fontWeight: 600, color: T.text, minWidth: 55, textAlign: "right" }}>{fmt(Number(t.total_amount))}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
+
+            {/* NET INCOME row */}
+            {showType === "all" && (
+              <tr style={{ borderTop: `3px solid ${T.border}` }}>
+                <td style={{ padding: "10px 8px", fontSize: 13, fontWeight: 900, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>NET INCOME</td>
+                {months.map((m, i) => {
+                  const net = revMonthly[i] - expMonthly[i];
+                  return <td key={m} style={{ ...TD, fontSize: 12, fontWeight: 900, color: net >= 0 ? T.green : T.red }}>{fmtK(net)}</td>;
+                })}
+                <td style={{ ...TD, fontSize: 13, fontWeight: 900, color: revYTD - expYTD >= 0 ? T.green : T.red }}>{fmtK(revYTD - expYTD)}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
