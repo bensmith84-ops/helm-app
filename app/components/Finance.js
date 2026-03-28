@@ -2519,22 +2519,27 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [showSave, setShowSave] = useState(false);
   const [showLoad, setShowLoad] = useState(false);
   const [qboPL, setQboPL] = useState([]);
+  const [qboPLMonthly, setQboPLMonthly] = useState([]);
   const [qboBills, setQboBills] = useState([]);
   const [customMappings, setCustomMappings] = useState({});
   const [expandedCat, setExpandedCat] = useState(null);
-  const [detailMode, setDetailMode] = useState("accounts"); // "accounts" or "vendors"
+  const [detailMode, setDetailMode] = useState("accounts");
+  const [budgetTab, setBudgetTab] = useState("cards");
 
-  // Load QBO P&L + custom mappings + bills + purchases
+  const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
+
+  // Load QBO P&L + custom mappings + bills + purchases + monthly
   useEffect(() => {
     (async () => {
-      const [{ data: pl }, { data: maps }, { data: bills }, { data: purchases }] = await Promise.all([
+      const [{ data: pl }, { data: maps }, { data: bills }, { data: purchases }, { data: plm }] = await Promise.all([
         supabase.from("qbo_pl").select("*").eq("classification", "Expense"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
         supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
         supabase.from("qbo_purchases").select("*").limit(5000).order("txn_date", { ascending: false }),
+        supabase.from("qbo_pl_monthly").select("*").eq("classification", "Expense").order("period_month"),
       ]);
       setQboPL(pl || []);
-      // Merge bills + purchases into one list for vendor matching
+      setQboPLMonthly(plm || []);
       const allTxns = [...(bills || []), ...(purchases || []).map(p => ({ ...p, payment_status: "paid", total_amount: p.total_amount }))];
       setQboBills(allTxns);
       if (maps) { const m = {}; maps.forEach(r => { m[r.account_name] = r.ga_category; }); setCustomMappings(m); }
@@ -2689,8 +2694,78 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         ))}
       </div>
 
+      {/* View toggle */}
+      <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, alignSelf: "flex-start" }}>
+        <button onClick={() => setBudgetTab("cards")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "cards" ? T.accent : T.surface2, color: budgetTab === "cards" ? "#fff" : T.text3 }}>Category Cards</button>
+        <button onClick={() => setBudgetTab("monthly")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "monthly" ? T.accent : T.surface2, color: budgetTab === "monthly" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>Monthly View</button>
+      </div>
+
+      {/* MONTHLY BUDGET vs ACTUAL TABLE */}
+      {budgetTab === "monthly" && (() => {
+        const months = [...new Set(qboPLMonthly.map(r => r.period_month))].sort();
+        const monthLabels = months.map(m => new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }));
+        // Build monthly spend by budget category
+        const getMonthCatSpend = (catName, month) => {
+          const reverseMap = {}; Object.entries(QBO_TO_BUDGET_MAP).forEach(([q, b]) => { reverseMap[b] = q; });
+          const qboName = reverseMap[catName] || catName;
+          const norm = normalizeCat(catName);
+          return qboPLMonthly.filter(r => r.period_month === month).filter(r => {
+            const mapped = customMappings[r.account_name];
+            return mapped === catName || mapped === qboName || (mapped && normalizeCat(mapped) === norm);
+          }).reduce((s, r) => s + Number(r.amount), 0);
+        };
+        const monthlyTotals = months.map(m => budgetData.reduce((s, cat) => s + getMonthCatSpend(cat.name, m), 0));
+        return (
+          <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", position: "sticky", left: 0, background: T.surface, zIndex: 1, minWidth: 160 }}>Category</th>
+                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Budget</th>
+                  {months.map((m, i) => <th key={m} style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{monthLabels[i]}</th>)}
+                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text, textTransform: "uppercase" }}>YTD</th>
+                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Variance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {budgetData.map(cat => {
+                  const qboYTD = getQBOSpend(cat.name);
+                  const monthVals = months.map(m => getMonthCatSpend(cat.name, m));
+                  const variance = cat.companyBudget - qboYTD;
+                  return (
+                    <tr key={cat.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>
+                        <span style={{ marginRight: 6 }}>{cat.icon}</span>{cat.name}
+                      </td>
+                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: cat.companyBudget ? T.text : T.text3 }}>{cat.companyBudget ? fmtK(cat.companyBudget) : "—"}</td>
+                      {monthVals.map((v, i) => (
+                        <td key={i} style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, color: v === 0 ? T.text3 + "60" : (cat.companyBudget > 0 && v > cat.companyBudget / 12 * 1.1) ? T.red : T.text2 }}>
+                          {v === 0 ? "—" : fmtK(v)}
+                        </td>
+                      ))}
+                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: T.accent }}>{qboYTD > 0 ? fmtK(qboYTD) : "—"}</td>
+                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: cat.companyBudget === 0 ? T.text3 : variance >= 0 ? T.green : T.red }}>
+                        {cat.companyBudget === 0 ? "—" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {/* Total row */}
+                <tr style={{ borderTop: `3px solid ${T.border}`, background: T.surface2 }}>
+                  <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 900, color: T.text, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>TOTAL</td>
+                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.text }}>{fmtK(totalBudget)}</td>
+                  {months.map((m, i) => <td key={m} style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.text }}>{fmtK(monthlyTotals[i])}</td>)}
+                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.accent }}>{fmtK(totalQBO)}</td>
+                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: totalBudget - totalQBO >= 0 ? T.green : T.red }}>{totalBudget > 0 ? `${totalBudget - totalQBO >= 0 ? "+" : ""}${fmtK(totalBudget - totalQBO)}` : "—"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+
       {/* Category cards */}
-      {budgetData.map(cat => {
+      {budgetTab === "cards" && budgetData.map(cat => {
         const spent = getSpend(cat.id);
         const pend = getPending(cat.id);
         const qboSpend = getQBOSpend(cat.name);
