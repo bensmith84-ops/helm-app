@@ -110,18 +110,14 @@ const ERP_NAV = [
   { id: "shipping", label: "Shipping", icon: "🚚" },
   { id: "returns", label: "Returns", icon: "↩️" },
   { type: "header", label: "Finance" },
-  { id: "expenses", label: "Ramp Expenses", icon: "💳" },
-  { id: "ap_ar", label: "AP / AR", icon: "💰" },
-  { id: "gl", label: "General Ledger", icon: "📒" },
   { id: "cfo_dash", label: "CFO Dashboard", icon: "📈" },
   { id: "pl_explorer", label: "P&L Explorer", icon: "📊" },
   { id: "cash_flow", label: "Cash Flow", icon: "💧" },
   { id: "vendor_intel", label: "Vendor Intelligence", icon: "🏢" },
-  { id: "ap_aging", label: "AP Aging", icon: "⏳" },
-  { id: "vendor_spend", label: "Vendor Spend", icon: "📑" },
-  { id: "fin_requests", label: "Spend Requests", icon: "📋" },
+  { id: "ap_aging", label: "AP / AR", icon: "⏳" },
+  { id: "txn_search", label: "Transaction Search", icon: "🔍" },
   { id: "fin_budgets", label: "Budgets", icon: "💵" },
-  { id: "fin_departments", label: "Departments", icon: "🏛" },
+  { id: "fin_requests", label: "Spend Requests", icon: "📋" },
   { id: "fin_rules", label: "Approval Rules", icon: "⚡" },
   { id: "fin_audit", label: "Audit Log", icon: "🗂" },
   { id: "entities", label: "Entities", icon: "🌐" },
@@ -667,9 +663,9 @@ export default function ERPView() {
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
           {/* Finance module views (embedded from Finance.js) */}
-          {["cfo_dash", "pl_explorer", "cash_flow", "vendor_intel", "ap_aging", "vendor_spend", "fin_requests", "fin_budgets", "fin_departments", "fin_rules", "fin_audit"].some(v => view === v) && (
+          {["cfo_dash", "pl_explorer", "cash_flow", "vendor_intel", "ap_aging", "txn_search", "fin_requests", "fin_budgets", "fin_rules", "fin_audit"].some(v => view === v) && (
             <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>Loading Finance…</div>}>
-              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", vendor_intel: "vendors", ap_aging: "ap_aging", fin_requests: "requests", fin_budgets: "budgets", fin_departments: "departments", fin_rules: "rules", fin_audit: "audit", vendor_spend: "vendor_spend" }[view] || "cfo"} embedded={true} />
+              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", vendor_intel: "vendors", ap_aging: "ap_aging", txn_search: "txn_search", fin_requests: "requests", fin_budgets: "budgets", fin_rules: "rules", fin_audit: "audit" }[view] || "cfo"} embedded={true} />
             </Suspense>
           )}
         </div>

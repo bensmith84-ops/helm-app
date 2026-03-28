@@ -220,14 +220,11 @@ export default function FinanceView({ initialView, embedded } = {}) {
     { id: "pl_explorer",   label: "P&L Explorer",  icon: "📊" },
     { id: "cash_flow",     label: "Cash Flow",     icon: "💧" },
     { id: "vendors",       label: "Vendors",       icon: "🏢" },
-    { id: "ap_aging",      label: "AP Aging",      icon: "⏳" },
-    { id: "dashboard",     label: "Spend Mgmt",    icon: "◉" },
-    { id: "vendor_spend",  label: "Vendor Spend",  icon: "📑" },
-    { id: "requests",      label: "Requests",      icon: "📋" },
+    { id: "ap_aging",      label: "AP / AR",       icon: "⏳" },
+    { id: "txn_search",    label: "Transactions",  icon: "🔍" },
     { id: "budgets",       label: "Budgets",       icon: "💰" },
-    { id: "departments",   label: "Departments",   icon: "🏢" },
+    { id: "requests",      label: "Requests",      icon: "📋" },
     { id: "rules",         label: "Rules",          icon: "⚡" },
-    { id: "reports",       label: "Reports",        icon: "📊" },
     { id: "audit",         label: "Audit Log",      icon: "🗂" },
   ];
 
@@ -270,7 +267,8 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "cash_flow" && <CashFlowView isMobile={isMobile} />}
         {view === "vendors" && <VendorIntelligence isMobile={isMobile} />}
         {view === "ap_aging" && <APAgingView isMobile={isMobile} />}
-        {view === "dashboard" && <DashboardView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
+        {view === "txn_search" && <TransactionSearch isMobile={isMobile} />}
+        {view === "budgets" && <BudgetsView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
         {view === "departments" && <DepartmentsView isMobile={isMobile} departments={departments} setDepartments={setDepartments} members={members} requests={requests} getDeptSpend={getDeptSpend} />}
@@ -279,6 +277,173 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
         {view === "vendor_spend" && <VendorSpendView isMobile={isMobile} glCodes={glCodes} glCategories={glCategories} departments={departments} />}
       </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TRANSACTION SEARCH — Search all financial transactions
+// ═══════════════════════════════════════════════════════════════════════════════
+function TransactionSearch({ isMobile }) {
+  const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
+    ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" }
+    : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" };
+  const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(n);
+  const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
+
+  const [loading, setLoading] = useState(true);
+  const [allTxns, setAllTxns] = useState([]);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("date");
+  const [sortDir, setSortDir] = useState("desc");
+  const [minAmt, setMinAmt] = useState("");
+  const [maxAmt, setMaxAmt] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const [r1, r2, r3, r4, r5] = await Promise.all([
+        supabase.from("qbo_bills").select("vendor_name,total_amount,balance,txn_date,due_date,memo,gl_accounts,payment_status").order("txn_date", { ascending: false }),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,memo,gl_accounts,payment_type").order("txn_date", { ascending: false }),
+        supabase.from("qbo_deposits").select("total_amount,txn_date,deposit_to,memo").order("txn_date", { ascending: false }),
+        supabase.from("qbo_payments").select("payment_type,customer_name,vendor_name,total_amount,txn_date,memo,deposit_to").order("txn_date", { ascending: false }),
+        supabase.from("qbo_journal_entries").select("total_amount,txn_date,memo,doc_number").order("txn_date", { ascending: false }),
+      ]);
+      const txns = [
+        ...(r1.data || []).map(t => ({ ...t, txn_type: "bill", entity: t.vendor_name, direction: "out" })),
+        ...(r2.data || []).map(t => ({ ...t, txn_type: "purchase", entity: t.vendor_name, direction: "out" })),
+        ...(r3.data || []).map(t => ({ ...t, txn_type: "deposit", entity: t.deposit_to || "Deposit", direction: "in" })),
+        ...(r4.data || []).filter(p => p.payment_type === "received").map(t => ({ ...t, txn_type: "pmt_received", entity: t.customer_name || "Customer", direction: "in" })),
+        ...(r4.data || []).filter(p => p.payment_type === "made").map(t => ({ ...t, txn_type: "pmt_made", entity: t.vendor_name || "Vendor", direction: "out" })),
+        ...(r5.data || []).map(t => ({ ...t, txn_type: "journal", entity: t.memo || `JE #${t.doc_number}`, direction: "neutral" })),
+      ];
+      setAllTxns(txns);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading transactions…</div>;
+
+  // Filter
+  let filtered = allTxns;
+  if (typeFilter !== "all") filtered = filtered.filter(t => t.txn_type === typeFilter);
+  if (search) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter(t =>
+      (t.entity || "").toLowerCase().includes(q) ||
+      (t.memo || "").toLowerCase().includes(q) ||
+      (t.gl_accounts || "").toLowerCase().includes(q) ||
+      (t.doc_number || "").toLowerCase().includes(q) ||
+      String(t.total_amount || "").includes(q)
+    );
+  }
+  if (minAmt) filtered = filtered.filter(t => Number(t.total_amount) >= Number(minAmt));
+  if (maxAmt) filtered = filtered.filter(t => Number(t.total_amount) <= Number(maxAmt));
+
+  // Sort
+  filtered.sort((a, b) => {
+    let va, vb;
+    if (sortBy === "date") { va = a.txn_date || ""; vb = b.txn_date || ""; return sortDir === "desc" ? vb.localeCompare(va) : va.localeCompare(vb); }
+    if (sortBy === "amount") { va = Number(a.total_amount) || 0; vb = Number(b.total_amount) || 0; return sortDir === "desc" ? vb - va : va - vb; }
+    if (sortBy === "entity") { va = (a.entity || "").toLowerCase(); vb = (b.entity || "").toLowerCase(); return sortDir === "desc" ? vb.localeCompare(va) : va.localeCompare(vb); }
+    return 0;
+  });
+
+  const TYPE_CONFIG = {
+    bill: { label: "Bill", color: T.yellow, bg: T.yellow + "18" },
+    purchase: { label: "Card", color: T.accent, bg: T.accent + "15" },
+    deposit: { label: "Deposit", color: T.green, bg: T.green + "18" },
+    pmt_received: { label: "Pmt In", color: T.green, bg: T.green + "18" },
+    pmt_made: { label: "Pmt Out", color: T.red, bg: T.red + "18" },
+    journal: { label: "Journal", color: T.text3, bg: T.text3 + "18" },
+  };
+
+  const totalIn = filtered.filter(t => t.direction === "in").reduce((s, t) => s + Number(t.total_amount), 0);
+  const totalOut = filtered.filter(t => t.direction === "out").reduce((s, t) => s + Number(t.total_amount), 0);
+
+  const toggleSort = (col) => {
+    if (sortBy === col) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortBy(col); setSortDir("desc"); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>Transaction Search</div>
+        <div style={{ fontSize: 12, color: T.text3 }}>{allTxns.length.toLocaleString()} total transactions · Search bills, card charges, deposits, payments, journal entries</div>
+      </div>
+
+      {/* Search + filters */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, background: T.surface, border: `1px solid ${T.border}`, flex: isMobile ? "1 1 100%" : "1 1 300px" }}>
+          <span style={{ fontSize: 14 }}>🔍</span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor, memo, GL account, amount…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, width: "100%" }} />
+          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>✕</button>}
+        </div>
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
+          <option value="all">All types</option>
+          <option value="bill">Bills</option>
+          <option value="purchase">Card charges</option>
+          <option value="deposit">Deposits</option>
+          <option value="pmt_received">Payments received</option>
+          <option value="pmt_made">Payments made</option>
+          <option value="journal">Journal entries</option>
+        </select>
+        <input value={minAmt} onChange={e => setMinAmt(e.target.value)} placeholder="Min $" type="number" style={{ width: 80, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }} />
+        <input value={maxAmt} onChange={e => setMaxAmt(e.target.value)} placeholder="Max $" type="number" style={{ width: 80, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }} />
+      </div>
+
+      {/* Summary */}
+      <div style={{ display: "flex", gap: 16, fontSize: 11, color: T.text3 }}>
+        <span>{filtered.length.toLocaleString()} results</span>
+        {totalIn > 0 && <span>In: <strong style={{ color: T.green }}>{fmtK(totalIn)}</strong></span>}
+        {totalOut > 0 && <span>Out: <strong style={{ color: T.red }}>{fmtK(totalOut)}</strong></span>}
+      </div>
+
+      {/* Results table */}
+      <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 650 }}>
+          <thead>
+            <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+              <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", width: 60 }}>Type</th>
+              <th onClick={() => toggleSort("date")} style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer" }}>Date {sortBy === "date" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+              <th onClick={() => toggleSort("entity")} style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer" }}>Entity {sortBy === "entity" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+              <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Memo</th>
+              <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>GL</th>
+              <th onClick={() => toggleSort("amount")} style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer" }}>Amount {sortBy === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.slice(0, 200).map((t, i) => {
+              const cfg = TYPE_CONFIG[t.txn_type] || TYPE_CONFIG.journal;
+              return (
+                <tr key={i} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
+                  <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                    <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: cfg.bg, color: cfg.color, whiteSpace: "nowrap" }}>{cfg.label}</span>
+                  </td>
+                  <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>
+                    {t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                  </td>
+                  <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {t.entity || "—"}
+                  </td>
+                  <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {(t.memo || "—").slice(0, 60)}
+                  </td>
+                  <td style={{ padding: "6px 10px", fontSize: 10, color: T.accent, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {(t.gl_accounts || "—").split(",")[0]}
+                  </td>
+                  <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, textAlign: "right", color: t.direction === "in" ? T.green : t.direction === "out" ? T.text : T.text2 }}>
+                    {t.direction === "in" ? "+" : t.direction === "out" ? "" : ""}{fmt(Number(t.total_amount))}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filtered.length > 200 && <div style={{ textAlign: "center", padding: 10, fontSize: 10, color: T.text3 }}>Showing 200 of {filtered.length.toLocaleString()}</div>}
+        {filtered.length === 0 && <div style={{ textAlign: "center", padding: 30, color: T.text3, fontSize: 12 }}>No transactions match your search</div>}
       </div>
     </div>
   );
