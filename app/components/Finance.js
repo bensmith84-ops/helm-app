@@ -270,12 +270,9 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "ap_aging" && <APAgingView isMobile={isMobile} />}
         {view === "txn_search" && <TransactionSearch isMobile={isMobile} />}
         {view === "revenue" && <RevenueAnalytics isMobile={isMobile} />}
-        {view === "budgets" && <BudgetsView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
-        {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
-        {view === "departments" && <DepartmentsView isMobile={isMobile} departments={departments} setDepartments={setDepartments} members={members} requests={requests} getDeptSpend={getDeptSpend} />}
+        {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "rules" && <RulesView isMobile={isMobile} rules={rules} setRules={setRules} glCodes={glCodes} members={members} user={user} />}
-        {view === "reports" && <ReportsView isMobile={isMobile} requests={requests} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} />}
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
         {view === "vendor_spend" && <VendorSpendView isMobile={isMobile} glCodes={glCodes} glCategories={glCategories} departments={departments} />}
       </div>
@@ -312,36 +309,46 @@ function RevenueAnalytics({ isMobile }) {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading revenue data…</div>;
 
   const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
-  const totalRevenue = plYTD.reduce((s, r) => s + Number(r.amount), 0);
-  const grossRevenue = plYTD.filter(r => Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0);
-  const discounts = plYTD.filter(r => Number(r.amount) < 0).reduce((s, r) => s + Number(r.amount), 0);
+  const grossRevAccts = plYTD.filter(r => (r.account_type || "").includes("Income") && !r.account_name.includes("Discount") && !r.account_name.includes("Refund") && !r.account_name.includes("Rebate") && !r.account_name.includes("Spoils") && !r.account_name.includes("Trade") && Number(r.amount) > 0);
+  const discountAccts = plYTD.filter(r => Number(r.amount) < 0 || r.account_name.includes("Discount") || r.account_name.includes("Refund") || r.account_name.includes("Rebate") || r.account_name.includes("Spoils") || r.account_name.includes("Trade"));
 
-  // Revenue accounts sorted by absolute amount
-  const revenueAccts = plYTD.filter(r => Number(r.amount) > 0).sort((a, b) => Number(b.amount) - Number(a.amount));
-  const discountAccts = plYTD.filter(r => Number(r.amount) < 0).sort((a, b) => Number(a.amount) - Number(b.amount));
+  const grossRev = grossRevAccts.reduce((s, r) => s + Number(r.amount), 0);
+  const discounts = discountAccts.reduce((s, r) => s + Number(r.amount), 0);
+  const netRev = grossRev + discounts;
 
-  // Channel grouping (Shopify, Amazon, Walmart, Other)
+  // Channel breakdown (from account names)
   const channels = [
-    { name: "Shopify / DTC", color: "#95BF47", match: a => a.toLowerCase().includes("shopify") || a.toLowerCase().includes("ecommerce") },
-    { name: "Amazon", color: "#FF9900", match: a => a.toLowerCase().includes("amazon") },
-    { name: "Walmart / Retail", color: "#0071CE", match: a => a.toLowerCase().includes("walmart") || a.toLowerCase().includes("retail") },
-    { name: "Other", color: T.text3, match: () => true },
+    { key: "shopify", label: "Shopify / DTC", match: a => a.includes("Shopify"), color: "#5E8E3E" },
+    { key: "amazon", label: "Amazon", match: a => a.includes("Amazon"), color: "#FF9900" },
+    { key: "walmart", label: "Walmart", match: a => a.includes("Walmart") || a.includes("Retail"), color: "#0071CE" },
+    { key: "other", label: "Other", match: () => true, color: T.text3 },
   ];
-  const channelData = channels.map(ch => {
-    const ytdAccts = revenueAccts.filter(r => ch.match(r.account_name));
-    const ytd = ytdAccts.reduce((s, r) => s + Number(r.amount), 0);
+
+  const channelData = [];
+  const used = new Set();
+  for (const ch of channels) {
+    const accts = ch.key === "other" 
+      ? grossRevAccts.filter(r => !used.has(r.account_name))
+      : grossRevAccts.filter(r => ch.match(r.account_name) && !used.has(r.account_name));
+    accts.forEach(r => used.add(r.account_name));
+    const ytd = accts.reduce((s, r) => s + Number(r.amount), 0);
+    // Monthly data
     const monthly = months.map(m => {
-      const mAccts = plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0 && ch.match(r.account_name));
+      const mAccts = ch.key === "other"
+        ? plMonthly.filter(r => r.period_month === m && !channels.slice(0, -1).some(c => c.match(r.account_name)) && Number(r.amount) > 0)
+        : plMonthly.filter(r => r.period_month === m && ch.match(r.account_name) && Number(r.amount) > 0);
       return mAccts.reduce((s, r) => s + Number(r.amount), 0);
     });
-    // Remove matched from subsequent channels
-    ytdAccts.forEach(r => { const idx = revenueAccts.indexOf(r); if (idx >= 0) revenueAccts.splice(idx, 1); });
-    return { ...ch, ytd, monthly, accounts: ytdAccts };
-  }).filter(c => c.ytd > 0);
+    if (ytd > 0 || monthly.some(v => v > 0)) channelData.push({ ...ch, ytd, monthly, accts });
+  }
 
-  const monthlyTotals = months.map(m => plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0));
-  const maxMonthly = Math.max(...monthlyTotals, 1);
+  // Monthly totals for chart
+  const monthlyGross = months.map(m => plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0));
   const monthlyNet = months.map(m => plMonthly.filter(r => r.period_month === m).reduce((s, r) => s + Number(r.amount), 0));
+  const maxMonthly = Math.max(...monthlyGross, 1);
+
+  // Discounts breakdown
+  const discountItems = discountAccts.sort((a, b) => Number(a.amount) - Number(b.amount));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -353,49 +360,44 @@ function RevenueAnalytics({ isMobile }) {
       {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Net Revenue YTD</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: T.green }}>{fmtK(totalRevenue)}</div>
-        </div>
-        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Gross Revenue</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>{fmtK(grossRevenue)}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.green }}>{fmtK(grossRev)}</div>
         </div>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Discounts & Returns</div>
           <div style={{ fontSize: 22, fontWeight: 900, color: T.red }}>{fmtK(discounts)}</div>
-          <div style={{ fontSize: 9, color: T.text3 }}>{grossRevenue > 0 ? (Math.abs(discounts) / grossRevenue * 100).toFixed(1) : 0}% of gross</div>
+          <div style={{ fontSize: 9, color: T.text3 }}>{grossRev > 0 ? ((Math.abs(discounts) / grossRev) * 100).toFixed(1) : 0}% of gross</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Net Revenue</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.accent }}>{fmtK(netRev)}</div>
         </div>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Avg Monthly</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: T.accent }}>{fmtK(months.length > 0 ? totalRevenue / months.length : 0)}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>{fmtK(netRev / (months.length || 1))}</div>
         </div>
       </div>
 
-      {/* Monthly revenue chart — stacked by channel */}
+      {/* Monthly revenue chart */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Monthly Revenue by Channel</div>
-        <div style={{ display: "flex", gap: isMobile ? 4 : 12, alignItems: "flex-end", height: 180 }}>
-          {months.map((m, i) => {
-            const total = monthlyTotals[i];
-            const net = monthlyNet[i];
-            return (
-              <div key={m} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: T.green }}>{fmtK(net)}</div>
-                <div style={{ width: "100%", maxWidth: 50, height: (total / maxMonthly) * 150, borderRadius: "4px 4px 0 0", overflow: "hidden", display: "flex", flexDirection: "column-reverse" }}>
-                  {channelData.map(ch => {
-                    const val = ch.monthly[i] || 0;
-                    const h = total > 0 ? (val / total) * 100 : 0;
-                    return <div key={ch.name} style={{ width: "100%", height: `${h}%`, background: ch.color, minHeight: val > 0 ? 2 : 0 }} />;
-                  })}
-                </div>
-                <div style={{ fontSize: 10, color: T.text3, fontWeight: 600 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</div>
+        <div style={{ display: "flex", gap: isMobile ? 6 : 16, alignItems: "flex-end", height: 180 }}>
+          {months.map((m, mi) => (
+            <div key={m} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{ fontSize: 9, fontWeight: 600, color: T.green }}>{fmtK(monthlyNet[mi])}</div>
+              <div style={{ width: "100%", maxWidth: 50, display: "flex", flexDirection: "column-reverse", height: 150 }}>
+                {channelData.map(ch => {
+                  const h = (ch.monthly[mi] / maxMonthly) * 140;
+                  return h > 0 ? <div key={ch.key} style={{ width: "100%", height: h, background: ch.color, minHeight: 2 }} title={`${ch.label}: ${fmtK(ch.monthly[mi])}`} /> : null;
+                })}
               </div>
-            );
-          })}
+              <div style={{ fontSize: 10, color: T.text3, fontWeight: 600 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</div>
+            </div>
+          ))}
         </div>
         <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 10, flexWrap: "wrap" }}>
           {channelData.map(ch => (
-            <span key={ch.name} style={{ fontSize: 10, color: T.text3 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: ch.color, marginRight: 4 }} />{ch.name}</span>
+            <span key={ch.key} style={{ fontSize: 10, color: T.text3 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: ch.color, marginRight: 4 }} />{ch.label}</span>
           ))}
         </div>
       </div>
@@ -405,64 +407,51 @@ function RevenueAnalytics({ isMobile }) {
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Revenue by Channel</div>
           {channelData.map(ch => {
-            const pct = grossRevenue > 0 ? (ch.ytd / grossRevenue * 100) : 0;
+            const pctVal = grossRev > 0 ? (ch.ytd / grossRev * 100) : 0;
             return (
-              <div key={ch.name} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+              <div key={ch.key} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <div style={{ width: 8, height: 8, borderRadius: 4, background: ch.color }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{ch.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{ch.label}</span>
                   </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div style={{ textAlign: "right" }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(ch.ytd)}</span>
-                    <span style={{ fontSize: 10, color: T.text3 }}>{pct.toFixed(0)}%</span>
+                    <span style={{ fontSize: 10, color: T.text3, marginLeft: 6 }}>{pctVal.toFixed(0)}%</span>
                   </div>
                 </div>
-                <div style={{ height: 6, borderRadius: 3, background: T.surface3 }}><div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: ch.color, borderRadius: 3 }} /></div>
+                <div style={{ height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(pctVal, 100)}%`, height: "100%", background: ch.color, borderRadius: 3 }} />
+                </div>
+                {/* Monthly mini table */}
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  {months.map((m, mi) => (
+                    <div key={m} style={{ flex: 1, textAlign: "center" }}>
+                      <div style={{ fontSize: 8, color: T.text3 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: ch.monthly[mi] > 0 ? T.text2 : T.text3 }}>{ch.monthly[mi] > 0 ? fmtK(ch.monthly[mi]) : "—"}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             );
           })}
         </div>
 
-        {/* Discounts & returns */}
+        {/* Discounts & Returns breakdown */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Discounts & Returns</div>
-          {discountAccts.map(r => {
-            const pct = Math.abs(discounts) > 0 ? (Math.abs(Number(r.amount)) / Math.abs(discounts) * 100) : 0;
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 4 }}>Discounts, Refunds & Returns</div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>{fmtK(Math.abs(discounts))} total · {grossRev > 0 ? ((Math.abs(discounts) / grossRev) * 100).toFixed(1) : 0}% of gross revenue</div>
+          {discountItems.map(r => {
+            const pctVal = grossRev > 0 ? (Math.abs(Number(r.amount)) / grossRev * 100) : 0;
             return (
-              <div key={r.account_name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: `1px solid ${T.border}08` }}>
-                <span style={{ fontSize: 11, color: T.text2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: T.red, minWidth: 70, textAlign: "right" }}>{fmtK(Number(r.amount))}</span>
-                <span style={{ fontSize: 9, color: T.text3, minWidth: 30, textAlign: "right" }}>{pct.toFixed(0)}%</span>
+              <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.border}08` }}>
+                <div style={{ flex: 1, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: T.red, minWidth: 60, textAlign: "right" }}>{fmtK(Math.abs(Number(r.amount)))}</span>
+                <span style={{ fontSize: 9, color: T.text3, minWidth: 30, textAlign: "right" }}>{pctVal.toFixed(1)}%</span>
               </div>
             );
           })}
         </div>
-      </div>
-
-      {/* Monthly table */}
-      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
-          <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
-            <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Channel</th>
-            {months.map(m => <th key={m} style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</th>)}
-            <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 800, color: T.text }}>YTD</th>
-          </tr></thead>
-          <tbody>
-            {channelData.map(ch => (
-              <tr key={ch.name} style={{ borderBottom: `1px solid ${T.border}` }}>
-                <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: ch.color, marginRight: 6 }} />{ch.name}</td>
-                {ch.monthly.map((v, i) => <td key={i} style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, color: v > 0 ? T.text2 : T.text3 }}>{v > 0 ? fmtK(v) : "—"}</td>)}
-                <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(ch.ytd)}</td>
-              </tr>
-            ))}
-            <tr style={{ borderTop: `2px solid ${T.border}` }}>
-              <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 800, color: T.green }}>Net Revenue</td>
-              {monthlyNet.map((v, i) => <td key={i} style={{ padding: "8px 10px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.green }}>{fmtK(v)}</td>)}
-              <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 13, fontWeight: 900, color: T.green }}>{fmtK(totalRevenue)}</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </div>
   );
