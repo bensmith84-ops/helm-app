@@ -219,6 +219,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
     { id: "cfo",           label: "CFO Dashboard", icon: "📈" },
     { id: "pl_explorer",   label: "P&L Explorer",  icon: "📊" },
     { id: "cash_flow",     label: "Cash Flow",     icon: "💧" },
+    { id: "vendors",       label: "Vendors",       icon: "🏢" },
     { id: "dashboard",     label: "Spend Mgmt",    icon: "◉" },
     { id: "vendor_spend",  label: "Vendor Spend",  icon: "📑" },
     { id: "requests",      label: "Requests",      icon: "📋" },
@@ -266,6 +267,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "cfo" && <CFODashboard isMobile={isMobile} />}
         {view === "pl_explorer" && <PLExplorer isMobile={isMobile} />}
         {view === "cash_flow" && <CashFlowView isMobile={isMobile} />}
+        {view === "vendors" && <VendorIntelligence isMobile={isMobile} />}
         {view === "dashboard" && <DashboardView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
@@ -275,6 +277,300 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
         {view === "vendor_spend" && <VendorSpendView isMobile={isMobile} glCodes={glCodes} glCategories={glCategories} departments={departments} />}
       </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VENDOR INTELLIGENCE — Every vendor, one view
+// ═══════════════════════════════════════════════════════════════════════════════
+function VendorIntelligence({ isMobile }) {
+  const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
+    ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" }
+    : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" };
+  const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
+
+  const [loading, setLoading] = useState(true);
+  const [bills, setBills] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [mappings, setMappings] = useState({});
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("total");
+  const [sortDir, setSortDir] = useState("desc");
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [minSpend, setMinSpend] = useState(0);
+
+  useEffect(() => {
+    (async () => {
+      const [r1, r2, r3] = await Promise.all([
+        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_status"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_type"),
+        supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
+      ]);
+      setBills(r1.data || []); setPurchases(r2.data || []);
+      if (r3.data) { const m = {}; r3.data.forEach(r => { m[r.account_name] = r.ga_category; }); setMappings(m); }
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading vendor data…</div>;
+
+  // Build vendor map from all transactions
+  const vendorMap = {};
+  const allTxns = [
+    ...bills.map(b => ({ ...b, type: "bill" })),
+    ...purchases.map(p => ({ ...p, type: "purchase" })),
+  ];
+
+  // Map GL to category
+  const glToCategory = (gl) => {
+    if (!gl) return null;
+    for (const [acctName, cat] of Object.entries(mappings)) {
+      const num = acctName.split(" ")[0];
+      const name = acctName.split(" ").slice(1).join(" ").toLowerCase();
+      if ((num && /^\d+$/.test(num) && gl.includes(num)) || (name && gl.toLowerCase().includes(name))) return cat;
+    }
+    return null;
+  };
+
+  allTxns.forEach(t => {
+    const v = t.vendor_name || "Unknown";
+    if (!vendorMap[v]) vendorMap[v] = { name: v, total: 0, count: 0, bills: 0, purchases: 0, categories: new Set(), months: {}, transactions: [] };
+    const amt = Number(t.total_amount) || 0;
+    vendorMap[v].total += amt;
+    vendorMap[v].count++;
+    if (t.type === "bill") vendorMap[v].bills++; else vendorMap[v].purchases++;
+    const cat = glToCategory(t.gl_accounts);
+    if (cat) vendorMap[v].categories.add(cat);
+    const mo = t.txn_date ? t.txn_date.slice(0, 7) : "unknown";
+    if (!vendorMap[v].months[mo]) vendorMap[v].months[mo] = 0;
+    vendorMap[v].months[mo] += amt;
+    vendorMap[v].transactions.push(t);
+  });
+
+  let vendors = Object.values(vendorMap);
+  const totalAllVendors = vendors.reduce((s, v) => s + v.total, 0);
+  const top5Pct = vendors.sort((a, b) => b.total - a.total).slice(0, 5).reduce((s, v) => s + v.total, 0) / (totalAllVendors || 1) * 100;
+
+  // Filter
+  if (search) {
+    const q = search.toLowerCase();
+    vendors = vendors.filter(v => v.name.toLowerCase().includes(q) || [...v.categories].some(c => c.toLowerCase().includes(q)));
+  }
+  if (minSpend > 0) vendors = vendors.filter(v => v.total >= minSpend);
+
+  // Sort
+  vendors.sort((a, b) => {
+    let va, vb;
+    if (sortBy === "total") { va = a.total; vb = b.total; }
+    else if (sortBy === "count") { va = a.count; vb = b.count; }
+    else if (sortBy === "name") { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); return sortDir === "desc" ? vb.localeCompare(va) : va.localeCompare(vb); }
+    else { va = a.total; vb = b.total; }
+    return sortDir === "desc" ? vb - va : va - vb;
+  });
+
+  const months = [...new Set(allTxns.map(t => t.txn_date ? t.txn_date.slice(0, 7) : null).filter(Boolean))].sort();
+
+  const toggleSort = (col) => {
+    if (sortBy === col) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortBy(col); setSortDir("desc"); }
+  };
+
+  const TH = ({ col, label, align }) => (
+    <th onClick={() => toggleSort(col)} style={{ padding: "8px 10px", textAlign: align || "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
+      {label} {sortBy === col ? (sortDir === "asc" ? "↑" : "↓") : ""}
+    </th>
+  );
+
+  // Selected vendor detail
+  const sel = selectedVendor ? vendorMap[selectedVendor] : null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>Vendor Intelligence</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>{Object.keys(vendorMap).length} vendors · {allTxns.length} transactions · {fmtK(totalAllVendors)} total spend</div>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Unique Vendors</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>{Object.keys(vendorMap).length}</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>YTD Spend</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: T.accent }}>{fmtK(totalAllVendors)}</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Top 5 Concentration</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: top5Pct > 50 ? T.yellow : T.green }}>{top5Pct.toFixed(0)}%</div>
+          <div style={{ fontSize: 9, color: T.text3 }}>of total spend</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Avg per Vendor</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>{fmtK(totalAllVendors / (Object.keys(vendorMap).length || 1))}</div>
+        </div>
+      </div>
+
+      {/* Search + filter bar */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, flex: isMobile ? "1 1 100%" : "0 1 auto" }}>
+          <span style={{ fontSize: 12, color: T.text3 }}>🔍</span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor or category…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, width: isMobile ? "100%" : 240 }} />
+        </div>
+        <select value={minSpend} onChange={e => setMinSpend(Number(e.target.value))} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }}>
+          <option value={0}>All vendors</option>
+          <option value={1000}>$1K+ spend</option>
+          <option value={5000}>$5K+ spend</option>
+          <option value={10000}>$10K+ spend</option>
+          <option value={50000}>$50K+ spend</option>
+          <option value={100000}>$100K+ spend</option>
+        </select>
+        <span style={{ fontSize: 11, color: T.text3, alignSelf: "center" }}>{vendors.length} vendors</span>
+      </div>
+
+      {/* Main content: table + detail panel */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : sel ? "1fr 1.1fr" : "1fr", gap: 16 }}>
+        {/* Vendor table */}
+        <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
+            <thead>
+              <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, width: 30 }}>#</th>
+                <TH col="name" label="Vendor" />
+                <TH col="total" label="YTD Spend" align="right" />
+                <TH col="count" label="Txns" align="right" />
+                <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3 }}>Categories</th>
+                <th style={{ padding: "8px 10px", fontSize: 10, fontWeight: 700, color: T.text3 }}>Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vendors.slice(0, 100).map((v, i) => {
+                const pctTotal = totalAllVendors > 0 ? (v.total / totalAllVendors * 100) : 0;
+                const isSel = selectedVendor === v.name;
+                // Mini sparkline
+                const mVals = months.map(m => v.months[m] || 0);
+                const maxM = Math.max(...mVals, 1);
+                return (
+                  <tr key={v.name} onClick={() => setSelectedVendor(isSel ? null : v.name)}
+                    style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: isSel ? T.accent + "10" : "transparent" }}
+                    onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = T.surface2; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
+                    <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3, fontWeight: 600 }}>{i + 1}</td>
+                    <td style={{ padding: "6px 10px" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</div>
+                      <div style={{ fontSize: 9, color: T.text3 }}>{v.bills > 0 ? `${v.bills} bills` : ""}{v.bills > 0 && v.purchases > 0 ? " · " : ""}{v.purchases > 0 ? `${v.purchases} card` : ""}</div>
+                    </td>
+                    <td style={{ padding: "6px 10px", textAlign: "right" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(v.total)}</div>
+                      <div style={{ fontSize: 9, color: T.text3 }}>{pctTotal.toFixed(1)}%</div>
+                    </td>
+                    <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: T.text2 }}>{v.count}</td>
+                    <td style={{ padding: "6px 10px" }}>
+                      <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                        {[...v.categories].slice(0, 2).map(c => (
+                          <span key={c} style={{ fontSize: 8, padding: "1px 5px", borderRadius: 4, background: T.surface2, color: T.text3, whiteSpace: "nowrap" }}>{c}</span>
+                        ))}
+                        {v.categories.size > 2 && <span style={{ fontSize: 8, color: T.text3 }}>+{v.categories.size - 2}</span>}
+                      </div>
+                    </td>
+                    <td style={{ padding: "6px 10px" }}>
+                      <div style={{ display: "flex", gap: 1, alignItems: "flex-end", height: 16 }}>
+                        {mVals.map((val, j) => (
+                          <div key={j} style={{ width: 6, height: Math.max((val / maxM) * 14, 1), background: val > 0 ? T.accent : T.surface3, borderRadius: 1 }} />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {vendors.length > 100 && <div style={{ textAlign: "center", padding: 10, fontSize: 10, color: T.text3 }}>Showing 100 of {vendors.length}</div>}
+        </div>
+
+        {/* Detail panel */}
+        {sel && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18, maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{sel.name}</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>{sel.count} transactions · {sel.bills} bills · {sel.purchases} card charges</div>
+              </div>
+              <button onClick={() => setSelectedVendor(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>✕</button>
+            </div>
+
+            {/* Vendor KPIs */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+              <div style={{ background: T.surface2, borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>YTD Spend</div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: T.accent }}>{fmtK(sel.total)}</div>
+              </div>
+              <div style={{ background: T.surface2, borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Avg per Txn</div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: T.text }}>{fmtK(sel.total / (sel.count || 1))}</div>
+              </div>
+            </div>
+
+            {/* Categories */}
+            {sel.categories.size > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>BUDGET CATEGORIES</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {[...sel.categories].map(c => (
+                    <span key={c} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.accent + "15", color: T.accent, fontWeight: 600 }}>{c}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Monthly trend */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 6 }}>MONTHLY TREND</div>
+              <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 60 }}>
+                {months.map(m => {
+                  const val = sel.months[m] || 0;
+                  const maxM = Math.max(...months.map(mo => sel.months[mo] || 0), 1);
+                  const h = (val / maxM) * 50;
+                  return (
+                    <div key={m} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                      {val > 0 && <div style={{ fontSize: 8, color: T.text3, fontWeight: 600 }}>{fmtK(val)}</div>}
+                      <div style={{ width: "100%", height: Math.max(h, 2), background: val > 0 ? T.accent : T.surface3, borderRadius: "3px 3px 0 0" }} />
+                      <div style={{ fontSize: 8, color: T.text3 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Transaction list */}
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>TRANSACTIONS ({sel.transactions.length})</div>
+              <div style={{ maxHeight: 300, overflow: "auto" }}>
+                {sel.transactions.sort((a, b) => (b.txn_date || "").localeCompare(a.txn_date || "")).slice(0, 50).map((t, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 11, borderBottom: `1px solid ${T.border}08` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 3, background: t.type === "bill" ? T.yellow + "20" : T.accent + "15", color: t.type === "bill" ? T.yellow : T.accent }}>{t.type === "bill" ? "BILL" : "CARD"}</span>
+                        <span style={{ fontSize: 10, color: T.text3 }}>{t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span>
+                      </div>
+                      {t.memo && <div style={{ fontSize: 9, color: T.text3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.memo.slice(0, 60)}</div>}
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{fmt(Number(t.total_amount))}</div>
+                      {t.gl_accounts && <div style={{ fontSize: 8, color: T.text3, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.gl_accounts.split(",")[0]}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {sel.transactions.length > 50 && <div style={{ fontSize: 9, color: T.text3, marginTop: 4 }}>Showing 50 of {sel.transactions.length}</div>}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
