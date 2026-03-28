@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
@@ -405,7 +405,7 @@ function PLExplorer({ isMobile }) {
             {sections.map(section => {
               const sortedAccts = section.accounts.sort((a, b) => Math.abs(getYTDAmt(b)) - Math.abs(getYTDAmt(a)));
               return (
-                <React.Fragment key={section.label}>
+                <Fragment key={section.label}>
                   {/* Section header */}
                   <tr style={{ background: T.surface2 }}>
                     <td style={{ padding: "8px 8px", fontSize: 12, fontWeight: 800, color: section.color, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>{section.label}</td>
@@ -418,7 +418,7 @@ function PLExplorer({ isMobile }) {
                     const isExpanded = expandedRow === acct;
                     const txns = isExpanded ? getTransactions(acct) : [];
                     return (
-                      <React.Fragment key={acct}>
+                      <Fragment key={acct}>
                         <tr onClick={() => setExpandedRow(isExpanded ? null : acct)} style={{ cursor: "pointer" }}
                           onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                           <td style={{ padding: "5px 8px 5px 16px", fontSize: 11, color: T.text2, position: "sticky", left: 0, background: "inherit", zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 }}>
@@ -459,10 +459,10 @@ function PLExplorer({ isMobile }) {
                             </td>
                           </tr>
                         )}
-                      </React.Fragment>
+                      </Fragment>
                     );
                   })}
-                </React.Fragment>
+                </Fragment>
               );
             })}
 
