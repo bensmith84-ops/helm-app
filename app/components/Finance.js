@@ -120,7 +120,7 @@ const ApprovalChain = ({ req, members }) => {
 export default function FinanceView({ initialView, embedded } = {}) {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
-  const [view, setView] = useState(initialView || "dashboard");
+  const [view, setView] = useState(initialView || "cfo");
   const [loading, setLoading] = useState(true);
 
   // Core data
@@ -216,14 +216,15 @@ export default function FinanceView({ initialView, embedded } = {}) {
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   const NAV = [
-    { id: "dashboard",    label: "Dashboard",    icon: "◉" },
-    { id: "vendor_spend", label: "Vendor Spend", icon: "📑" },
-    { id: "requests",     label: "Requests",     icon: "📋" },
-    { id: "budgets",      label: "Budgets",      icon: "💰" },
-    { id: "departments",  label: "Departments",  icon: "🏢" },
-    { id: "rules",        label: "Rules",        icon: "⚡" },
-    { id: "reports",      label: "Reports",      icon: "📊" },
-    { id: "audit",        label: "Audit Log",    icon: "🗂" },
+    { id: "cfo",           label: "CFO Dashboard", icon: "📈" },
+    { id: "dashboard",     label: "Spend Mgmt",    icon: "◉" },
+    { id: "vendor_spend",  label: "Vendor Spend",  icon: "📑" },
+    { id: "requests",      label: "Requests",      icon: "📋" },
+    { id: "budgets",       label: "Budgets",       icon: "💰" },
+    { id: "departments",   label: "Departments",   icon: "🏢" },
+    { id: "rules",         label: "Rules",          icon: "⚡" },
+    { id: "reports",       label: "Reports",        icon: "📊" },
+    { id: "audit",         label: "Audit Log",      icon: "🗂" },
   ];
 
   if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: T.text3, fontSize: 13 }}>Loading ApproveFlow…</div>;
@@ -260,6 +261,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
 
         {/* Scrollable content area */}
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
+        {view === "cfo" && <CFODashboard isMobile={isMobile} />}
         {view === "dashboard" && <DashboardView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
@@ -275,7 +277,285 @@ export default function FinanceView({ initialView, embedded } = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DASHBOARD VIEW
+// CFO DASHBOARD — Executive Financial Overview
+// ═══════════════════════════════════════════════════════════════════════════════
+function CFODashboard({ isMobile }) {
+  const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
+    ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B",purple:"#8B5CF6" }
+    : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B",purple:"#8B5CF6" };
+  const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
+
+  const [loading, setLoading] = useState(true);
+  const [pl, setPL] = useState([]);
+  const [plMonthly, setPLMonthly] = useState([]);
+  const [bs, setBS] = useState([]);
+  const [bills, setBills] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [deposits, setDeposits] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [transfers, setTransfers] = useState([]);
+  const [journalEntries, setJournalEntries] = useState([]);
+  const [mappings, setMappings] = useState({});
+  const [conn, setConn] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11] = await Promise.all([
+        supabase.from("qbo_pl").select("*"),
+        supabase.from("qbo_pl_monthly").select("*").order("period_month"),
+        supabase.from("qbo_balance_sheet").select("*"),
+        supabase.from("qbo_bills").select("vendor_name,total_amount,balance,payment_status,txn_date,gl_accounts"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type"),
+        supabase.from("qbo_deposits").select("*"),
+        supabase.from("qbo_payments").select("*"),
+        supabase.from("qbo_transfers").select("*"),
+        supabase.from("qbo_journal_entries").select("qbo_id,txn_date,total_amount,memo"),
+        supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
+        supabase.from("qbo_connections").select("*").order("connected_at", { ascending: false }).limit(1),
+      ]);
+      setPL(r1.data || []); setPLMonthly(r2.data || []); setBS(r3.data || []);
+      setBills(r4.data || []); setPurchases(r5.data || []); setDeposits(r6.data || []);
+      setPayments(r7.data || []); setTransfers(r8.data || []); setJournalEntries(r9.data || []);
+      if (r10.data) { const m = {}; r10.data.forEach(r => { m[r.account_name] = r.ga_category; }); setMappings(m); }
+      if (r11.data?.[0]) setConn(r11.data[0]);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading financial data…</div>;
+
+  // Derived metrics
+  const revenue = pl.filter(r => r.classification === "Revenue").reduce((s, r) => s + Number(r.amount), 0);
+  const expenses = pl.filter(r => r.classification === "Expense").reduce((s, r) => s + Number(r.amount), 0);
+  const netIncome = revenue - expenses;
+  const grossMargin = revenue > 0 ? ((revenue - pl.filter(r => r.account_type === "Cost of Goods Sold").reduce((s, r) => s + Number(r.amount), 0)) / revenue * 100) : 0;
+
+  const totalAssets = bs.filter(r => r.section === "Asset").reduce((s, r) => s + Number(r.amount), 0);
+  const totalLiabilities = bs.filter(r => r.section === "Liability").reduce((s, r) => s + Number(r.amount), 0);
+  const totalEquity = bs.filter(r => r.section === "Equity").reduce((s, r) => s + Number(r.amount), 0);
+  const cashAccounts = bs.filter(r => r.section === "Asset" && (r.account_name.toLowerCase().includes("checking") || r.account_name.toLowerCase().includes("savings") || r.account_name.toLowerCase().includes("mercury") || r.account_name.toLowerCase().includes("cash")));
+  const totalCash = cashAccounts.reduce((s, r) => s + Number(r.amount), 0);
+
+  const apOpen = bills.filter(b => b.payment_status === "open").reduce((s, b) => s + Number(b.balance), 0);
+  const arOpen = 0; // Would need invoices loaded
+  const totalBillsYTD = bills.reduce((s, b) => s + Number(b.total_amount), 0);
+  const totalPurchasesYTD = purchases.reduce((s, b) => s + Number(b.total_amount), 0);
+  const totalDepositsYTD = deposits.reduce((s, d) => s + Number(d.total_amount), 0);
+  const pmtsReceived = payments.filter(p => p.payment_type === "received").reduce((s, p) => s + Number(p.total_amount), 0);
+  const pmtsMade = payments.filter(p => p.payment_type === "made").reduce((s, p) => s + Number(p.total_amount), 0);
+
+  // Monthly P&L trend
+  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const monthlyData = months.map(m => {
+    const mRows = plMonthly.filter(r => r.period_month === m);
+    const rev = mRows.filter(r => r.classification === "Revenue").reduce((s, r) => s + Number(r.amount), 0);
+    const exp = mRows.filter(r => r.classification === "Expense").reduce((s, r) => s + Number(r.amount), 0);
+    return { month: m, revenue: rev, expenses: exp, net: rev - exp, label: new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }) };
+  });
+  const maxMonthly = Math.max(...monthlyData.map(m => Math.max(m.revenue, m.expenses)), 1);
+
+  // Top vendors (bills + purchases combined)
+  const vendorMap = {};
+  bills.forEach(b => { const v = b.vendor_name || "Unknown"; if (!vendorMap[v]) vendorMap[v] = { name: v, total: 0, count: 0 }; vendorMap[v].total += Number(b.total_amount); vendorMap[v].count++; });
+  purchases.forEach(p => { const v = p.vendor_name || "Unknown"; if (!vendorMap[v]) vendorMap[v] = { name: v, total: 0, count: 0 }; vendorMap[v].total += Number(p.total_amount); vendorMap[v].count++; });
+  const topVendors = Object.values(vendorMap).sort((a, b) => b.total - a.total).slice(0, 12);
+
+  // Spend by category
+  const catSpend = {};
+  pl.filter(r => r.classification === "Expense").forEach(r => {
+    const cat = mappings[r.account_name] || "Unmatched";
+    if (!catSpend[cat]) catSpend[cat] = 0;
+    catSpend[cat] += Number(r.amount);
+  });
+  const catList = Object.entries(catSpend).sort((a, b) => b[1] - a[1]);
+  const CAT_COLORS = { "COGS":"#EC4899", "Direct Ad Spend":"#EF4444", "People Costs":"#8B5CF6", "Brand/Other/Marketing":"#F59E0B", "Consultants":"#3B82F6", "Software and Subscriptions":"#10B981", "T&E":"#0EA5E9", "R&D":"#6366F1", "Legal":"#A855F7", "Insurance":"#14B8A6", "Non-Fixed and Other":"#6B7280" };
+
+  // Revenue by income account
+  const revenueAccts = pl.filter(r => r.classification === "Revenue").sort((a, b) => Number(b.amount) - Number(a.amount));
+
+  const KPI = ({ label, value, sub, color, icon }) => (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? "12px 10px" : "16px 18px", display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.5px" }}>{icon && <span style={{ marginRight: 4 }}>{icon}</span>}{label}</div>
+      <div style={{ fontSize: isMobile ? 18 : 22, fontWeight: 900, color: color || T.text }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: T.text3 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>Earth Breeze — Financial Overview</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>2026 YTD · Last synced {conn?.last_synced_at ? new Date(conn.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</div>
+        </div>
+      </div>
+
+      {/* PRIMARY KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10 }}>
+        <KPI icon="💰" label="YTD Revenue" value={fmtK(revenue)} color={T.green} sub={`${months.length} months`} />
+        <KPI icon="📤" label="YTD Expenses" value={fmtK(expenses)} color={T.red} />
+        <KPI icon="📊" label="Net Income" value={fmtK(netIncome)} color={netIncome >= 0 ? T.green : T.red} sub={`${(netIncome / revenue * 100).toFixed(1)}% margin`} />
+        <KPI icon="📈" label="Gross Margin" value={`${grossMargin.toFixed(1)}%`} color={T.accent} />
+        <KPI icon="🏦" label="Cash Position" value={totalCash > 0 ? fmtK(totalCash) : "Sync BS"} color={T.purple} sub={totalCash > 0 ? `of ${fmtK(totalAssets)} assets` : ""} />
+      </div>
+
+      {/* SECONDARY KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10 }}>
+        <KPI icon="📋" label="AP Outstanding" value={fmtK(apOpen)} color={T.yellow} sub={`${bills.filter(b => b.payment_status === "open").length} open bills`} />
+        <KPI icon="💳" label="Card Spend YTD" value={fmtK(totalPurchasesYTD)} sub={`${purchases.length} transactions`} />
+        <KPI icon="📥" label="Deposits YTD" value={fmtK(totalDepositsYTD)} sub={`${deposits.length} deposits`} color={T.green} />
+        <KPI icon="💸" label="Bills Paid YTD" value={fmtK(pmtsMade)} sub={`${payments.filter(p => p.payment_type === "made").length} payments`} />
+        <KPI icon="📒" label="Journal Entries" value={journalEntries.length} sub={`inc. payroll, accruals`} />
+      </div>
+
+      {/* MONTHLY P&L CHART */}
+      {monthlyData.length > 0 && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Monthly P&L Trend</div>
+          <div style={{ display: "flex", gap: isMobile ? 4 : 12, alignItems: "flex-end", height: 160 }}>
+            {monthlyData.map(m => {
+              const revH = (m.revenue / maxMonthly) * 140;
+              const expH = (m.expenses / maxMonthly) * 140;
+              return (
+                <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: m.net >= 0 ? T.green : T.red }}>{fmtK(m.net)}</div>
+                  <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 140 }}>
+                    <div style={{ width: isMobile ? 12 : 20, height: revH, background: T.green, borderRadius: "4px 4px 0 0", minHeight: 2 }} title={`Revenue: ${fmt(m.revenue)}`} />
+                    <div style={{ width: isMobile ? 12 : 20, height: expH, background: T.red + "80", borderRadius: "4px 4px 0 0", minHeight: 2 }} title={`Expenses: ${fmt(m.expenses)}`} />
+                  </div>
+                  <div style={{ fontSize: 10, color: T.text3, fontWeight: 600 }}>{m.label}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 10 }}>
+            <span style={{ fontSize: 10, color: T.text3 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: T.green, marginRight: 4 }} />Revenue</span>
+            <span style={{ fontSize: 10, color: T.text3 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: T.red + "80", marginRight: 4 }} />Expenses</span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+        {/* SPEND BY CATEGORY */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Spend by Category</div>
+          {catList.map(([cat, amt]) => {
+            const pctVal = expenses > 0 ? (amt / expenses * 100) : 0;
+            return (
+              <div key={cat} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
+                <div style={{ width: 6, height: 6, borderRadius: 3, background: CAT_COLORS[cat] || T.text3, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat}</div>
+                <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}><div style={{ width: `${Math.min(pctVal, 100)}%`, height: "100%", background: CAT_COLORS[cat] || T.text3, borderRadius: 2 }} /></div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 55, textAlign: "right" }}>{fmtK(amt)}</span>
+                <span style={{ fontSize: 9, color: T.text3, minWidth: 28, textAlign: "right" }}>{pctVal.toFixed(0)}%</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* TOP VENDORS */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top Vendors by Spend</div>
+          {topVendors.map((v, i) => (
+            <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, width: 18, textAlign: "right" }}>#{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</div>
+              <span style={{ fontSize: 9, color: T.text3 }}>{v.count} txns</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 60, textAlign: "right" }}>{fmtK(v.total)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* REVENUE BREAKDOWN + BALANCE SHEET */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+        {/* Revenue by channel */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Revenue Breakdown</div>
+          {revenueAccts.map(r => {
+            const pctVal = revenue > 0 ? (Number(r.amount) / revenue * 100) : 0;
+            return (
+              <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+                <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}><div style={{ width: `${Math.min(pctVal, 100)}%`, height: "100%", background: T.green, borderRadius: 2 }} /></div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: T.green, minWidth: 55, textAlign: "right" }}>{fmtK(Number(r.amount))}</span>
+                <span style={{ fontSize: 9, color: T.text3, minWidth: 28, textAlign: "right" }}>{pctVal.toFixed(0)}%</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Balance Sheet Summary */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Balance Sheet Summary</div>
+          {bs.length === 0 ? (
+            <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>Run a sync to populate Balance Sheet data</div>
+          ) : (
+            <>
+              {[{ section: "Asset", color: T.green, label: "Assets" }, { section: "Liability", color: T.red, label: "Liabilities" }, { section: "Equity", color: T.purple, label: "Equity" }].map(({ section, color, label }) => {
+                const items = bs.filter(r => r.section === section).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
+                const total = items.reduce((s, r) => s + Number(r.amount), 0);
+                return (
+                  <div key={section} style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color }}>{label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color }}>{fmtK(total)}</span>
+                    </div>
+                    {items.slice(0, 5).map(r => (
+                      <div key={r.account_name} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0 2px 12px", fontSize: 10, color: T.text3 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.account_name}</span>
+                        <span style={{ fontWeight: 600, color: T.text2, marginLeft: 8 }}>{fmtK(Number(r.amount))}</span>
+                      </div>
+                    ))}
+                    {items.length > 5 && <div style={{ fontSize: 9, color: T.text3, paddingLeft: 12, marginTop: 2 }}>+{items.length - 5} more accounts</div>}
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* CASH FLOW SUMMARY */}
+      {(deposits.length > 0 || payments.length > 0) && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Cash Flow Summary — 2026 YTD</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 6 }}>CASH IN</div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}><span style={{ color: T.text2 }}>Deposits</span><span style={{ fontWeight: 600, color: T.text }}>{fmtK(totalDepositsYTD)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}><span style={{ color: T.text2 }}>Customer Payments</span><span style={{ fontWeight: 600, color: T.text }}>{fmtK(pmtsReceived)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0 0", fontSize: 12, fontWeight: 700 }}><span style={{ color: T.green }}>Total In</span><span style={{ color: T.green }}>{fmtK(totalDepositsYTD + pmtsReceived)}</span></div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.red, marginBottom: 6 }}>CASH OUT</div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}><span style={{ color: T.text2 }}>Bill Payments</span><span style={{ fontWeight: 600, color: T.text }}>{fmtK(pmtsMade)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}><span style={{ color: T.text2 }}>Card Spend</span><span style={{ fontWeight: 600, color: T.text }}>{fmtK(totalPurchasesYTD)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0 0", fontSize: 12, fontWeight: 700 }}><span style={{ color: T.red }}>Total Out</span><span style={{ color: T.red }}>{fmtK(pmtsMade + totalPurchasesYTD)}</span></div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, marginBottom: 6 }}>NET FLOW</div>
+              {(() => {
+                const netFlow = (totalDepositsYTD + pmtsReceived) - (pmtsMade + totalPurchasesYTD);
+                return (
+                  <>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: netFlow >= 0 ? T.green : T.red, marginTop: 8 }}>{fmtK(netFlow)}</div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{netFlow >= 0 ? "Net cash positive" : "Net cash negative"} YTD</div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD VIEW (original spend management)
 // ═══════════════════════════════════════════════════════════════════════════════
 function DashboardView({ requests, members, isMobile, departments, glCategories, glCodes, activeBudget, activeBudgetName, getDeptSpend, pending, approved, onNavigate }) {
   const totalApproved = approved.reduce((s, r) => s + r.amount, 0);
