@@ -308,7 +308,11 @@ function RevenueAnalytics({ isMobile }) {
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading revenue data…</div>;
 
-  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const allMonths = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const completedMonths = allMonths.filter(m => m < currentMonth);
+  const avgRev = completedMonths.length > 0 ? completedMonths.reduce((s, m) => s + plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0).reduce((ss, r) => ss + Number(r.amount), 0), 0) / completedMonths.length : 0;
+  const months = allMonths.filter(m => m < currentMonth || plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0) > avgRev * 0.2);
   const grossRevAccts = plYTD.filter(r => (r.account_type || "").includes("Income") && !r.account_name.includes("Discount") && !r.account_name.includes("Refund") && !r.account_name.includes("Rebate") && !r.account_name.includes("Spoils") && !r.account_name.includes("Trade") && Number(r.amount) > 0);
   const discountAccts = plYTD.filter(r => Number(r.amount) < 0 || r.account_name.includes("Discount") || r.account_name.includes("Refund") || r.account_name.includes("Rebate") || r.account_name.includes("Spoils") || r.account_name.includes("Trade"));
 
@@ -1379,7 +1383,11 @@ function PLExplorer({ isMobile }) {
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading P&L data…</div>;
 
-  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const allPLMonths = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const compMonths = allPLMonths.filter(m => m < currentMonth);
+  const avgTotal = compMonths.length > 0 ? compMonths.reduce((s, m) => s + plMonthly.filter(r => r.period_month === m).reduce((ss, r) => ss + Math.abs(Number(r.amount)), 0), 0) / compMonths.length : 0;
+  const months = allPLMonths.filter(m => m < currentMonth || plMonthly.filter(r => r.period_month === m).reduce((s, r) => s + Math.abs(Number(r.amount)), 0) > avgTotal * 0.2);
   const monthLabels = months.map(m => new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }));
 
   // Build all unique accounts
@@ -1625,8 +1633,12 @@ function CFODashboard({ isMobile }) {
   const pmtsReceived = payments.filter(p => p.payment_type === "received").reduce((s, p) => s + Number(p.total_amount), 0);
   const pmtsMade = payments.filter(p => p.payment_type === "made").reduce((s, p) => s + Number(p.total_amount), 0);
 
-  // Monthly P&L trend
-  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  // Monthly P&L trend — exclude partial current month if data is clearly incomplete
+  const currentMo = new Date().toISOString().slice(0, 7);
+  const allMo = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const closedMo = allMo.filter(m => m < currentMo);
+  const avgMoTotal = closedMo.length > 0 ? closedMo.reduce((s, m) => s + plMonthly.filter(r => r.period_month === m).reduce((ss, r) => ss + Math.abs(Number(r.amount)), 0), 0) / closedMo.length : 0;
+  const months = allMo.filter(m => m < currentMo || plMonthly.filter(r => r.period_month === m).reduce((s, r) => s + Math.abs(Number(r.amount)), 0) > avgMoTotal * 0.2);
   const monthlyData = months.map(m => {
     const mRows = plMonthly.filter(r => r.period_month === m);
     const rev = mRows.filter(r => r.classification === "Revenue").reduce((s, r) => s + Number(r.amount), 0);
@@ -2702,7 +2714,11 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
 
       {/* MONTHLY BUDGET vs ACTUAL TABLE */}
       {budgetTab === "monthly" && (() => {
-        const months = [...new Set(qboPLMonthly.map(r => r.period_month))].sort();
+        const curMo = new Date().toISOString().slice(0, 7);
+        const allBMo = [...new Set(qboPLMonthly.map(r => r.period_month))].sort();
+        const closedBMo = allBMo.filter(m => m < curMo);
+        const avgBMo = closedBMo.length > 0 ? closedBMo.reduce((s, m) => s + qboPLMonthly.filter(r => r.period_month === m).reduce((ss, r) => ss + Math.abs(Number(r.amount)), 0), 0) / closedBMo.length : 0;
+        const months = allBMo.filter(m => m < curMo || qboPLMonthly.filter(r => r.period_month === m).reduce((s, r) => s + Math.abs(Number(r.amount)), 0) > avgBMo * 0.2);
         const monthLabels = months.map(m => new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }));
         // Build monthly spend by budget category
         const getMonthCatSpend = (catName, month) => {
