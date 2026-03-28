@@ -115,6 +115,7 @@ const ERP_NAV = [
   { id: "gl", label: "General Ledger", icon: "📒" },
   { id: "cfo_dash", label: "CFO Dashboard", icon: "📈" },
   { id: "pl_explorer", label: "P&L Explorer", icon: "📊" },
+  { id: "cash_flow", label: "Cash Flow", icon: "💧" },
   { id: "vendor_spend", label: "Vendor Spend", icon: "📑" },
   { id: "fin_requests", label: "Spend Requests", icon: "📋" },
   { id: "fin_budgets", label: "Budgets", icon: "💵" },
@@ -664,9 +665,9 @@ export default function ERPView() {
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
           {/* Finance module views (embedded from Finance.js) */}
-          {["cfo_dash", "pl_explorer", "vendor_spend", "fin_requests", "fin_budgets", "fin_departments", "fin_rules", "fin_audit"].some(v => view === v) && (
+          {["cfo_dash", "pl_explorer", "cash_flow", "vendor_spend", "fin_requests", "fin_budgets", "fin_departments", "fin_rules", "fin_audit"].some(v => view === v) && (
             <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>Loading Finance…</div>}>
-              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", fin_requests: "requests", fin_budgets: "budgets", fin_departments: "departments", fin_rules: "rules", fin_audit: "audit", vendor_spend: "vendor_spend" }[view] || "cfo"} embedded={true} />
+              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", fin_requests: "requests", fin_budgets: "budgets", fin_departments: "departments", fin_rules: "rules", fin_audit: "audit", vendor_spend: "vendor_spend" }[view] || "cfo"} embedded={true} />
             </Suspense>
           )}
         </div>

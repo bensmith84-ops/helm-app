@@ -218,6 +218,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
   const NAV = [
     { id: "cfo",           label: "CFO Dashboard", icon: "📈" },
     { id: "pl_explorer",   label: "P&L Explorer",  icon: "📊" },
+    { id: "cash_flow",     label: "Cash Flow",     icon: "💧" },
     { id: "dashboard",     label: "Spend Mgmt",    icon: "◉" },
     { id: "vendor_spend",  label: "Vendor Spend",  icon: "📑" },
     { id: "requests",      label: "Requests",      icon: "📋" },
@@ -264,6 +265,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
         <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "10px 10px 20px" : "20px 24px" }}>
         {view === "cfo" && <CFODashboard isMobile={isMobile} />}
         {view === "pl_explorer" && <PLExplorer isMobile={isMobile} />}
+        {view === "cash_flow" && <CashFlowView isMobile={isMobile} />}
         {view === "dashboard" && <DashboardView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
@@ -273,6 +275,229 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
         {view === "vendor_spend" && <VendorSpendView isMobile={isMobile} glCodes={glCodes} glCategories={glCategories} departments={departments} />}
       </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CASH FLOW VIEW — Weekly/Monthly cash in vs out
+// ═══════════════════════════════════════════════════════════════════════════════
+function CashFlowView({ isMobile }) {
+  const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
+    ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" }
+    : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" };
+  const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
+
+  const [loading, setLoading] = useState(true);
+  const [deposits, setDeposits] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [transfers, setTransfers] = useState([]);
+  const [bills, setBills] = useState([]);
+  const [period, setPeriod] = useState("monthly"); // weekly, monthly
+  const [expandedPeriod, setExpandedPeriod] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const [r1, r2, r3, r4, r5] = await Promise.all([
+        supabase.from("qbo_deposits").select("*").order("txn_date"),
+        supabase.from("qbo_payments").select("*").order("txn_date"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").order("txn_date"),
+        supabase.from("qbo_transfers").select("*").order("txn_date"),
+        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,payment_status").order("txn_date"),
+      ]);
+      setDeposits(r1.data || []); setPayments(r2.data || []);
+      setPurchases(r3.data || []); setTransfers(r4.data || []); setBills(r5.data || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading cash flow data…</div>;
+
+  // Build period buckets
+  const getWeek = (d) => {
+    const dt = new Date(d + "T12:00:00");
+    const jan1 = new Date(dt.getFullYear(), 0, 1);
+    const wk = Math.ceil(((dt - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+    return `${dt.getFullYear()}-W${String(wk).padStart(2, "0")}`;
+  };
+  const getMonth = (d) => d ? d.slice(0, 7) : "unknown";
+  const getPeriodKey = (d) => period === "weekly" ? getWeek(d) : getMonth(d);
+
+  // Aggregate all flows into periods
+  const periodMap = {};
+  const ensure = (k) => { if (!periodMap[k]) periodMap[k] = { key: k, cashIn: 0, cashOut: 0, deposits: [], pmtsReceived: [], pmtsMade: [], cardSpend: [], transfersIn: [], transfersOut: [] }; };
+
+  // CASH IN: Deposits
+  deposits.forEach(d => { if (!d.txn_date) return; const k = getPeriodKey(d.txn_date); ensure(k); periodMap[k].cashIn += Number(d.total_amount) || 0; periodMap[k].deposits.push(d); });
+  // CASH IN: Payments received
+  payments.filter(p => p.payment_type === "received").forEach(p => { if (!p.txn_date) return; const k = getPeriodKey(p.txn_date); ensure(k); periodMap[k].cashIn += Number(p.total_amount) || 0; periodMap[k].pmtsReceived.push(p); });
+  // CASH OUT: Bill payments
+  payments.filter(p => p.payment_type === "made").forEach(p => { if (!p.txn_date) return; const k = getPeriodKey(p.txn_date); ensure(k); periodMap[k].cashOut += Number(p.total_amount) || 0; periodMap[k].pmtsMade.push(p); });
+  // CASH OUT: Card purchases
+  purchases.forEach(p => { if (!p.txn_date) return; const k = getPeriodKey(p.txn_date); ensure(k); periodMap[k].cashOut += Number(p.total_amount) || 0; periodMap[k].cardSpend.push(p); });
+
+  const periods = Object.values(periodMap).sort((a, b) => a.key.localeCompare(b.key));
+  const totalIn = periods.reduce((s, p) => s + p.cashIn, 0);
+  const totalOut = periods.reduce((s, p) => s + p.cashOut, 0);
+  const netFlow = totalIn - totalOut;
+  const maxBar = Math.max(...periods.map(p => Math.max(p.cashIn, p.cashOut)), 1);
+
+  // Period label
+  const periodLabel = (k) => {
+    if (period === "weekly") return k;
+    return new Date(k + "-15").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  };
+
+  const KPI = ({ label, value, color, sub }) => (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 900, color: color || T.text }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: T.text3 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>Cash Flow</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>2026 YTD · {deposits.length} deposits · {purchases.length} card charges · {payments.length} payments</div>
+        </div>
+        <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${T.border}` }}>
+          {[["monthly","Monthly"],["weekly","Weekly"]].map(([k,l]) => (
+            <button key={k} onClick={() => setPeriod(k)} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: period === k ? T.accent : T.surface2, color: period === k ? "#fff" : T.text3 }}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
+        <KPI label="Total Cash In" value={fmtK(totalIn)} color={T.green} sub={`${deposits.length + payments.filter(p => p.payment_type === "received").length} inflows`} />
+        <KPI label="Total Cash Out" value={fmtK(totalOut)} color={T.red} sub={`${purchases.length + payments.filter(p => p.payment_type === "made").length} outflows`} />
+        <KPI label="Net Cash Flow" value={fmtK(netFlow)} color={netFlow >= 0 ? T.green : T.red} sub={netFlow >= 0 ? "Net positive YTD" : "Net negative YTD"} />
+        <KPI label="Avg Monthly Burn" value={fmtK(periods.length > 0 ? totalOut / periods.length : 0)} color={T.yellow} sub={`across ${periods.length} ${period === "weekly" ? "weeks" : "months"}`} />
+      </div>
+
+      {/* Bar chart */}
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Cash In vs Cash Out — {period === "weekly" ? "Weekly" : "Monthly"}</div>
+        <div style={{ display: "flex", gap: isMobile ? 2 : 8, alignItems: "flex-end", height: 180 }}>
+          {periods.map(p => {
+            const inH = (p.cashIn / maxBar) * 160;
+            const outH = (p.cashOut / maxBar) * 160;
+            const net = p.cashIn - p.cashOut;
+            return (
+              <div key={p.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
+                <div style={{ fontSize: 8, fontWeight: 600, color: net >= 0 ? T.green : T.red, whiteSpace: "nowrap" }}>{net >= 0 ? "+" : ""}{fmtK(net)}</div>
+                <div style={{ display: "flex", gap: 1, alignItems: "flex-end", height: 160 }}>
+                  <div style={{ width: isMobile ? 10 : 18, height: Math.max(inH, 2), background: T.green, borderRadius: "3px 3px 0 0" }} title={`In: ${fmt(p.cashIn)}`} />
+                  <div style={{ width: isMobile ? 10 : 18, height: Math.max(outH, 2), background: T.red + "80", borderRadius: "3px 3px 0 0" }} title={`Out: ${fmt(p.cashOut)}`} />
+                </div>
+                <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>
+                  {period === "weekly" ? p.key.split("-W")[1] : new Date(p.key + "-15").toLocaleDateString("en-US", { month: "short" })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 10 }}>
+          <span style={{ fontSize: 10, color: T.text3 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: T.green, marginRight: 4 }} />Cash In</span>
+          <span style={{ fontSize: 10, color: T.text3 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: T.red + "80", marginRight: 4 }} />Cash Out</span>
+        </div>
+      </div>
+
+      {/* Period detail table */}
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+              <th style={{ padding: "10px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Period</th>
+              <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase" }}>Cash In</th>
+              <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.red, textTransform: "uppercase" }}>Cash Out</th>
+              <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            {periods.map(p => {
+              const net = p.cashIn - p.cashOut;
+              const isExp = expandedPeriod === p.key;
+              return (
+                <Fragment key={p.key}>
+                  <tr onClick={() => setExpandedPeriod(isExp ? null : p.key)} style={{ cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: T.text }}>
+                      <span style={{ color: T.text3, fontSize: 9, marginRight: 4 }}>{isExp ? "▼" : "▶"}</span>
+                      {periodLabel(p.key)}
+                    </td>
+                    <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: T.green, textAlign: "right" }}>{fmtK(p.cashIn)}</td>
+                    <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: T.red, textAlign: "right" }}>{fmtK(p.cashOut)}</td>
+                    <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 700, color: net >= 0 ? T.green : T.red, textAlign: "right" }}>{net >= 0 ? "+" : ""}{fmtK(net)}</td>
+                  </tr>
+                  {isExp && (
+                    <tr><td colSpan={4} style={{ padding: 0 }}>
+                      <div style={{ background: T.surface2, padding: "12px 16px", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+                        {/* Cash In breakdown */}
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 6 }}>CASH IN — {fmtK(p.cashIn)}</div>
+                          {p.deposits.length > 0 && <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 2 }}>Deposits ({p.deposits.length})</div>}
+                          {p.deposits.sort((a, b) => Number(b.total_amount) - Number(a.total_amount)).slice(0, 8).map((d, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 10, borderBottom: `1px solid ${T.border}08` }}>
+                              <span style={{ color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, marginRight: 8 }}>{(d.memo || d.deposit_to || "Deposit").slice(0, 50)}</span>
+                              <span style={{ fontWeight: 600, color: T.green, flexShrink: 0 }}>{fmtK(Number(d.total_amount))}</span>
+                            </div>
+                          ))}
+                          {p.pmtsReceived.length > 0 && <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginTop: 6, marginBottom: 2 }}>Customer Payments ({p.pmtsReceived.length})</div>}
+                          {p.pmtsReceived.slice(0, 5).map((r, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 10 }}>
+                              <span style={{ color: T.text2 }}>{r.customer_name || "Payment"}</span>
+                              <span style={{ fontWeight: 600, color: T.green }}>{fmtK(Number(r.total_amount))}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Cash Out breakdown */}
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.red, marginBottom: 6 }}>CASH OUT — {fmtK(p.cashOut)}</div>
+                          {p.pmtsMade.length > 0 && <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 2 }}>Bill Payments ({p.pmtsMade.length})</div>}
+                          {p.pmtsMade.sort((a, b) => Number(b.total_amount) - Number(a.total_amount)).slice(0, 5).map((r, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 10 }}>
+                              <span style={{ color: T.text2 }}>{r.vendor_name || "Bill Payment"}</span>
+                              <span style={{ fontWeight: 600, color: T.red }}>{fmtK(Number(r.total_amount))}</span>
+                            </div>
+                          ))}
+                          {/* Top card spend vendors this period */}
+                          {p.cardSpend.length > 0 && (() => {
+                            const byV = {};
+                            p.cardSpend.forEach(c => { const v = c.vendor_name || "Unknown"; if (!byV[v]) byV[v] = 0; byV[v] += Number(c.total_amount); });
+                            const top = Object.entries(byV).sort((a, b) => b[1] - a[1]).slice(0, 6);
+                            return (<>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginTop: 6, marginBottom: 2 }}>Card Spend ({p.cardSpend.length} txns)</div>
+                              {top.map(([v, amt]) => (
+                                <div key={v} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 10 }}>
+                                  <span style={{ color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, marginRight: 8 }}>{v}</span>
+                                  <span style={{ fontWeight: 600, color: T.red, flexShrink: 0 }}>{fmtK(amt)}</span>
+                                </div>
+                              ))}
+                            </>);
+                          })()}
+                        </div>
+                      </div>
+                    </td></tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {/* TOTAL ROW */}
+            <tr style={{ borderTop: `3px solid ${T.border}`, background: T.surface2 }}>
+              <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 900, color: T.text }}>YTD TOTAL</td>
+              <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 900, color: T.green, textAlign: "right" }}>{fmtK(totalIn)}</td>
+              <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 900, color: T.red, textAlign: "right" }}>{fmtK(totalOut)}</td>
+              <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 900, color: netFlow >= 0 ? T.green : T.red, textAlign: "right" }}>{netFlow >= 0 ? "+" : ""}{fmtK(netFlow)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
