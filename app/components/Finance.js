@@ -384,25 +384,33 @@ function RevenueAnalytics({ isMobile }) {
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Monthly Revenue by Channel</div>
         <div style={{ display: "flex", gap: isMobile ? 6 : 16, alignItems: "flex-end", height: 180 }}>
-          {months.map((m, mi) => (
-            <div key={m} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <div style={{ fontSize: 9, fontWeight: 600, color: T.green }}>{fmtK(monthlyNet[mi])}</div>
-              <div style={{ width: "100%", maxWidth: 50, display: "flex", flexDirection: "column-reverse", height: 150 }}>
+          {months.map((m, mi) => {
+            const isOpen = isOpenMonth(m);
+            return (
+            <div key={m} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, opacity: isOpen ? 0.6 : 1 }}>
+              <div style={{ fontSize: 9, fontWeight: 600, color: isOpen ? T.yellow : T.green }}>{fmtK(monthlyNet[mi])}</div>
+              <div style={{ width: "100%", maxWidth: 50, display: "flex", flexDirection: "column-reverse", height: 150, border: isOpen ? `1px dashed ${T.yellow}40` : "none", borderRadius: 4 }}>
                 {channelData.map(ch => {
                   const h = (ch.monthly[mi] / maxMonthly) * 140;
-                  return h > 0 ? <div key={ch.key} style={{ width: "100%", height: h, background: ch.color, minHeight: 2 }} title={`${ch.label}: ${fmtK(ch.monthly[mi])}`} /> : null;
+                  return h > 0 ? <div key={ch.key} style={{ width: "100%", height: Math.max(h, 3), background: ch.color, minHeight: 2 }} title={`${ch.label}: ${fmtK(ch.monthly[mi])}`} /> : null;
                 })}
               </div>
               <div style={{ fontSize: 10, color: T.text3, fontWeight: 600 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</div>
-              {isOpenMonth(m) && <div style={{ fontSize: 7, fontWeight: 700, color: T.yellow, background: T.yellow + "18", padding: "1px 4px", borderRadius: 3 }}>OPEN</div>}
+              {isOpen && <div style={{ fontSize: 7, fontWeight: 700, color: T.yellow, background: T.yellow + "18", padding: "1px 4px", borderRadius: 3 }}>OPEN</div>}
             </div>
-          ))}
+            );
+          })}
         </div>
         <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 10, flexWrap: "wrap" }}>
           {channelData.map(ch => (
             <span key={ch.key} style={{ fontSize: 10, color: T.text3 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: ch.color, marginRight: 4 }} />{ch.label}</span>
           ))}
         </div>
+        {months.some(m => isOpenMonth(m)) && (
+          <div style={{ marginTop: 8, padding: "8px 12px", background: T.yellow + "10", borderRadius: 6, border: `1px solid ${T.yellow}20`, fontSize: 11, color: T.yellow }}>
+            ⚠ Open month — Shopify and Amazon revenue typically posts after bank reconciliation. March revenue will update automatically when booked in QuickBooks.
+          </div>
+        )}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
