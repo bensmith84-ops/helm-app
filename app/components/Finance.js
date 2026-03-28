@@ -222,6 +222,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
     { id: "vendors",       label: "Vendors",       icon: "🏢" },
     { id: "ap_aging",      label: "AP / AR",       icon: "⏳" },
     { id: "txn_search",    label: "Transactions",  icon: "🔍" },
+    { id: "revenue",       label: "Revenue",       icon: "💰" },
     { id: "budgets",       label: "Budgets",       icon: "💰" },
     { id: "requests",      label: "Requests",      icon: "📋" },
     { id: "rules",         label: "Rules",          icon: "⚡" },
@@ -268,6 +269,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "vendors" && <VendorIntelligence isMobile={isMobile} />}
         {view === "ap_aging" && <APAgingView isMobile={isMobile} />}
         {view === "txn_search" && <TransactionSearch isMobile={isMobile} />}
+        {view === "revenue" && <RevenueAnalytics isMobile={isMobile} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} requests={requests} members={members} departments={departments} glCategories={glCategories} glCodes={glCodes} activeBudget={activeBudget} activeBudgetName={activeBudgetName} getDeptSpend={getDeptSpend} pending={pending} approved={approved} onNavigate={setView} />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
@@ -277,6 +279,190 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
         {view === "vendor_spend" && <VendorSpendView isMobile={isMobile} glCodes={glCodes} glCategories={glCategories} departments={departments} />}
       </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REVENUE ANALYTICS — Revenue by channel, trending monthly
+// ═══════════════════════════════════════════════════════════════════════════════
+function RevenueAnalytics({ isMobile }) {
+  const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
+    ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" }
+    : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" };
+  const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
+
+  const [loading, setLoading] = useState(true);
+  const [plYTD, setPLYTD] = useState([]);
+  const [plMonthly, setPLMonthly] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      const [r1, r2] = await Promise.all([
+        supabase.from("qbo_pl").select("*").eq("classification", "Revenue"),
+        supabase.from("qbo_pl_monthly").select("*").eq("classification", "Revenue").order("period_month"),
+      ]);
+      setPLYTD(r1.data || []); setPLMonthly(r2.data || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading revenue data…</div>;
+
+  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const totalRevenue = plYTD.reduce((s, r) => s + Number(r.amount), 0);
+  const grossRevenue = plYTD.filter(r => Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0);
+  const discounts = plYTD.filter(r => Number(r.amount) < 0).reduce((s, r) => s + Number(r.amount), 0);
+
+  // Revenue accounts sorted by absolute amount
+  const revenueAccts = plYTD.filter(r => Number(r.amount) > 0).sort((a, b) => Number(b.amount) - Number(a.amount));
+  const discountAccts = plYTD.filter(r => Number(r.amount) < 0).sort((a, b) => Number(a.amount) - Number(b.amount));
+
+  // Channel grouping (Shopify, Amazon, Walmart, Other)
+  const channels = [
+    { name: "Shopify / DTC", color: "#95BF47", match: a => a.toLowerCase().includes("shopify") || a.toLowerCase().includes("ecommerce") },
+    { name: "Amazon", color: "#FF9900", match: a => a.toLowerCase().includes("amazon") },
+    { name: "Walmart / Retail", color: "#0071CE", match: a => a.toLowerCase().includes("walmart") || a.toLowerCase().includes("retail") },
+    { name: "Other", color: T.text3, match: () => true },
+  ];
+  const channelData = channels.map(ch => {
+    const ytdAccts = revenueAccts.filter(r => ch.match(r.account_name));
+    const ytd = ytdAccts.reduce((s, r) => s + Number(r.amount), 0);
+    const monthly = months.map(m => {
+      const mAccts = plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0 && ch.match(r.account_name));
+      return mAccts.reduce((s, r) => s + Number(r.amount), 0);
+    });
+    // Remove matched from subsequent channels
+    ytdAccts.forEach(r => { const idx = revenueAccts.indexOf(r); if (idx >= 0) revenueAccts.splice(idx, 1); });
+    return { ...ch, ytd, monthly, accounts: ytdAccts };
+  }).filter(c => c.ytd > 0);
+
+  const monthlyTotals = months.map(m => plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0));
+  const maxMonthly = Math.max(...monthlyTotals, 1);
+  const monthlyNet = months.map(m => plMonthly.filter(r => r.period_month === m).reduce((s, r) => s + Number(r.amount), 0));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>Revenue Analytics</div>
+        <div style={{ fontSize: 12, color: T.text3 }}>2026 YTD · {months.length} months</div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Net Revenue YTD</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.green }}>{fmtK(totalRevenue)}</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Gross Revenue</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>{fmtK(grossRevenue)}</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Discounts & Returns</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.red }}>{fmtK(discounts)}</div>
+          <div style={{ fontSize: 9, color: T.text3 }}>{grossRevenue > 0 ? (Math.abs(discounts) / grossRevenue * 100).toFixed(1) : 0}% of gross</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Avg Monthly</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.accent }}>{fmtK(months.length > 0 ? totalRevenue / months.length : 0)}</div>
+        </div>
+      </div>
+
+      {/* Monthly revenue chart — stacked by channel */}
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Monthly Revenue by Channel</div>
+        <div style={{ display: "flex", gap: isMobile ? 4 : 12, alignItems: "flex-end", height: 180 }}>
+          {months.map((m, i) => {
+            const total = monthlyTotals[i];
+            const net = monthlyNet[i];
+            return (
+              <div key={m} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: T.green }}>{fmtK(net)}</div>
+                <div style={{ width: "100%", maxWidth: 50, height: (total / maxMonthly) * 150, borderRadius: "4px 4px 0 0", overflow: "hidden", display: "flex", flexDirection: "column-reverse" }}>
+                  {channelData.map(ch => {
+                    const val = ch.monthly[i] || 0;
+                    const h = total > 0 ? (val / total) * 100 : 0;
+                    return <div key={ch.name} style={{ width: "100%", height: `${h}%`, background: ch.color, minHeight: val > 0 ? 2 : 0 }} />;
+                  })}
+                </div>
+                <div style={{ fontSize: 10, color: T.text3, fontWeight: 600 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 10, flexWrap: "wrap" }}>
+          {channelData.map(ch => (
+            <span key={ch.name} style={{ fontSize: 10, color: T.text3 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: ch.color, marginRight: 4 }} />{ch.name}</span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+        {/* Channel breakdown */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Revenue by Channel</div>
+          {channelData.map(ch => {
+            const pct = grossRevenue > 0 ? (ch.ytd / grossRevenue * 100) : 0;
+            return (
+              <div key={ch.name} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 4, background: ch.color }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{ch.name}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(ch.ytd)}</span>
+                    <span style={{ fontSize: 10, color: T.text3 }}>{pct.toFixed(0)}%</span>
+                  </div>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: T.surface3 }}><div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: ch.color, borderRadius: 3 }} /></div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Discounts & returns */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Discounts & Returns</div>
+          {discountAccts.map(r => {
+            const pct = Math.abs(discounts) > 0 ? (Math.abs(Number(r.amount)) / Math.abs(discounts) * 100) : 0;
+            return (
+              <div key={r.account_name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: `1px solid ${T.border}08` }}>
+                <span style={{ fontSize: 11, color: T.text2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: T.red, minWidth: 70, textAlign: "right" }}>{fmtK(Number(r.amount))}</span>
+                <span style={{ fontSize: 9, color: T.text3, minWidth: 30, textAlign: "right" }}>{pct.toFixed(0)}%</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Monthly table */}
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
+          <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+            <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Channel</th>
+            {months.map(m => <th key={m} style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</th>)}
+            <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 800, color: T.text }}>YTD</th>
+          </tr></thead>
+          <tbody>
+            {channelData.map(ch => (
+              <tr key={ch.name} style={{ borderBottom: `1px solid ${T.border}` }}>
+                <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: ch.color, marginRight: 6 }} />{ch.name}</td>
+                {ch.monthly.map((v, i) => <td key={i} style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, color: v > 0 ? T.text2 : T.text3 }}>{v > 0 ? fmtK(v) : "—"}</td>)}
+                <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(ch.ytd)}</td>
+              </tr>
+            ))}
+            <tr style={{ borderTop: `2px solid ${T.border}` }}>
+              <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 800, color: T.green }}>Net Revenue</td>
+              {monthlyNet.map((v, i) => <td key={i} style={{ padding: "8px 10px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.green }}>{fmtK(v)}</td>)}
+              <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 13, fontWeight: 900, color: T.green }}>{fmtK(totalRevenue)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -467,6 +653,9 @@ function TransactionSearch({ isMobile }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // AP AGING — Bills by age bucket + cash needed timeline
 // ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// AP / AR AGING — Payables + Receivables with aging buckets
+// ═══════════════════════════════════════════════════════════════════════════════
 function APAgingView({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
     ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" }
@@ -476,134 +665,121 @@ function APAgingView({ isMobile }) {
 
   const [loading, setLoading] = useState(true);
   const [bills, setBills] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [tab, setTab] = useState("ap");
   const [expandedBucket, setExpandedBucket] = useState(null);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("qbo_bills").select("*").eq("payment_status", "open").order("due_date");
-      setBills(data || []);
+      const [r1, r2] = await Promise.all([
+        supabase.from("qbo_bills").select("*").eq("payment_status", "open").order("due_date"),
+        supabase.from("qbo_invoices").select("*").gt("balance", 0).order("due_date"),
+      ]);
+      setBills(r1.data || []); setInvoices(r2.data || []);
       setLoading(false);
     })();
   }, []);
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading AP data…</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading AP/AR data…</div>;
 
   const today = new Date();
-  const daysDiff = (dateStr) => {
-    if (!dateStr) return 999;
-    return Math.floor((today - new Date(dateStr + "T12:00:00")) / 86400000);
-  };
+  const daysDiff = (dateStr) => { if (!dateStr) return 999; return Math.floor((today - new Date(dateStr + "T12:00:00")) / 86400000); };
 
-  // Age buckets
+  const items = tab === "ap" ? bills : invoices;
+  const entityField = tab === "ap" ? "vendor_name" : "customer_name";
+  const totalOpen = items.reduce((s, b) => s + Number(b.balance), 0);
+  const apTotal = bills.reduce((s, b) => s + Number(b.balance), 0);
+  const arTotal = invoices.reduce((s, b) => s + Number(b.balance), 0);
+
   const buckets = [
     { key: "current", label: "Current", range: "Not yet due", color: T.green, filter: b => daysDiff(b.due_date) < 0 },
-    { key: "1_30", label: "1-30 Days", range: "1-30 days past due", color: T.yellow, filter: b => { const d = daysDiff(b.due_date); return d >= 0 && d <= 30; } },
-    { key: "31_60", label: "31-60 Days", range: "31-60 days past due", color: "#F97316", filter: b => { const d = daysDiff(b.due_date); return d >= 31 && d <= 60; } },
-    { key: "61_90", label: "61-90 Days", range: "61-90 days past due", color: T.red, filter: b => { const d = daysDiff(b.due_date); return d >= 61 && d <= 90; } },
-    { key: "90_plus", label: "90+ Days", range: "Over 90 days past due", color: "#991B1B", filter: b => daysDiff(b.due_date) > 90 },
+    { key: "1_30", label: "1-30", range: "1-30 days past due", color: T.yellow, filter: b => { const d = daysDiff(b.due_date); return d >= 0 && d <= 30; } },
+    { key: "31_60", label: "31-60", range: "31-60 days past due", color: "#F97316", filter: b => { const d = daysDiff(b.due_date); return d >= 31 && d <= 60; } },
+    { key: "61_90", label: "61-90", range: "61-90 days past due", color: T.red, filter: b => { const d = daysDiff(b.due_date); return d >= 61 && d <= 90; } },
+    { key: "90_plus", label: "90+", range: "Over 90 days past due", color: "#991B1B", filter: b => daysDiff(b.due_date) > 90 },
   ];
-
-  const bucketData = buckets.map(bk => {
-    const items = bills.filter(bk.filter);
-    return { ...bk, items, total: items.reduce((s, b) => s + Number(b.balance), 0), count: items.length };
-  });
-  const totalOpen = bills.reduce((s, b) => s + Number(b.balance), 0);
+  const bucketData = buckets.map(bk => { const its = items.filter(bk.filter); return { ...bk, items: its, total: its.reduce((s, b) => s + Number(b.balance), 0), count: its.length }; });
   const overdueTotal = bucketData.filter(b => b.key !== "current").reduce((s, b) => s + b.total, 0);
   const maxBucket = Math.max(...bucketData.map(b => b.total), 1);
 
-  // Cash needed timeline: next 7 days, next 14 days, next 30 days
-  const cashTimeline = [
-    { label: "This Week", days: 7 },
-    { label: "Next 2 Weeks", days: 14 },
-    { label: "Next 30 Days", days: 30 },
-    { label: "Next 60 Days", days: 60 },
-  ].map(t => {
-    const cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + t.days);
-    const due = bills.filter(b => b.due_date && new Date(b.due_date + "T12:00:00") <= cutoff);
-    return { ...t, total: due.reduce((s, b) => s + Number(b.balance), 0), count: due.length };
+  const cashTimeline = [7, 14, 30, 60].map(days => {
+    const cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + days);
+    const due = items.filter(b => b.due_date && new Date(b.due_date + "T12:00:00") <= cutoff);
+    return { label: days <= 7 ? "This Week" : days <= 14 ? "Next 2 Weeks" : `Next ${days} Days`, days, total: due.reduce((s, b) => s + Number(b.balance), 0), count: due.length };
   });
 
-  // Filtered bills for search
-  const filteredBills = search ? bills.filter(b => (b.vendor_name || "").toLowerCase().includes(search.toLowerCase()) || (b.memo || "").toLowerCase().includes(search.toLowerCase())) : bills;
-
-  // Group by vendor for vendor aging
-  const vendorAging = {};
-  bills.forEach(b => {
-    const v = b.vendor_name || "Unknown";
-    if (!vendorAging[v]) vendorAging[v] = { name: v, total: 0, count: 0, oldest: null, bills: [] };
-    vendorAging[v].total += Number(b.balance);
-    vendorAging[v].count++;
-    vendorAging[v].bills.push(b);
+  const entityMap = {};
+  items.forEach(b => {
+    const v = b[entityField] || "Unknown";
+    if (!entityMap[v]) entityMap[v] = { name: v, total: 0, count: 0, oldest: null };
+    entityMap[v].total += Number(b.balance); entityMap[v].count++;
     const age = daysDiff(b.due_date);
-    if (vendorAging[v].oldest === null || age > vendorAging[v].oldest) vendorAging[v].oldest = age;
+    if (entityMap[v].oldest === null || age > entityMap[v].oldest) entityMap[v].oldest = age;
   });
-  const vendorList = Object.values(vendorAging).sort((a, b) => b.total - a.total);
+  const entityList = Object.values(entityMap).sort((a, b) => b.total - a.total);
+  const filteredEntities = search ? entityList.filter(v => v.name.toLowerCase().includes(search.toLowerCase())) : entityList;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div>
-        <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>AP Aging</div>
-        <div style={{ fontSize: 12, color: T.text3 }}>{bills.length} open bills · {fmtK(totalOpen)} total outstanding</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>AP / AR</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>AP: {fmtK(apTotal)} ({bills.length} bills) · AR: {fmtK(arTotal)} ({invoices.length} invoices)</div>
+        </div>
+        <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
+          <button onClick={() => { setTab("ap"); setExpandedBucket(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ap" ? T.red + "20" : T.surface2, color: tab === "ap" ? T.red : T.text3 }}>📤 Payables ({bills.length})</button>
+          <button onClick={() => { setTab("ar"); setExpandedBucket(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
+        </div>
       </div>
 
       {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Total Open AP</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: T.red }}>{fmtK(totalOpen)}</div>
-          <div style={{ fontSize: 10, color: T.text3 }}>{bills.length} bills</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Open {tab === "ap" ? "AP" : "AR"}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: tab === "ap" ? T.red : T.green }}>{fmtK(totalOpen)}</div>
+          <div style={{ fontSize: 10, color: T.text3 }}>{items.length} {tab === "ap" ? "bills" : "invoices"}</div>
         </div>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Overdue</div>
           <div style={{ fontSize: 22, fontWeight: 900, color: overdueTotal > 0 ? "#991B1B" : T.green }}>{fmtK(overdueTotal)}</div>
-          <div style={{ fontSize: 10, color: T.text3 }}>{totalOpen > 0 ? ((overdueTotal / totalOpen) * 100).toFixed(0) : 0}% of total</div>
+          <div style={{ fontSize: 10, color: T.text3 }}>{totalOpen > 0 ? ((overdueTotal / totalOpen) * 100).toFixed(0) : 0}%</div>
         </div>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Due This Week</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{tab === "ap" ? "Due" : "Expected"} This Week</div>
           <div style={{ fontSize: 22, fontWeight: 900, color: T.yellow }}>{fmtK(cashTimeline[0].total)}</div>
-          <div style={{ fontSize: 10, color: T.text3 }}>{cashTimeline[0].count} bills</div>
+          <div style={{ fontSize: 10, color: T.text3 }}>{cashTimeline[0].count} {tab === "ap" ? "bills" : "invoices"}</div>
         </div>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Unique Vendors</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>{vendorList.length}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Unique {tab === "ap" ? "Vendors" : "Customers"}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>{entityList.length}</div>
         </div>
       </div>
 
-      {/* Aging buckets chart */}
+      {/* Aging buckets */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Aging Buckets</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>{tab === "ap" ? "AP" : "AR"} Aging Buckets</div>
         <div style={{ display: "flex", gap: isMobile ? 4 : 12, alignItems: "flex-end", height: 120 }}>
-          {bucketData.map(bk => {
-            const h = (bk.total / maxBucket) * 100;
-            return (
-              <div key={bk.key} onClick={() => setExpandedBucket(expandedBucket === bk.key ? null : bk.key)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: bk.color }}>{bk.count > 0 ? fmtK(bk.total) : "—"}</div>
-                <div style={{ width: "100%", maxWidth: 60, height: Math.max(h, 4), background: bk.color, borderRadius: "6px 6px 0 0", opacity: expandedBucket === bk.key ? 1 : 0.7, transition: "opacity 0.2s" }} />
-                <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, textAlign: "center" }}>{bk.label}</div>
-                <div style={{ fontSize: 8, color: T.text3 }}>{bk.count} bills</div>
-              </div>
-            );
-          })}
+          {bucketData.map(bk => (
+            <div key={bk.key} onClick={() => setExpandedBucket(expandedBucket === bk.key ? null : bk.key)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: bk.color }}>{bk.count > 0 ? fmtK(bk.total) : "—"}</div>
+              <div style={{ width: "100%", maxWidth: 60, height: Math.max((bk.total / maxBucket) * 100, 4), background: bk.color, borderRadius: "6px 6px 0 0", opacity: expandedBucket === bk.key ? 1 : 0.7 }} />
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3 }}>{bk.label}</div>
+              <div style={{ fontSize: 8, color: T.text3 }}>{bk.count}</div>
+            </div>
+          ))}
         </div>
-
-        {/* Expanded bucket detail */}
         {expandedBucket && (() => {
           const bk = bucketData.find(b => b.key === expandedBucket);
-          if (!bk || bk.items.length === 0) return <div style={{ marginTop: 12, fontSize: 11, color: T.text3 }}>No bills in this bucket</div>;
+          if (!bk || bk.items.length === 0) return <div style={{ marginTop: 12, fontSize: 11, color: T.text3 }}>No items in this bucket</div>;
           return (
             <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: bk.color, marginBottom: 6 }}>{bk.label} — {bk.range} ({bk.count} bills, {fmtK(bk.total)})</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: bk.color, marginBottom: 6 }}>{bk.label} — {bk.range} ({bk.count}, {fmtK(bk.total)})</div>
               {bk.items.sort((a, b) => Number(b.balance) - Number(a.balance)).slice(0, 15).map(b => (
                 <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 11, borderBottom: `1px solid ${T.border}08` }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontWeight: 600, color: T.text }}>{b.vendor_name || "—"}</span>
-                    {b.memo && <span style={{ color: T.text3, fontSize: 10, marginLeft: 6 }}>— {(b.memo || "").slice(0, 40)}</span>}
-                  </div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
-                    <span style={{ fontSize: 10, color: T.text3 }}>Due {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span>
-                    <span style={{ fontWeight: 700, color: bk.color, minWidth: 60, textAlign: "right" }}>{fmt(Number(b.balance))}</span>
-                  </div>
+                  <span style={{ fontWeight: 600, color: T.text, flex: 1 }}>{b[entityField] || "—"}</span>
+                  <span style={{ fontSize: 10, color: T.text3, marginRight: 10 }}>Due {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span>
+                  <span style={{ fontWeight: 700, color: bk.color, minWidth: 60, textAlign: "right" }}>{fmt(Number(b.balance))}</span>
                 </div>
               ))}
             </div>
@@ -611,52 +787,46 @@ function APAgingView({ isMobile }) {
         })()}
       </div>
 
-      {/* Cash needed timeline */}
+      {/* Cash timeline */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Cash Needed Timeline</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>{tab === "ap" ? "Cash Needed" : "Cash Expected"} Timeline</div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
           {cashTimeline.map(t => (
             <div key={t.days} style={{ background: T.surface2, borderRadius: 8, padding: "12px 14px", textAlign: "center" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{t.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: t.total > 0 ? T.red : T.green, marginTop: 4 }}>{fmtK(t.total)}</div>
-              <div style={{ fontSize: 9, color: T.text3 }}>{t.count} bills due</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: t.total > 0 ? (tab === "ap" ? T.red : T.green) : T.text3, marginTop: 4 }}>{fmtK(t.total)}</div>
+              <div style={{ fontSize: 9, color: T.text3 }}>{t.count} {tab === "ap" ? "bills" : "invoices"}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Vendor aging table */}
+      {/* Entity table */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
         <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Open AP by Vendor</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>By {tab === "ap" ? "Vendor" : "Customer"}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}` }}>
             <span style={{ fontSize: 12, color: T.text3 }}>🔍</span>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 11, width: 140 }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${tab === "ap" ? "vendor" : "customer"}…`} style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 11, width: 140 }} />
           </div>
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ borderBottom: `2px solid ${T.border}` }}>
-              <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Vendor</th>
-              <th style={{ padding: "8px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Balance</th>
-              <th style={{ padding: "8px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Bills</th>
-              <th style={{ padding: "8px 12px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Oldest</th>
-            </tr>
-          </thead>
+          <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+            <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{tab === "ap" ? "Vendor" : "Customer"}</th>
+            <th style={{ padding: "8px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Balance</th>
+            <th style={{ padding: "8px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>#</th>
+            <th style={{ padding: "8px 12px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Oldest</th>
+          </tr></thead>
           <tbody>
-            {(search ? vendorList.filter(v => v.name.toLowerCase().includes(search.toLowerCase())) : vendorList).slice(0, 40).map(v => {
-              const ageLabel = v.oldest <= 0 ? "Current" : v.oldest <= 30 ? `${v.oldest}d` : v.oldest <= 60 ? `${v.oldest}d` : `${v.oldest}d`;
+            {filteredEntities.slice(0, 40).map(v => {
               const ageColor = v.oldest <= 0 ? T.green : v.oldest <= 30 ? T.yellow : v.oldest <= 60 ? "#F97316" : T.red;
+              const ageLabel = v.oldest <= 0 ? "Current" : `${v.oldest}d`;
               return (
                 <tr key={v.name} style={{ borderBottom: `1px solid ${T.border}` }}>
-                  <td style={{ padding: "8px 12px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{v.name}</div>
-                  </td>
+                  <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text }}>{v.name}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(v.total)}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", fontSize: 12, color: T.text2 }}>{v.count}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "center" }}>
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: ageColor + "18", color: ageColor }}>{ageLabel}</span>
-                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: ageColor + "18", color: ageColor }}>{ageLabel}</span></td>
                 </tr>
               );
             })}
@@ -666,6 +836,7 @@ function APAgingView({ isMobile }) {
     </div>
   );
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // VENDOR INTELLIGENCE — Every vendor, one view
