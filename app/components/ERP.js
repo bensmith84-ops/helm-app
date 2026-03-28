@@ -633,15 +633,25 @@ export default function ERPView() {
 
       {/* Content column */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* Mobile tab bar */}
+        {/* Mobile nav — grouped dropdown */}
         {isMobile && (
-          <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0, background: T.bg, WebkitOverflowScrolling: "touch" }}>
-            {ERP_NAV.filter(n => !n.type).map(n => (
-              <button key={n.id} onClick={() => setView(n.id)}
-                style={{ padding: "10px 14px", background: "none", border: "none", borderBottom: view === n.id ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: view === n.id ? T.accent : T.text3, fontSize: 18, fontWeight: 600, whiteSpace: "nowrap" }}>
-                {n.icon}
-              </button>
-            ))}
+          <div style={{ borderBottom: `1px solid ${T.border}`, background: T.bg, flexShrink: 0 }}>
+            <select value={view} onChange={e => setView(e.target.value)}
+              style={{ width: "100%", padding: "12px 14px", fontSize: 13, fontWeight: 600, background: T.bg, color: T.accent, border: "none", outline: "none", cursor: "pointer" }}>
+              {(() => {
+                const groups = []; let currentGroup = null;
+                ERP_NAV.forEach(n => {
+                  if (n.type === "header") { currentGroup = { label: n.label, items: [] }; groups.push(currentGroup); }
+                  else if (currentGroup) currentGroup.items.push(n);
+                  else groups.push({ label: null, items: [n] });
+                });
+                return groups.map(g => g.label ? (
+                  <optgroup key={g.label} label={g.label}>
+                    {g.items.map(n => <option key={n.id} value={n.id}>{n.icon} {n.label}</option>)}
+                  </optgroup>
+                ) : g.items.map(n => <option key={n.id} value={n.id}>{n.icon} {n.label}</option>));
+              })()}
+            </select>
           </div>
         )}
 
