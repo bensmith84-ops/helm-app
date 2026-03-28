@@ -303,20 +303,35 @@ function TransactionSearch({ isMobile }) {
 
   useEffect(() => {
     (async () => {
+      // Load all data — purchases can exceed default 1000 row limit
+      const fetchAll = async (table, select, order) => {
+        const all = [];
+        let from = 0;
+        const pageSize = 1000;
+        for (let i = 0; i < 10; i++) {
+          const q = supabase.from(table).select(select).order(order || "txn_date", { ascending: false }).range(from, from + pageSize - 1);
+          const { data } = await q;
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+        return all;
+      };
       const [r1, r2, r3, r4, r5] = await Promise.all([
-        supabase.from("qbo_bills").select("vendor_name,total_amount,balance,txn_date,due_date,memo,gl_accounts,payment_status").order("txn_date", { ascending: false }),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,memo,gl_accounts,payment_type").order("txn_date", { ascending: false }),
-        supabase.from("qbo_deposits").select("total_amount,txn_date,deposit_to,memo").order("txn_date", { ascending: false }),
-        supabase.from("qbo_payments").select("payment_type,customer_name,vendor_name,total_amount,txn_date,memo,deposit_to").order("txn_date", { ascending: false }),
-        supabase.from("qbo_journal_entries").select("total_amount,txn_date,memo,doc_number").order("txn_date", { ascending: false }),
+        fetchAll("qbo_bills", "vendor_name,total_amount,balance,txn_date,due_date,memo,gl_accounts,payment_status"),
+        fetchAll("qbo_purchases", "vendor_name,total_amount,txn_date,memo,gl_accounts,payment_type"),
+        fetchAll("qbo_deposits", "total_amount,txn_date,deposit_to,memo"),
+        fetchAll("qbo_payments", "payment_type,customer_name,vendor_name,total_amount,txn_date,memo,deposit_to"),
+        fetchAll("qbo_journal_entries", "total_amount,txn_date,memo,doc_number"),
       ]);
       const txns = [
-        ...(r1.data || []).map(t => ({ ...t, txn_type: "bill", entity: t.vendor_name, direction: "out" })),
-        ...(r2.data || []).map(t => ({ ...t, txn_type: "purchase", entity: t.vendor_name, direction: "out" })),
-        ...(r3.data || []).map(t => ({ ...t, txn_type: "deposit", entity: t.deposit_to || "Deposit", direction: "in" })),
-        ...(r4.data || []).filter(p => p.payment_type === "received").map(t => ({ ...t, txn_type: "pmt_received", entity: t.customer_name || "Customer", direction: "in" })),
-        ...(r4.data || []).filter(p => p.payment_type === "made").map(t => ({ ...t, txn_type: "pmt_made", entity: t.vendor_name || "Vendor", direction: "out" })),
-        ...(r5.data || []).map(t => ({ ...t, txn_type: "journal", entity: t.memo || `JE #${t.doc_number}`, direction: "neutral" })),
+        ...r1.map(t => ({ ...t, txn_type: "bill", entity: t.vendor_name, direction: "out" })),
+        ...r2.map(t => ({ ...t, txn_type: "purchase", entity: t.vendor_name, direction: "out" })),
+        ...r3.map(t => ({ ...t, txn_type: "deposit", entity: t.deposit_to || "Deposit", direction: "in" })),
+        ...r4.filter(p => p.payment_type === "received").map(t => ({ ...t, txn_type: "pmt_received", entity: t.customer_name || "Customer", direction: "in" })),
+        ...r4.filter(p => p.payment_type === "made").map(t => ({ ...t, txn_type: "pmt_made", entity: t.vendor_name || "Vendor", direction: "out" })),
+        ...r5.map(t => ({ ...t, txn_type: "journal", entity: t.memo || `JE #${t.doc_number}`, direction: "neutral" })),
       ];
       setAllTxns(txns);
       setLoading(false);
@@ -676,7 +691,7 @@ function VendorIntelligence({ isMobile }) {
     (async () => {
       const [r1, r2, r3] = await Promise.all([
         supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_status"),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_type"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_type").limit(5000),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
       ]);
       setBills(r1.data || []); setPurchases(r2.data || []);
@@ -970,7 +985,7 @@ function CashFlowView({ isMobile }) {
       const [r1, r2, r3, r4, r5] = await Promise.all([
         supabase.from("qbo_deposits").select("*").order("txn_date"),
         supabase.from("qbo_payments").select("*").order("txn_date"),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").order("txn_date"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").limit(5000).order("txn_date"),
         supabase.from("qbo_transfers").select("*").order("txn_date"),
         supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,payment_status").order("txn_date"),
       ]);
@@ -1194,7 +1209,7 @@ function PLExplorer({ isMobile }) {
         supabase.from("qbo_pl_monthly").select("*").order("period_month"),
         supabase.from("qbo_pl").select("*"),
         supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo"),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo").limit(5000),
       ]);
       setPLMonthly(r1.data || []); setPLYTD(r2.data || []);
       setBills(r3.data || []); setPurchases(r4.data || []);
@@ -1406,7 +1421,7 @@ function CFODashboard({ isMobile }) {
         supabase.from("qbo_pl_monthly").select("*").order("period_month"),
         supabase.from("qbo_balance_sheet").select("*"),
         supabase.from("qbo_bills").select("vendor_name,total_amount,balance,payment_status,txn_date,gl_accounts"),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").limit(5000),
         supabase.from("qbo_deposits").select("*"),
         supabase.from("qbo_payments").select("*"),
         supabase.from("qbo_transfers").select("*"),
@@ -2356,7 +2371,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         supabase.from("qbo_pl").select("*").eq("classification", "Expense"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
         supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
-        supabase.from("qbo_purchases").select("*").order("txn_date", { ascending: false }),
+        supabase.from("qbo_purchases").select("*").limit(5000).order("txn_date", { ascending: false }),
       ]);
       setQboPL(pl || []);
       // Merge bills + purchases into one list for vendor matching
