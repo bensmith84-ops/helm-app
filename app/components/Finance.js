@@ -1231,11 +1231,12 @@ function CFODashboard({ isMobile }) {
   const [transfers, setTransfers] = useState([]);
   const [journalEntries, setJournalEntries] = useState([]);
   const [mappings, setMappings] = useState({});
+  const [bankAccounts, setBankAccounts] = useState([]);
   const [conn, setConn] = useState(null);
 
   useEffect(() => {
     (async () => {
-      const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11] = await Promise.all([
+      const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12] = await Promise.all([
         supabase.from("qbo_pl").select("*"),
         supabase.from("qbo_pl_monthly").select("*").order("period_month"),
         supabase.from("qbo_balance_sheet").select("*"),
@@ -1247,12 +1248,14 @@ function CFODashboard({ isMobile }) {
         supabase.from("qbo_journal_entries").select("qbo_id,txn_date,total_amount,memo"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
         supabase.from("qbo_connections").select("*").order("connected_at", { ascending: false }).limit(1),
+        supabase.from("qbo_accounts").select("*").eq("account_type", "Bank"),
       ]);
       setPL(r1.data || []); setPLMonthly(r2.data || []); setBS(r3.data || []);
       setBills(r4.data || []); setPurchases(r5.data || []); setDeposits(r6.data || []);
       setPayments(r7.data || []); setTransfers(r8.data || []); setJournalEntries(r9.data || []);
       if (r10.data) { const m = {}; r10.data.forEach(r => { m[r.account_name] = r.ga_category; }); setMappings(m); }
       if (r11.data?.[0]) setConn(r11.data[0]);
+      setBankAccounts(r12.data || []);
       setLoading(false);
     })();
   }, []);
@@ -1268,8 +1271,11 @@ function CFODashboard({ isMobile }) {
   const totalAssets = bs.filter(r => r.section === "Asset").reduce((s, r) => s + Number(r.amount), 0);
   const totalLiabilities = bs.filter(r => r.section === "Liability").reduce((s, r) => s + Number(r.amount), 0);
   const totalEquity = bs.filter(r => r.section === "Equity").reduce((s, r) => s + Number(r.amount), 0);
-  const cashAccounts = bs.filter(r => r.section === "Asset" && (r.account_name.toLowerCase().includes("checking") || r.account_name.toLowerCase().includes("savings") || r.account_name.toLowerCase().includes("mercury") || r.account_name.toLowerCase().includes("cash")));
-  const totalCash = cashAccounts.reduce((s, r) => s + Number(r.amount), 0);
+  const cashAccounts = bs.filter(r => r.section === "Asset" && (r.account_name.toLowerCase().includes("checking") || r.account_name.toLowerCase().includes("savings") || r.account_name.toLowerCase().includes("cash")));
+  const totalCashBS = cashAccounts.reduce((s, r) => s + Number(r.amount), 0);
+  // Use bank accounts from COA (more current than Balance Sheet)
+  const bankTotal = bankAccounts.filter(a => a.current_balance > 0).reduce((s, a) => s + Number(a.current_balance), 0);
+  const totalCash = bankTotal > 0 ? bankTotal : totalCashBS;
 
   const apOpen = bills.filter(b => b.payment_status === "open").reduce((s, b) => s + Number(b.balance), 0);
   const arOpen = 0; // Would need invoices loaded
@@ -1343,6 +1349,23 @@ function CFODashboard({ isMobile }) {
         <KPI icon="💸" label="Bills Paid YTD" value={fmtK(pmtsMade)} sub={`${payments.filter(p => p.payment_type === "made").length} payments`} />
         <KPI icon="📒" label="Journal Entries" value={journalEntries.length} sub={`inc. payroll, accruals`} />
       </div>
+
+      {/* BANK ACCOUNTS */}
+      {bankAccounts.length > 0 && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 10 }}>Bank Accounts (Chase)</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : `repeat(${Math.min(bankAccounts.filter(a => Number(a.current_balance) !== 0).length, 4)}, 1fr)`, gap: 10 }}>
+            {bankAccounts.filter(a => Number(a.current_balance) !== 0).sort((a, b) => Math.abs(Number(b.current_balance)) - Math.abs(Number(a.current_balance))).map(a => (
+              <div key={a.qbo_id} style={{ background: T.surface2, borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{a.name}</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: Number(a.current_balance) >= 0 ? T.green : T.red, marginTop: 4 }}>{fmtK(Number(a.current_balance))}</div>
+                <div style={{ fontSize: 9, color: T.text3 }}>{a.account_sub_type}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 8 }}>Balances from QuickBooks · Last synced {conn?.last_synced_at ? new Date(conn.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"} · Auto-syncs every 4 hours</div>
+        </div>
+      )}
 
       {/* MONTHLY P&L CHART */}
       {monthlyData.length > 0 && (
