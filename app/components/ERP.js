@@ -113,6 +113,7 @@ const ERP_NAV = [
   { id: "expenses", label: "Ramp Expenses", icon: "💳" },
   { id: "ap_ar", label: "AP / AR", icon: "💰" },
   { id: "gl", label: "General Ledger", icon: "📒" },
+  { id: "cfo_dash", label: "CFO Dashboard", icon: "📈" },
   { id: "vendor_spend", label: "Vendor Spend", icon: "📑" },
   { id: "fin_requests", label: "Spend Requests", icon: "📋" },
   { id: "fin_budgets", label: "Budgets", icon: "💵" },
@@ -662,9 +663,9 @@ export default function ERPView() {
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
           {/* Finance module views (embedded from Finance.js) */}
-          {["vendor_spend", "fin_requests", "fin_budgets", "fin_departments", "fin_rules", "fin_audit"].some(v => view === v) && (
+          {["cfo_dash", "vendor_spend", "fin_requests", "fin_budgets", "fin_departments", "fin_rules", "fin_audit"].some(v => view === v) && (
             <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>Loading Finance…</div>}>
-              <FinanceEmbed initialView={{ fin_requests: "requests", fin_budgets: "budgets", fin_departments: "departments", fin_rules: "rules", fin_audit: "audit", vendor_spend: "vendor_spend" }[view] || "dashboard"} embedded={true} />
+              <FinanceEmbed initialView={{ cfo_dash: "cfo", fin_requests: "requests", fin_budgets: "budgets", fin_departments: "departments", fin_rules: "rules", fin_audit: "audit", vendor_spend: "vendor_spend" }[view] || "cfo"} embedded={true} />
             </Suspense>
           )}
         </div>
