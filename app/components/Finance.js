@@ -309,10 +309,8 @@ function RevenueAnalytics({ isMobile }) {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading revenue data…</div>;
 
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const allMonths = [...new Set(plMonthly.map(r => r.period_month))].sort();
-  const completedMonths = allMonths.filter(m => m < currentMonth);
-  const avgRev = completedMonths.length > 0 ? completedMonths.reduce((s, m) => s + plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0).reduce((ss, r) => ss + Number(r.amount), 0), 0) / completedMonths.length : 0;
-  const months = allMonths.filter(m => m < currentMonth || plMonthly.filter(r => r.period_month === m && Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0) > avgRev * 0.2);
+  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const isOpenMonth = (m) => m >= currentMonth;
   const grossRevAccts = plYTD.filter(r => (r.account_type || "").includes("Income") && !r.account_name.includes("Discount") && !r.account_name.includes("Refund") && !r.account_name.includes("Rebate") && !r.account_name.includes("Spoils") && !r.account_name.includes("Trade") && Number(r.amount) > 0);
   const discountAccts = plYTD.filter(r => Number(r.amount) < 0 || r.account_name.includes("Discount") || r.account_name.includes("Refund") || r.account_name.includes("Rebate") || r.account_name.includes("Spoils") || r.account_name.includes("Trade"));
 
@@ -396,6 +394,7 @@ function RevenueAnalytics({ isMobile }) {
                 })}
               </div>
               <div style={{ fontSize: 10, color: T.text3, fontWeight: 600 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</div>
+              {isOpenMonth(m) && <div style={{ fontSize: 7, fontWeight: 700, color: T.yellow, background: T.yellow + "18", padding: "1px 4px", borderRadius: 3 }}>OPEN</div>}
             </div>
           ))}
         </div>
@@ -1384,10 +1383,8 @@ function PLExplorer({ isMobile }) {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading P&L data…</div>;
 
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const allPLMonths = [...new Set(plMonthly.map(r => r.period_month))].sort();
-  const compMonths = allPLMonths.filter(m => m < currentMonth);
-  const avgTotal = compMonths.length > 0 ? compMonths.reduce((s, m) => s + plMonthly.filter(r => r.period_month === m).reduce((ss, r) => ss + Math.abs(Number(r.amount)), 0), 0) / compMonths.length : 0;
-  const months = allPLMonths.filter(m => m < currentMonth || plMonthly.filter(r => r.period_month === m).reduce((s, r) => s + Math.abs(Number(r.amount)), 0) > avgTotal * 0.2);
+  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const isOpenMonth = (m) => m >= currentMonth;
   const monthLabels = months.map(m => new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }));
 
   // Build all unique accounts
@@ -1471,7 +1468,7 @@ function PLExplorer({ isMobile }) {
           <thead>
             <tr>
               <th style={{ ...TH, textAlign: "left", minWidth: 200, position: "sticky", left: 0, background: T.surface, zIndex: 2 }}>Account</th>
-              {months.map((m, i) => <th key={m} style={TH}>{monthLabels[i]}</th>)}
+              {months.map((m, i) => <th key={m} style={TH}>{monthLabels[i]}{isOpenMonth(m) ? <span style={{ display: "block", fontSize: 7, color: "#F59E0B", fontWeight: 700 }}>OPEN</span> : ""}</th>)}
               <th style={{ ...TH, fontWeight: 800, color: T.text }}>YTD</th>
             </tr>
           </thead>
@@ -1635,10 +1632,8 @@ function CFODashboard({ isMobile }) {
 
   // Monthly P&L trend — exclude partial current month if data is clearly incomplete
   const currentMo = new Date().toISOString().slice(0, 7);
-  const allMo = [...new Set(plMonthly.map(r => r.period_month))].sort();
-  const closedMo = allMo.filter(m => m < currentMo);
-  const avgMoTotal = closedMo.length > 0 ? closedMo.reduce((s, m) => s + plMonthly.filter(r => r.period_month === m).reduce((ss, r) => ss + Math.abs(Number(r.amount)), 0), 0) / closedMo.length : 0;
-  const months = allMo.filter(m => m < currentMo || plMonthly.filter(r => r.period_month === m).reduce((s, r) => s + Math.abs(Number(r.amount)), 0) > avgMoTotal * 0.2);
+  const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
+  const isOpenMo = (m) => m >= currentMo;
   const monthlyData = months.map(m => {
     const mRows = plMonthly.filter(r => r.period_month === m);
     const rev = mRows.filter(r => r.classification === "Revenue").reduce((s, r) => s + Number(r.amount), 0);
@@ -1735,6 +1730,7 @@ function CFODashboard({ isMobile }) {
                     <div style={{ width: isMobile ? 12 : 20, height: expH, background: T.red + "80", borderRadius: "4px 4px 0 0", minHeight: 2 }} title={`Expenses: ${fmt(m.expenses)}`} />
                   </div>
                   <div style={{ fontSize: 10, color: T.text3, fontWeight: 600 }}>{m.label}</div>
+                  {isOpenMo(m.month) && <div style={{ fontSize: 7, fontWeight: 700, color: T.yellow, background: T.yellow + "18", padding: "1px 4px", borderRadius: 3 }}>OPEN</div>}
                 </div>
               );
             })}
@@ -2715,10 +2711,8 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       {/* MONTHLY BUDGET vs ACTUAL TABLE */}
       {budgetTab === "monthly" && (() => {
         const curMo = new Date().toISOString().slice(0, 7);
-        const allBMo = [...new Set(qboPLMonthly.map(r => r.period_month))].sort();
-        const closedBMo = allBMo.filter(m => m < curMo);
-        const avgBMo = closedBMo.length > 0 ? closedBMo.reduce((s, m) => s + qboPLMonthly.filter(r => r.period_month === m).reduce((ss, r) => ss + Math.abs(Number(r.amount)), 0), 0) / closedBMo.length : 0;
-        const months = allBMo.filter(m => m < curMo || qboPLMonthly.filter(r => r.period_month === m).reduce((s, r) => s + Math.abs(Number(r.amount)), 0) > avgBMo * 0.2);
+        const months = [...new Set(qboPLMonthly.map(r => r.period_month))].sort();
+        const isOpen = (m) => m >= curMo;
         const monthLabels = months.map(m => new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }));
         // Build monthly spend by budget category
         const getMonthCatSpend = (catName, month) => {
@@ -2738,7 +2732,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                 <tr style={{ borderBottom: `2px solid ${T.border}` }}>
                   <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", position: "sticky", left: 0, background: T.surface, zIndex: 1, minWidth: 160 }}>Category</th>
                   <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Budget</th>
-                  {months.map((m, i) => <th key={m} style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{monthLabels[i]}</th>)}
+                  {months.map((m, i) => <th key={m} style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{monthLabels[i]}{isOpen(m) ? <span style={{ display: "block", fontSize: 7, color: "#F59E0B", fontWeight: 700 }}>OPEN</span> : ""}</th>)}
                   <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text, textTransform: "uppercase" }}>YTD</th>
                   <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Variance</th>
                 </tr>
