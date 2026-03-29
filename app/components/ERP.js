@@ -2538,6 +2538,29 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
   const [form, setForm] = useState(FORM_INIT);
   const [showShipModal, setShowShipModal] = useState(false);
   const [shipForm, setShipForm] = useState({ carrier_id: "", service_id: "", tracking_number: "", weight_g: "" });
+  const [orderSource, setOrderSource] = useState("erp"); // "erp" or "shopify"
+  const [shopifyOrders, setShopifyOrders] = useState([]);
+  const [shopifyLoading, setShopifyLoading] = useState(false);
+  const [shopifySearch, setShopifySearch] = useState("");
+
+  useEffect(() => {
+    if (orderSource === "shopify" && shopifyOrders.length === 0) {
+      (async () => {
+        setShopifyLoading(true);
+        const all = [];
+        let from = 0;
+        for (let i = 0; i < 10; i++) {
+          const { data } = await supabase.from("shopify_orders").select("*").order("created_at", { ascending: false }).range(from, from + 999);
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < 1000) break;
+          from += 1000;
+        }
+        setShopifyOrders(all);
+        setShopifyLoading(false);
+      })();
+    }
+  }, [orderSource]);
 
   const filtered = orders.filter(o => {
     if (channelFilter !== "all" && o.channel !== channelFilter) return false;
@@ -2647,11 +2670,78 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Orders</div><div style={{ fontSize: 12, color: T.text3 }}>{orders.length} orders · {pendingCount} pending · {fmt(totalRev)}</div></div>
-        <button onClick={() => { setForm(FORM_INIT); setLineItems([{ variant_id: "", title: "", quantity: 1, unit_price: 0 }]); setShowNew(true); }}
-          style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Order</button>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Orders</div><div style={{ fontSize: 12, color: T.text3 }}>{orderSource === "shopify" ? `${shopifyOrders.length} Shopify DTC orders` : `${orders.length} orders · ${pendingCount} pending · ${fmt(totalRev)}`}</div></div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
+            <button onClick={() => setOrderSource("erp")} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: orderSource === "erp" ? T.accent : T.surface2, color: orderSource === "erp" ? "#fff" : T.text3 }}>ERP Orders</button>
+            <button onClick={() => setOrderSource("shopify")} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: orderSource === "shopify" ? "#95BF47" : T.surface2, color: orderSource === "shopify" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>🛍️ Shopify DTC</button>
+          </div>
+          {orderSource === "erp" && <button onClick={() => { setForm(FORM_INIT); setLineItems([{ variant_id: "", title: "", quantity: 1, unit_price: 0 }]); setShowNew(true); }}
+            style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Order</button>}
+        </div>
       </div>
 
+      {/* SHOPIFY DTC ORDERS */}
+      {orderSource === "shopify" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {shopifyLoading ? <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading Shopify orders…</div> : shopifyOrders.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🛍️</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No Shopify orders synced yet</div>
+              <div style={{ fontSize: 12 }}>Go to Settings → Integrations → Shopify → Full Backfill to pull orders</div>
+            </div>
+          ) : (<>
+            {/* Shopify KPIs */}
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 8 }}>
+              {[
+                { l: "Total Orders", v: shopifyOrders.length.toLocaleString(), c: "#95BF47" },
+                { l: "Revenue", v: "$" + (shopifyOrders.reduce((s, o) => s + Number(o.total_price || 0), 0) / 1000).toFixed(0) + "K", c: "#10B981" },
+                { l: "Avg Order", v: "$" + (shopifyOrders.reduce((s, o) => s + Number(o.total_price || 0), 0) / (shopifyOrders.length || 1)).toFixed(2), c: T.accent },
+                { l: "Paid", v: shopifyOrders.filter(o => o.financial_status === "paid").length, c: "#10B981" },
+                { l: "Cancelled", v: shopifyOrders.filter(o => o.cancelled_at).length, c: "#EF4444" },
+              ].map(s => <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>)}
+            </div>
+            {/* Search */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input value={shopifySearch} onChange={e => setShopifySearch(e.target.value)} placeholder="Search order #, email, tag…" style={{ flex: 1, padding: "8px 12px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none" }} />
+              <span style={{ fontSize: 11, color: T.text3 }}>{(() => { const q = shopifySearch.toLowerCase(); return q ? shopifyOrders.filter(o => (o.order_number || "").toLowerCase().includes(q) || (o.email || "").toLowerCase().includes(q) || (o.tags || "").toLowerCase().includes(q)).length : shopifyOrders.length; })()} results</span>
+            </div>
+            {/* Table */}
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    {["Order", "Date", "Customer", "Items", "Total", "Status", "Fulfillment", "Country"].map(h => (
+                      <th key={h} style={{ padding: "8px 10px", textAlign: h === "Total" || h === "Items" ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const q = shopifySearch.toLowerCase();
+                    return (q ? shopifyOrders.filter(o => (o.order_number || "").toLowerCase().includes(q) || (o.email || "").toLowerCase().includes(q) || (o.tags || "").toLowerCase().includes(q)) : shopifyOrders).slice(0, 200).map(o => (
+                      <tr key={o.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <td style={{ padding: "6px 10px", fontSize: 12, fontWeight: 600, color: T.accent }}>{o.order_number || `#${o.shopify_order_id}`}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2 }}>{o.created_at ? new Date(o.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text }}>{o.email || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2, textAlign: "right" }}>{o.line_item_count || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.text, textAlign: "right" }}>${Number(o.total_price || 0).toFixed(2)}</td>
+                        <td style={{ padding: "6px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: o.financial_status === "paid" ? "#10B98118" : o.financial_status === "refunded" ? "#EF444418" : "#F59E0B18", color: o.financial_status === "paid" ? "#10B981" : o.financial_status === "refunded" ? "#EF4444" : "#F59E0B" }}>{o.financial_status || "—"}</span></td>
+                        <td style={{ padding: "6px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: o.fulfillment_status === "fulfilled" ? "#10B98118" : "#6366f115", color: o.fulfillment_status === "fulfilled" ? "#10B981" : "#6366f1" }}>{o.fulfillment_status || "unfulfilled"}</span></td>
+                        <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3 }}>{o.shipping_country || "—"}</td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+              {shopifyOrders.length > 200 && <div style={{ textAlign: "center", padding: 8, fontSize: 10, color: T.text3 }}>Showing 200 of {shopifyOrders.length.toLocaleString()}</div>}
+            </div>
+          </>)}
+        </div>
+      )}
+
+      {/* ERP ORDERS (original) */}
+      {orderSource === "erp" && (<>
       {/* KPI */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
         {[
@@ -2919,6 +3009,7 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }
@@ -2932,6 +3023,30 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
   useEffect(() => { if (pendingNav?.view === "customers" && pendingNav.selectId) { const c = customers.find(x => x.id === pendingNav.selectId); if (c) setSelected(c); setPendingNav(null); } }, [pendingNav]);
   const [form, setForm] = useState({ name: "", customer_type: "retail", email: "", phone: "", website: "", payment_terms: "net_30", credit_limit: "", notes: "" });
   const [typeFilter, setTypeFilter] = useState("all");
+  const [custSource, setCustSource] = useState("erp");
+  const [shopifyCusts, setShopifyCusts] = useState([]);
+  const [shopifyCustLoading, setShopifyCustLoading] = useState(false);
+  const [shopifyCustSearch, setShopifyCustSearch] = useState("");
+
+  useEffect(() => {
+    if (custSource === "shopify" && shopifyCusts.length === 0) {
+      (async () => {
+        setShopifyCustLoading(true);
+        const all = [];
+        let from = 0;
+        for (let i = 0; i < 20; i++) {
+          const { data } = await supabase.from("shopify_customers").select("*").order("total_spent", { ascending: false }).range(from, from + 999);
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < 1000) break;
+          from += 1000;
+        }
+        setShopifyCusts(all);
+        setShopifyCustLoading(false);
+      })();
+    }
+  }, [custSource]);
+
   const filtered = customers.filter(c => typeFilter === "all" || c.customer_type === typeFilter);
   const totalRev = orders.reduce((s, o) => s + (o.total || 0), 0);
   const inp = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" };
@@ -2956,10 +3071,67 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Customers</div><div style={{ fontSize: 12, color: T.text3 }}>{customers.length} accounts · {fmt(totalRev)} total revenue</div></div>
-        <button onClick={() => { setForm({ name: "", customer_type: "retail", email: "", phone: "", website: "", payment_terms: "net_30", credit_limit: "", notes: "" }); setSelected(null); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Customer</button>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Customers</div><div style={{ fontSize: 12, color: T.text3 }}>{custSource === "shopify" ? `${shopifyCusts.length} Shopify DTC customers` : `${customers.length} accounts · ${fmt(totalRev)} total revenue`}</div></div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
+            <button onClick={() => setCustSource("erp")} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: custSource === "erp" ? T.accent : T.surface2, color: custSource === "erp" ? "#fff" : T.text3 }}>ERP Accounts</button>
+            <button onClick={() => setCustSource("shopify")} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: custSource === "shopify" ? "#95BF47" : T.surface2, color: custSource === "shopify" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>🛍️ Shopify DTC</button>
+          </div>
+          {custSource === "erp" && <button onClick={() => { setForm({ name: "", customer_type: "retail", email: "", phone: "", website: "", payment_terms: "net_30", credit_limit: "", notes: "" }); setSelected(null); setShowNew(true); }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Customer</button>}
+        </div>
       </div>
 
+      {/* SHOPIFY CUSTOMERS */}
+      {custSource === "shopify" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {shopifyCustLoading ? <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading Shopify customers…</div> : shopifyCusts.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No Shopify customers synced yet</div>
+              <div style={{ fontSize: 12 }}>Go to Settings → Integrations → Shopify → Full Backfill</div>
+            </div>
+          ) : (<>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 8 }}>
+              {[
+                { l: "Total Customers", v: shopifyCusts.length.toLocaleString(), c: "#95BF47" },
+                { l: "Total Spent", v: "$" + (shopifyCusts.reduce((s, c) => s + Number(c.total_spent || 0), 0) / 1000).toFixed(0) + "K", c: "#10B981" },
+                { l: "Verified Email", v: shopifyCusts.filter(c => c.verified_email).length.toLocaleString(), c: T.accent },
+                { l: "Avg LTV", v: "$" + (shopifyCusts.reduce((s, c) => s + Number(c.total_spent || 0), 0) / (shopifyCusts.length || 1)).toFixed(2), c: "#8B5CF6" },
+              ].map(s => <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>)}
+            </div>
+            <input value={shopifyCustSearch} onChange={e => setShopifyCustSearch(e.target.value)} placeholder="Search email, name, tag…" style={{ padding: "8px 12px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none" }} />
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    {["Name", "Email", "Orders", "Total Spent", "Country", "Tags"].map(h => (
+                      <th key={h} style={{ padding: "8px 10px", textAlign: h === "Orders" || h === "Total Spent" ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const q = shopifyCustSearch.toLowerCase();
+                    return (q ? shopifyCusts.filter(c => (c.email || "").toLowerCase().includes(q) || (c.first_name || "").toLowerCase().includes(q) || (c.last_name || "").toLowerCase().includes(q) || (c.tags || "").toLowerCase().includes(q)) : shopifyCusts).slice(0, 200).map(c => (
+                      <tr key={c.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <td style={{ padding: "6px 10px", fontSize: 12, fontWeight: 600, color: T.text }}>{[c.first_name, c.last_name].filter(Boolean).join(" ") || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2 }}>{c.email || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2, textAlign: "right" }}>{c.orders_count || 0}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.text, textAlign: "right" }}>${Number(c.total_spent || 0).toFixed(2)}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3 }}>{c.country || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 9, color: T.text3, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.tags || "—"}</td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </>)}
+        </div>
+      )}
+
+      {/* ERP CUSTOMERS (original) */}
+      {custSource === "erp" && (<>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
         {[{ l: "Total Accounts", v: customers.length, c: T.accent }, { l: "Retail", v: customers.filter(c=>c.customer_type==="retail").length, c: "#3B82F6" }, { l: "Wholesale", v: customers.filter(c=>c.customer_type==="wholesale").length, c: "#8B5CF6" }, { l: "Total Revenue", v: fmt(totalRev), c: "#10B981" }].map(s => (
           <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
@@ -3118,6 +3290,7 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }

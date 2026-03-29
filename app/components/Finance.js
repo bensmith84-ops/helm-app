@@ -1585,6 +1585,7 @@ function CFODashboard({ isMobile }) {
   const [journalEntries, setJournalEntries] = useState([]);
   const [mappings, setMappings] = useState({});
   const [bankAccounts, setBankAccounts] = useState([]);
+  const [shopifyOrderStats, setShopifyOrderStats] = useState(null);
   const [conn, setConn] = useState(null);
 
   useEffect(() => {
@@ -1609,6 +1610,18 @@ function CFODashboard({ isMobile }) {
       if (r10.data) { const m = {}; r10.data.forEach(r => { m[r.account_name] = r.ga_category; }); setMappings(m); }
       if (r11.data?.[0]) setConn(r11.data[0]);
       setBankAccounts(r12.data || []);
+      // Load Shopify order stats
+      const today = new Date().toISOString().slice(0, 10);
+      const { count: todayOrders } = await supabase.from("shopify_orders").select("*", { count: "exact", head: true }).gte("created_at", today + "T00:00:00");
+      const { data: todayRev } = await supabase.from("shopify_orders").select("total_price").gte("created_at", today + "T00:00:00");
+      const { count: totalShopifyOrders } = await supabase.from("shopify_orders").select("*", { count: "exact", head: true });
+      const { count: totalShopifyCustomers } = await supabase.from("shopify_customers").select("*", { count: "exact", head: true });
+      setShopifyOrderStats({
+        todayOrders: todayOrders || 0,
+        todayRevenue: (todayRev || []).reduce((s, o) => s + Number(o.total_price || 0), 0),
+        totalOrders: totalShopifyOrders || 0,
+        totalCustomers: totalShopifyCustomers || 0,
+      });
       setLoading(false);
     })();
   }, []);
@@ -1701,8 +1714,8 @@ function CFODashboard({ isMobile }) {
         <KPI icon="📋" label="AP Outstanding" value={fmtK(apOpen)} color={T.yellow} sub={`${bills.filter(b => b.payment_status === "open").length} open bills`} />
         <KPI icon="💳" label="Card Spend YTD" value={fmtK(totalPurchasesYTD)} sub={`${purchases.length} transactions`} />
         <KPI icon="📥" label="Deposits YTD" value={fmtK(totalDepositsYTD)} sub={`${deposits.length} deposits`} color={T.green} />
-        <KPI icon="💸" label="Bills Paid YTD" value={fmtK(pmtsMade)} sub={`${payments.filter(p => p.payment_type === "made").length} payments`} />
-        <KPI icon="📒" label="Journal Entries" value={journalEntries.length} sub={`inc. payroll, accruals`} />
+        <KPI icon="🛍️" label="DTC Orders Today" value={shopifyOrderStats?.todayOrders ?? "—"} color="#95BF47" sub={shopifyOrderStats?.todayRevenue ? fmtK(shopifyOrderStats.todayRevenue) + " revenue" : shopifyOrderStats?.totalOrders ? `${shopifyOrderStats.totalOrders.toLocaleString()} total synced` : "Sync Shopify"} />
+        <KPI icon="👥" label="DTC Customers" value={shopifyOrderStats?.totalCustomers ? shopifyOrderStats.totalCustomers.toLocaleString() : "—"} sub={shopifyOrderStats?.totalOrders ? `${shopifyOrderStats.totalOrders.toLocaleString()} lifetime orders` : ""} />
       </div>
 
       {/* BANK ACCOUNTS */}
