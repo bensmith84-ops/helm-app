@@ -594,7 +594,7 @@ export default function SettingsView({ isAdmin }) {
               { name:"Google Sheets", desc:"Sync financial data from your Google Sheets", icon:"📊", status:"connected", detail:"Earth Breeze Hydrogen tab" },
               { name:"QuickBooks Online", desc:"Sync P&L, Chart of Accounts, Vendors, Bills & Invoices", icon:"📒", status: qboConn ? "qbo_connected" : "qbo", detail: qboConn ? `✓ Connected to ${qboConn.company_name} (${qboConn.environment})${qboConn.last_synced_at ? " · Last sync " + new Date(qboConn.last_synced_at).toLocaleString() : " · Not yet synced"}` : "Connect to Earth Breeze QBO account" },
               { name:"Slack", desc:"Receive notifications and updates in Slack", icon:"💬", status:"connected", detail:"Connected · DM to Ben · Earth Breeze workspace", testable:true },
-              { name:"Shopify", desc:"Pull revenue, orders, and product data", icon:"🛍️", status:"available", detail:"Real-time revenue sync" },
+              { name:"Shopify", desc:"Pull revenue, orders, and product data", icon:"🛍️", status:"shopify_connected", detail:"earth-breeze-hydrogen.myshopify.com · Auto-syncs 6am/6pm UTC" },
               { name:"Amazon Seller Central", desc:"Import Amazon revenue and ad spend", icon:"📦", status:"available", detail:"Daily sales sync" },
               { name:"Meta Ads", desc:"Sync ad spend and ROAS from Meta", icon:"🎯", status:"available", detail:"Ad performance data" },
               { name:"Google Analytics", desc:"Website traffic and conversion data", icon:"📈", status:"available", detail:"Marketing analytics" },
@@ -682,6 +682,37 @@ export default function SettingsView({ isAdmin }) {
                         showToast("QuickBooks disconnected", "#f59e0b");
                       }} style={{ padding:"7px 14px", fontSize:12, fontWeight:500, borderRadius:7, cursor:"pointer", flexShrink:0, background:T.surface2, color:T.text3, border:`1px solid ${T.border}` }}>
                         Disconnect
+                      </button>
+                    </div>
+                  )}
+                  {integ.status==="shopify_connected" && (
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={async ()=>{
+                        showToast("Syncing Shopify orders (today + yesterday)…", T.accent);
+                        try {
+                          const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-auto-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+                          const data = await res.json();
+                          const todayOrders = data.results?.today?.orders || 0;
+                          const yestOrders = data.results?.yesterday?.orders || 0;
+                          showToast(`Shopify synced: ${todayOrders} orders today, ${yestOrders} yesterday`, "#22c55e");
+                        } catch(e) { showToast("Sync failed: " + e, "#ef4444"); }
+                      }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", background:T.accent, color:"#fff", border:"none" }}>
+                        ⟲ Sync Now
+                      </button>
+                      <button onClick={async ()=>{
+                        const days = prompt("How many days to backfill?", "12");
+                        if (!days) return;
+                        showToast(`Backfilling ${days} days of Shopify data…`, T.accent);
+                        try {
+                          const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "full", days_back: parseInt(days) }) });
+                          const data = await res.json();
+                          const products = data.results?.products?.variants || 0;
+                          const customers = data.results?.customers?.count || 0;
+                          const orderDays = data.results?.orders?.length || 0;
+                          showToast(`Full sync done: ${products} product variants, ${customers} customers, ${orderDays} days of orders`, "#22c55e");
+                        } catch(e) { showToast("Backfill failed: " + e, "#ef4444"); }
+                      }} style={{ padding:"7px 14px", fontSize:12, fontWeight:500, borderRadius:7, cursor:"pointer", background:T.surface2, color:T.text2, border:`1px solid ${T.border}` }}>
+                        📥 Full Backfill
                       </button>
                     </div>
                   )}
