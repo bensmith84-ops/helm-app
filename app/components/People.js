@@ -482,7 +482,7 @@ export default function PeopleView() {
             </div>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
           {!isMe && <button onClick={async () => {
             try {
               const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
@@ -495,7 +495,14 @@ export default function PeopleView() {
               else showToast("Invite resent to " + selected.email, "success");
             } catch (e) { showToast("Failed: " + e.message); }
           }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${T.accent}30`, background: T.accentDim, color: T.accent, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>📧 Resend Invite</button>}
-          {!isMe && <button onClick={() => deactivateUser(selected.id)} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${T.border}`, background: om?.is_active !== false ? T.surface2 : T.greenDim, color: om?.is_active !== false ? T.text2 : T.green, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>{om?.is_active !== false ? "Deactivate" : "Reactivate"}</button>}
+          {!isMe && <button onClick={async () => {
+            try {
+              const { error } = await supabase.auth.resetPasswordForEmail(selected.email, { redirectTo: window.location.origin });
+              if (error) showToast("Failed: " + error.message);
+              else showToast("Password reset email sent to " + selected.email, "success");
+            } catch (e) { showToast("Failed: " + e.message); }
+          }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>🔑 Reset Password</button>}
+          {!isMe && <button onClick={() => deactivateUser(selected.id)} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: om?.is_active !== false ? T.surface2 : T.greenDim, color: om?.is_active !== false ? T.text2 : T.green, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>{om?.is_active !== false ? "Deactivate" : "Reactivate"}</button>}
           {!isMe && !isOwner && <button onClick={() => deleteUser(selected.id)} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${T.red}30`, background: T.redDim, color: T.red, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>Remove</button>}
         </div>
       </div>
