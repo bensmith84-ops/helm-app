@@ -28,6 +28,7 @@ const ScoreboardView2 = lazy(() => import("./components/Scoreboard"));
 const AutomationView = lazy(() => import("./components/Automation"));
 const ReportsView = lazy(() => import("./components/Reports"));
 const SettingsView = lazy(() => import("./components/Settings"));
+const LearningView = lazy(() => import("./components/Learning"));
 const PeopleView = lazy(() => import("./components/People"));
 const ActivityView = lazy(() => import("./components/Activity"));
 const AIBuilderView = lazy(() => import("./components/AIBuilder"));
@@ -311,6 +312,7 @@ export default function HelmApp() {
       case "projects": return <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} />;
       case "okrs": return <OKRsView />;
       case "scorecard": return <ScorecardView />;
+      case "learning": return <LearningView />;
       case "scoreboard": return <ScoreboardView2 />;
       case "messages": return <MessagesView />;
       case "docs": return <DocsView setActive={setActive} />;

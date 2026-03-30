@@ -9,6 +9,7 @@ const NAV_GROUPS = [
     { key: "projects", icon: "◫", label: "Projects" },
     { key: "launches", icon: "🚀", label: "Launches" },
     { key: "scorecard", icon: "▣", label: "Scorecard" },
+    { key: "learning", icon: "📚", label: "Learning" },
     { key: "docs", icon: "▤", label: "Docs" },
   ]},
   { label: "Connect", items: [
