@@ -7,12 +7,14 @@ import { useResponsive } from "../lib/responsive";
 
 /* ─── design tokens ─── */
 const G = {
-  bg: "#0B0F19", surface: "#121829", surface2: "#1A2035", surface3: "#222942",
-  border: "#2A3352", accent: "#6C63FF", accentDim: "#6C63FF15", accentGlow: "#6C63FF40",
+  get bg() { return T.bg; }, get surface() { return T.surface; }, get surface2() { return T.surface2; },
+  get surface3() { return T.surface3 || T.surface2; }, get border() { return T.border; },
+  accent: "#6C63FF", accentDim: "#6C63FF15", accentGlow: "#6C63FF40",
   green: "#34D399", greenDim: "#34D39915", yellow: "#FBBF24", yellowDim: "#FBBF2415",
-  red: "#F87171", redDim: "#F8717115", text: "#E8ECF4", text2: "#9CA3C0", text3: "#5C6484",
+  red: "#F87171", redDim: "#F8717115",
+  get text() { return T.text; }, get text2() { return T.text2; }, get text3() { return T.text3; },
   gradient: "linear-gradient(135deg, #6C63FF 0%, #B24BF3 50%, #FF6B9D 100%)",
-  cardGlow: "0 0 40px rgba(108,99,255,0.06)",
+  cardGlow: "0 0 40px rgba(108,99,255,0.04)",
 };
 const CATS = { onboarding: { icon: "🌱", color: "#34D399", label: "Onboarding" }, compliance: { icon: "📋", color: "#FBBF24", label: "Compliance" }, product: { icon: "📦", color: "#6C63FF", label: "Product" }, safety: { icon: "🛡️", color: "#F87171", label: "Safety" }, process: { icon: "⚙️", color: "#38BDF8", label: "Process" }, skills: { icon: "💡", color: "#B24BF3", label: "Skills" }, other: { icon: "📚", color: "#9CA3C0", label: "Other" } };
 const STATUS = { not_started: { color: G.text3, label: "Not Started", bg: G.surface3 }, in_progress: { color: G.yellow, label: "In Progress", bg: G.yellowDim }, completed: { color: G.green, label: "Completed", bg: G.greenDim }, expired: { color: G.red, label: "Expired", bg: G.redDim } };
@@ -66,6 +68,7 @@ export default function LearningView() {
   const [quizForm, setQuizForm] = useState({ title: "Quiz", questions: [{ q: "", type: "multiple_choice", options: ["", "", "", ""], correct: 0, points: 1 }], passing_score: 70 });
   const [catFilter, setCatFilter] = useState("all");
   const [searchQ, setSearchQ] = useState("");
+  const [courseStarted, setCourseStarted] = useState(false);
   const isAdmin = profile?.email?.includes("ben.smith@earthbreeze") || false;
 
   useEffect(() => {
@@ -189,6 +192,85 @@ export default function LearningView() {
 
   if (loading) return <div style={{ display:"flex", height:"100%", alignItems:"center", justifyContent:"center", background:G.bg }}><div style={{ width:32, height:32, border:`3px solid ${G.border}`, borderTopColor:G.accent, borderRadius:"50%", animation:"lms-spin 0.8s linear infinite" }} /><style>{`@keyframes lms-spin{to{transform:rotate(360deg)}}`}</style></div>;
 
+  /* ─── simple markdown renderer ─── */
+  const renderContent = (text) => {
+    if (!text) return null;
+    const lines = text.split("\n");
+    const elements = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line.startsWith("# ")) {
+        elements.push(<h1 key={i} style={{ fontSize:26, fontWeight:800, color:G.text, margin:"24px 0 12px", lineHeight:1.3, borderBottom:`2px solid ${G.accent}30`, paddingBottom:10 }}>{line.slice(2)}</h1>);
+      } else if (line.startsWith("## ")) {
+        elements.push(<h2 key={i} style={{ fontSize:20, fontWeight:700, color:G.text, margin:"20px 0 8px", lineHeight:1.3 }}>{line.slice(3)}</h2>);
+      } else if (line.startsWith("### ")) {
+        elements.push(<h3 key={i} style={{ fontSize:16, fontWeight:700, color:G.accent, margin:"16px 0 6px" }}>{line.slice(4)}</h3>);
+      } else if (line.startsWith("- **") || line.startsWith("- ✅") || line.startsWith("- ❌") || line.startsWith("- [ ]")) {
+        const items = [];
+        while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("  -"))) {
+          const item = lines[i].replace(/^-\s*/, "").replace(/\*\*([^*]+)\*\*/g, "⟨b⟩$1⟨/b⟩");
+          items.push(item);
+          i++;
+        }
+        i--;
+        elements.push(
+          <div key={i} style={{ margin:"8px 0", display:"flex", flexDirection:"column", gap:6 }}>
+            {items.map((item, j) => {
+              const parts = item.split(/⟨\/?b⟩/);
+              const isBold = item.includes("⟨b⟩");
+              return (
+                <div key={j} style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"8px 14px", background:G.surface2, borderRadius:10, borderLeft:`3px solid ${G.accent}30` }}>
+                  <span style={{ color:G.accent, fontSize:14, flexShrink:0, marginTop:1 }}>•</span>
+                  <span style={{ fontSize:14, color:G.text2, lineHeight:1.6 }}>
+                    {isBold ? parts.map((p, k) => k % 2 === 1 ? <strong key={k} style={{ color:G.text, fontWeight:600 }}>{p}</strong> : p) : item}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      } else if (line.startsWith("| ")) {
+        // Table
+        const tableLines = [];
+        while (i < lines.length && lines[i].startsWith("| ")) {
+          tableLines.push(lines[i]);
+          i++;
+        }
+        i--;
+        const headers = tableLines[0]?.split("|").filter(Boolean).map(s => s.trim()) || [];
+        const rows = tableLines.slice(2).map(r => r.split("|").filter(Boolean).map(s => s.trim()));
+        elements.push(
+          <div key={i} style={{ overflowX:"auto", margin:"12px 0", borderRadius:12, border:`1px solid ${G.border}` }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead><tr style={{ background:G.surface2 }}>
+                {headers.map((h, j) => <th key={j} style={{ padding:"10px 14px", fontSize:12, fontWeight:700, color:G.accent, textAlign:"left", borderBottom:`2px solid ${G.border}` }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{rows.map((row, ri) => (
+                <tr key={ri} style={{ borderBottom:`1px solid ${G.border}` }}>
+                  {row.map((cell, ci) => <td key={ci} style={{ padding:"10px 14px", fontSize:13, color:G.text2 }}>{cell}</td>)}
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        );
+      } else if (line.trim() === "") {
+        elements.push(<div key={i} style={{ height:8 }} />);
+      } else {
+        // Regular paragraph — handle inline bold
+        const parts = line.replace(/\*\*([^*]+)\*\*/g, "⟨b⟩$1⟨/b⟩").split(/⟨\/?b⟩/);
+        const hasBold = line.includes("**");
+        elements.push(
+          <p key={i} style={{ fontSize:15, lineHeight:1.8, color:G.text2, margin:"4px 0" }}>
+            {hasBold ? parts.map((p, k) => k % 2 === 1 ? <strong key={k} style={{ color:G.text, fontWeight:600 }}>{p}</strong> : p) : line}
+          </p>
+        );
+      }
+      i++;
+    }
+    return elements;
+  };
+
   /* ═══ COURSE PLAYER ═══ */
   if (selectedCourse) {
     const c = selectedCourse;
@@ -202,122 +284,195 @@ export default function LearningView() {
     const qPassed = quizAttempts.some(a => a.course_id === c.id && a.passed);
     const pct = cL.length > 0 ? Math.round((done.length / cL.length) * 100) : 0;
     const cat = CATS[c.category] || CATS.other;
+    const courseComplete = allLessonsDone && (!quiz || qPassed);
 
-    return (
-      <div style={{ display:"flex", height:"100%", overflow:"hidden", background:G.bg, flexDirection:isMobile?"column":"row" }}>
-        <style>{`@keyframes lms-spin{to{transform:rotate(360deg)}} @keyframes lms-fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}} .lms-lesson-btn:hover{background:${G.surface3} !important}`}</style>
-        {/* Sidebar */}
-        <div style={{ width:isMobile?"100%":280, borderRight:isMobile?"none":`1px solid ${G.border}`, background:G.surface, overflow:"auto", flexShrink:0 }}>
-          <div style={{ padding:"16px 16px 12px" }}>
-            <button onClick={()=>{setSelectedCourse(null);setActiveLessonIdx(0);}} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:G.text3, background:"none", border:"none", cursor:"pointer", marginBottom:12, padding:0 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.text3} strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back
+    // ─── START SCREEN ───
+    if (!courseStarted && !prog) {
+      return (
+        <div style={{ display:"flex", height:"100%", overflow:"auto", background:G.bg }}>
+          <style>{`@keyframes lms-fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
+          <div style={{ maxWidth:640, margin:"0 auto", padding:isMobile?"24px 16px":"60px 32px", animation:"lms-fadeIn 0.4s ease" }}>
+            <button onClick={()=>{setSelectedCourse(null);setCourseStarted(false);}} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:G.text3, background:"none", border:"none", cursor:"pointer", marginBottom:24 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.text3} strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back to courses
             </button>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-              <span style={{ fontSize:28 }}>{cat.icon}</span>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:15, fontWeight:700, color:G.text, lineHeight:1.3 }}>{c.title}</div>
-                <div style={{ fontSize:11, color:G.text3, marginTop:2 }}>{cL.length} lessons{quiz?" + quiz":""}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:20 }}>
+              <div style={{ width:64, height:64, borderRadius:16, background:cat.color+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32 }}>{cat.icon}</div>
+              <div>
+                <Badge label={cat.label.toUpperCase()} color={cat.color} />
+                {c.is_required && <Badge label="REQUIRED" color={G.red} />}
               </div>
             </div>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
-              <ProgressRing pct={pct} size={40} stroke={3} color={pct===100?G.green:cat.color} />
-              <div style={{ flex:1 }}>
-                <div style={{ height:4, background:G.surface3, borderRadius:2, overflow:"hidden" }}><div style={{ height:"100%", background:pct===100?G.green:cat.color, width:`${pct}%`, transition:"width 0.5s" }} /></div>
-                <div style={{ fontSize:10, color:G.text3, marginTop:3 }}>{done.length}/{cL.length} lessons complete</div>
-              </div>
+            <h1 style={{ fontSize:28, fontWeight:800, color:G.text, lineHeight:1.3, margin:"0 0 12px" }}>{c.title}</h1>
+            {c.description && <p style={{ fontSize:15, color:G.text2, lineHeight:1.7, margin:"0 0 24px" }}>{c.description}</p>}
+            <div style={{ display:"flex", gap:20, marginBottom:28, flexWrap:"wrap" }}>
+              {[
+                { icon:"📄", label:`${cL.length} Lessons` },
+                quiz && { icon:"📝", label:`Quiz (${(quiz.questions||[]).length} questions)` },
+                c.estimated_minutes && { icon:"⏱", label:`~${c.estimated_minutes} min` },
+                c.passing_score && quiz && { icon:"🎯", label:`${c.passing_score}% to pass` },
+                c.refresh_interval_days && { icon:"🔄", label:`Refresh every ${c.refresh_interval_days} days` },
+              ].filter(Boolean).map((s,i) => (
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:6, fontSize:13, color:G.text3 }}>
+                  <span>{s.icon}</span> {s.label}
+                </div>
+              ))}
             </div>
+            {/* Lesson outline */}
+            <div style={{ borderRadius:14, border:`1px solid ${G.border}`, overflow:"hidden", marginBottom:28 }}>
+              <div style={{ padding:"12px 16px", background:G.surface2, fontSize:12, fontWeight:700, color:G.text3, textTransform:"uppercase", letterSpacing:"0.05em" }}>Course Outline</div>
+              {cL.map((l,i) => (
+                <div key={l.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderTop:`1px solid ${G.border}` }}>
+                  <div style={{ width:28, height:28, borderRadius:8, background:G.surface2, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, color:G.accent }}>{i+1}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:600, color:G.text }}>{l.title}</div>
+                    <div style={{ fontSize:11, color:G.text3 }}>{l.content_type === "text" ? "📄 Reading" : l.content_type === "video" ? "🎥 Video" : "🔗 Resource"}{l.estimated_minutes ? ` · ~${l.estimated_minutes} min` : ""}</div>
+                  </div>
+                </div>
+              ))}
+              {quiz && (
+                <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderTop:`1px solid ${G.border}`, background:G.yellowDim }}>
+                  <div style={{ width:28, height:28, borderRadius:8, background:G.yellow+"25", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>📝</div>
+                  <div><div style={{ fontSize:14, fontWeight:600, color:G.text }}>{quiz.title}</div><div style={{ fontSize:11, color:G.text3 }}>{(quiz.questions||[]).length} questions · {quiz.passing_score||70}% to pass</div></div>
+                </div>
+              )}
+            </div>
+            <button onClick={()=>setCourseStarted(true)} style={{ padding:"14px 36px", fontSize:15, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:12, cursor:"pointer", boxShadow:`0 4px 20px ${G.accentGlow}`, display:"flex", alignItems:"center", gap:8 }}>
+              Start Course <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
           </div>
-          <div style={{ padding:"0 8px 16px" }}>
-            {cL.map((l,i) => {
-              const d = done.includes(l.id);
-              const a = i === activeLessonIdx;
-              return (
-                <button key={l.id} className="lms-lesson-btn" onClick={()=>setActiveLessonIdx(i)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"none", cursor:"pointer", background:a?G.accentDim:"transparent", color:a?G.accent:d?G.green:G.text2, fontSize:12, fontWeight:a?600:400, textAlign:"left", marginBottom:2, transition:"background 0.15s" }}>
-                  <div style={{ width:22, height:22, borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", fontSize:d?12:10, background:d?G.greenDim:a?G.accentDim:G.surface3, color:d?G.green:a?G.accent:G.text3, fontWeight:700, flexShrink:0 }}>{d?"✓":i+1}</div>
-                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{l.title}</span>
-                  {l.estimated_minutes && <span style={{ fontSize:9, color:G.text3, marginLeft:"auto", flexShrink:0 }}>{l.estimated_minutes}m</span>}
-                </button>
-              );
-            })}
-            {quiz && (
-              <button onClick={()=>{setShowQuiz(quiz);setQuizAnswers({});setQuizResult(null);}} className="lms-lesson-btn" style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:`1px dashed ${qPassed?G.green+"60":G.border}`, cursor:"pointer", background:qPassed?G.greenDim:"transparent", color:qPassed?G.green:G.text2, fontSize:12, fontWeight:600, textAlign:"left", marginTop:8 }}>
-                <div style={{ width:22, height:22, borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, background:qPassed?G.greenDim:G.surface3, color:qPassed?G.green:G.yellow }}>{qPassed?"✓":"📝"}</div>
-                {quiz.title} {qPassed&&<span style={{fontSize:9,color:G.green,marginLeft:"auto"}}>Passed</span>}
-              </button>
+        </div>
+      );
+    }
+
+    // ─── PAGE-BY-PAGE READER ───
+    return (
+      <div style={{ display:"flex", flexDirection:"column", height:"100%", overflow:"hidden", background:G.bg }}>
+        <style>{`@keyframes lms-fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}} @keyframes lms-slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}`}</style>
+        {/* Top bar */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 20px", borderBottom:`1px solid ${G.border}`, background:G.surface, flexShrink:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <button onClick={()=>{setSelectedCourse(null);setCourseStarted(false);setActiveLessonIdx(0);}} style={{ display:"flex", alignItems:"center", gap:4, fontSize:12, color:G.text3, background:"none", border:"none", cursor:"pointer" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.text3} strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Exit
+            </button>
+            <span style={{ fontSize:13, fontWeight:600, color:G.text }}>{c.title}</span>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:120, height:4, background:G.surface3, borderRadius:2, overflow:"hidden" }}>
+              <div style={{ height:"100%", background:pct===100?G.green:G.accent, width:`${pct}%`, transition:"width 0.5s" }} />
+            </div>
+            <span style={{ fontSize:11, color:G.text3, fontWeight:600 }}>{pct}%</span>
+          </div>
+        </div>
+
+        {/* Page navigation dots */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"10px 20px", flexShrink:0 }}>
+          {cL.map((l,i) => {
+            const d = done.includes(l.id);
+            const a = i === activeLessonIdx;
+            return (
+              <button key={l.id} onClick={()=>setActiveLessonIdx(i)} title={l.title}
+                style={{ width:a?32:d?10:10, height:10, borderRadius:5, border:"none", cursor:"pointer", background:a?G.accent:d?G.green:G.surface3, transition:"all 0.2s", opacity:a?1:0.7 }} />
+            );
+          })}
+          {quiz && (
+            <button onClick={()=>{if(allLessonsDone){setShowQuiz(quiz);setQuizAnswers({});setQuizResult(null);}}} title="Quiz"
+              style={{ width:10, height:10, borderRadius:5, border:`2px solid ${qPassed?G.green:allLessonsDone?G.yellow:G.surface3}`, background:qPassed?G.green:"transparent", cursor:allLessonsDone?"pointer":"default" }} />
+          )}
+        </div>
+
+        {/* Content area */}
+        <div style={{ flex:1, overflow:"auto", display:"flex", justifyContent:"center" }}>
+          <div key={activeLessonIdx} style={{ maxWidth:700, width:"100%", padding:isMobile?"20px 16px":"32px 24px", animation:"lms-slideIn 0.3s ease" }}>
+            {active ? (
+              <>
+                {/* Lesson header */}
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                  <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:6, background:cat.color+"15", color:cat.color }}>Lesson {activeLessonIdx+1} of {cL.length}</span>
+                  {lessonDone && <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:6, background:G.greenDim, color:G.green }}>✓ Complete</span>}
+                  {active.estimated_minutes && <span style={{ fontSize:11, color:G.text3 }}>~{active.estimated_minutes} min read</span>}
+                </div>
+                <h1 style={{ fontSize:26, fontWeight:800, color:G.text, lineHeight:1.3, margin:"8px 0 20px" }}>{active.title}</h1>
+
+                {/* Content */}
+                {active.content_type === "text" && (
+                  <div style={{ marginBottom:32 }}>{renderContent(active.content)}</div>
+                )}
+                {active.content_type === "video" && active.content && (
+                  <div style={{ position:"relative", paddingBottom:"56.25%", height:0, borderRadius:12, overflow:"hidden", marginBottom:24, boxShadow:`0 4px 20px rgba(0,0,0,0.15)` }}>
+                    <iframe src={active.content.replace("watch?v=","embed/").replace("youtu.be/","youtube.com/embed/")} style={{ position:"absolute", top:0, left:0, width:"100%", height:"100%", border:"none" }} allowFullScreen />
+                  </div>
+                )}
+                {(active.content_type === "document" || active.content_type === "link") && active.content && (
+                  <a href={active.content} target="_blank" rel="noopener noreferrer" style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"14px 24px", background:G.accentDim, color:G.accent, borderRadius:12, fontSize:14, fontWeight:600, textDecoration:"none", border:`1px solid ${G.accent}25`, marginBottom:24 }}>
+                    {active.content_type === "document" ? "📎 Open Document" : "🔗 Open Link"} →
+                  </a>
+                )}
+              </>
+            ) : (
+              <div style={{ textAlign:"center", padding:60, color:G.text3 }}><div style={{ fontSize:40, marginBottom:12 }}>📚</div>No lessons yet</div>
             )}
           </div>
         </div>
 
-        {/* Content */}
-        <div style={{ flex:1, overflow:"auto", padding:isMobile?20:40, background:G.bg }}>
-          {active ? (
-            <div style={{ maxWidth:720, margin:"0 auto", animation:"lms-fadeIn 0.3s ease" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24 }}>
-                <div>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-                    <span style={{ fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:4, background:cat.color+"18", color:cat.color }}>Lesson {activeLessonIdx+1} of {cL.length}</span>
-                    {lessonDone && <Badge label="COMPLETE" color={G.green} />}
-                  </div>
-                  <div style={{ fontSize:24, fontWeight:800, color:G.text, lineHeight:1.3 }}>{active.title}</div>
-                </div>
-              </div>
-              {/* Content rendering */}
-              {active.content_type==="text" && (
-                <div style={{ fontSize:15, lineHeight:1.9, color:G.text2, whiteSpace:"pre-wrap" }}>{active.content}</div>
-              )}
-              {active.content_type==="video" && active.content && (
-                <div style={{ position:"relative", paddingBottom:"56.25%", height:0, borderRadius:12, overflow:"hidden", marginBottom:20, boxShadow:`0 4px 20px rgba(0,0,0,0.3)` }}>
-                  <iframe src={active.content.replace("watch?v=","embed/").replace("youtu.be/","youtube.com/embed/")} style={{ position:"absolute", top:0, left:0, width:"100%", height:"100%", border:"none" }} allowFullScreen />
-                </div>
-              )}
-              {(active.content_type==="document"||active.content_type==="link") && active.content && (
-                <a href={active.content} target="_blank" rel="noopener noreferrer" style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"12px 20px", background:G.accentDim, color:G.accent, borderRadius:10, fontSize:13, fontWeight:600, textDecoration:"none", border:`1px solid ${G.accent}30`, marginBottom:20 }}>
-                  {active.content_type==="document"?"📎 Open Document":"🔗 Open Link"} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 17L17 7M7 7h10v10"/></svg>
-                </a>
-              )}
-              {/* Actions */}
-              <div style={{ display:"flex", gap:10, marginTop:32, paddingTop:24, borderTop:`1px solid ${G.border}` }}>
-                {activeLessonIdx > 0 && <button onClick={()=>setActiveLessonIdx(activeLessonIdx-1)} style={{ padding:"10px 20px", fontSize:13, fontWeight:600, background:G.surface2, border:`1px solid ${G.border}`, borderRadius:10, color:G.text2, cursor:"pointer" }}>← Previous</button>}
-                {!lessonDone ? (
-                  <button onClick={async()=>{ await completeLesson(c.id,active.id); if(activeLessonIdx<cL.length-1) setActiveLessonIdx(activeLessonIdx+1); }} style={{ padding:"10px 24px", fontSize:13, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:10, cursor:"pointer", boxShadow:`0 4px 15px ${G.accentGlow}` }}>
-                    ✓ Mark Complete{activeLessonIdx<cL.length-1?" & Continue":""}
-                  </button>
-                ) : activeLessonIdx<cL.length-1 ? (
-                  <button onClick={()=>setActiveLessonIdx(activeLessonIdx+1)} style={{ padding:"10px 24px", fontSize:13, fontWeight:700, background:G.accent, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>Continue →</button>
-                ) : null}
-                {allLessonsDone && quiz && !qPassed && (
-                  <button onClick={()=>{setShowQuiz(quiz);setQuizAnswers({});setQuizResult(null);}} style={{ padding:"10px 24px", fontSize:13, fontWeight:700, background:G.yellow, color:G.bg, border:"none", borderRadius:10, cursor:"pointer" }}>📝 Take Quiz</button>
-                )}
-              </div>
-            </div>
-          ) : <div style={{ textAlign:"center", padding:60, color:G.text3 }}><div style={{fontSize:40,marginBottom:12}}>📚</div>No lessons yet</div>}
+        {/* Bottom navigation bar */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 24px", borderTop:`1px solid ${G.border}`, background:G.surface, flexShrink:0 }}>
+          <button onClick={()=>{ if (activeLessonIdx > 0) setActiveLessonIdx(activeLessonIdx - 1); }} disabled={activeLessonIdx === 0}
+            style={{ display:"flex", alignItems:"center", gap:6, padding:"10px 18px", fontSize:13, fontWeight:600, background:G.surface2, border:`1px solid ${G.border}`, borderRadius:10, color:activeLessonIdx===0?G.text3:G.text, cursor:activeLessonIdx===0?"default":"pointer", opacity:activeLessonIdx===0?0.4:1 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Previous
+          </button>
+          <div style={{ textAlign:"center" }}>
+            {active && <div style={{ fontSize:12, color:G.text3, fontWeight:500 }}>{active.title}</div>}
+          </div>
+          {active && !lessonDone ? (
+            <button onClick={async()=>{ await completeLesson(c.id, active.id); if (activeLessonIdx < cL.length-1) setActiveLessonIdx(activeLessonIdx+1); }}
+              style={{ display:"flex", alignItems:"center", gap:6, padding:"10px 22px", fontSize:13, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:10, cursor:"pointer", boxShadow:`0 2px 12px ${G.accentGlow}` }}>
+              Complete{activeLessonIdx < cL.length-1 ? " & Next" : ""} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
+          ) : activeLessonIdx < cL.length-1 ? (
+            <button onClick={()=>setActiveLessonIdx(activeLessonIdx+1)}
+              style={{ display:"flex", alignItems:"center", gap:6, padding:"10px 22px", fontSize:13, fontWeight:600, background:G.accent, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>
+              Next <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
+          ) : allLessonsDone && quiz && !qPassed ? (
+            <button onClick={()=>{setShowQuiz(quiz);setQuizAnswers({});setQuizResult(null);}}
+              style={{ display:"flex", alignItems:"center", gap:6, padding:"10px 22px", fontSize:13, fontWeight:700, background:G.yellow, color:G.bg, border:"none", borderRadius:10, cursor:"pointer" }}>
+              📝 Take Quiz
+            </button>
+          ) : courseComplete ? (
+            <button onClick={()=>{setSelectedCourse(null);setCourseStarted(false);setActiveLessonIdx(0);}}
+              style={{ display:"flex", alignItems:"center", gap:6, padding:"10px 22px", fontSize:13, fontWeight:700, background:G.green, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>
+              🎓 Course Complete!
+            </button>
+          ) : (
+            <div style={{ width:120 }} />
+          )}
         </div>
 
         {/* Quiz Modal */}
         {showQuiz && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", backdropFilter:"blur(4px)" }} onClick={()=>{setShowQuiz(null);setQuizResult(null);}}>
-            <div onClick={e=>e.stopPropagation()} style={{ width:"min(620px,95vw)", maxHeight:"85vh", overflow:"auto", background:G.surface, borderRadius:20, padding:28, boxShadow:"0 20px 60px rgba(0,0,0,0.5)", border:`1px solid ${G.border}` }}>
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", backdropFilter:"blur(4px)" }} onClick={()=>{setShowQuiz(null);setQuizResult(null);}}>
+            <div onClick={e=>e.stopPropagation()} style={{ width:"min(620px,95vw)", maxHeight:"85vh", overflow:"auto", background:G.surface, borderRadius:20, padding:28, boxShadow:"0 20px 60px rgba(0,0,0,0.4)", border:`1px solid ${G.border}` }}>
               {quizResult ? (
                 <div style={{ textAlign:"center", padding:24, animation:"lms-fadeIn 0.4s ease" }}>
                   <div style={{ width:100, height:100, borderRadius:50, background:quizResult.passed?G.greenDim:G.redDim, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", fontSize:40 }}>{quizResult.passed?"🎉":"😔"}</div>
-                  <div style={{ fontSize:36, fontWeight:900, color:quizResult.passed?G.green:G.red, marginBottom:8 }}>{quizResult.score}%</div>
-                  <div style={{ fontSize:14, color:G.text2 }}>{quizResult.correct}/{quizResult.total} correct answers</div>
-                  <div style={{ fontSize:13, color:quizResult.passed?G.green:G.red, marginTop:12, fontWeight:600, padding:"8px 16px", background:quizResult.passed?G.greenDim:G.redDim, borderRadius:8, display:"inline-block" }}>{quizResult.passed?"Congratulations — you passed! 🎓":`Need ${showQuiz.passing_score||70}% to pass. Try again!`}</div>
+                  <div style={{ fontSize:36, fontWeight:900, color:quizResult.passed?G.green:G.red }}>{quizResult.score}%</div>
+                  <div style={{ fontSize:14, color:G.text2, marginTop:4 }}>{quizResult.correct}/{quizResult.total} correct</div>
+                  <div style={{ fontSize:13, color:quizResult.passed?G.green:G.red, marginTop:12, fontWeight:600, padding:"8px 16px", background:quizResult.passed?G.greenDim:G.redDim, borderRadius:8, display:"inline-block" }}>{quizResult.passed?"🎓 Congratulations — you passed!":`Need ${showQuiz.passing_score||70}% to pass`}</div>
                   <div style={{ marginTop:20 }}><button onClick={()=>{setShowQuiz(null);setQuizResult(null);}} style={{ padding:"10px 28px", fontSize:13, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>Close</button></div>
                 </div>
               ) : (
                 <div>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-                    <div><div style={{ fontSize:20, fontWeight:800, color:G.text }}>{showQuiz.title}</div><div style={{ fontSize:12, color:G.text3, marginTop:4 }}>Pass mark: {showQuiz.passing_score||70}% · {(showQuiz.questions||[]).length} questions</div></div>
+                    <div><div style={{ fontSize:20, fontWeight:800, color:G.text }}>{showQuiz.title}</div><div style={{ fontSize:12, color:G.text3, marginTop:4 }}>Pass: {showQuiz.passing_score||70}% · {(showQuiz.questions||[]).length} questions</div></div>
                     <button onClick={()=>setShowQuiz(null)} style={{ width:32, height:32, borderRadius:8, background:G.surface3, border:"none", color:G.text3, cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
                   </div>
                   {(showQuiz.questions||[]).map((q,qi) => (
-                    <div key={qi} style={{ marginBottom:16, padding:18, background:G.surface2, borderRadius:12, border:`1px solid ${quizAnswers[qi]!==undefined?G.accent+"40":G.border}`, transition:"border-color 0.2s" }}>
+                    <div key={qi} style={{ marginBottom:14, padding:18, background:G.surface2, borderRadius:12, border:`1px solid ${quizAnswers[qi]!==undefined?G.accent+"40":G.border}`, transition:"border-color 0.2s" }}>
                       <div style={{ fontSize:14, fontWeight:600, color:G.text, marginBottom:12 }}><span style={{ color:G.accent, marginRight:6 }}>{qi+1}.</span>{q.q}</div>
                       <div style={{ display:"flex", flexDirection:q.type==="true_false"?"row":"column", gap:8 }}>
                         {(q.type==="true_false"?["True","False"]:q.options||[]).map((opt,oi) => (
                           <button key={oi} onClick={()=>setQuizAnswers(p=>({...p,[qi]:oi}))} style={{ flex:q.type==="true_false"?1:undefined, padding:"10px 14px", borderRadius:8, border:`2px solid ${quizAnswers[qi]===oi?G.accent:G.border}`, background:quizAnswers[qi]===oi?G.accentDim:"transparent", color:quizAnswers[qi]===oi?G.accent:G.text2, fontSize:13, cursor:"pointer", textAlign:"left", transition:"all 0.15s", fontWeight:quizAnswers[qi]===oi?600:400 }}>
-                            {quizAnswers[qi]===oi && <span style={{marginRight:6}}>●</span>}{opt}
+                            {quizAnswers[qi]===oi && <span style={{ marginRight:6 }}>●</span>}{opt}
                           </button>
                         ))}
                       </div>
