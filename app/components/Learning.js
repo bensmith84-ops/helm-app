@@ -195,7 +195,11 @@ export default function LearningView() {
   /* ─── simple markdown renderer ─── */
   const renderContent = (text) => {
     if (!text) return null;
-    const lines = text.split("\n");
+    // Strip the first H1 line — lesson title is already shown above
+    let cleaned = text;
+    const firstLine = text.split("\n")[0];
+    if (firstLine.startsWith("# ")) cleaned = text.slice(firstLine.length).replace(/^\n+/, "");
+    const lines = cleaned.split("\n");
     const elements = [];
     let i = 0;
     while (i < lines.length) {
@@ -285,6 +289,12 @@ export default function LearningView() {
     const pct = cL.length > 0 ? Math.round((done.length / cL.length) * 100) : 0;
     const cat = CATS[c.category] || CATS.other;
     const courseComplete = allLessonsDone && (!quiz || qPassed);
+
+    // Scroll to top when changing lessons
+    useEffect(() => {
+      const el = document.querySelector("[data-lms-scroll]");
+      if (el) el.scrollTop = 0;
+    }, [activeLessonIdx]);
 
     // ─── START SCREEN ───
     if (!courseStarted && !prog) {
@@ -381,7 +391,7 @@ export default function LearningView() {
         </div>
 
         {/* Content area */}
-        <div style={{ flex:1, overflow:"auto", display:"flex", justifyContent:"center" }}>
+        <div data-lms-scroll="1" style={{ flex:1, overflow:"auto", display:"flex", justifyContent:"center" }}>
           <div key={activeLessonIdx} style={{ maxWidth:700, width:"100%", padding:isMobile?"20px 16px":"32px 24px", animation:"lms-slideIn 0.3s ease" }}>
             {active ? (
               <>
