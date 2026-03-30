@@ -62,8 +62,10 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
           const visibleItems = group.items.filter(item => {
             if (item.adminOnly && !isAdmin) return false;
             if (allowedModules === null) return true;
-            if (item.key === "settings") return true;
-            return allowedModules.includes(item.key);
+            if (item.key === "settings" || item.key === "dashboard") return true;
+            if (allowedModules?.mode === "block") return allowedModules.perms[item.key] !== false;
+            if (Array.isArray(allowedModules)) return allowedModules.includes(item.key);
+            return true;
           });
           if (visibleItems.length === 0) return null;
           return (

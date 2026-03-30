@@ -125,19 +125,26 @@ export default function HelmApp() {
   const [allowedModules, setAllowedModules] = useState(null); // null = loading, array = loaded
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Load user module permissions
+  // Load user module permissions from org_memberships
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data } = await supabase.from("user_module_permissions").select("*").eq("user_id", user.id).maybeSingle();
-      if (data) {
-        setIsAdmin(data.is_admin || false);
-        setAllowedModules(data.is_admin ? null : (data.allowed_modules || []));
+      const { data: membership } = await supabase.from("org_memberships").select("role, module_permissions").eq("user_id", user.id).maybeSingle();
+      if (membership) {
+        const isOwnerOrAdmin = membership.role === "owner" || membership.role === "admin";
+        setIsAdmin(isOwnerOrAdmin);
+        if (isOwnerOrAdmin) {
+          setAllowedModules(null); // full access
+        } else {
+          // Build allowed list from module_permissions — anything not explicitly false is allowed
+          const perms = membership.module_permissions || {};
+          const blocked = Object.keys(perms).filter(k => perms[k] === false);
+          setAllowedModules(blocked.length > 0 ? { mode: "block", blocked, perms } : null);
+        }
       } else {
-        // No permissions row: check if this is the owner/admin by email
         const isOwner = profile?.email?.includes("ben.smith@earthbreeze");
         setIsAdmin(isOwner);
-        setAllowedModules(isOwner ? null : ["dashboard", "scoreboard", "okrs", "scorecard", "projects", "plm"]);
+        setAllowedModules(isOwner ? null : { mode: "block", blocked: [], perms: {} });
       }
     })();
   }, [user?.id, profile?.email]);
@@ -282,7 +289,11 @@ export default function HelmApp() {
 
   const renderView = () => {
     // Check module permissions (settings and dashboard always allowed)
-    if (allowedModules && !isAdmin && active !== "dashboard" && active !== "settings" && !allowedModules.includes(active)) {
+    const isBlocked = allowedModules && !isAdmin && active !== "dashboard" && active !== "settings" && (
+      allowedModules?.mode === "block" ? allowedModules.perms[active] === false : 
+      Array.isArray(allowedModules) ? !allowedModules.includes(active) : false
+    );
+    if (isBlocked) {
       return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.text3, flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 32 }}>🔒</div>
         <div style={{ fontSize: 14 }}>You don't have access to this module</div>
@@ -301,7 +312,7 @@ export default function HelmApp() {
       case "calls": return <CallsView />;
       case "campaigns": return <CampaignsView />;
       case "plm": return <PLMView />;
-      case "erp": return <ERPView />;
+      case "erp": return <ERPView modulePerms={allowedModules?.perms || {}} />;
       case "wms": return <WMSView />;
       case "finance": return <FinanceView />;
       case "automation": return <AutomationView />;

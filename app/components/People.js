@@ -10,7 +10,51 @@ const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 const ROLES = ["owner", "admin", "member", "viewer"];
 const ROLE_COLORS = { owner: "#ef4444", admin: "#a855f7", member: "#3b82f6", viewer: "#6b7280" };
-const MODULES = ["dashboard", "projects", "messages", "calendar", "docs", "okrs", "reports", "campaigns", "plm", "people", "automation", "calls", "settings"];
+const MODULE_TREE = [
+  { key: "dashboard", label: "Home", icon: "⬡" },
+  { key: "okrs", label: "OKRs", icon: "◎" },
+  { key: "projects", label: "Projects", icon: "◫" },
+  { key: "launches", label: "Launches", icon: "🚀" },
+  { key: "scorecard", label: "Scorecard", icon: "▣" },
+  { key: "docs", label: "Docs", icon: "▤" },
+  { key: "messages", label: "Messages", icon: "◬" },
+  { key: "calendar", label: "Calendar", icon: "▦" },
+  { key: "calls", label: "Calls", icon: "◉" },
+  { key: "campaigns", label: "Campaigns", icon: "◈" },
+  { key: "plm", label: "PLM", icon: "⬢", children: [
+    { key: "plm.programs", label: "Programs" },
+    { key: "plm.formulations", label: "Formulations" },
+    { key: "plm.experiments", label: "Experiments" },
+    { key: "plm.trials", label: "Trials" },
+    { key: "plm.stability", label: "Stability" },
+    { key: "plm.claims", label: "Claims" },
+    { key: "plm.ai", label: "AI Advisors" },
+  ]},
+  { key: "erp", label: "ERP", icon: "◧", children: [
+    { key: "erp.cfo_dash", label: "CFO Dashboard" },
+    { key: "erp.pl_explorer", label: "P&L Explorer" },
+    { key: "erp.cash_flow", label: "Cash Flow" },
+    { key: "erp.vendor_intel", label: "Vendor Intelligence" },
+    { key: "erp.ap_aging", label: "AP / AR" },
+    { key: "erp.txn_search", label: "Transaction Search" },
+    { key: "erp.revenue", label: "Revenue Analytics" },
+    { key: "erp.fin_budgets", label: "Budgets" },
+    { key: "erp.orders", label: "Orders" },
+    { key: "erp.customers", label: "Customers" },
+    { key: "erp.products", label: "Products" },
+    { key: "erp.suppliers", label: "Suppliers" },
+    { key: "erp.purchase_orders", label: "Purchase Orders" },
+    { key: "erp.manufacturing", label: "Manufacturing" },
+  ]},
+  { key: "wms", label: "WMS", icon: "◨" },
+  { key: "scoreboard", label: "Scoreboard", icon: "▩" },
+  { key: "automation", label: "Automation", icon: "⚡" },
+  { key: "reports", label: "Reports", icon: "▥" },
+  { key: "people", label: "Team", icon: "◔" },
+  { key: "activity", label: "Activity", icon: "◑" },
+  { key: "settings", label: "Settings", icon: "⚙" },
+];
+const MODULES = MODULE_TREE.map(m => m.key);
 const TEAM_COLORS = ["#3b82f6","#22c55e","#a855f7","#f97316","#ec4899","#06b6d4","#eab308","#ef4444"];
 
 export default function PeopleView() {
@@ -143,7 +187,7 @@ export default function PeopleView() {
     if (selected?.id === uid) setSelected(null);
   };
   const deleteUser = async (uid) => { if (!confirm("Permanently remove this user?")) return; await removeUser(uid); showToast("User removed", "success"); };
-  const hasModuleAccess = (uid, mod) => { const om = getMembership(uid); if (!om) return true; if (om.role === "owner" || om.role === "admin") return true; const perms = om.module_permissions || {}; return perms[mod] !== false; };
+  const hasModuleAccess = (uid, mod) => { const om = getMembership(uid); if (!om) return true; if (om.role === "owner" || om.role === "admin") return true; const perms = om.module_permissions || {}; if (perms[mod] === false) return false; const parent = mod.includes(".") ? mod.split(".")[0] : null; if (parent && perms[parent] === false) return false; return true; };
   const hasProjectAccess = (uid, pid) => projectMembers.some(pm => pm.user_id === uid && pm.project_id === pid);
 
   // Team CRUD
@@ -537,11 +581,34 @@ export default function PeopleView() {
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, marginBottom: 10 }}>Module Access</div>
             {(om?.role === "owner" || om?.role === "admin") && <div style={{ fontSize: 11, color: T.accent, marginBottom: 10, padding: "6px 10px", background: T.accentDim, borderRadius: 6 }}>Admins and owners have access to all modules</div>}
-            {MODULES.map(mod => { const has = hasModuleAccess(selected.id, mod); return (
-              <div key={mod} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-                <span style={{ fontSize: 13, color: T.text, textTransform: "capitalize" }}>{mod}</span>
-                <ToggleSwitch on={has} onClick={() => { if (om?.role !== "owner" && om?.role !== "admin") toggleModuleAccess(selected.id, mod); }} />
-              </div>); })}
+            {MODULE_TREE.map(mod => {
+              const parentOn = hasModuleAccess(selected.id, mod.key);
+              const isAdm = om?.role === "owner" || om?.role === "admin";
+              return (
+              <div key={mod.key}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: mod.children ? "none" : `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14, opacity: 0.6 }}>{mod.icon}</span>
+                    <span style={{ fontSize: 13, color: T.text, fontWeight: mod.children ? 600 : 400 }}>{mod.label}</span>
+                    {mod.children && <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>({mod.children.length} sub-modules)</span>}
+                  </div>
+                  <ToggleSwitch on={parentOn} onClick={() => { if (!isAdm) toggleModuleAccess(selected.id, mod.key); }} />
+                </div>
+                {mod.children && parentOn && (
+                  <div style={{ paddingLeft: 28, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+                    {mod.children.map(sub => {
+                      const subOn = hasModuleAccess(selected.id, sub.key);
+                      return (
+                        <div key={sub.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 0" }}>
+                          <span style={{ fontSize: 12, color: subOn ? T.text2 : T.text3 }}>{sub.label}</span>
+                          <ToggleSwitch on={subOn} onClick={() => { if (!isAdm) toggleModuleAccess(selected.id, sub.key); }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>);
+            })}
           </div>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, marginBottom: 10 }}>Project Access</div>

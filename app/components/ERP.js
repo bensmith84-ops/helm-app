@@ -479,10 +479,16 @@ function RampExpensesView({ isMobile, orgId }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function ERPView() {
+export default function ERPView({ modulePerms = {} }) {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState("dashboard");
+  // Filter ERP nav by sub-module permissions
+  const filteredNav = ERP_NAV.filter(n => {
+    if (n.type === "header") return true;
+    const permKey = `erp.${n.id}`;
+    return modulePerms[permKey] !== false;
+  });
   const [pendingNav, setPendingNav] = useState(null); // { view, selectId }
   const navigateTo = (targetView, selectId) => { setPendingNav({ view: targetView, selectId }); setView(targetView); };
   const [loading, setLoading] = useState(true);
@@ -618,7 +624,7 @@ export default function ERPView() {
       {/* Left nav — desktop (grouped) */}
       {!isMobile && (
         <div style={{ width: 185, borderRight: `1px solid ${T.border}`, padding: "8px 6px", flexShrink: 0, overflow: "auto" }}>
-          {ERP_NAV.map((n, i) => n.type === "header" ? (
+          {filteredNav.map((n, i) => n.type === "header" ? (
             <div key={n.label} style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em", padding: "10px 10px 3px", marginTop: i > 0 ? 4 : 0 }}>{n.label}</div>
           ) : (
             <button key={n.id} onClick={() => setView(n.id)}
@@ -640,7 +646,7 @@ export default function ERPView() {
               style={{ width: "100%", padding: "12px 14px", fontSize: 13, fontWeight: 600, background: T.bg, color: T.accent, border: "none", outline: "none", cursor: "pointer" }}>
               {(() => {
                 const groups = []; let currentGroup = null;
-                ERP_NAV.forEach(n => {
+                filteredNav.forEach(n => {
                   if (n.type === "header") { currentGroup = { label: n.label, items: [] }; groups.push(currentGroup); }
                   else if (currentGroup) currentGroup.items.push(n);
                   else groups.push({ label: null, items: [n] });
