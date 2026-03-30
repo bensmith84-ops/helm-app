@@ -890,14 +890,20 @@ export default function DashboardView({ setActive }) {
 
       setData({ projects: projects||[], sections: sections||[], tasks: tasks||[], profiles: profMap,
         objectives: cycleObjs, keyResults: cycleKRs, cycles: cycles||[], activeCycle });
-      setPendingApprovals([
-        ...(approvals || []),
-        ...(spendRequests || []).filter(r => r.require_person_id === profile?.id || r.approval_chain === "high_value").map(r => ({
-          id: r.id, entity_name: r.title, entity_type: "Spend Request",
-          amount: r.amount, description: `${r.department || "—"} · ${r.gl_code || "—"}`,
-          module: "finance", created_at: r.created_at, _type: "spend",
-        })),
-      ]);
+      // Merge spend requests where user is the designated approver (not their own requests)
+      const mySpendApprovals = (spendRequests || []).filter(r => {
+        if (r.requester_id === profile?.id) return false; // never show your own requests as approvals
+        if (r.require_person_id === profile?.id) return true; // assigned to you specifically
+        return false;
+      }).map(r => ({
+        id: r.id, entity_name: r.title, entity_type: "Spend Request",
+        amount: r.amount, description: `${r.department || "—"} · ${r.gl_code || "—"}`,
+        module: "finance", created_at: r.created_at, _type: "spend",
+        requester_id: r.requester_id,
+      }));
+      // Also filter general approval_requests — exclude own
+      const myApprovals = (approvals || []).filter(r => r.requester_id !== profile?.id);
+      setPendingApprovals([...myApprovals, ...mySpendApprovals]);
       setPlmPrograms(plm || []);
       setRecentActivity(activity || []);
       setScoreboardData(scoreboardDaily || []);
@@ -1021,8 +1027,8 @@ export default function DashboardView({ setActive }) {
               onClick={() => setActive("erp", "fin_requests")}>
               <span style={{ fontSize:18 }}>⏳</span>
               <div>
-                <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{pendingApprovals.length} Pending Approval{pendingApprovals.length!==1?"s":""}</div>
-                <div style={{ fontSize:11, color:T.text3 }}>Awaiting your review</div>
+                <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{pendingApprovals.length} Approval{pendingApprovals.length!==1?"s":""} Needed</div>
+                <div style={{ fontSize:11, color:T.text3 }}>Action required from you</div>
               </div>
             </div>
           )}

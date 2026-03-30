@@ -2000,6 +2000,34 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   const FORM_INIT = { title: "", amount: "", gl_code: "", description: "", cost_type: "one_time", recurring_frequency: "monthly", recurring_amount: "", first_amount: "", recurring_end_date: "", department: "", budget_accounted_for: "", quotes_obtained: "" };
   const [form, setForm] = useState(FORM_INIT);
   const [editMode, setEditMode] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [formAttachments, setFormAttachments] = useState([]);
+
+  const uploadFile = async (file) => {
+    if (!file || file.size > 10 * 1024 * 1024) { alert("File too large (max 10MB)"); return; }
+    setUploadingFile(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `spend-requests/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from("attachments").upload(path, file);
+      if (error) { alert("Upload failed: " + error.message); return; }
+      const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
+      setFormAttachments(prev => [...prev, { name: file.name, url: publicUrl, type: file.type, size: file.size }]);
+    } finally { setUploadingFile(false); }
+  };
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) uploadFile(file);
+        break;
+      }
+    }
+  };
 
   // User-scoped filtering: requestors see own, approvers see own + assigned, admins see all
   const myRequests = requests.filter(r => {
@@ -2073,6 +2101,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         recurring_amount: form.cost_type === "recurring" ? parseFloat(form.recurring_amount || form.amount) : null,
         budget_accounted_for: form.budget_accounted_for || null,
         quotes_obtained: form.quotes_obtained || null,
+        attachments: formAttachments.length > 0 ? formAttachments : null,
         status: "pending", approval_step: 0, // reset approval
         updated_at: new Date().toISOString(),
       };
@@ -2097,12 +2126,14 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         require_person_name: requirePersonName,
         budget_accounted_for: form.budget_accounted_for || null,
         quotes_obtained: form.quotes_obtained || null,
+        attachments: formAttachments.length > 0 ? formAttachments : null,
         date: new Date().toISOString().slice(0, 10),
       };
       const data = await addRequest(req);
       addAuditEntry("Request submitted", `"${form.title}" for ${fmt(amt)}${matchedRule ? ` — rule: ${matchedRule.name}` : ""}`, data?.id);
     }
     setForm(FORM_INIT);
+    setFormAttachments([]);
     setShowNew(false);
     setEditMode(false);
   };
@@ -2324,6 +2355,34 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 </div>
               </div>
 
+              {/* Attachments */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 6 }}>📎 Attachments</div>
+                <div onPaste={handlePaste} tabIndex={0}
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; }}
+                  onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }}
+                  onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; const f = e.dataTransfer.files[0]; if (f) uploadFile(f); }}
+                  style={{ border: `2px dashed ${T.border}`, borderRadius: 8, padding: 12, textAlign: "center", cursor: "pointer", outline: "none", transition: "border-color 0.15s" }}
+                  onClick={() => document.getElementById("req-file-input")?.click()}>
+                  <input id="req-file-input" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" style={{ display: "none" }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
+                  {uploadingFile ? <div style={{ fontSize: 11, color: T.accent }}>Uploading…</div> : (
+                    <div style={{ fontSize: 11, color: T.text3 }}>Drop file, paste screenshot, or click to upload</div>
+                  )}
+                </div>
+                {formAttachments.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {formAttachments.map((a, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: T.surface2, borderRadius: 6, fontSize: 11 }}>
+                        {a.type?.startsWith("image/") ? <img src={a.url} alt="" style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4 }} /> : <span>📄</span>}
+                        <span style={{ color: T.text2, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+                        <button onClick={(e) => { e.stopPropagation(); setFormAttachments(prev => prev.filter((_, j) => j !== i)); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, padding: 0 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Routing preview */}
               {form.amount && (() => {
                 const amt = parseFloat(form.amount);
@@ -2410,6 +2469,27 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 {selReq.trade_offs.map((t, i) => (
                   <div key={i} style={{ fontSize: 12, color: T.text }}>Take <strong>{fmt(parseFloat(t.amount))}</strong> from <strong>{t.fromBudgetCategoryId}</strong></div>
                 ))}
+              </div>
+            )}
+
+            {/* Attachments display */}
+            {(selReq.attachments || []).length > 0 && (
+              <div style={{ background: T.surface2, borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 8 }}>📎 Attachments ({selReq.attachments.length})</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {selReq.attachments.map((a, i) => (
+                    <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: 6, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", maxWidth: 120 }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
+                      {a.type?.startsWith("image/") ? (
+                        <img src={a.url} alt={a.name} style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 4 }} />
+                      ) : (
+                        <div style={{ width: 80, height: 60, display: "flex", alignItems: "center", justifyContent: "center", background: T.surface2, borderRadius: 4, fontSize: 24 }}>📄</div>
+                      )}
+                      <span style={{ fontSize: 10, color: T.text2, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>{a.name}</span>
+                    </a>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -2556,6 +2636,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 <button onClick={() => {
                   setEditMode(selReq.id);
                   setForm({ title: selReq.title, amount: String(selReq.amount), gl_code: selReq.gl_code || "", description: selReq.description || "", cost_type: selReq.cost_type || "one_time", recurring_frequency: selReq.recurring_frequency || "monthly", recurring_amount: selReq.recurring_amount ? String(selReq.recurring_amount) : "", first_amount: selReq.first_amount ? String(selReq.first_amount) : "", recurring_end_date: selReq.recurring_end_date || "", department: selReq.department || "", budget_accounted_for: selReq.budget_accounted_for || "", quotes_obtained: selReq.quotes_obtained || "" });
+                  setFormAttachments(selReq.attachments || []);
                   setSelected(null);
                   setShowNew(true);
                 }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✏️ Edit Request</button>
