@@ -38,6 +38,7 @@ const MODULE_TREE = [
     { key: "plm.ai", label: "AI Advisors" },
   ]},
   { key: "erp", label: "ERP", icon: "◧", children: [
+    { key: "erp.dashboard", label: "Dashboard" },
     { key: "erp.cfo_dash", label: "CFO Dashboard" },
     { key: "erp.pl_explorer", label: "P&L Explorer" },
     { key: "erp.cash_flow", label: "Cash Flow" },
@@ -57,6 +58,7 @@ const MODULE_TREE = [
     { key: "erp.fin_audit", label: "Audit Log" },
     { key: "erp.orders", label: "Orders" },
     { key: "erp.customers", label: "Customers" },
+    { key: "erp.inventory", label: "Inventory" },
     { key: "erp.products", label: "Products" },
     { key: "erp.suppliers", label: "Suppliers" },
     { key: "erp.purchase_orders", label: "Purchase Orders" },
