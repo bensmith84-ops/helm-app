@@ -1999,9 +1999,20 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 
   const FORM_INIT = { title: "", amount: "", gl_code: "", description: "", cost_type: "one_time", recurring_frequency: "monthly", recurring_amount: "", first_amount: "", recurring_end_date: "", department: "", budget_accounted_for: "", quotes_obtained: "" };
   const [form, setForm] = useState(FORM_INIT);
+  const [editMode, setEditMode] = useState(false);
 
-  const filtered = requests.filter(r => filter === "all" || r.status === filter);
+  // User-scoped filtering: requestors see own, approvers see own + assigned, admins see all
+  const myRequests = requests.filter(r => {
+    if (isAdmin) return true;
+    if (r.requester_id === user?.id) return true; // my own requests
+    if (isApprover && r.require_person_id === user?.id) return true; // assigned to me for approval
+    if (isApprover && r.status === "pending") return true; // pending items visible to approvers
+    return false;
+  });
+  const filtered = myRequests.filter(r => filter === "all" || r.status === filter);
   const selReq = requests.find(r => r.id === selected);
+  const isMyRequest = selReq?.requester_id === user?.id;
+  const canEditRequest = isMyRequest && (selReq?.status === "pending" || selReq?.status === "resubmit");
 
   const evaluateRules = (req) => {
     const hits = [];
@@ -2050,30 +2061,50 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 
     const ruleRequiresApproval = matchedRule && matchedRule.action !== "auto_approve";
     const isAuto = !ruleRequiresApproval && amt <= mySpendLimit;
-    const req = {
-      requester_id: user.id, title: form.title, amount: amt,
-      gl_code: form.gl_code, budget_category_id: glEntry?.budget_category_id || null,
-      department: form.department, description: form.description,
-      cost_type: form.cost_type,
-      recurring_frequency: form.cost_type === "recurring" ? form.recurring_frequency : null,
-      recurring_amount: form.cost_type === "recurring" ? parseFloat(form.recurring_amount || form.amount) : null,
-      first_amount: form.cost_type === "recurring" && form.first_amount ? parseFloat(form.first_amount) : null,
-      recurring_end_date: form.cost_type === "recurring" && form.recurring_end_date ? form.recurring_end_date : null,
-      status: isAuto ? "approved" : "pending",
-      approval_step: isAuto ? 2 : 0,
-      approval_chain: chain,
-      matched_rule_id: matchedRule?.id || null,
-      matched_rule_name: matchedRule?.name || null,
-      require_person_id: requirePersonId,
-      require_person_name: requirePersonName,
-      budget_accounted_for: form.budget_accounted_for || null,
-      quotes_obtained: form.quotes_obtained || null,
-      date: new Date().toISOString().slice(0, 10),
-    };
-    const data = await addRequest(req);
-    addAuditEntry("Request submitted", `"${form.title}" for ${fmt(amt)}${matchedRule ? ` — rule: ${matchedRule.name}` : ""}`, data?.id);
+
+    if (editMode && editMode !== true) {
+      // Editing existing request — update it and reset to pending
+      const patch = {
+        title: form.title, amount: amt, gl_code: form.gl_code,
+        budget_category_id: glEntry?.budget_category_id || null,
+        department: form.department, description: form.description,
+        cost_type: form.cost_type,
+        recurring_frequency: form.cost_type === "recurring" ? form.recurring_frequency : null,
+        recurring_amount: form.cost_type === "recurring" ? parseFloat(form.recurring_amount || form.amount) : null,
+        budget_accounted_for: form.budget_accounted_for || null,
+        quotes_obtained: form.quotes_obtained || null,
+        status: "pending", approval_step: 0, // reset approval
+        updated_at: new Date().toISOString(),
+      };
+      await updateRequest(editMode, patch);
+      addAuditEntry("Request updated", `"${form.title}" edited and resubmitted`, editMode);
+    } else {
+      const req = {
+        requester_id: user.id, title: form.title, amount: amt,
+        gl_code: form.gl_code, budget_category_id: glEntry?.budget_category_id || null,
+        department: form.department, description: form.description,
+        cost_type: form.cost_type,
+        recurring_frequency: form.cost_type === "recurring" ? form.recurring_frequency : null,
+        recurring_amount: form.cost_type === "recurring" ? parseFloat(form.recurring_amount || form.amount) : null,
+        first_amount: form.cost_type === "recurring" && form.first_amount ? parseFloat(form.first_amount) : null,
+        recurring_end_date: form.cost_type === "recurring" && form.recurring_end_date ? form.recurring_end_date : null,
+        status: isAuto ? "approved" : "pending",
+        approval_step: isAuto ? 2 : 0,
+        approval_chain: chain,
+        matched_rule_id: matchedRule?.id || null,
+        matched_rule_name: matchedRule?.name || null,
+        require_person_id: requirePersonId,
+        require_person_name: requirePersonName,
+        budget_accounted_for: form.budget_accounted_for || null,
+        quotes_obtained: form.quotes_obtained || null,
+        date: new Date().toISOString().slice(0, 10),
+      };
+      const data = await addRequest(req);
+      addAuditEntry("Request submitted", `"${form.title}" for ${fmt(amt)}${matchedRule ? ` — rule: ${matchedRule.name}` : ""}`, data?.id);
+    }
     setForm(FORM_INIT);
     setShowNew(false);
+    setEditMode(false);
   };
 
   const doApprove = async () => {
@@ -2201,9 +2232,9 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 
       {/* New Request Modal */}
       {showNew && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => { setShowNew(false); setEditMode(false); }}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, width: "min(560px, 95vw)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: isMobile ? 14 : 24 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Spend Request</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>{editMode ? "Edit Spend Request" : "New Spend Request"}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
                 <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Title *</div>
@@ -2308,8 +2339,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               })()}
 
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => { setShowNew(false); setForm(FORM_INIT); }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
-                <button onClick={submitRequest} disabled={!form.title || !form.amount} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.title || !form.amount ? 0.5 : 1 }}>Submit Request</button>
+                <button onClick={() => { setShowNew(false); setForm(FORM_INIT); setEditMode(false); }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={submitRequest} disabled={!form.title || !form.amount} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.title || !form.amount ? 0.5 : 1 }}>{editMode ? "Update Request" : "Submit Request"}</button>
               </div>
             </div>
           </div>
@@ -2516,6 +2547,24 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               <div style={{ background: T.surface2, borderLeft: "4px solid #94A3B8", borderRadius: 8, padding: "12px 16px" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Removed</div>
                 <div style={{ fontSize: 12, color: T.text3 }}>This request has been removed. Budget impact reversed.</div>
+              </div>
+            )}
+
+            {/* Submitter actions: Edit & Withdraw */}
+            {isMyRequest && (selReq.status === "pending" || selReq.status === "conditionally_approved") && (
+              <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}`, display: "flex", gap: 8 }}>
+                <button onClick={() => {
+                  setEditMode(selReq.id);
+                  setForm({ title: selReq.title, amount: String(selReq.amount), gl_code: selReq.gl_code || "", description: selReq.description || "", cost_type: selReq.cost_type || "one_time", recurring_frequency: selReq.recurring_frequency || "monthly", recurring_amount: selReq.recurring_amount ? String(selReq.recurring_amount) : "", first_amount: selReq.first_amount ? String(selReq.first_amount) : "", recurring_end_date: selReq.recurring_end_date || "", department: selReq.department || "", budget_accounted_for: selReq.budget_accounted_for || "", quotes_obtained: selReq.quotes_obtained || "" });
+                  setSelected(null);
+                  setShowNew(true);
+                }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✏️ Edit Request</button>
+                <button onClick={async () => {
+                  if (!window.confirm("Withdraw this request? It will be marked as withdrawn.")) return;
+                  await updateRequest(selReq.id, { status: "withdrawn", updated_at: new Date().toISOString() });
+                  addAuditEntry("Request withdrawn", `"${selReq.title}" withdrawn by requester`, selReq.id);
+                  setSelected(null);
+                }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.red, cursor: "pointer" }}>↩ Withdraw</button>
               </div>
             )}
 

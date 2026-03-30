@@ -862,7 +862,7 @@ export default function DashboardView({ setActive }) {
       const [
         { data: projects }, { data: sections }, { data: tasks }, { data: profiles },
         { data: objectives }, { data: keyResults }, { data: cycles },
-        { data: approvals }, { data: fmData }, { data: plm },
+        { data: approvals }, { data: spendRequests }, { data: fmData }, { data: plm },
         { data: activity }, { data: focus }, { data: scoreboardDaily },
       ] = await Promise.all([
         supabase.from("projects").select("*").is("deleted_at", null).order("name"),
@@ -873,6 +873,7 @@ export default function DashboardView({ setActive }) {
         supabase.from("key_results").select("*").is("deleted_at", null),
         supabase.from("okr_cycles").select("*").order("start_date", { ascending: false }),
         supabase.from("approval_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(5),
+        supabase.from("af_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }),
         supabase.from("okr_financial_metrics").select("*").eq("year", yr).order("sort_order"),
         supabase.from("plm_programs").select("*").is("deleted_at", null).order("created_at", { ascending: false }).limit(10),
         supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(20),
@@ -889,7 +890,14 @@ export default function DashboardView({ setActive }) {
 
       setData({ projects: projects||[], sections: sections||[], tasks: tasks||[], profiles: profMap,
         objectives: cycleObjs, keyResults: cycleKRs, cycles: cycles||[], activeCycle });
-      setPendingApprovals(approvals || []);
+      setPendingApprovals([
+        ...(approvals || []),
+        ...(spendRequests || []).filter(r => r.require_person_id === profile?.id || r.approval_chain === "high_value").map(r => ({
+          id: r.id, entity_name: r.title, entity_type: "Spend Request",
+          amount: r.amount, description: `${r.department || "—"} · ${r.gl_code || "—"}`,
+          module: "finance", created_at: r.created_at, _type: "spend",
+        })),
+      ]);
       setPlmPrograms(plm || []);
       setRecentActivity(activity || []);
       setScoreboardData(scoreboardDaily || []);
@@ -1554,21 +1562,34 @@ export default function DashboardView({ setActive }) {
                 {pendingApprovals.map(req => (
                   <div key={req.id} style={{ padding:"10px 12px", background:T.surface2, borderRadius:9, border:`1px solid ${T.border}` }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-                      <div style={{ fontSize:13, fontWeight:600 }}>{req.entity_name || req.entity_type}</div>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:600 }}>{req.entity_name || req.entity_type}</div>
+                        {req._type === "spend" && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#f59e0b18", color:"#f59e0b" }}>SPEND REQUEST</span>}
+                      </div>
                       {req.amount && <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{fmt$(req.amount)}</div>}
                     </div>
                     <div style={{ fontSize:11, color:T.text3, marginBottom:8 }}>{req.description || req.module} · {relTime(req.created_at)}</div>
                     <div style={{ display:"flex", gap:6 }}>
                       <button onClick={async()=>{
-                        await supabase.from("approval_requests").update({status:"approved",decided_at:new Date().toISOString()}).eq("id",req.id);
+                        if (req._type === "spend") {
+                          const approvals = [...(req.approvals || []), { step: 0, by: profile?.id, at: new Date().toISOString().slice(0, 10) }];
+                          await supabase.from("af_requests").update({ status: "approved", approval_step: 1, approvals }).eq("id", req.id);
+                        } else {
+                          await supabase.from("approval_requests").update({status:"approved",decided_at:new Date().toISOString()}).eq("id",req.id);
+                        }
                         setPendingApprovals(p=>p.filter(a=>a.id!==req.id));
                         notifySlack({ type:"approval", channel:"ben", title:"Approval Granted ✅", message:`${req.entity_name||req.entity_type} has been approved${req.amount?" ("+fmt$(req.amount)+")":""}`, url:"https://helm-app-six.vercel.app" });
                       }} style={{ flex:1, padding:"5px 0", fontSize:11, fontWeight:600, background:"#22c55e20", color:"#22c55e", border:"1px solid #22c55e40", borderRadius:5, cursor:"pointer" }}>✓ Approve</button>
                       <button onClick={async()=>{
-                        await supabase.from("approval_requests").update({status:"rejected",decided_at:new Date().toISOString()}).eq("id",req.id);
+                        if (req._type === "spend") {
+                          await supabase.from("af_requests").update({ status: "rejected", rejected_by: profile?.id, rejected_at: new Date().toISOString().slice(0, 10) }).eq("id", req.id);
+                        } else {
+                          await supabase.from("approval_requests").update({status:"rejected",decided_at:new Date().toISOString()}).eq("id",req.id);
+                        }
                         setPendingApprovals(p=>p.filter(a=>a.id!==req.id));
                         notifySlack({ type:"approval", channel:"ben", title:"Approval Rejected ❌", message:`${req.entity_name||req.entity_type} was rejected`, url:"https://helm-app-six.vercel.app" });
                       }} style={{ flex:1, padding:"5px 0", fontSize:11, fontWeight:600, background:"#ef444410", color:"#ef4444", border:"1px solid #ef444430", borderRadius:5, cursor:"pointer" }}>✕ Reject</button>
+                      {req._type === "spend" && <button onClick={() => setActive("erp")} style={{ padding:"5px 8px", fontSize:11, fontWeight:500, background:T.surface, border:`1px solid ${T.border}`, borderRadius:5, cursor:"pointer", color:T.text3 }}>View →</button>}
                     </div>
                   </div>
                 ))}
