@@ -2541,10 +2541,21 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 // BUDGETS VIEW — G&A category budgets with department allocations
 // ═══════════════════════════════════════════════════════════════════════════════
 function BudgetsView({ isMobile, glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user, modulePerms = {} }) {
-  const canViewAmounts = modulePerms["erp.fin_budgets.view_amounts"] !== false;
-  const canViewActuals = modulePerms["erp.fin_budgets.view_actuals"] !== false;
-  const canEdit = modulePerms["erp.fin_budgets.edit_budgets"] !== false;
-  const canMonthly = modulePerms["erp.fin_budgets.monthly_view"] !== false;
+  const [myPerms, setMyPerms] = useState(null); // null = loading, {} = loaded
+  useEffect(() => {
+    (async () => {
+      if (!user?.id) { setMyPerms({}); return; }
+      const { data } = await supabase.from("org_memberships").select("role, module_permissions").eq("user_id", user.id).maybeSingle();
+      if (data?.role === "owner" || data?.role === "admin") { setMyPerms({ _admin: true }); }
+      else { setMyPerms(data?.module_permissions || {}); }
+    })();
+  }, [user?.id]);
+  const isAdmin = myPerms?._admin === true;
+  const canViewAmounts = isAdmin || myPerms?.["erp.fin_budgets.view_amounts"] !== false;
+  const canViewActuals = isAdmin || myPerms?.["erp.fin_budgets.view_actuals"] !== false;
+  const canEdit = isAdmin || myPerms?.["erp.fin_budgets.edit_budgets"] !== false;
+  const canMonthly = isAdmin || myPerms?.["erp.fin_budgets.monthly_view"] !== false;
+  const canDrillDown = isAdmin || myPerms?.["erp.fin_budgets.drill_down"] !== false;
   const [budgetData, setBudgetData] = useState(activeBudget || glCategories.map(c => ({ ...c, companyBudget: 0, allocations: [] })));
   const [editingCat, setEditingCat] = useState(null);
   const [companyAmt, setCompanyAmt] = useState("");
@@ -2808,13 +2819,13 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         const utilPct = cat.companyBudget > 0 ? pct(primarySpend, cat.companyBudget) : 0;
         const isOver = cat.companyBudget > 0 && primarySpend > cat.companyBudget;
         const isExpanded = expandedCat === cat.id;
-        const catAccounts = isExpanded && canViewActuals ? getAccountsForCat(cat.name) : [];
-        const catVendors = isExpanded && canViewActuals && detailMode === "vendors" ? getVendorsForCat(cat.name) : [];
+        const catAccounts = isExpanded && canDrillDown ? getAccountsForCat(cat.name) : [];
+        const catVendors = isExpanded && canDrillDown && detailMode === "vendors" ? getVendorsForCat(cat.name) : [];
         return (
           <Card key={cat.id} style={{ borderLeft: `4px solid ${cat.color || T.accent}` }}>
-            <div onClick={() => canViewActuals ? setExpandedCat(isExpanded ? null : cat.id) : null} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, cursor: canViewActuals ? "pointer" : "default" }}>
+            <div onClick={() => canDrillDown ? setExpandedCat(isExpanded ? null : cat.id) : null} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, cursor: canDrillDown ? "pointer" : "default" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {canViewActuals && <span style={{ fontSize: 9, color: T.text3 }}>{isExpanded ? "▼" : "▶"}</span>}
+                {canDrillDown && <span style={{ fontSize: 9, color: T.text3 }}>{isExpanded ? "▼" : "▶"}</span>}
                 <span style={{ fontSize: 18 }}>{cat.icon}</span>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{cat.name}</div>
@@ -2887,7 +2898,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                           <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
                             <div style={{ width: `${Math.min(acctPct, 100)}%`, height: "100%", background: cat.color || T.accent, borderRadius: 2 }} />
                           </div>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{fmt(Number(r.amount))}</span>
+                          {canViewAmounts && <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{fmt(Number(r.amount))}</span>}
                           <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right", flexShrink: 0 }}>{acctPct.toFixed(0)}%</span>
                         </div>
                       );
@@ -2910,7 +2921,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                           <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
                             <div style={{ width: `${Math.min(vPct, 100)}%`, height: "100%", background: cat.color || T.accent, borderRadius: 2 }} />
                           </div>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{fmt(v.total)}</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{canViewAmounts ? fmt(v.total) : ""}</span>
                           <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right", flexShrink: 0 }}>{vPct.toFixed(0)}%</span>
                         </div>
                       );

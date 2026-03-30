@@ -39,8 +39,9 @@ const MODULE_TREE = [
     { key: "erp.txn_search", label: "Transaction Search" },
     { key: "erp.revenue", label: "Revenue Analytics" },
     { key: "erp.fin_budgets", label: "Budgets", children: [
-      { key: "erp.fin_budgets.view_amounts", label: "View Budget Amounts" },
-      { key: "erp.fin_budgets.view_actuals", label: "View QBO Actuals" },
+      { key: "erp.fin_budgets.view_amounts", label: "View Budget Amounts ($)" },
+      { key: "erp.fin_budgets.view_actuals", label: "View QBO Actuals ($)" },
+      { key: "erp.fin_budgets.drill_down", label: "Drill Down into Categories" },
       { key: "erp.fin_budgets.edit_budgets", label: "Edit Budget Amounts" },
       { key: "erp.fin_budgets.monthly_view", label: "Monthly View" },
     ]},
