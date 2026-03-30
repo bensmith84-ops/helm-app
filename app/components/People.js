@@ -38,7 +38,12 @@ const MODULE_TREE = [
     { key: "erp.ap_aging", label: "AP / AR" },
     { key: "erp.txn_search", label: "Transaction Search" },
     { key: "erp.revenue", label: "Revenue Analytics" },
-    { key: "erp.fin_budgets", label: "Budgets" },
+    { key: "erp.fin_budgets", label: "Budgets", children: [
+      { key: "erp.fin_budgets.view_amounts", label: "View Budget Amounts" },
+      { key: "erp.fin_budgets.view_actuals", label: "View QBO Actuals" },
+      { key: "erp.fin_budgets.edit_budgets", label: "Edit Budget Amounts" },
+      { key: "erp.fin_budgets.monthly_view", label: "Monthly View" },
+    ]},
     { key: "erp.fin_requests", label: "Spend Requests" },
     { key: "erp.fin_rules", label: "Approval Rules" },
     { key: "erp.fin_audit", label: "Audit Log" },
@@ -196,7 +201,7 @@ export default function PeopleView() {
     if (selected?.id === uid) setSelected(null);
   };
   const deleteUser = async (uid) => { if (!confirm("Permanently remove this user?")) return; await removeUser(uid); showToast("User removed", "success"); };
-  const hasModuleAccess = (uid, mod) => { const om = getMembership(uid); if (!om) return true; if (om.role === "owner" || om.role === "admin") return true; const perms = om.module_permissions || {}; if (perms[mod] === false) return false; const parent = mod.includes(".") ? mod.split(".")[0] : null; if (parent && perms[parent] === false) return false; return true; };
+  const hasModuleAccess = (uid, mod) => { const om = getMembership(uid); if (!om) return true; if (om.role === "owner" || om.role === "admin") return true; const perms = om.module_permissions || {}; if (perms[mod] === false) return false; const parts = mod.split("."); for (let i = 1; i <= parts.length; i++) { const ancestor = parts.slice(0, i).join("."); if (perms[ancestor] === false) return false; } return true; };
   const hasProjectAccess = (uid, pid) => projectMembers.some(pm => pm.user_id === uid && pm.project_id === pid);
 
   // Team CRUD
@@ -599,7 +604,7 @@ export default function PeopleView() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 14, opacity: 0.6 }}>{mod.icon}</span>
                     <span style={{ fontSize: 13, color: T.text, fontWeight: mod.children ? 600 : 400 }}>{mod.label}</span>
-                    {mod.children && <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>({mod.children.length} sub-modules)</span>}
+                    {mod.children && <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>({mod.children.length})</span>}
                   </div>
                   <ToggleSwitch on={parentOn} onClick={() => { if (!isAdm) toggleModuleAccess(selected.id, mod.key); }} />
                 </div>
@@ -608,9 +613,24 @@ export default function PeopleView() {
                     {mod.children.map(sub => {
                       const subOn = hasModuleAccess(selected.id, sub.key);
                       return (
-                        <div key={sub.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 0" }}>
-                          <span style={{ fontSize: 12, color: subOn ? T.text2 : T.text3 }}>{sub.label}</span>
-                          <ToggleSwitch on={subOn} onClick={() => { if (!isAdm) toggleModuleAccess(selected.id, sub.key); }} />
+                        <div key={sub.key}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 0" }}>
+                            <span style={{ fontSize: 12, color: subOn ? T.text2 : T.text3, fontWeight: sub.children ? 600 : 400 }}>{sub.label}{sub.children ? ` (${sub.children.length})` : ""}</span>
+                            <ToggleSwitch on={subOn} onClick={() => { if (!isAdm) toggleModuleAccess(selected.id, sub.key); }} />
+                          </div>
+                          {sub.children && subOn && (
+                            <div style={{ paddingLeft: 20, paddingBottom: 4 }}>
+                              {sub.children.map(leaf => {
+                                const leafOn = hasModuleAccess(selected.id, leaf.key);
+                                return (
+                                  <div key={leaf.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0" }}>
+                                    <span style={{ fontSize: 11, color: leafOn ? T.text3 : T.text3 + "80" }}>{leaf.label}</span>
+                                    <ToggleSwitch on={leafOn} onClick={() => { if (!isAdm) toggleModuleAccess(selected.id, leaf.key); }} />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

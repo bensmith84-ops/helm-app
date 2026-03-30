@@ -117,7 +117,7 @@ const ApprovalChain = ({ req, members }) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function FinanceView({ initialView, embedded } = {}) {
+export default function FinanceView({ initialView, embedded, modulePerms = {} } = {}) {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState(initialView || "cfo");
@@ -270,7 +270,7 @@ export default function FinanceView({ initialView, embedded } = {}) {
         {view === "ap_aging" && <APAgingView isMobile={isMobile} />}
         {view === "txn_search" && <TransactionSearch isMobile={isMobile} />}
         {view === "revenue" && <RevenueAnalytics isMobile={isMobile} />}
-        {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} />}
+        {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} modulePerms={modulePerms} />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
         {view === "rules" && <RulesView isMobile={isMobile} rules={rules} setRules={setRules} glCodes={glCodes} members={members} user={user} />}
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
@@ -2540,7 +2540,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 // ═══════════════════════════════════════════════════════════════════════════════
 // BUDGETS VIEW — G&A category budgets with department allocations
 // ═══════════════════════════════════════════════════════════════════════════════
-function BudgetsView({ isMobile, glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user }) {
+function BudgetsView({ isMobile, glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user, modulePerms = {} }) {
+  const canViewAmounts = modulePerms["erp.fin_budgets.view_amounts"] !== false;
+  const canViewActuals = modulePerms["erp.fin_budgets.view_actuals"] !== false;
+  const canEdit = modulePerms["erp.fin_budgets.edit_budgets"] !== false;
+  const canMonthly = modulePerms["erp.fin_budgets.monthly_view"] !== false;
   const [budgetData, setBudgetData] = useState(activeBudget || glCategories.map(c => ({ ...c, companyBudget: 0, allocations: [] })));
   const [editingCat, setEditingCat] = useState(null);
   const [companyAmt, setCompanyAmt] = useState("");
@@ -2702,20 +2706,20 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
           <div style={{ fontSize: 12, color: T.text3 }}>{activeBudgetName ? `Active: ${activeBudgetName}` : "Unsaved budget"} · {glCategories.length} categories</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setShowLoad(true)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>↓ Load</button>
-          <button onClick={() => { setSaveName(activeBudgetName || ""); setShowSave(true); }} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>💾 Save</button>
+          {canEdit && <button onClick={() => setShowLoad(true)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>↓ Load</button>}
+          {canEdit && <button onClick={() => { setSaveName(activeBudgetName || ""); setShowSave(true); }} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>💾 Save</button>}
         </div>
       </div>
 
       {/* Summary bar */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : `repeat(${[canViewAmounts, canViewActuals, true, true, canViewAmounts && canViewActuals].filter(Boolean).length}, 1fr)`, gap: 8 }}>
         {[
-          { l: "Total Budget", v: fmt(totalBudget), c: T.text },
-          { l: "QBO Actuals", v: fmt(totalQBO), c: "#6366f1" },
+          canViewAmounts && { l: "Total Budget", v: fmt(totalBudget), c: T.text },
+          canViewActuals && { l: "QBO Actuals", v: fmt(totalQBO), c: "#6366f1" },
           { l: "Requests Spent", v: fmt(totalSpent), c: "#10B981" },
           { l: "Pending", v: fmt(totalPending), c: "#F59E0B" },
-          { l: "Remaining", v: fmt(totalBudget - totalQBO), c: totalQBO > totalBudget && totalBudget > 0 ? "#EF4444" : T.text },
-        ].map(f => (
+          canViewAmounts && canViewActuals && { l: "Remaining", v: fmt(totalBudget - totalQBO), c: totalQBO > totalBudget && totalBudget > 0 ? "#EF4444" : T.text },
+        ].filter(Boolean).map(f => (
           <div key={f.l} style={{ background: T.surface2, borderRadius: 10, padding: "12px 14px" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{f.l}</div>
             <div style={{ fontSize: 18, fontWeight: 900, color: f.c, marginTop: 4 }}>{f.v}</div>
@@ -2726,7 +2730,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       {/* View toggle */}
       <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, alignSelf: "flex-start" }}>
         <button onClick={() => setBudgetTab("cards")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "cards" ? T.accent : T.surface2, color: budgetTab === "cards" ? "#fff" : T.text3 }}>Category Cards</button>
-        <button onClick={() => setBudgetTab("monthly")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "monthly" ? T.accent : T.surface2, color: budgetTab === "monthly" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>Monthly View</button>
+        {canMonthly && <button onClick={() => setBudgetTab("monthly")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "monthly" ? T.accent : T.surface2, color: budgetTab === "monthly" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>Monthly View</button>}
       </div>
 
       {/* MONTHLY BUDGET vs ACTUAL TABLE */}

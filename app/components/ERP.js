@@ -682,7 +682,7 @@ export default function ERPView({ modulePerms = {} }) {
           {/* Finance module views (embedded from Finance.js) */}
           {["cfo_dash", "pl_explorer", "cash_flow", "vendor_intel", "ap_aging", "txn_search", "revenue", "fin_requests", "fin_budgets", "fin_rules", "fin_audit"].some(v => view === v) && (
             <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>Loading Finance…</div>}>
-              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", vendor_intel: "vendors", ap_aging: "ap_aging", txn_search: "txn_search", revenue: "revenue", fin_requests: "requests", fin_budgets: "budgets", fin_rules: "rules", fin_audit: "audit" }[view] || "cfo"} embedded={true} />
+              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", vendor_intel: "vendors", ap_aging: "ap_aging", txn_search: "txn_search", revenue: "revenue", fin_requests: "requests", fin_budgets: "budgets", fin_rules: "rules", fin_audit: "audit" }[view] || "cfo"} embedded={true} modulePerms={modulePerms} />
             </Suspense>
           )}
         </div>
