@@ -1018,7 +1018,7 @@ export default function DashboardView({ setActive }) {
           </div>
           {pendingApprovals.length > 0 && (
             <div style={{ background:"#f9731618", border:"1px solid #f9731640", borderRadius:10, padding:"10px 16px", display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}
-              onClick={() => setActive("finance")}>
+              onClick={() => setActive("erp", "fin_requests")}>
               <span style={{ fontSize:18 }}>⏳</span>
               <div>
                 <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{pendingApprovals.length} Pending Approval{pendingApprovals.length!==1?"s":""}</div>
@@ -1550,7 +1550,7 @@ export default function DashboardView({ setActive }) {
 
           <Card>
             <SectionHeader title="Pending Approvals" icon="⏳" action={
-              <button onClick={() => setActive("finance")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
+              <button onClick={() => setActive("erp", "fin_requests")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View all →</button>
             } />
             {pendingApprovals.length === 0 ? (
               <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"24px 0" }}>
@@ -1589,7 +1589,7 @@ export default function DashboardView({ setActive }) {
                         setPendingApprovals(p=>p.filter(a=>a.id!==req.id));
                         notifySlack({ type:"approval", channel:"ben", title:"Approval Rejected ❌", message:`${req.entity_name||req.entity_type} was rejected`, url:"https://helm-app-six.vercel.app" });
                       }} style={{ flex:1, padding:"5px 0", fontSize:11, fontWeight:600, background:"#ef444410", color:"#ef4444", border:"1px solid #ef444430", borderRadius:5, cursor:"pointer" }}>✕ Reject</button>
-                      {req._type === "spend" && <button onClick={() => setActive("erp")} style={{ padding:"5px 8px", fontSize:11, fontWeight:500, background:T.surface, border:`1px solid ${T.border}`, borderRadius:5, cursor:"pointer", color:T.text3 }}>View →</button>}
+                      {req._type === "spend" && <button onClick={() => setActive("erp", "fin_requests")} style={{ padding:"5px 8px", fontSize:11, fontWeight:500, background:T.surface, border:`1px solid ${T.border}`, borderRadius:5, cursor:"pointer", color:T.text3 }}>View →</button>}
                     </div>
                   </div>
                 ))}

@@ -479,16 +479,31 @@ function RampExpensesView({ isMobile, orgId }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function ERPView({ modulePerms = {} }) {
+export default function ERPView({ modulePerms = {}, pendingSubView, clearPendingSubView }) {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState("dashboard");
+  // Handle pending sub-view navigation from other modules (e.g. Dashboard approval badge)
+  useEffect(() => {
+    if (pendingSubView) {
+      setView(pendingSubView);
+      clearPendingSubView?.();
+    }
+  }, [pendingSubView]);
   // Filter ERP nav by sub-module permissions
   const filteredNav = ERP_NAV.filter(n => {
     if (n.type === "header") return true;
     const permKey = `erp.${n.id}`;
     return modulePerms[permKey] !== false;
   });
+  // Permission guard: if user lands on a view they don't have access to, redirect to first allowed view
+  useEffect(() => {
+    const permKey = `erp.${view}`;
+    if (modulePerms[permKey] === false) {
+      const firstAllowed = filteredNav.find(n => n.type !== "header");
+      if (firstAllowed) setView(firstAllowed.id);
+    }
+  }, [view, modulePerms]);
   const [pendingNav, setPendingNav] = useState(null); // { view, selectId }
   const navigateTo = (targetView, selectId) => { setPendingNav({ view: targetView, selectId }); setView(targetView); };
   const [loading, setLoading] = useState(true);

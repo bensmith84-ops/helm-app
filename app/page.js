@@ -150,8 +150,14 @@ export default function HelmApp() {
   }, [user?.id, profile?.email]);
 
   // Enhanced setActive that can also pass a task ID to open
-  const navigateTo = useCallback((module, taskId) => {
-    if (taskId) setPendingTaskId(taskId);
+  const [pendingSubView, setPendingSubView] = useState(null);
+  const navigateTo = useCallback((module, taskIdOrSubView) => {
+    if (typeof taskIdOrSubView === "string" && !taskIdOrSubView.match(/^[0-9a-f-]{36}$/)) {
+      // It's a sub-view name, not a UUID task ID
+      setPendingSubView(taskIdOrSubView);
+    } else if (taskIdOrSubView) {
+      setPendingTaskId(taskIdOrSubView);
+    }
     setActive(module);
   }, []);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -312,7 +318,7 @@ export default function HelmApp() {
       case "calls": return <CallsView />;
       case "campaigns": return <CampaignsView />;
       case "plm": return <PLMView />;
-      case "erp": return <ERPView modulePerms={allowedModules?.perms || {}} />;
+      case "erp": return <ERPView modulePerms={allowedModules?.perms || {}} pendingSubView={pendingSubView} clearPendingSubView={() => setPendingSubView(null)} />;
       case "wms": return <WMSView />;
       case "finance": return <FinanceView />;
       case "automation": return <AutomationView />;
