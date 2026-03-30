@@ -2808,13 +2808,13 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         const utilPct = cat.companyBudget > 0 ? pct(primarySpend, cat.companyBudget) : 0;
         const isOver = cat.companyBudget > 0 && primarySpend > cat.companyBudget;
         const isExpanded = expandedCat === cat.id;
-        const catAccounts = isExpanded ? getAccountsForCat(cat.name) : [];
-        const catVendors = isExpanded && detailMode === "vendors" ? getVendorsForCat(cat.name) : [];
+        const catAccounts = isExpanded && canViewActuals ? getAccountsForCat(cat.name) : [];
+        const catVendors = isExpanded && canViewActuals && detailMode === "vendors" ? getVendorsForCat(cat.name) : [];
         return (
           <Card key={cat.id} style={{ borderLeft: `4px solid ${cat.color || T.accent}` }}>
-            <div onClick={() => setExpandedCat(isExpanded ? null : cat.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, cursor: "pointer" }}>
+            <div onClick={() => canViewActuals ? setExpandedCat(isExpanded ? null : cat.id) : null} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, cursor: canViewActuals ? "pointer" : "default" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 9, color: T.text3 }}>{isExpanded ? "▼" : "▶"}</span>
+                {canViewActuals && <span style={{ fontSize: 9, color: T.text3 }}>{isExpanded ? "▼" : "▶"}</span>}
                 <span style={{ fontSize: 18 }}>{cat.icon}</span>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{cat.name}</div>
@@ -2822,8 +2822,9 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                 </div>
               </div>
               <div style={{ textAlign: "right" }} onClick={e => e.stopPropagation()}>
-                <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Company Budget</div>
-                {editingCat?.id === cat.id ? (
+                {canViewAmounts ? (<>
+                  <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Company Budget</div>
+                  {canEdit && editingCat?.id === cat.id ? (
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                     <input autoFocus type="number" value={companyAmt} onChange={e => setCompanyAmt(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter") saveCompanyBudget(); if (e.key === "Escape") setEditingCat(null); }}
@@ -2831,9 +2832,16 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                     <button onClick={saveCompanyBudget} style={{ background: "#10B981", color: "#fff", border: "none", borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}>✓</button>
                   </div>
                 ) : (
-                  <div onClick={() => { setEditingCat(cat); setCompanyAmt(cat.companyBudget || 0); }}
-                    style={{ fontSize: 16, fontWeight: 800, color: cat.companyBudget ? T.text : T.text3, cursor: "pointer" }}>
-                    {cat.companyBudget ? fmt(cat.companyBudget) : "Click to set"}{cat.companyBudget > 0 && <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>✎</span>}
+                  <div onClick={() => { if (canEdit) { setEditingCat(cat); setCompanyAmt(cat.companyBudget || 0); } }}
+                    style={{ fontSize: 16, fontWeight: 800, color: cat.companyBudget ? T.text : T.text3, cursor: canEdit ? "pointer" : "default" }}>
+                    {cat.companyBudget ? fmt(cat.companyBudget) : (canEdit ? "Click to set" : "—")}{canEdit && cat.companyBudget > 0 && <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>✎</span>}
+                  </div>
+                )}
+                </>) : (
+                  /* No amount access — show % only */
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Budget Usage</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: utilPct > 100 ? "#EF4444" : utilPct > 80 ? "#F59E0B" : T.green }}>{utilPct}%</div>
                   </div>
                 )}
               </div>
@@ -2845,11 +2853,11 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                   {pend > 0 && <div style={{ height: "100%", background: (cat.color || T.accent) + "40", width: `${Math.min(100 - Math.min(100, utilPct), cat.companyBudget > 0 ? pct(pend, cat.companyBudget) : 0)}%` }} />}
                 </div>
                 <div style={{ display: "flex", gap: 16, fontSize: 11, color: T.text3, flexWrap: "wrap" }}>
-                  {qboSpend > 0 && <span>QBO Actual: <strong style={{ color: "#6366f1" }}>{fmt(qboSpend)}</strong></span>}
-                  {spent > 0 && <span>Requests: <strong style={{ color: "#10B981" }}>{fmt(spent)}</strong></span>}
-                  {pend > 0 && <span>Pending: <strong style={{ color: "#F59E0B" }}>{fmt(pend)}</strong></span>}
-                  {cat.companyBudget > 0 && <span>Remaining: <strong style={{ color: isOver ? "#EF4444" : T.text }}>{fmt(cat.companyBudget - primarySpend)}</strong></span>}
-                  {cat.companyBudget > 0 && <span>{utilPct}% used</span>}
+                  {canViewActuals && qboSpend > 0 && canViewAmounts && <span>QBO Actual: <strong style={{ color: "#6366f1" }}>{fmt(qboSpend)}</strong></span>}
+                  {canViewAmounts && spent > 0 && <span>Requests: <strong style={{ color: "#10B981" }}>{fmt(spent)}</strong></span>}
+                  {canViewAmounts && pend > 0 && <span>Pending: <strong style={{ color: "#F59E0B" }}>{fmt(pend)}</strong></span>}
+                  {canViewAmounts && cat.companyBudget > 0 && <span>Remaining: <strong style={{ color: isOver ? "#EF4444" : T.text }}>{fmt(cat.companyBudget - primarySpend)}</strong></span>}
+                  <span style={{ fontWeight: 600, color: utilPct > 100 ? "#EF4444" : utilPct > 80 ? "#F59E0B" : T.text2 }}>{utilPct}% used</span>
                 </div>
               </>
             )}
