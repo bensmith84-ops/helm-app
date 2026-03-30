@@ -2515,8 +2515,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               </div>
             )}
 
-            {/* Approver actions */}
-            {isApprover && (selReq.status === "pending" || selReq.status === "conditionally_approved_info_added") && (
+            {/* Approver actions — only show if you're NOT the requester */}
+            {isApprover && !isMyRequest && (selReq.status === "pending" || selReq.status === "conditionally_approved_info_added") && (
               <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
                 {!showReject && !showConditional ? (
                   <div style={{ display: "flex", gap: 8 }}>
@@ -2632,7 +2632,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 
             {/* Submitter actions: Edit & Withdraw */}
             {isMyRequest && (selReq.status === "pending" || selReq.status === "conditionally_approved") && (
-              <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}`, display: "flex", gap: 8 }}>
+              <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={() => {
                   setEditMode(selReq.id);
                   setForm({ title: selReq.title, amount: String(selReq.amount), gl_code: selReq.gl_code || "", description: selReq.description || "", cost_type: selReq.cost_type || "one_time", recurring_frequency: selReq.recurring_frequency || "monthly", recurring_amount: selReq.recurring_amount ? String(selReq.recurring_amount) : "", first_amount: selReq.first_amount ? String(selReq.first_amount) : "", recurring_end_date: selReq.recurring_end_date || "", department: selReq.department || "", budget_accounted_for: selReq.budget_accounted_for || "", quotes_obtained: selReq.quotes_obtained || "" });
@@ -2646,6 +2646,9 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                   addAuditEntry("Request withdrawn", `"${selReq.title}" withdrawn by requester`, selReq.id);
                   setSelected(null);
                 }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.red, cursor: "pointer" }}>↩ Withdraw</button>
+                {isAdmin && selReq.status === "pending" && (
+                  <button onClick={doApprove} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Self-Approve</button>
+                )}
               </div>
             )}
 
