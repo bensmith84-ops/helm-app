@@ -312,7 +312,7 @@ export default function HelmApp() {
       case "projects": return <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} />;
       case "okrs": return <OKRsView />;
       case "scorecard": return <ScorecardView />;
-      case "learning": return <LearningView />;
+      case "learning": return <LearningView modulePerms={allowedModules?.perms || {}} />;
       case "scoreboard": return <ScoreboardView2 />;
       case "messages": return <MessagesView />;
       case "docs": return <DocsView setActive={setActive} />;

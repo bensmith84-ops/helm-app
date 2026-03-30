@@ -37,7 +37,7 @@ const ProgressRing = ({ pct, size = 52, stroke = 4, color = G.accent }) => {
 /* ─── badge ─── */
 const Badge = ({ label, color, bg }) => <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: bg || color + "18", color, letterSpacing: "0.03em" }}>{label}</span>;
 
-export default function LearningView() {
+export default function LearningView({ modulePerms = {} }) {
   const { user, profile } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState("my_learning");
@@ -70,6 +70,10 @@ export default function LearningView() {
   const [searchQ, setSearchQ] = useState("");
   const [courseStarted, setCourseStarted] = useState(false);
   const isAdmin = profile?.email?.includes("ben.smith@earthbreeze") || false;
+  // LMS Admin: full admin OR has learning.manage_courses permission
+  const isLmsAdmin = isAdmin || modulePerms["learning.manage_courses"] !== false;
+  const canAssign = isLmsAdmin || modulePerms["learning.assign_courses"] !== false;
+  const canViewAnalytics = isLmsAdmin || modulePerms["learning.view_analytics"] !== false;
 
   // Scroll to top when changing lessons
   useEffect(() => {
@@ -505,7 +509,7 @@ export default function LearningView() {
   const tabs = [
     { id:"my_learning", label:"My Learning", icon:"📖" },
     { id:"catalog", label:"Catalog", icon:"📚" },
-    ...(isAdmin ? [{ id:"course_builder", label:"Builder", icon:"🏗️" }, { id:"manage", label:"Analytics", icon:"📊" }] : []),
+    ...(isLmsAdmin ? [{ id:"course_builder", label:"Builder", icon:"🏗️" }, { id:"manage", label:"Analytics", icon:"📊" }] : []),
   ];
 
   const filteredCatalog = publishedCourses.filter(c => {
@@ -642,7 +646,7 @@ export default function LearningView() {
         )}
 
         {/* ═══ COURSE BUILDER ═══ */}
-        {view === "course_builder" && isAdmin && (
+        {view === "course_builder" && isLmsAdmin && (
           <div style={{ animation:"lms-fadeIn 0.3s ease", display:"flex", flexDirection:"column", gap:12 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div style={{ fontSize:16, fontWeight:700, color:G.text }}>All Courses ({courses.length})</div>
@@ -685,7 +689,7 @@ export default function LearningView() {
         )}
 
         {/* ═══ ANALYTICS ═══ */}
-        {view === "manage" && isAdmin && (
+        {view === "manage" && isLmsAdmin && (
           <div style={{ animation:"lms-fadeIn 0.3s ease", display:"flex", flexDirection:"column", gap:14 }}>
             <div style={{ fontSize:16, fontWeight:700, color:G.text }}>Team Progress Analytics</div>
             {publishedCourses.map(c => {

@@ -16,6 +16,13 @@ const MODULE_TREE = [
   { key: "projects", label: "Projects", icon: "◫" },
   { key: "launches", label: "Launches", icon: "🚀" },
   { key: "scorecard", label: "Scorecard", icon: "▣" },
+  { key: "learning", label: "Learning", icon: "📚", children: [
+    { key: "learning.take_courses", label: "Take Courses" },
+    { key: "learning.view_catalog", label: "View Catalog" },
+    { key: "learning.manage_courses", label: "Manage Courses (Admin)" },
+    { key: "learning.assign_courses", label: "Assign Courses" },
+    { key: "learning.view_analytics", label: "View Analytics" },
+  ]},
   { key: "docs", label: "Docs", icon: "▤" },
   { key: "messages", label: "Messages", icon: "◬" },
   { key: "calendar", label: "Calendar", icon: "▦" },
