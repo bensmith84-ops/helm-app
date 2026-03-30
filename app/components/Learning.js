@@ -71,6 +71,12 @@ export default function LearningView() {
   const [courseStarted, setCourseStarted] = useState(false);
   const isAdmin = profile?.email?.includes("ben.smith@earthbreeze") || false;
 
+  // Scroll to top when changing lessons
+  useEffect(() => {
+    const el = document.querySelector("[data-lms-scroll]");
+    if (el) el.scrollTop = 0;
+  }, [activeLessonIdx]);
+
   useEffect(() => {
     if (!user?.id) return;
     (async () => {
@@ -289,12 +295,6 @@ export default function LearningView() {
     const pct = cL.length > 0 ? Math.round((done.length / cL.length) * 100) : 0;
     const cat = CATS[c.category] || CATS.other;
     const courseComplete = allLessonsDone && (!quiz || qPassed);
-
-    // Scroll to top when changing lessons
-    useEffect(() => {
-      const el = document.querySelector("[data-lms-scroll]");
-      if (el) el.scrollTop = 0;
-    }, [activeLessonIdx]);
 
     // ─── START SCREEN ───
     if (!courseStarted && !prog) {
