@@ -569,7 +569,7 @@ export default function PeopleView() {
             <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Finance Role</div>
             <div style={{ display: "flex", gap: 0, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
               {[["requester","Requester"],["approver","Approver"],["admin","Admin"]].map(([v,l]) => (
-                <button key={v} onClick={async () => { await supabase.from("org_memberships").update({ af_role: v }).eq("id", om?.id); setMemberships(p => p.map(m => m.id === om?.id ? { ...m, af_role: v } : m)); showToast("Finance role updated", "success"); }}
+                <button key={v} onClick={async () => { if (!om?.id) return; await supabase.from("org_memberships").update({ af_role: v }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_role: v } : m)); showToast("Finance role updated", "success"); }}
                   style={{ flex: 1, padding: "9px 0", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: om?.af_role === v ? T.accent : "transparent", color: om?.af_role === v ? "#fff" : T.text3, transition: "all 0.12s" }}>{l}</button>
               ))}
             </div>
@@ -583,8 +583,8 @@ export default function PeopleView() {
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 13, color: T.text3 }}>$</span>
               <input type="number" defaultValue={om?.af_spend_limit || 500}
-                onBlur={async (e) => { const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("id", om?.id); setMemberships(p => p.map(m => m.id === om?.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); }}
-                onKeyDown={async (e) => { if (e.key === "Enter") { const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("id", om?.id); setMemberships(p => p.map(m => m.id === om?.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); e.target.blur(); } }}
+                onBlur={async (e) => { if (!om?.id) return; const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); }}
+                onKeyDown={async (e) => { if (e.key === "Enter") { if (!om?.id) return; const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); e.target.blur(); } }}
                 style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 700, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>Requests below this amount auto-approve without routing through the approval chain</div>
@@ -592,7 +592,7 @@ export default function PeopleView() {
           {/* Level */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Org Level</div>
-            <select defaultValue={om?.af_level || "IC"} onChange={async (e) => { await supabase.from("org_memberships").update({ af_level: e.target.value }).eq("id", om?.id); setMemberships(p => p.map(m => m.id === om?.id ? { ...m, af_level: e.target.value } : m)); showToast("Level updated", "success"); }}
+            <select defaultValue={om?.af_level || "IC"} onChange={async (e) => { if (!om?.id) return; await supabase.from("org_memberships").update({ af_level: e.target.value }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_level: e.target.value } : m)); showToast("Level updated", "success"); }}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, cursor: "pointer", outline: "none", boxSizing: "border-box" }}>
               {["IC","Senior IC","Lead","Manager","Director","VP","C-Suite","Contractor"].map(l => <option key={l} value={l}>{l}</option>)}
             </select>
