@@ -2561,12 +2561,15 @@ function AIAgentTab({ program }) {
   const [printingChat, setPrintingChat] = useState(false);
   const chatRef = useRef(null);
 
-  const MODES = [
-    { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, DOE, stability, regulatory, cost engineering", color: "#a855f7" },
-    { key: "ingredient", icon: "🧬", label: "Source Ingredients", desc: "Find raw materials, suppliers, pricing, MOQs", color: "#3b82f6" },
-    { key: "manufacturer", icon: "🏭", label: "Find Manufacturers", desc: "Contract manufacturers, capabilities, capacity, certifications", color: "#f59e0b" },
-    { key: "whitelabel", icon: "📦", label: "White Label", desc: "Complete ready-made product solutions, private label partners", color: "#10b981" },
-    { key: "formulate", icon: "🔬", label: "Formulate", desc: "AI creates formulations, batch records, and DOE experiments", color: "#ef4444" },
+  const SUGGESTIONS = [
+    "Our sheets aren't dissolving fully in cold water. What should we investigate?",
+    "Source me Australian-based contract manufacturers for dishwasher tablets",
+    "Create a formula for a concentrated floor cleaner — safe for kids and pets",
+    "Find EPA Safer Choice approved surfactants — need 3 supplier options with pricing",
+    "Help me design a DOE to optimize surfactant loading vs dissolution time",
+    "Find powder-to-tablet compression manufacturers for our new tablet line",
+    "How can we reduce COGS by 15% without hurting cleaning performance?",
+    "Find white label laundry sheet suppliers who can do custom branding",
   ];
 
   // Load conversations
@@ -2648,40 +2651,7 @@ function AIAgentTab({ program }) {
     if (activeConvId === id) startNew();
   };
 
-  const SUGGESTIONS = {
-    advisor: [
-      "Our sheets aren't dissolving fully in cold water. What should we investigate?",
-      "What are the best natural alternatives to PVA for our sheet format?",
-      "Help me design a DOE to optimize surfactant loading vs dissolution time",
-      "How can we reduce COGS by 15% without hurting cleaning performance?",
-    ],
-    ingredient: [
-      "Find me EPA Safer Choice approved surfactants for laundry sheets",
-      "Source biodegradable builders that replace STPP — need 3 supplier options each",
-      "What natural enzyme options are available for cold-water stain removal?",
-      "Find me optical brightener alternatives that are C2C certified",
-    ],
-    manufacturer: [
-      "Find contract manufacturers who can produce PVA-based laundry sheets in North America",
-      "Who makes eco-friendly cleaning products in the Pacific Northwest?",
-      "I need a CM with EPA Safer Choice certification and >1M units/month capacity",
-      "Find powder-to-tablet compression manufacturers for our new tablet line",
-    ],
-    whitelabel: [
-      "Find white label laundry sheet suppliers who can do custom branding",
-      "Who offers private label eco-friendly dish soap ready to ship?",
-      "Find turnkey laundry pod manufacturers with our label — US-based",
-      "What are the best white label options for plant-based fabric softener sheets?",
-    ],
-    formulate: [
-      "Create a formula for a concentrated floor cleaner — safe for kids and pets",
-      "Design an optimized laundry sheet with 40% surfactant loading and fast cold-water dissolution",
-      "Build a DOE to test 3 enzyme cocktails × 2 surfactant levels × 2 PVA grades",
-      "Formulate a dishwasher tablet with low-foam surfactants and citric acid builder",
-    ],
-  };
-
-  const activeMode = MODES.find(m => m.key === mode) || MODES[0];
+  const activeMode = { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, sourcing, manufacturing, troubleshooting, DOE, regulatory — all in one place", color: "#a855f7" };
 
   if (printingChat) return (
     <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading print view...</div>}>
@@ -2719,16 +2689,6 @@ function AIAgentTab({ program }) {
 
       {/* Chat area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        {/* Mode selector */}
-        <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", WebkitOverflowScrolling: "touch", flexShrink: 0 }}>
-          {MODES.map(m => (
-            <button key={m.key} onClick={() => setMode(m.key)}
-              style={{ padding: isMobile ? "8px 10px" : "8px 16px", background: mode === m.key ? `${m.color}12` : "transparent", border: "none", borderBottom: mode === m.key ? `2px solid ${m.color}` : "2px solid transparent", cursor: "pointer", color: mode === m.key ? m.color : T.text3, fontSize: 12, fontWeight: mode === m.key ? 700 : 500, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ fontSize: 14 }}>{m.icon}</span>
-              {!isMobile && m.label}
-            </button>
-          ))}
-        </div>
         {/* Header */}
         <div style={{ padding: "6px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2766,7 +2726,7 @@ function AIAgentTab({ program }) {
               </div>
               <div style={{ fontSize: 12, color: T.text3, marginTop: 8 }}>Try asking:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: isMobile ? "95vw" : 520, width: "100%" }}>
-                {(SUGGESTIONS[mode] || SUGGESTIONS.advisor).map((q, i) => (
+                {SUGGESTIONS.map((q, i) => (
                   <button key={i} onClick={() => setInput(q)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`,
                     background: T.surface2, color: T.text2, fontSize: 12, cursor: "pointer", textAlign: "left", lineHeight: 1.5 }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = activeMode.color}
