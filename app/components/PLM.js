@@ -1780,9 +1780,9 @@ function ExperimentsTab({ programId }) {
   const del=async()=>{ if(!window.confirm(`Delete "${selected.name}"?`))return; await supabase.from("plm_experiments").delete().eq("id",selected.id); setExperiments(p=>p.filter(x=>x.id!==selected.id)); setSelected(null); };
 
   // Factor/response/run helpers
-  const factors = selected?.factors || [];
-  const responses = selected?.responses || [];
-  const runMatrix = selected?.run_matrix || [];
+  const factors = Array.isArray(selected?.factors) ? selected.factors : [];
+  const responses = Array.isArray(selected?.responses) ? selected.responses : [];
+  const runMatrix = Array.isArray(selected?.run_matrix) ? selected.run_matrix : [];
   const addFactor = () => update("factors", [...factors, { id: crypto.randomUUID(), name: "", unit: "", type: "continuous", low: "", high: "", levels: [] }]);
   const updateFactor = (id, upd) => update("factors", factors.map(f => f.id === id ? { ...f, ...upd } : f));
   const removeFactor = (id) => update("factors", factors.filter(f => f.id !== id));
@@ -2107,7 +2107,7 @@ function ExperimentsTab({ programId }) {
                                         <div style={{ fontSize: 10, fontWeight: 700, color: "#f97316", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>DOE Factor Adjustments for Run {run.run_number}</div>
                                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6 }}>
                                           {Object.entries(fs).map(([k,v]) => {
-                                            const factorDef = (selected.factors || []).find(f => f.name === k);
+                                            const factorDef = (Array.isArray(selected.factors) ? selected.factors : []).find(f => f.name === k);
                                             return (
                                               <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
                                                 <span style={{ fontSize: 14 }}>🔸</span>
