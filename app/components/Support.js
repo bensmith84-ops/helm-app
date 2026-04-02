@@ -8,6 +8,26 @@ const PRIORITY_COLORS = { urgent: "#ef4444", high: "#f97316", medium: "#f59e0b",
 const CHANNEL_ICONS = { email: "📧", chat: "💬", social_facebook: "📘", social_instagram: "📸", social_tiktok: "🎵", social_twitter: "🐦", phone: "📞", internal: "🏢", api: "⚡" };
 
 const timeAgo = (d) => {
+
+// Reusable tag input component (module-level to avoid React #310)
+function CxTagInput({ values, onChange, T: theme }) {
+  const [inp, setInp] = useState("");
+  const T = theme;
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+        {(values || []).map((v, i) => (
+          <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 4, background: T.accentDim, color: T.accent, fontSize: 11, fontWeight: 600 }}>
+            {v} <span onClick={() => onChange(values.filter((_, j) => j !== i))} style={{ cursor: "pointer", opacity: 0.6 }}>×</span>
+          </span>
+        ))}
+      </div>
+      <input value={inp} onChange={e => setInp(e.target.value)} placeholder="Type and press Enter..."
+        onKeyDown={e => { if (e.key === "Enter" && inp.trim()) { onChange([...(values || []), inp.trim()]); setInp(""); e.preventDefault(); } }}
+        style={{ padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none", width: 200 }} />
+    </div>
+  );
+}
   if (!d) return "";
   const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
   if (s < 60) return "just now";
@@ -39,6 +59,10 @@ export default function SupportView() {
   const [aiDraft, setAiDraft] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiConfig, setAiConfig] = useState(null);
+  const [testMsgs, setTestMsgs] = useState([]);
+  const [testInput, setTestInput] = useState("");
+  const [testLoading, setTestLoading] = useState(false);
+  const testEndRef = useRef(null);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const chatEndRef = useRef(null);
@@ -463,23 +487,7 @@ export default function SupportView() {
               <span style={{ fontSize: 12, color: T.text }}>{label}</span>
             </div>
           );
-          const TagInput = ({ values, onChange, suggestions }) => {
-            const [inp, setInp] = useState("");
-            return (
-              <div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
-                  {(values || []).map((v, i) => (
-                    <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 4, background: T.accentDim, color: T.accent, fontSize: 11, fontWeight: 600 }}>
-                      {v} <span onClick={() => onChange(values.filter((_, j) => j !== i))} style={{ cursor: "pointer", opacity: 0.6 }}>×</span>
-                    </span>
-                  ))}
-                </div>
-                <input value={inp} onChange={e => setInp(e.target.value)} placeholder="Type and press Enter..."
-                  onKeyDown={e => { if (e.key === "Enter" && inp.trim()) { onChange([...(values || []), inp.trim()]); setInp(""); e.preventDefault(); } }}
-                  style={{ padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none", width: 200 }} />
-              </div>
-            );
-          };
+          const TagInput = ({ values, onChange }) => <CxTagInput values={values} onChange={onChange} T={T} />;
           const samples = aiConfig.sample_responses || [];
           return (
             <div style={{ flex: 1, overflow: "auto", padding: 24, maxWidth: 800, margin: "0 auto" }}>
@@ -642,76 +650,45 @@ export default function SupportView() {
               </div>
 
               {/* AI Test Chat */}
-              {(() => {
-                const [testMsgs, setTestMsgs] = useState([]);
-                const [testInput, setTestInput] = useState("");
-                const [testLoading, setTestLoading] = useState(false);
-                const testEndRef = useRef(null);
-                const sendTest = async () => {
-                  if (!testInput.trim() || testLoading) return;
-                  const userMsg = testInput;
-                  setTestMsgs(p => [...p, { role: "customer", text: userMsg }]);
-                  setTestInput("");
-                  setTestLoading(true);
-                  try {
-                    const { data: { session } } = await supabase.auth.getSession();
-                    const res = await fetch(supabase.supabaseUrl + "/functions/v1/cx-ai-draft", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-                      body: JSON.stringify({
-                        ticket: { subject: "Test conversation", category: "general", channel: "chat", customer_name: "Test Customer" },
-                        messages: [...testMsgs, { role: "customer", text: userMsg }].map(m => `[${m.role}]: ${m.text}`).join("\n"),
-                      }),
-                    });
-                    const result = await res.json();
-                    setTestMsgs(p => [...p, { role: "agent", text: result.draft || "No response generated" }]);
-                  } catch (e) {
-                    setTestMsgs(p => [...p, { role: "agent", text: `Error: ${e.message}` }]);
-                  }
-                  setTestLoading(false);
-                  setTimeout(() => testEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-                };
-                return (
-                  <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>🧪 Test Your Agent</div>
-                    <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Chat with {aiConfig.agent_name || "your agent"} to see how it responds. Uses your current persona settings + knowledge base.</div>
-                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-                      <div style={{ height: 280, overflow: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
-                        {testMsgs.length === 0 && (
-                          <div style={{ textAlign: "center", color: T.text3, fontSize: 12, padding: 40 }}>
-                            Type a message to test how {aiConfig.agent_name || "your agent"} responds
-                          </div>
-                        )}
-                        {testMsgs.map((m, i) => (
-                          <div key={i} style={{ display: "flex", flexDirection: m.role === "customer" ? "row-reverse" : "row", gap: 6 }}>
-                            <div style={{ width: 26, height: 26, borderRadius: 13, background: m.role === "customer" ? T.accent + "20" : "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, flexShrink: 0 }}>
-                              {m.role === "customer" ? "👤" : aiConfig.agent_avatar || "🤖"}
-                            </div>
-                            <div style={{ maxWidth: "80%", padding: "8px 12px", borderRadius: 10, background: m.role === "customer" ? T.accent + "15" : T.surface2, border: `1px solid ${m.role === "customer" ? T.accent + "30" : T.border}`, fontSize: 12, color: T.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-                              {m.text}
-                            </div>
-                          </div>
-                        ))}
-                        {testLoading && (
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <div style={{ width: 26, height: 26, borderRadius: 13, background: "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>{aiConfig.agent_avatar || "🤖"}</div>
-                            <div style={{ padding: "8px 12px", borderRadius: 10, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3 }}>Thinking...</div>
-                          </div>
-                        )}
-                        <div ref={testEndRef} />
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>🧪 Test Your Agent</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Chat with {aiConfig.agent_name || "your agent"} to see how it responds. Uses your current persona settings + knowledge base.</div>
+                <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                  <div style={{ height: 280, overflow: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
+                    {testMsgs.length === 0 && (
+                      <div style={{ textAlign: "center", color: T.text3, fontSize: 12, padding: 40 }}>
+                        Type a message to test how {aiConfig.agent_name || "your agent"} responds
                       </div>
-                      <div style={{ display: "flex", gap: 6, padding: 8, borderTop: `1px solid ${T.border}`, background: T.surface }}>
-                        <input value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Type as a customer..."
-                          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); sendTest(); } }}
-                          style={{ flex: 1, padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none" }} />
-                        <button onClick={sendTest} disabled={testLoading || !testInput.trim()}
-                          style={{ padding: "7px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: testLoading || !testInput.trim() ? 0.5 : 1 }}>Send</button>
-                        {testMsgs.length > 0 && <button onClick={() => setTestMsgs([])} style={{ padding: "7px 10px", background: T.surface2, color: T.text3, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Clear</button>}
+                    )}
+                    {testMsgs.map((m, i) => (
+                      <div key={i} style={{ display: "flex", flexDirection: m.role === "customer" ? "row-reverse" : "row", gap: 6 }}>
+                        <div style={{ width: 26, height: 26, borderRadius: 13, background: m.role === "customer" ? T.accent + "20" : "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, flexShrink: 0 }}>
+                          {m.role === "customer" ? "👤" : aiConfig.agent_avatar || "🤖"}
+                        </div>
+                        <div style={{ maxWidth: "80%", padding: "8px 12px", borderRadius: 10, background: m.role === "customer" ? T.accent + "15" : T.surface2, border: `1px solid ${m.role === "customer" ? T.accent + "30" : T.border}`, fontSize: 12, color: T.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                          {m.text}
+                        </div>
                       </div>
-                    </div>
+                    ))}
+                    {testLoading && (
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <div style={{ width: 26, height: 26, borderRadius: 13, background: "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>{aiConfig.agent_avatar || "🤖"}</div>
+                        <div style={{ padding: "8px 12px", borderRadius: 10, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3 }}>Thinking...</div>
+                      </div>
+                    )}
+                    <div ref={testEndRef} />
                   </div>
-                );
-              })()}
+                  <div style={{ display: "flex", gap: 6, padding: 8, borderTop: `1px solid ${T.border}`, background: T.surface }}>
+                    <input value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Type as a customer..."
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); if (!testInput.trim() || testLoading) return; const userMsg = testInput; setTestMsgs(p => [...p, { role: "customer", text: userMsg }]); setTestInput(""); setTestLoading(true); (async () => { try { const { data: { session } } = await supabase.auth.getSession(); const res = await fetch(supabase.supabaseUrl + "/functions/v1/cx-ai-draft", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ ticket: { subject: "Test conversation", category: "general", channel: "chat", customer_name: "Test Customer" }, messages: [...testMsgs, { role: "customer", text: userMsg }].map(m => `[${m.role}]: ${m.text}`).join("\n") }) }); const result = await res.json(); setTestMsgs(p => [...p, { role: "agent", text: result.draft || "No response generated" }]); } catch (e) { setTestMsgs(p => [...p, { role: "agent", text: `Error: ${e.message}` }]); } setTestLoading(false); setTimeout(() => testEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100); })(); } }}
+                      style={{ flex: 1, padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none" }} />
+                    <button onClick={() => { if (!testInput.trim() || testLoading) return; const userMsg = testInput; setTestMsgs(p => [...p, { role: "customer", text: userMsg }]); setTestInput(""); setTestLoading(true); (async () => { try { const { data: { session } } = await supabase.auth.getSession(); const res = await fetch(supabase.supabaseUrl + "/functions/v1/cx-ai-draft", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ ticket: { subject: "Test conversation", category: "general", channel: "chat", customer_name: "Test Customer" }, messages: [...testMsgs, { role: "customer", text: userMsg }].map(m => `[${m.role}]: ${m.text}`).join("\n") }) }); const result = await res.json(); setTestMsgs(p => [...p, { role: "agent", text: result.draft || "No response generated" }]); } catch (e) { setTestMsgs(p => [...p, { role: "agent", text: `Error: ${e.message}` }]); } setTestLoading(false); setTimeout(() => testEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100); })(); }}
+                      disabled={testLoading || !testInput.trim()}
+                      style={{ padding: "7px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: testLoading || !testInput.trim() ? 0.5 : 1 }}>Send</button>
+                    {testMsgs.length > 0 && <button onClick={() => setTestMsgs([])} style={{ padding: "7px 10px", background: T.surface2, color: T.text3, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Clear</button>}
+                  </div>
+                </div>
+              </div>
 
               {/* Social Media Monitoring Config */}
               <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
