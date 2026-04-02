@@ -63,6 +63,11 @@ export default function SupportView() {
   const [testInput, setTestInput] = useState("");
   const [testLoading, setTestLoading] = useState(false);
   const testEndRef = useRef(null);
+  const [socialMentions, setSocialMentions] = useState([]);
+  const [socialAccounts, setSocialAccounts] = useState([]);
+  const [socialRules, setSocialRules] = useState([]);
+  const [socialFilter, setSocialFilter] = useState({ platform: "all", status: "new", sentiment: "all" });
+  const [selectedMention, setSelectedMention] = useState(null);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const chatEndRef = useRef(null);
@@ -79,7 +84,7 @@ export default function SupportView() {
       const orgId = p?.org_id;
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -87,6 +92,9 @@ export default function SupportView() {
         supabase.from("cx_views").select("*").eq("org_id", orgId).order("name"),
         supabase.from("cx_contacts").select("*").eq("org_id", orgId).order("last_contact_at", { ascending: false }).limit(50),
         supabase.from("cx_ai_config").select("*").eq("org_id", orgId).single(),
+        supabase.from("cx_social_accounts").select("*").eq("org_id", orgId).order("platform"),
+        supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(50),
+        supabase.from("cx_social_rules").select("*").eq("org_id", orgId).order("name"),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -96,6 +104,9 @@ export default function SupportView() {
       setViews(viewRes.data || []);
       setContacts(contactRes.data || []);
       if (aiConfRes.data) setAiConfig(aiConfRes.data);
+      setSocialAccounts(socialAcctRes.data || []);
+      setSocialMentions(socialMentRes.data || []);
+      setSocialRules(socialRuleRes.data || []);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -241,6 +252,7 @@ export default function SupportView() {
     { key: "kb", label: "Knowledge Base", icon: "📖" },
     { key: "macros", label: "Macros", icon: "⚡" },
     { key: "contacts", label: "Contacts", icon: "👥" },
+    { key: "social", label: "Social", icon: "📱" },
     { key: "analytics", label: "Analytics", icon: "📊" },
   ];
 
@@ -887,6 +899,110 @@ export default function SupportView() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Social Monitoring tab */}
+        {tab === "social" && (
+          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+            {/* Mention feed */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              {/* Connected accounts strip */}
+              <div style={{ display: "flex", gap: 8, padding: "10px 16px", borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0 }}>
+                {socialAccounts.map(a => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: a.is_connected ? T.accentDim : T.surface2, border: `1px solid ${a.is_connected ? T.accent + "30" : T.border}`, flexShrink: 0 }}>
+                    <span style={{ fontSize: 14 }}>{CHANNEL_ICONS["social_" + a.platform] || CHANNEL_ICONS[a.platform] || "📱"}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: a.is_connected ? T.accent : T.text3 }}>{a.account_handle}</span>
+                    {a.follower_count > 0 && <span style={{ fontSize: 9, color: T.text3 }}>{a.follower_count > 1000 ? (a.follower_count / 1000).toFixed(0) + "K" : a.follower_count}</span>}
+                    <span style={{ width: 6, height: 6, borderRadius: 3, background: a.is_connected ? "#22c55e" : "#ef4444" }} />
+                  </div>
+                ))}
+              </div>
+              {/* Filters */}
+              <div style={{ display: "flex", gap: 6, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
+                <select value={socialFilter.platform} onChange={e => setSocialFilter(f => ({ ...f, platform: e.target.value }))}
+                  style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, cursor: "pointer" }}>
+                  <option value="all">All Platforms</option>
+                  <option value="instagram">📸 Instagram</option><option value="facebook">📘 Facebook</option>
+                  <option value="tiktok">🎵 TikTok</option><option value="twitter">🐦 Twitter</option>
+                </select>
+                <select value={socialFilter.status} onChange={e => setSocialFilter(f => ({ ...f, status: e.target.value }))}
+                  style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, cursor: "pointer" }}>
+                  <option value="all">All Status</option><option value="new">🔵 New</option>
+                  <option value="replied">✅ Replied</option><option value="escalated">🔴 Escalated</option><option value="ignored">⚫ Ignored</option>
+                </select>
+                <select value={socialFilter.sentiment} onChange={e => setSocialFilter(f => ({ ...f, sentiment: e.target.value }))}
+                  style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, cursor: "pointer" }}>
+                  <option value="all">All Sentiment</option><option value="positive">😊 Positive</option>
+                  <option value="neutral">😐 Neutral</option><option value="negative">😠 Negative</option>
+                </select>
+                <div style={{ flex: 1 }} />
+                <span style={{ fontSize: 10, color: T.text3 }}>{socialMentions.filter(m => m.status === "new").length} new mentions</span>
+              </div>
+              {/* Mention list */}
+              <div style={{ flex: 1, overflow: "auto", padding: 0 }}>
+                {socialMentions
+                  .filter(m => (socialFilter.platform === "all" || m.platform === socialFilter.platform))
+                  .filter(m => (socialFilter.status === "all" || m.status === socialFilter.status))
+                  .filter(m => (socialFilter.sentiment === "all" || m.sentiment === socialFilter.sentiment))
+                  .map(m => {
+                    const PLAT = { instagram: { icon: "📸", color: "#E1306C" }, facebook: { icon: "📘", color: "#1877F2" }, tiktok: { icon: "🎵", color: "#010101" }, twitter: { icon: "🐦", color: "#1DA1F2" }, youtube: { icon: "📺", color: "#FF0000" } };
+                    const p = PLAT[m.platform] || { icon: "📱", color: T.text3 };
+                    const SENT = { positive: { icon: "😊", color: "#22c55e" }, neutral: { icon: "😐", color: "#f59e0b" }, negative: { icon: "😠", color: "#ef4444" }, mixed: { icon: "🤔", color: "#8b5cf6" } };
+                    const s = SENT[m.sentiment] || SENT.neutral;
+                    return (
+                      <div key={m.id} onClick={() => setSelectedMention(selectedMention?.id === m.id ? null : m)}
+                        style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer",
+                          background: selectedMention?.id === m.id ? T.accentDim : m.status === "new" ? T.surface : "transparent" }}
+                        onMouseEnter={e => { if (selectedMention?.id !== m.id) e.currentTarget.style.background = T.surface2; }}
+                        onMouseLeave={e => { if (selectedMention?.id !== m.id) e.currentTarget.style.background = m.status === "new" ? T.surface : "transparent"; }}>
+                        <div style={{ display: "flex", gap: 10, alignItems: "start" }}>
+                          <div style={{ width: 36, height: 36, borderRadius: 18, background: p.color + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
+                            {p.icon}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{m.author_name || m.author_handle}</span>
+                                {m.author_handle && <span style={{ fontSize: 10, color: T.text3 }}>{m.author_handle}</span>}
+                                {m.is_influencer || m.author_follower_count > 10000 ? <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#f59e0b20", color: "#f59e0b", fontWeight: 700 }}>⭐ {(m.author_follower_count / 1000).toFixed(0)}K</span> : null}
+                                {m.is_ugc && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#a855f720", color: "#a855f7", fontWeight: 700 }}>UGC</span>}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 12 }}>{s.icon}</span>
+                                <span style={{ fontSize: 10, color: T.text3 }}>{timeAgo(m.posted_at)}</span>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 6, display: "-webkit-box", WebkitLineClamp: selectedMention?.id === m.id ? 99 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                              {m.content}
+                            </div>
+                            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                              <span style={{ fontSize: 10, color: T.text3, textTransform: "capitalize", padding: "1px 6px", borderRadius: 3, background: T.surface2 }}>{m.mention_type}</span>
+                              {m.likes > 0 && <span style={{ fontSize: 10, color: T.text3 }}>❤️ {m.likes > 1000 ? (m.likes / 1000).toFixed(1) + "K" : m.likes}</span>}
+                              {m.comments > 0 && <span style={{ fontSize: 10, color: T.text3 }}>💬 {m.comments}</span>}
+                              {m.shares > 0 && <span style={{ fontSize: 10, color: T.text3 }}>🔄 {m.shares > 1000 ? (m.shares / 1000).toFixed(1) + "K" : m.shares}</span>}
+                            </div>
+                            {/* Action buttons when expanded */}
+                            {selectedMention?.id === m.id && (
+                              <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "replied" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "replied" } : x)); }}
+                                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #22c55e40`, background: "#22c55e10", color: "#22c55e", cursor: "pointer" }}>✅ Mark Replied</button>
+                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "escalated" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "escalated" } : x)); }}
+                                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", cursor: "pointer" }}>🔴 Escalate</button>
+                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "ignored" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "ignored" } : x)); }}
+                                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>⚫ Ignore</button>
+                                <button style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #a855f740`, background: "#a855f710", color: "#a855f7", cursor: "pointer" }}>✨ AI Reply</button>
+                                {m.post_url && <a href={m.post_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.accent, cursor: "pointer", textDecoration: "none" }}>↗ Open</a>}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                {socialMentions.length === 0 && <div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>No social mentions yet. Connect your accounts and configure monitoring in the AI Agent tab.</div>}
+              </div>
+            </div>
           </div>
         )}
 
