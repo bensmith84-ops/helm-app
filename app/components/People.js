@@ -545,15 +545,26 @@ export default function PeopleView() {
                 body: JSON.stringify({ email: selected.email, display_name: selected.display_name, role: om?.role || "member", org_id: profile.org_id, resend: true }),
               });
               const result = await res.json();
-              if (result.error) showToast("Failed: " + result.error);
-              else showToast("Invite resent to " + selected.email, "success");
+              if (result.error) { showToast("Failed: " + result.error); return; }
+              // If user ID was refreshed (deleted and re-created), update local state
+              if (result.refreshed && result.user_id && result.user_id !== selected.id) {
+                setMembers(p => p.map(m => m.id === selected.id ? { ...m, id: result.user_id } : m));
+                setMemberships(p => p.map(m => m.user_id === selected.id ? { ...m, user_id: result.user_id } : m));
+                setSelected(s => ({ ...s, id: result.user_id }));
+              }
+              showToast(result.message || "Invite resent!", "success");
             } catch (e) { showToast("Failed: " + e.message); }
           }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${T.accent}30`, background: T.accentDim, color: T.accent, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>📧 Resend Invite</button>}
           {!isMe && <button onClick={async () => {
             try {
-              const { error } = await supabase.auth.resetPasswordForEmail(selected.email, { redirectTo: window.location.origin });
-              if (error) showToast("Failed: " + error.message);
-              else showToast("Password reset email sent to " + selected.email, "success");
+              const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
+                body: JSON.stringify({ email: selected.email, display_name: selected.display_name, resend: true }),
+              });
+              const result = await res.json();
+              if (result.error) showToast("Failed: " + result.error);
+              else showToast(result.message || "Password reset sent!", "success");
             } catch (e) { showToast("Failed: " + e.message); }
           }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>🔑 Reset Password</button>}
           {!isMe && <button onClick={() => deactivateUser(selected.id)} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: om?.is_active !== false ? T.surface2 : T.greenDim, color: om?.is_active !== false ? T.text2 : T.green, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>{om?.is_active !== false ? "Deactivate" : "Reactivate"}</button>}
