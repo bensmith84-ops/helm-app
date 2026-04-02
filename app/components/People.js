@@ -657,8 +657,16 @@ export default function PeopleView() {
             <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Finance Role</div>
             <div style={{ display: "flex", gap: 0, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
               {[["requester","Requester"],["approver","Approver"],["admin","Admin"]].map(([v,l]) => (
-                <button key={v} onClick={async () => { if (!om?.id) return; await supabase.from("org_memberships").update({ af_role: v }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_role: v } : m)); showToast("Finance role updated", "success"); }}
-                  style={{ flex: 1, padding: "9px 0", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: om?.af_role === v ? T.accent : "transparent", color: om?.af_role === v ? "#fff" : T.text3, transition: "all 0.12s" }}>{l}</button>
+                <button key={v} onClick={async () => { 
+                  const membership = getMembership(selected?.id); 
+                  if (!membership?.id) { showToast("No membership found for this user"); return; } 
+                  const { error } = await supabase.from("org_memberships").update({ af_role: v }).eq("id", membership.id); 
+                  if (error) { showToast("Error: " + error.message); return; }
+                  setMemberships(p => p.map(m => m.id === membership.id ? { ...m, af_role: v } : m)); 
+                  showToast("Finance role → " + l, "success"); 
+                }}
+                  style={{ flex: 1, padding: "9px 0", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, borderRadius: 0,
+                    background: om?.af_role === v ? T.accent : "transparent", color: om?.af_role === v ? "#fff" : T.text3, transition: "all 0.12s" }}>{l}</button>
               ))}
             </div>
             <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
