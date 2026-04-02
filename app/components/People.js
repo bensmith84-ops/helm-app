@@ -106,6 +106,14 @@ export default function PeopleView() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
+  const [inviteTitle, setInviteTitle] = useState("");
+  const [inviteDept, setInviteDept] = useState("");
+  const [invitePhone, setInvitePhone] = useState("");
+  const [inviteLocation, setInviteLocation] = useState("");
+  const [inviteStartDate, setInviteStartDate] = useState("");
+  const [inviteReportsTo, setInviteReportsTo] = useState("");
+  const [inviteReportsSearch, setInviteReportsSearch] = useState("");
+  const [inviteReportsOpen, setInviteReportsOpen] = useState(false);
   const [tab, setTab] = useState("overview");
   const [reportsSearch, setReportsSearch] = useState("");
   const [reportsSearchOpen, setReportsSearchOpen] = useState(false);
@@ -181,18 +189,31 @@ export default function PeopleView() {
 
   const inviteUser = async () => {
     if (!inviteEmail.trim()) return showToast("Email required");
+    if (!inviteName.trim()) return showToast("Name required");
     try {
       const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
-        body: JSON.stringify({ email: inviteEmail.trim(), display_name: inviteName.trim() || inviteEmail.split("@")[0], role: inviteRole, org_id: profile.org_id }),
+        body: JSON.stringify({ email: inviteEmail.trim(), display_name: inviteName.trim(), role: inviteRole, org_id: profile.org_id }),
       });
       const result = await res.json();
       if (result.error) return showToast("Failed: " + result.error);
       const userId = result.user_id;
-      setMembers(p => [...p, { id: userId, display_name: inviteName.trim() || inviteEmail.split("@")[0], email: inviteEmail.trim(), org_id: profile.org_id }]);
-      setMemberships(p => [...p, { org_id: profile.org_id, user_id: userId, role: inviteRole, is_active: true }]);
-      setInviteEmail(""); setInviteName(""); setInviteRole("member"); setShowInvite(false);
+      // Save extra profile fields
+      const extra = {};
+      if (inviteTitle.trim()) extra.title = inviteTitle.trim();
+      if (inviteDept) extra.department = inviteDept;
+      if (invitePhone.trim()) extra.phone = invitePhone.trim();
+      if (inviteLocation.trim()) extra.location = inviteLocation.trim();
+      if (inviteStartDate) extra.start_date = inviteStartDate;
+      if (inviteReportsTo) extra.reports_to = inviteReportsTo;
+      if (Object.keys(extra).length > 0) {
+        await supabase.from("profiles").update(extra).eq("id", userId);
+      }
+      const newMember = { id: userId, display_name: inviteName.trim(), email: inviteEmail.trim(), org_id: profile.org_id, ...extra };
+      setMembers(p => [...p.filter(m => m.id !== userId), newMember]);
+      setMemberships(p => { const exists = p.find(m => m.user_id === userId); return exists ? p : [...p, { org_id: profile.org_id, user_id: userId, role: inviteRole, is_active: true }]; });
+      setInviteEmail(""); setInviteName(""); setInviteRole("member"); setInviteTitle(""); setInviteDept(""); setInvitePhone(""); setInviteLocation(""); setInviteStartDate(""); setInviteReportsTo(""); setShowInvite(false);
       showToast(result.existing ? "User already exists — added to org" : "Invite sent to " + inviteEmail.trim(), "success");
     } catch (e) {
       showToast("Failed: " + e.message);
@@ -732,14 +753,115 @@ export default function PeopleView() {
     </div>); };
 
   // === MODALS ===
+  const DEPARTMENTS = ["Executive","Marketing","Operations","Finance","Customer Delight","R&D/Product","Retail Sales","Community Engagement","Engineering","HR","Legal"];
   const inviteModal = showInvite && (
     <div onClick={() => setShowInvite(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: "min(400px, 95vw)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>Add Team Member</h3>
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Name</label><input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="Full name" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Email</label><input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="email@company.com" type="email" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
-        <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, fontWeight: 500, color: T.text3, display: "block", marginBottom: 4 }}>Role</label><select value={inviteRole} onChange={e => setInviteRole(e.target.value)} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none" }}>{ROLES.filter(r => r !== "owner").map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}</select></div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button onClick={() => setShowInvite(false)} style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button><button onClick={inviteUser} style={{ padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Add Member</button></div>
+      <div onClick={e => e.stopPropagation()} style={{ width: "min(520px, 95vw)", maxHeight: "90vh", overflow: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 20, background: T.accent + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>👤</div>
+          <div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: 0 }}>Add Team Member</h3>
+            <div style={{ fontSize: 11, color: T.text3 }}>They'll receive an invite email to join Helm</div>
+          </div>
+        </div>
+        {/* Required fields */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Full Name <span style={{ color: T.red }}>*</span></label>
+            <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="Jane Smith"
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Email <span style={{ color: T.red }}>*</span></label>
+            <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="jane@earthbreeze.com" type="email"
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          </div>
+        </div>
+        {/* Role & Department */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Role</label>
+            <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", cursor: "pointer" }}>
+              {ROLES.filter(r => r !== "owner").map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Department</label>
+            <select value={inviteDept} onChange={e => setInviteDept(e.target.value)}
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", cursor: "pointer" }}>
+              <option value="">Select department...</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+        </div>
+        {/* Job Title & Phone */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Job Title</label>
+            <input value={inviteTitle} onChange={e => setInviteTitle(e.target.value)} placeholder="e.g. Marketing Manager"
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Phone</label>
+            <input value={invitePhone} onChange={e => setInvitePhone(e.target.value)} placeholder="+1 (555) 123-4567" type="tel"
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          </div>
+        </div>
+        {/* Location & Start Date */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Location</label>
+            <input value={inviteLocation} onChange={e => setInviteLocation(e.target.value)} placeholder="e.g. Portland, OR"
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Start Date</label>
+            <input value={inviteStartDate} onChange={e => setInviteStartDate(e.target.value)} type="date"
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          </div>
+        </div>
+        {/* Reports To */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Reports To</label>
+          <div style={{ position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 10px", borderRadius: 6, border: `1px solid ${inviteReportsOpen ? T.accent : T.border}`, background: T.surface2, cursor: "pointer" }}
+              onClick={() => { setInviteReportsOpen(true); setInviteReportsSearch(""); }}>
+              {!inviteReportsOpen ? (
+                <span style={{ fontSize: 13, color: inviteReportsTo ? T.text : T.text3, flex: 1 }}>
+                  {inviteReportsTo ? (members.find(m => m.id === inviteReportsTo)?.display_name || "Selected") : "Select supervisor..."}
+                </span>
+              ) : (
+                <input autoFocus value={inviteReportsSearch} onChange={e => setInviteReportsSearch(e.target.value)}
+                  onBlur={() => setTimeout(() => setInviteReportsOpen(false), 200)}
+                  placeholder="Search by name..." style={{ flex: 1, fontSize: 13, border: "none", outline: "none", background: "transparent", color: T.text, padding: 0 }} />
+              )}
+              {inviteReportsTo && !inviteReportsOpen && <span onClick={e => { e.stopPropagation(); setInviteReportsTo(""); }} style={{ fontSize: 11, color: T.text3, cursor: "pointer", padding: "0 4px" }}>✕</span>}
+              <span style={{ fontSize: 10, color: T.text3 }}>▾</span>
+            </div>
+            {inviteReportsOpen && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 110, maxHeight: 180, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", marginTop: 2 }}>
+                {members.filter(m => !inviteReportsSearch || (m.display_name || "").toLowerCase().includes(inviteReportsSearch.toLowerCase())).slice(0, 15).map(m => (
+                  <div key={m.id} onClick={() => { setInviteReportsTo(m.id); setInviteReportsOpen(false); }}
+                    style={{ padding: "7px 10px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <div style={{ width: 22, height: 22, borderRadius: 11, background: acol(m.id) + "20", color: acol(m.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>{ini(m.display_name)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{m.display_name}</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{m.title || m.department || ""}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+          <button onClick={() => setShowInvite(false)} style={{ padding: "9px 18px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          <button onClick={inviteUser} disabled={!inviteEmail.trim() || !inviteName.trim()}
+            style={{ padding: "9px 22px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600, opacity: !inviteEmail.trim() || !inviteName.trim() ? 0.5 : 1 }}>
+            Send Invite
+          </button>
+        </div>
       </div>
     </div>);
 
