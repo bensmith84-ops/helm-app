@@ -300,7 +300,7 @@ export default function SupportView() {
             <div style={{ padding: 10, borderBottom: `1px solid ${T.border}`, display: "flex", gap: 6 }}>
               <input placeholder="Search tickets..." value={filter.search} onChange={e => setFilter(f => ({ ...f, search: e.target.value }))}
                 style={{ flex: 1, padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none" }} />
-              <button onClick={() => setShowNewTicket(true)} style={{ padding: "7px 12px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>+ New</button>
+              <button onClick={() => setShowNewTicket(true)} style={{ padding: "7px 12px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>📨 Simulate Email</button>
             </div>
             {/* Status filter pills */}
             <div style={{ padding: "6px 10px", display: "flex", gap: 4, flexWrap: "wrap", borderBottom: `1px solid ${T.border}` }}>
@@ -1206,31 +1206,116 @@ export default function SupportView() {
         )}
       </div>
 
-      {/* New Ticket Modal */}
+      {/* Simulate Inbound Email / New Ticket Modal */}
       {showNewTicket && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowNewTicket(false)}>
-          <div style={{ width: 480, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24 }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px 0" }}>New Ticket</h3>
-            <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.target); createTicket({ subject: f.get("subject"), email: f.get("email"), name: f.get("name"), channel: f.get("channel"), priority: f.get("priority"), message: f.get("message") }); }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <input name="subject" placeholder="Subject" required style={{ padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }} />
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input name="name" placeholder="Customer name" style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }} />
-                  <input name="email" placeholder="Email" type="email" style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }} />
+          <div style={{ width: 560, maxHeight: "90vh", overflow: "auto", background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: T.accent + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📨</div>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: T.text }}>Simulate Inbound Email</h3>
+                <div style={{ fontSize: 11, color: T.text3 }}>Test the full support flow — ticket creation, AI auto-draft, and agent response</div>
+              </div>
+            </div>
+            <form onSubmit={async e => {
+              e.preventDefault();
+              const f = new FormData(e.target);
+              const form = { subject: f.get("subject"), email: f.get("email"), name: f.get("name"), channel: f.get("channel"), priority: f.get("priority"), message: f.get("message"), category: f.get("category") };
+              if (!form.subject || !form.message) return;
+              // Create ticket
+              const { data: ticket } = await supabase.from("cx_tickets").insert({
+                org_id: profile?.org_id, subject: form.subject, customer_email: form.email || "test@customer.com",
+                customer_name: form.name || "Test Customer", channel: form.channel || "email",
+                priority: form.priority || "medium", category: form.category || "general",
+                status: "open", assigned_to: user?.id, created_by: user?.id,
+              }).select().single();
+              if (!ticket) return;
+              // Create inbound message
+              await supabase.from("cx_messages").insert({
+                ticket_id: ticket.id, direction: "inbound", sender_type: "customer",
+                sender_name: form.name || "Test Customer", sender_email: form.email || "test@customer.com",
+                body_text: form.message, channel: form.channel || "email",
+              });
+              setTickets(p => [ticket, ...p]);
+              setSelected(ticket);
+              setShowNewTicket(false);
+              // Auto-generate AI draft
+              try {
+                const draftRes = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/cx-ai-draft", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (await supabase.auth.getSession()).data.session?.access_token },
+                  body: JSON.stringify({ ticket_id: ticket.id, subject: form.subject, message: form.message, customer_name: form.name || "Test Customer", category: form.category || "general", org_id: profile?.org_id }),
+                });
+                const draftResult = await draftRes.json();
+                if (draftResult.draft) {
+                  setReply(draftResult.draft);
+                  setAiDraft(draftResult.draft);
+                }
+              } catch (err) { console.log("AI draft error:", err); }
+            }}>
+              <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginBottom: 6 }}>💡 Quick Test Scenarios</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[
+                    { label: "Cancel Sub", subj: "I want to cancel my subscription", msg: "Hi, I've been a subscriber for 6 months but I want to cancel. I have too many sheets stacked up.", cat: "subscription" },
+                    { label: "Where's My Order?", subj: "My order hasn't arrived", msg: "I placed an order 2 weeks ago and it still hasn't arrived. Order #EB-28374. Can you help me track it?", cat: "shipping" },
+                    { label: "Sheets Not Dissolving", subj: "Sheets not dissolving in cold water", msg: "I just switched to your laundry sheets but they aren't dissolving fully in cold water. There's residue on my clothes. What am I doing wrong?", cat: "product" },
+                    { label: "Wrong Item", subj: "Received wrong item in my order", msg: "I ordered Fresh Scent but received Fragrance Free instead. This is the second time this has happened. I'm really frustrated.", cat: "shipping" },
+                    { label: "Billing Issue", subj: "Charged twice for my subscription", msg: "I was charged $24.99 twice this month for my subscription. Can you please refund the duplicate charge?", cat: "billing" },
+                  ].map(sc => (
+                    <button key={sc.label} type="button" onClick={() => {
+                      const form = document.getElementById("sim-form");
+                      if (form) { form.subject.value = sc.subj; form.message.value = sc.msg; form.category.value = sc.cat; }
+                    }} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}30`, background: T.accentDim, color: T.accent, cursor: "pointer" }}>{sc.label}</button>
+                  ))}
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <select name="channel" defaultValue="email" style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }}>
-                    <option value="email">📧 Email</option><option value="chat">💬 Chat</option><option value="phone">📞 Phone</option>
-                    <option value="social_facebook">📘 Facebook</option><option value="social_instagram">📸 Instagram</option>
-                  </select>
-                  <select name="priority" defaultValue="medium" style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }}>
-                    <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
-                  </select>
+              </div>
+
+              <div id="sim-form" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Subject <span style={{ color: "#ef4444" }}>*</span></label>
+                  <input name="subject" placeholder="e.g. I want to cancel my subscription" required style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
                 </div>
-                <textarea name="message" placeholder="Initial message (optional)" rows={3} style={{ padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, resize: "vertical", fontFamily: "inherit" }} />
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <button type="button" onClick={() => setShowNewTicket(false)} style={{ padding: "8px 16px", background: T.surface2, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Cancel</button>
-                  <button type="submit" style={{ padding: "8px 16px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Create Ticket</button>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Customer Name</label>
+                    <input name="name" placeholder="Sarah Johnson" defaultValue="Sarah Johnson" style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Customer Email</label>
+                    <input name="email" placeholder="sarah@gmail.com" defaultValue="sarah.test@gmail.com" type="email" style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Channel</label>
+                    <select name="channel" defaultValue="email" style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", cursor: "pointer" }}>
+                      <option value="email">📧 Email</option><option value="chat">💬 Live Chat</option><option value="social_instagram">📸 Instagram</option>
+                      <option value="social_facebook">📘 Facebook</option><option value="social_tiktok">🎵 TikTok</option><option value="phone">📞 Phone</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Priority</label>
+                    <select name="priority" defaultValue="medium" style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", cursor: "pointer" }}>
+                      <option value="low">🟢 Low</option><option value="medium">🟡 Medium</option><option value="high">🟠 High</option><option value="urgent">🔴 Urgent</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Category</label>
+                    <select name="category" defaultValue="general" style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", cursor: "pointer" }}>
+                      <option value="general">General</option><option value="subscription">Subscription</option><option value="shipping">Shipping</option>
+                      <option value="product">Product</option><option value="billing">Billing</option><option value="returns">Returns</option>
+                      <option value="account">Account</option><option value="feedback">Feedback</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Customer Message <span style={{ color: "#ef4444" }}>*</span></label>
+                  <textarea name="message" placeholder="Type the customer's email message here..." rows={5} required style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, resize: "vertical", fontFamily: "inherit", outline: "none", boxSizing: "border-box", lineHeight: 1.5 }} />
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+                  <button type="button" onClick={() => setShowNewTicket(false)} style={{ padding: "9px 18px", background: T.surface3, color: T.text2, border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                  <button type="submit" style={{ padding: "9px 20px", background: T.accent, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>📨 Simulate Email &amp; Generate AI Draft</button>
                 </div>
               </div>
             </form>
