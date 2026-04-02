@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { T } from "../tokens";
 
-const NAV_GROUPS = [
+export const NAV_GROUPS = [
   { label: "Work", items: [
     { key: "dashboard", icon: "⬡", label: "Home" },
     { key: "okrs", icon: "◎", label: "OKRs" },
@@ -41,7 +41,21 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
   const w = expanded ? 216 : 52;
   const [collapsed, setCollapsed] = useState({});
   const toggle = (label) => setCollapsed(c => ({ ...c, [label]: !c[label] }));
-  const activeGroup = NAV_GROUPS.find(g => g.items.some(i => i.key === active))?.label;
+  
+  // Use sidebar_config from profile if available, otherwise default NAV_GROUPS
+  const groups = profile?.sidebar_config?.groups
+    ? profile.sidebar_config.groups.map(g => ({
+        label: g.label,
+        items: g.items
+          .filter(i => i.visible !== false)
+          .map(i => {
+            const def = NAV_ITEMS.find(n => n.key === i.key);
+            return def ? { ...def, ...i } : i;
+          })
+      }))
+    : NAV_GROUPS;
+  
+  const activeGroup = groups.find(g => g.items.some(i => i.key === active))?.label;
 
   return (
     <div style={{ width: w, height: "100vh", background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", flexShrink: 0, transition: "width 0.2s cubic-bezier(0.4,0,0.2,1)", overflow: "hidden" }}>
@@ -59,7 +73,7 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
 
       {/* Nav groups */}
       <div style={{ flex: 1, overflow: "auto", padding: "2px 6px", display: "flex", flexDirection: "column", gap: 0 }}>
-        {NAV_GROUPS.map((group) => {
+        {groups.map((group) => {
           const isCollapsed = collapsed[group.label] && group.label !== activeGroup;
           const visibleItems = group.items.filter(item => {
             if (item.adminOnly && !isAdmin) return false;

@@ -6,7 +6,7 @@ import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { notifySlack } from "../lib/slack";
-import { NAV_ITEMS } from "./Sidebar";
+import { NAV_ITEMS, NAV_GROUPS } from "./Sidebar";
 
 const ALL_TABS = ["Profile","Organization","Team","Permissions","Integrations","Notifications","About"];
 const MEMBER_TABS = ["Profile","Notifications"];
@@ -78,9 +78,14 @@ export default function SettingsView({ isAdmin }) {
     task_overdue: true, okr_deadline: true, approval: true, mention: true, weekly_digest: true,
   });
 
-  // Sidebar order (was inside conditional IIFE — lifted to top)
+  // Sidebar order
   const [dragIdx, setDragIdx] = useState(null);
   const [navItems, setNavItems] = useState([]);
+  const [sidebarGroups, setSidebarGroups] = useState(null);
+  const [dragGroup, setDragGroup] = useState(null);
+  const [dragItem, setDragItem] = useState(null);
+  const [addingGroup, setAddingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
 
   // Team (was inside conditional IIFE — lifted to top)
   const [selectedMembers, setSelectedMembers] = useState(new Set());
@@ -101,6 +106,12 @@ export default function SettingsView({ isAdmin }) {
       const savedOrder = profile?.nav_order;
       const ordered = savedOrder ? savedOrder.map(k => nonDividerItems.find(n => n.key === k)).filter(Boolean).concat(nonDividerItems.filter(n => !savedOrder.includes(n.key))) : nonDividerItems;
       setNavItems(ordered);
+      // Init sidebar config
+      if (profile?.sidebar_config?.groups) {
+        setSidebarGroups(profile.sidebar_config.groups);
+      } else {
+        setSidebarGroups(NAV_GROUPS.map(g => ({ label: g.label, items: g.items.map(i => ({ key: i.key, icon: i.icon, label: i.label, visible: true, adminOnly: i.adminOnly })) })));
+      }
     }
     loadTeam();
     // Load permissions
@@ -119,6 +130,9 @@ export default function SettingsView({ isAdmin }) {
     setMembers(data || []);
   };
 
+  const saveSidebarConfig = async (groups) => {
+    await supabase.from("profiles").update({ sidebar_config: { groups } }).eq("id", user.id);
+  };
   const showToast = (msg, color="#22c55e") => {
     setToast({ msg, color });
     setTimeout(() => setToast(""), 3000);
@@ -264,41 +278,97 @@ export default function SettingsView({ isAdmin }) {
               </Field>
             </Section>
 
-            <Section title="Sidebar Menu Order" subtitle="Drag items to reorder your navigation menu">
+            <Section title="Sidebar Menu" subtitle="Customize your navigation — drag to reorder, toggle visibility, create custom groups">
+              {sidebarGroups && (
               <div>
-                {navItems.map((item, i) => (
-                  <div key={item.key} draggable
-                    onDragStart={() => setDragIdx(i)}
-                    onDragOver={e => { e.preventDefault(); }}
+                {sidebarGroups.map((group, gi) => (
+                  <div key={group.label} style={{ marginBottom: 12 }}
+                    onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
                     onDrop={() => {
-                      if (dragIdx === null || dragIdx === i) return;
-                      const next = [...navItems];
-                      const [moved] = next.splice(dragIdx, 1);
-                      next.splice(i, 0, moved);
-                      setNavItems(next);
-                      const order = next.map(n => n.key);
-                      supabase.from("profiles").update({ nav_order: order }).eq("id", user.id).then(() => showToast("Menu order saved"));
-                      setDragIdx(null);
-                    }}
-                    onDragEnd={() => setDragIdx(null)}
-                    style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8,
-                      border:`1px solid ${T.border}`, marginBottom:4, cursor:"grab",
-                      background: dragIdx === i ? T.accentDim : T.surface2,
-                      opacity: dragIdx === i ? 0.5 : 1, transition:"background 0.1s" }}>
-                    <span style={{ color:T.text3, fontSize:12, cursor:"grab" }}>⠿</span>
-                    <span style={{ fontSize:16, width:22, textAlign:"center" }}>{item.icon}</span>
-                    <span style={{ fontSize:13, fontWeight:500 }}>{item.label}</span>
+                      if (dragGroup !== null && dragGroup !== gi) {
+                        const next = [...sidebarGroups];
+                        const [moved] = next.splice(dragGroup, 1);
+                        next.splice(gi, 0, moved);
+                        setSidebarGroups(next);
+                        saveSidebarConfig(next);
+                        setDragGroup(null);
+                      }
+                    }}>
+                    {/* Group header */}
+                    <div draggable onDragStart={() => { setDragGroup(gi); setDragItem(null); }} onDragEnd={() => setDragGroup(null)}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: dragGroup === gi ? T.accentDim : T.surface3, cursor: "grab", marginBottom: 4 }}>
+                      <span style={{ color: T.text3, fontSize: 11, cursor: "grab" }}>⠿</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: "0.05em", flex: 1 }}>{group.label}</span>
+                      <span style={{ fontSize: 10, color: T.text3 }}>{group.items.filter(i => i.visible).length}/{group.items.length}</span>
+                      {!["Work","Connect","Operations","System"].includes(group.label) && (
+                        <button onClick={() => { const next = sidebarGroups.filter((_, i) => i !== gi); setSidebarGroups(next); saveSidebarConfig(next); }}
+                          style={{ fontSize: 10, color: "#ef4444", background: "none", border: "none", cursor: "pointer", padding: "0 4px" }} title="Delete group">✕</button>
+                      )}
+                    </div>
+                    {/* Items in group */}
+                    {group.items.map((item, ii) => (
+                      <div key={item.key} draggable
+                        onDragStart={() => { setDragItem({ gi, ii }); setDragGroup(null); }}
+                        onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                        onDrop={e => {
+                          e.stopPropagation();
+                          if (!dragItem) return;
+                          const next = sidebarGroups.map(g => ({ ...g, items: [...g.items] }));
+                          const [moved] = next[dragItem.gi].items.splice(dragItem.ii, 1);
+                          next[gi].items.splice(ii, 0, moved);
+                          setSidebarGroups(next);
+                          saveSidebarConfig(next);
+                          setDragItem(null);
+                        }}
+                        onDragEnd={() => setDragItem(null)}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", marginLeft: 12, borderRadius: 6,
+                          border: `1px solid ${T.border}`, marginBottom: 2, cursor: "grab",
+                          background: dragItem?.gi === gi && dragItem?.ii === ii ? T.accentDim : T.surface2,
+                          opacity: item.visible ? 1 : 0.4 }}>
+                        <span style={{ color: T.text3, fontSize: 10, cursor: "grab" }}>⠿</span>
+                        <span style={{ fontSize: 15, width: 20, textAlign: "center" }}>{item.icon}</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, flex: 1, color: item.visible ? T.text : T.text3 }}>{item.label}</span>
+                        {item.key !== "dashboard" && item.key !== "settings" && (
+                          <button onClick={() => {
+                            const next = sidebarGroups.map((g, gIdx) => gIdx === gi ? { ...g, items: g.items.map((it, iIdx) => iIdx === ii ? { ...it, visible: !it.visible } : it) } : g);
+                            setSidebarGroups(next);
+                            saveSidebarConfig(next);
+                          }} style={{ width: 34, height: 18, borderRadius: 9, border: "none", cursor: "pointer", position: "relative",
+                            background: item.visible ? "#22c55e" : T.surface3, transition: "background 0.2s", padding: 0 }}>
+                            <div style={{ width: 14, height: 14, borderRadius: 7, background: "#fff", position: "absolute", top: 2, left: item.visible ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 ))}
+                {/* Add custom group */}
+                {addingGroup ? (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "center" }}>
+                    <input autoFocus value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && newGroupName.trim()) { const next = [...sidebarGroups, { label: newGroupName.trim(), items: [] }]; setSidebarGroups(next); saveSidebarConfig(next); setNewGroupName(""); setAddingGroup(false); } if (e.key === "Escape") setAddingGroup(false); }}
+                      placeholder="Group name..." style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none" }} />
+                    <button onClick={() => { if (newGroupName.trim()) { const next = [...sidebarGroups, { label: newGroupName.trim(), items: [] }]; setSidebarGroups(next); saveSidebarConfig(next); setNewGroupName(""); setAddingGroup(false); } }}
+                      style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.accent, color: "#fff", border: "none", cursor: "pointer" }}>Add</button>
+                    <button onClick={() => setAddingGroup(false)} style={{ padding: "6px 10px", fontSize: 11, borderRadius: 6, background: T.surface3, color: T.text3, border: "none", cursor: "pointer" }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setAddingGroup(true)}
+                    style={{ marginTop: 8, padding: "6px 12px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer", width: "100%" }}>
+                    + Add Custom Group
+                  </button>
+                )}
+                {/* Reset */}
                 <button onClick={async () => {
-                  const nonDividerItems = NAV_ITEMS.filter(n => !n.type);
-                  await supabase.from("profiles").update({ nav_order: null }).eq("id", user.id);
-                  setNavItems(nonDividerItems);
-                  showToast("Reset to default order");
-                }} style={{ marginTop:8, fontSize:11, color:T.text3, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>
-                  Reset to default order
+                  const defaults = NAV_GROUPS.map(g => ({ label: g.label, items: g.items.map(i => ({ key: i.key, icon: i.icon, label: i.label, visible: true, adminOnly: i.adminOnly })) }));
+                  setSidebarGroups(defaults);
+                  await supabase.from("profiles").update({ sidebar_config: null, nav_order: null }).eq("id", user.id);
+                  showToast("Reset to default layout");
+                }} style={{ marginTop: 6, fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                  Reset to default layout
                 </button>
               </div>
+              )}
             </Section>
           </>
         )}
