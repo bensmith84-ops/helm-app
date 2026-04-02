@@ -640,6 +640,205 @@ export default function SupportView() {
                   + Add Sample Response
                 </button>
               </div>
+
+              {/* AI Test Chat */}
+              {(() => {
+                const [testMsgs, setTestMsgs] = useState([]);
+                const [testInput, setTestInput] = useState("");
+                const [testLoading, setTestLoading] = useState(false);
+                const testEndRef = useRef(null);
+                const sendTest = async () => {
+                  if (!testInput.trim() || testLoading) return;
+                  const userMsg = testInput;
+                  setTestMsgs(p => [...p, { role: "customer", text: userMsg }]);
+                  setTestInput("");
+                  setTestLoading(true);
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const res = await fetch(supabase.supabaseUrl + "/functions/v1/cx-ai-draft", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+                      body: JSON.stringify({
+                        ticket: { subject: "Test conversation", category: "general", channel: "chat", customer_name: "Test Customer" },
+                        messages: [...testMsgs, { role: "customer", text: userMsg }].map(m => `[${m.role}]: ${m.text}`).join("\n"),
+                      }),
+                    });
+                    const result = await res.json();
+                    setTestMsgs(p => [...p, { role: "agent", text: result.draft || "No response generated" }]);
+                  } catch (e) {
+                    setTestMsgs(p => [...p, { role: "agent", text: `Error: ${e.message}` }]);
+                  }
+                  setTestLoading(false);
+                  setTimeout(() => testEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+                };
+                return (
+                  <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>🧪 Test Your Agent</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Chat with {aiConfig.agent_name || "your agent"} to see how it responds. Uses your current persona settings + knowledge base.</div>
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                      <div style={{ height: 280, overflow: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
+                        {testMsgs.length === 0 && (
+                          <div style={{ textAlign: "center", color: T.text3, fontSize: 12, padding: 40 }}>
+                            Type a message to test how {aiConfig.agent_name || "your agent"} responds
+                          </div>
+                        )}
+                        {testMsgs.map((m, i) => (
+                          <div key={i} style={{ display: "flex", flexDirection: m.role === "customer" ? "row-reverse" : "row", gap: 6 }}>
+                            <div style={{ width: 26, height: 26, borderRadius: 13, background: m.role === "customer" ? T.accent + "20" : "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, flexShrink: 0 }}>
+                              {m.role === "customer" ? "👤" : aiConfig.agent_avatar || "🤖"}
+                            </div>
+                            <div style={{ maxWidth: "80%", padding: "8px 12px", borderRadius: 10, background: m.role === "customer" ? T.accent + "15" : T.surface2, border: `1px solid ${m.role === "customer" ? T.accent + "30" : T.border}`, fontSize: 12, color: T.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                              {m.text}
+                            </div>
+                          </div>
+                        ))}
+                        {testLoading && (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <div style={{ width: 26, height: 26, borderRadius: 13, background: "#a855f720", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>{aiConfig.agent_avatar || "🤖"}</div>
+                            <div style={{ padding: "8px 12px", borderRadius: 10, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3 }}>Thinking...</div>
+                          </div>
+                        )}
+                        <div ref={testEndRef} />
+                      </div>
+                      <div style={{ display: "flex", gap: 6, padding: 8, borderTop: `1px solid ${T.border}`, background: T.surface }}>
+                        <input value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Type as a customer..."
+                          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); sendTest(); } }}
+                          style={{ flex: 1, padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none" }} />
+                        <button onClick={sendTest} disabled={testLoading || !testInput.trim()}
+                          style={{ padding: "7px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: testLoading || !testInput.trim() ? 0.5 : 1 }}>Send</button>
+                        {testMsgs.length > 0 && <button onClick={() => setTestMsgs([])} style={{ padding: "7px 10px", background: T.surface2, color: T.text3, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Clear</button>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Social Media Monitoring Config */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>📱 Social Media Monitoring</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>Configure social listening and auto-engagement rules (replaces BrandBastian)</div>
+
+                {/* Connected Accounts */}
+                {S("Connected Accounts", "Connect your social media accounts for monitoring",
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[
+                      { key: "instagram", icon: "📸", label: "Instagram", handle: "@myearthbreeze", color: "#E1306C", connected: true },
+                      { key: "facebook", icon: "📘", label: "Facebook", handle: "Earth Breeze", color: "#1877F2", connected: true },
+                      { key: "tiktok", icon: "🎵", label: "TikTok", handle: "@earthbreeze", color: "#000000", connected: false },
+                      { key: "twitter", icon: "🐦", label: "X / Twitter", handle: "@earthbreeze", color: "#1DA1F2", connected: false },
+                    ].map(ch => (
+                      <div key={ch.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 8, border: `1px solid ${ch.connected ? ch.color + "40" : T.border}`, background: ch.connected ? ch.color + "08" : "transparent" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 18 }}>{ch.icon}</span>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{ch.label}</div>
+                            <div style={{ fontSize: 11, color: T.text3 }}>{ch.handle}</div>
+                          </div>
+                        </div>
+                        <button style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${ch.connected ? "#22c55e40" : T.accent + "40"}`, background: ch.connected ? "#22c55e10" : T.accentDim, color: ch.connected ? "#22c55e" : T.accent, cursor: "pointer" }}>
+                          {ch.connected ? "✓ Connected" : "Connect"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Monitoring Rules */}
+                {S("Monitoring Keywords", "Track brand mentions, hashtags, and competitor mentions",
+                  <TagInput values={["earthbreeze","earth breeze","#earthbreeze","#ecofriendly","laundry sheets"]} onChange={() => {}} />
+                )}
+                {S("Competitor Monitoring", "Track competitor brand mentions for market intelligence",
+                  <TagInput values={["tru earth","blueland","sheets laundry club","dropps"]} onChange={() => {}} />
+                )}
+
+                {/* Auto-Engagement Rules */}
+                <div style={{ borderTop: `1px solid ${T.border}`, margin: "16px 0", paddingTop: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>🤖 Auto-Engagement Rules</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[
+                      { trigger: "Positive mention / review", action: "Thank them + like post", enabled: true },
+                      { trigger: "Product question in comments", action: "Auto-reply with helpful answer", enabled: true },
+                      { trigger: "Negative mention / complaint", action: "Create urgent ticket + flag for human", enabled: true },
+                      { trigger: "UGC / customer photo", action: "Like + comment + flag for repost consideration", enabled: false },
+                      { trigger: "Influencer mention (>10K followers)", action: "Create VIP ticket + notify marketing", enabled: false },
+                    ].map((rule, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2 }}>
+                        <div onClick={() => {}} style={{ width: 32, height: 18, borderRadius: 9, background: rule.enabled ? "#22c55e" : T.surface3, position: "relative", cursor: "pointer", flexShrink: 0 }}>
+                          <div style={{ width: 14, height: 14, borderRadius: 7, background: "#fff", position: "absolute", top: 2, left: rule.enabled ? 16 : 2, transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{rule.trigger}</div>
+                          <div style={{ fontSize: 10, color: T.text3 }}>→ {rule.action}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sentiment Alerts */}
+                {S("Sentiment Alert Threshold", "Get notified when negative sentiment spikes",
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 12, color: T.text3 }}>Alert when negative mentions exceed</span>
+                    <select defaultValue="5" style={{ padding: "4px 8px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text }}>
+                      <option value="3">3 / hour</option><option value="5">5 / hour</option><option value="10">10 / hour</option><option value="25">25 / hour</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Intent Recognition & Workflows */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>🧠 Intent Recognition & Workflows</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>Map customer intents to automated actions (like Siena AI flows)</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[
+                    { intent: "Cancel subscription", confidence: "92%", action: "Run save flow → offer skip/pause/discount → escalate if insistent", tickets: 147 },
+                    { intent: "Where is my order?", confidence: "95%", action: "Look up order → provide tracking → send replacement if lost", tickets: 312 },
+                    { intent: "Product not working", confidence: "88%", action: "Troubleshoot with KB → offer replacement → escalate if unresolved", tickets: 89 },
+                    { intent: "Request refund", confidence: "90%", action: "Check order history → process refund if eligible → confirm timeline", tickets: 63 },
+                    { intent: "Change subscription", confidence: "94%", action: "Identify change type → walk through steps → confirm update", tickets: 201 },
+                    { intent: "Positive feedback", confidence: "97%", action: "Thank customer → share impact stats → ask for review", tickets: 156 },
+                    { intent: "Billing question", confidence: "91%", action: "Look up charges → explain → resolve discrepancy", tickets: 78 },
+                  ].map((flow, i) => (
+                    <div key={i} style={{ padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 4, background: "#22c55e", flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{flow.intent}</span>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <span style={{ fontSize: 10, color: "#22c55e", fontWeight: 600 }}>{flow.confidence} match</span>
+                            <span style={{ fontSize: 10, color: T.text3 }}>{flow.tickets} tickets</span>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 11, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{flow.action}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button style={{ marginTop: 10, padding: "6px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer" }}>+ Add Intent Flow</button>
+              </div>
+
+              {/* Agent Performance Preview */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>📈 Agent Performance</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+                  {[
+                    { label: "AI Resolution Rate", value: "—", target: ">60%", icon: "🤖" },
+                    { label: "Avg Response Time", value: "—", target: "<2 min", icon: "⚡" },
+                    { label: "Customer Satisfaction", value: "—", target: ">4.5", icon: "⭐" },
+                    { label: "Escalation Rate", value: "—", target: "<15%", icon: "🔄" },
+                    { label: "Tickets Handled", value: "0", target: "", icon: "🎫" },
+                    { label: "Cost per Ticket", value: "—", target: "<$0.10", icon: "💰" },
+                  ].map(k => (
+                    <div key={k.label} style={{ padding: 12, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, textAlign: "center" }}>
+                      <div style={{ fontSize: 20, marginBottom: 4 }}>{k.icon}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{k.value}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase" }}>{k.label}</div>
+                      {k.target && <div style={{ fontSize: 9, color: T.accent, marginTop: 2 }}>Target: {k.target}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           );
         })()}
