@@ -2577,7 +2577,6 @@ function AIAgentTab({ program }) {
     const load = async () => {
       let q = supabase.from("plm_ai_conversations").select("*").order("updated_at", { ascending: false });
       if (program) q = q.eq("program_id", program.id);
-      else q = q.is("program_id", null);
       const { data } = await q;
       setConversations(data || []);
       setLoadingConvs(false);
