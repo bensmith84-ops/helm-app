@@ -49,7 +49,7 @@ const buildTokens = (base, isDark, accentKey) => {
 const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
-  const [mode, setMode] = useState("dark");
+  const [mode, setMode] = useState("light");
   const [accentKey, setAccentKey] = useState("blue");
 
   useEffect(() => {
