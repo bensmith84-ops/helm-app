@@ -107,6 +107,8 @@ export default function PeopleView() {
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
   const [tab, setTab] = useState("overview");
+  const [reportsSearch, setReportsSearch] = useState("");
+  const [reportsSearchOpen, setReportsSearchOpen] = useState(false);
   const [filterRole, setFilterRole] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [viewMode, setViewMode] = useState(() => {
@@ -454,19 +456,60 @@ export default function PeopleView() {
             {ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
           </select>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, position: "relative" }}>
           <span style={{ fontSize: 12, color: T.text3, width: 60 }}>Reports to</span>
-          <select value={selected.reports_to || ""} onChange={async (e) => {
-            const val = e.target.value || null;
-            await supabase.from("profiles").update({ reports_to: val }).eq("id", selected.id);
-            setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: val } : m));
-            setSelected(s => ({ ...s, reports_to: val }));
-          }} style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, cursor: "pointer", outline: "none" }}>
-            <option value="">— No supervisor —</option>
-            {members.filter(m => m.id !== selected.id).map(m => (
-              <option key={m.id} value={m.id}>{m.display_name || m.email || "Unknown"}</option>
-            ))}
-          </select>
+          {(() => {
+            const currentSup = members.find(m => m.id === selected.reports_to);
+            const opts = members.filter(m => m.id !== selected.id);
+            const filtered = reportsSearch
+              ? opts.filter(m => (m.display_name || "").toLowerCase().includes(reportsSearch.toLowerCase()) || (m.email || "").toLowerCase().includes(reportsSearch.toLowerCase()))
+              : opts;
+            return (
+              <div style={{ flex: 1, position: "relative" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 6, border: `1px solid ${reportsSearchOpen ? T.accent : T.border}`, background: T.surface2, cursor: "pointer" }}
+                  onClick={() => { setReportsSearchOpen(true); setReportsSearch(""); }}>
+                  {!reportsSearchOpen ? (
+                    <span style={{ fontSize: 12, color: currentSup ? T.text : T.text3, flex: 1 }}>
+                      {currentSup ? currentSup.display_name || currentSup.email : "— No supervisor —"}
+                    </span>
+                  ) : (
+                    <input autoFocus value={reportsSearch} onChange={e => setReportsSearch(e.target.value)}
+                      onBlur={() => setTimeout(() => setReportsSearchOpen(false), 200)}
+                      placeholder="Search by name or email..."
+                      style={{ flex: 1, fontSize: 12, border: "none", outline: "none", background: "transparent", color: T.text, padding: 0 }} />
+                  )}
+                  {selected.reports_to && !reportsSearchOpen && (
+                    <span onClick={async (e) => { e.stopPropagation(); await supabase.from("profiles").update({ reports_to: null }).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: null } : m)); setSelected(s => ({ ...s, reports_to: null })); }}
+                      style={{ fontSize: 11, color: T.text3, cursor: "pointer", padding: "0 4px" }} title="Clear">✕</span>
+                  )}
+                  <span style={{ fontSize: 10, color: T.text3 }}>▾</span>
+                </div>
+                {reportsSearchOpen && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100, maxHeight: 200, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", marginTop: 2 }}>
+                    <div onClick={async () => { await supabase.from("profiles").update({ reports_to: null }).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: null } : m)); setSelected(s => ({ ...s, reports_to: null })); setReportsSearchOpen(false); }}
+                      style={{ padding: "7px 10px", fontSize: 12, color: T.text3, cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      — No supervisor —
+                    </div>
+                    {filtered.slice(0, 20).map(m => (
+                      <div key={m.id} onClick={async () => { await supabase.from("profiles").update({ reports_to: m.id }).eq("id", selected.id); setMembers(p => p.map(x => x.id === selected.id ? { ...x, reports_to: m.id } : x)); setSelected(s => ({ ...s, reports_to: m.id })); setReportsSearchOpen(false); }}
+                        style={{ padding: "7px 10px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
+                        onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <div style={{ width: 22, height: 22, borderRadius: 11, background: acol(m.id) + "20", color: acol(m.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{ini(m.display_name)}</div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.display_name || "Unknown"}</div>
+                          <div style={{ fontSize: 10, color: T.text3 }}>{m.job_title || m.email || ""}</div>
+                        </div>
+                        {m.id === selected.reports_to && <span style={{ fontSize: 10, color: T.accent, marginLeft: "auto" }}>✓</span>}
+                      </div>
+                    ))}
+                    {filtered.length === 0 && <div style={{ padding: "12px 10px", fontSize: 11, color: T.text3, textAlign: "center" }}>No matches found</div>}
+                    {filtered.length > 20 && <div style={{ padding: "6px 10px", fontSize: 10, color: T.text3, textAlign: "center" }}>Showing first 20 — type to narrow</div>}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
         {selected.reports_to && (() => {
           const sup = members.find(m => m.id === selected.reports_to);
