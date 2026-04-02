@@ -833,27 +833,84 @@ export default function SupportView() {
         })()}
 
         {/* Knowledge Base tab */}
-        {tab === "kb" && (
-          <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>📖 Knowledge Base</h2>
-              <button onClick={async () => {
-                const { data } = await supabase.from("cx_kb_articles").insert({ org_id: profile?.org_id, title: "New Article", content: "", category: "general", status: "draft", created_by: user?.id }).select().single();
-                if (data) setKbArticles(p => [data, ...p]);
-              }} style={{ padding: "6px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>+ New Article</button>
+        {tab === "kb" && (() => {
+          return (
+          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+            {/* Article list */}
+            <div style={{ width: 320, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0 }}>
+              <div style={{ padding: 10, borderBottom: `1px solid ${T.border}`, display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 14 }}>📖</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1 }}>Knowledge Base</span>
+                <span style={{ fontSize: 10, color: T.text3 }}>{kbArticles.length} articles</span>
+                <button onClick={async () => {
+                  const { data } = await supabase.from("cx_kb_articles").insert({ org_id: profile?.org_id, title: "New Article", content: "", category: "general", status: "draft", created_by: user?.id }).select().single();
+                  if (data) { setKbArticles(p => [data, ...p]); setSelected(data); setTab("kb"); }
+                }} style={{ padding: "4px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>+</button>
+              </div>
+              <div style={{ flex: 1, overflow: "auto" }}>
+                {kbArticles.map(a => {
+                  const catColors = { shipping: "#3b82f6", subscription: "#8b5cf6", product: "#f97316", billing: "#f59e0b", account: "#06b6d4", troubleshooting: "#ef4444", returns: "#22c55e", general: "#6b7280", policy: "#dc2626", faq: "#8b5cf6" };
+                  return (
+                    <div key={a.id} onClick={() => setSelected(a)}
+                      style={{ padding: "10px 12px", borderBottom: `1px solid ${T.border}`, cursor: "pointer",
+                        background: selected?.id === a.id ? T.accentDim : "transparent" }}
+                      onMouseEnter={e => { if (selected?.id !== a.id) e.currentTarget.style.background = T.surface2; }}
+                      onMouseLeave={e => { if (selected?.id !== a.id) e.currentTarget.style.background = "transparent"; }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: (catColors[a.category] || "#6b7280") + "20", color: catColors[a.category] || "#6b7280", fontWeight: 600 }}>{a.category}</span>
+                        <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: a.status === "published" ? "#22c55e20" : "#f59e0b20", color: a.status === "published" ? "#22c55e" : "#f59e0b", fontWeight: 600 }}>{a.status}</span>
+                        {a.is_internal && <span style={{ fontSize: 9, color: T.text3 }}>🔒</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-              {kbArticles.map(a => (
-                <div key={a.id} style={{ padding: 14, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 4 }}>{a.title}</div>
-                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>{a.category} · {a.status}</div>
-                  <div style={{ fontSize: 12, color: T.text2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>{a.content || "Empty article"}</div>
+            {/* Article detail / editor */}
+            {selected && selected.title !== undefined && selected.content !== undefined ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <input value={selected.title} onChange={e => setSelected(s => ({ ...s, title: e.target.value }))}
+                    onBlur={e => supabase.from("cx_kb_articles").update({ title: e.target.value }).eq("id", selected.id)}
+                    style={{ flex: 1, fontSize: 15, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", padding: 0 }} />
+                  <select value={selected.category} onChange={async e => {
+                    const v = e.target.value;
+                    setSelected(s => ({ ...s, category: v }));
+                    await supabase.from("cx_kb_articles").update({ category: v }).eq("id", selected.id);
+                    setKbArticles(p => p.map(a => a.id === selected.id ? { ...a, category: v } : a));
+                  }} style={{ padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text }}>
+                    {["general", "shipping", "returns", "subscription", "product", "billing", "account", "troubleshooting", "policy", "faq"].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select value={selected.status} onChange={async e => {
+                    const v = e.target.value;
+                    setSelected(s => ({ ...s, status: v }));
+                    await supabase.from("cx_kb_articles").update({ status: v }).eq("id", selected.id);
+                    setKbArticles(p => p.map(a => a.id === selected.id ? { ...a, status: v } : a));
+                  }} style={{ padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: selected.status === "published" ? "#22c55e15" : T.surface, color: selected.status === "published" ? "#22c55e" : T.text }}>
+                    <option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option>
+                  </select>
+                  <button onClick={async () => { await supabase.from("cx_kb_articles").delete().eq("id", selected.id); setKbArticles(p => p.filter(a => a.id !== selected.id)); setSelected(null); }}
+                    style={{ padding: "3px 8px", fontSize: 10, color: "#ef4444", background: "#ef444410", border: `1px solid #ef444430`, borderRadius: 4, cursor: "pointer" }}>Delete</button>
                 </div>
-              ))}
-              {kbArticles.length === 0 && <div style={{ padding: 30, textAlign: "center", color: T.text3, gridColumn: "1/-1" }}>No articles yet. Create your first knowledge base article to train the AI agent.</div>}
-            </div>
+                <textarea value={selected.content || ""} onChange={e => setSelected(s => ({ ...s, content: e.target.value }))}
+                  onBlur={async e => {
+                    await supabase.from("cx_kb_articles").update({ content: e.target.value, updated_at: new Date().toISOString() }).eq("id", selected.id);
+                    setKbArticles(p => p.map(a => a.id === selected.id ? { ...a, content: e.target.value } : a));
+                  }}
+                  style={{ flex: 1, padding: 16, fontSize: 13, color: T.text, background: T.bg, border: "none", outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.7 }}
+                  placeholder="Write article content here... This is what the AI agent reads when drafting replies." />
+              </div>
+            ) : (
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8, color: T.text3 }}>
+                <span style={{ fontSize: 48 }}>📖</span>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Select an article to edit</span>
+                <span style={{ fontSize: 11 }}>Articles train the AI agent on how to respond</span>
+              </div>
+            )}
           </div>
-        )}
+          );
+        })()}
 
         {/* Macros tab */}
         {tab === "macros" && (
@@ -1009,22 +1066,141 @@ export default function SupportView() {
         {/* Analytics tab */}
         {tab === "analytics" && (
           <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px 0" }}>📊 Support Analytics</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>📊 Support Analytics</h2>
+            </div>
+            {/* KPI Cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
               {[
-                { label: "Open Tickets", value: stats.open, color: "#3b82f6", icon: "📬" },
+                { label: "Open", value: stats.open, color: "#3b82f6", icon: "📬" },
                 { label: "Pending", value: stats.pending, color: "#f59e0b", icon: "⏳" },
                 { label: "Urgent", value: stats.urgent, color: "#ef4444", icon: "🔥" },
-                { label: "AI Auto-Resolved", value: stats.ai_resolved, color: "#a855f7", icon: "🤖" },
+                { label: "AI Resolved", value: stats.ai_resolved, color: "#a855f7", icon: "🤖" },
                 { label: "Resolved Today", value: stats.resolved_today, color: "#22c55e", icon: "✅" },
-                { label: "Total Tickets", value: tickets.length, color: T.text2, icon: "🎫" },
+                { label: "Total", value: tickets.length, color: T.text2, icon: "🎫" },
               ].map(k => (
-                <div key={k.label} style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, textAlign: "center" }}>
-                  <div style={{ fontSize: 24 }}>{k.icon}</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: k.color, marginTop: 4 }}>{k.value}</div>
-                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, textTransform: "uppercase", marginTop: 2 }}>{k.label}</div>
+                <div key={k.label} style={{ padding: 14, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, textAlign: "center" }}>
+                  <div style={{ fontSize: 20 }}>{k.icon}</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: k.color, marginTop: 2 }}>{k.value}</div>
+                  <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{k.label}</div>
                 </div>
               ))}
+            </div>
+            {/* Tickets by Channel */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+              <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>Tickets by Channel</div>
+                {(() => {
+                  const channels = {};
+                  tickets.forEach(t => { channels[t.channel] = (channels[t.channel] || 0) + 1; });
+                  const sorted = Object.entries(channels).sort((a, b) => b[1] - a[1]);
+                  const max = sorted[0]?.[1] || 1;
+                  return sorted.map(([ch, count]) => (
+                    <div key={ch} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 14, width: 20 }}>{CHANNEL_ICONS[ch] || "📧"}</span>
+                      <span style={{ fontSize: 11, color: T.text2, width: 80, textTransform: "capitalize" }}>{ch.replace("social_", "")}</span>
+                      <div style={{ flex: 1, height: 16, background: T.surface2, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${(count / max) * 100}%`, background: T.accent, borderRadius: 4, transition: "width 0.3s" }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text, minWidth: 20, textAlign: "right" }}>{count}</span>
+                    </div>
+                  ));
+                })()}
+              </div>
+              <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>Tickets by Category</div>
+                {(() => {
+                  const cats = {};
+                  tickets.forEach(t => { const c = t.category || "uncategorized"; cats[c] = (cats[c] || 0) + 1; });
+                  const sorted = Object.entries(cats).sort((a, b) => b[1] - a[1]);
+                  const max = sorted[0]?.[1] || 1;
+                  const catColors = { shipping: "#3b82f6", subscription: "#8b5cf6", product_issue: "#f97316", billing: "#f59e0b", account: "#06b6d4", feedback: "#22c55e", general: "#6b7280", escalation: "#ef4444" };
+                  return sorted.map(([cat, count]) => (
+                    <div key={cat} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: T.text2, width: 90, textTransform: "capitalize" }}>{cat.replace("_", " ")}</span>
+                      <div style={{ flex: 1, height: 16, background: T.surface2, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${(count / max) * 100}%`, background: catColors[cat] || T.accent, borderRadius: 4 }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text, minWidth: 20, textAlign: "right" }}>{count}</span>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+            {/* Sentiment & Priority breakdown */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+              <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>AI Sentiment</div>
+                {["positive", "neutral", "negative", "angry", "frustrated"].map(s => {
+                  const count = tickets.filter(t => t.ai_sentiment === s).length;
+                  const icons = { positive: "😊", neutral: "😐", negative: "😠", angry: "🤬", frustrated: "😤" };
+                  const colors = { positive: "#22c55e", neutral: "#f59e0b", negative: "#ef4444", angry: "#dc2626", frustrated: "#f97316" };
+                  return count > 0 ? (
+                    <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 14 }}>{icons[s]}</span>
+                      <span style={{ fontSize: 11, color: T.text2, width: 70, textTransform: "capitalize" }}>{s}</span>
+                      <div style={{ flex: 1, height: 16, background: T.surface2, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${(count / tickets.length) * 100}%`, background: colors[s], borderRadius: 4 }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text, minWidth: 20, textAlign: "right" }}>{count}</span>
+                    </div>
+                  ) : null;
+                })}
+                {tickets.filter(t => !t.ai_sentiment).length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 14 }}>❓</span>
+                    <span style={{ fontSize: 11, color: T.text3, width: 70 }}>Unclassified</span>
+                    <span style={{ fontSize: 11, color: T.text3 }}>{tickets.filter(t => !t.ai_sentiment).length}</span>
+                  </div>
+                )}
+              </div>
+              <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>Priority Breakdown</div>
+                {["urgent", "high", "medium", "low"].map(p => {
+                  const count = tickets.filter(t => t.priority === p).length;
+                  return (
+                    <div key={p} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: 5, background: PRIORITY_COLORS[p] }} />
+                      <span style={{ fontSize: 11, color: T.text2, width: 60, textTransform: "capitalize" }}>{p}</span>
+                      <div style={{ flex: 1, height: 16, background: T.surface2, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${tickets.length ? (count / tickets.length) * 100 : 0}%`, background: PRIORITY_COLORS[p], borderRadius: 4 }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text, minWidth: 20, textAlign: "right" }}>{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {/* Social stats */}
+            {socialMentions.length > 0 && (
+              <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 20 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>📱 Social Monitoring</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+                  {[
+                    { label: "Total Mentions", value: socialMentions.length, icon: "📢" },
+                    { label: "New", value: socialMentions.filter(m => m.status === "new").length, icon: "🔵" },
+                    { label: "Positive", value: socialMentions.filter(m => m.sentiment === "positive").length, icon: "😊", color: "#22c55e" },
+                    { label: "Negative", value: socialMentions.filter(m => m.sentiment === "negative").length, icon: "😠", color: "#ef4444" },
+                    { label: "Influencer", value: socialMentions.filter(m => m.author_follower_count > 10000).length, icon: "⭐", color: "#f59e0b" },
+                    { label: "UGC", value: socialMentions.filter(m => m.is_ugc).length, icon: "📸", color: "#a855f7" },
+                  ].map(k => (
+                    <div key={k.label} style={{ textAlign: "center", padding: 8 }}>
+                      <div style={{ fontSize: 16 }}>{k.icon}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: k.color || T.text }}>{k.value}</div>
+                      <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* KB stats */}
+            <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>📖 Knowledge Base</div>
+              <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                <div><span style={{ fontSize: 24, fontWeight: 800, color: T.accent }}>{kbArticles.length}</span> <span style={{ fontSize: 11, color: T.text3 }}>published articles</span></div>
+                <div><span style={{ fontSize: 24, fontWeight: 800, color: T.text }}>{macros.length}</span> <span style={{ fontSize: 11, color: T.text3 }}>active macros</span></div>
+                <div><span style={{ fontSize: 24, fontWeight: 800, color: T.text }}>{tags.length}</span> <span style={{ fontSize: 11, color: T.text3 }}>tags</span></div>
+              </div>
             </div>
           </div>
         )}
