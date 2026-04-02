@@ -7,8 +7,6 @@ const STATUS_COLORS = { open: "#3b82f6", pending: "#f59e0b", waiting: "#8b5cf6",
 const PRIORITY_COLORS = { urgent: "#ef4444", high: "#f97316", medium: "#f59e0b", low: "#6b7280" };
 const CHANNEL_ICONS = { email: "📧", chat: "💬", social_facebook: "📘", social_instagram: "📸", social_tiktok: "🎵", social_twitter: "🐦", phone: "📞", internal: "🏢", api: "⚡" };
 
-const timeAgo = (d) => {
-
 // Reusable tag input component (module-level to avoid React #310)
 function CxTagInput({ values, onChange, T: theme }) {
   const [inp, setInp] = useState("");
@@ -28,6 +26,8 @@ function CxTagInput({ values, onChange, T: theme }) {
     </div>
   );
 }
+
+const timeAgo = (d) => {
   if (!d) return "";
   const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
   if (s < 60) return "just now";
@@ -487,7 +487,7 @@ export default function SupportView() {
               <span style={{ fontSize: 12, color: T.text }}>{label}</span>
             </div>
           );
-          const TagInput = ({ values, onChange }) => <CxTagInput values={values} onChange={onChange} T={T} />;
+          const TagInput = CxTagInput;
           const samples = aiConfig.sample_responses || [];
           return (
             <div style={{ flex: 1, overflow: "auto", padding: 24, maxWidth: 800, margin: "0 auto" }}>
@@ -535,7 +535,7 @@ export default function SupportView() {
                     options={[{value:"never",label:"Never"},{value:"occasional",label:"Occasional 🌿"},{value:"frequent",label:"Frequent 🎉🌍💚"}]} />)}
                 </div>
                 {S("Personality Traits", "What traits define this agent?",
-                  <TagInput values={aiConfig.personality_traits} onChange={v => updateAiConfig("personality_traits", v)} />
+                  <TagInput T={T} values={aiConfig.personality_traits} onChange={v => updateAiConfig("personality_traits", v)} />
                 )}
                 {S("Sign-off", "How the agent ends messages",
                   <Inp value={aiConfig.sign_off} onChange={v => updateAiConfig("sign_off", v)} placeholder="e.g. Happy washing! 🌿" />
@@ -615,13 +615,13 @@ export default function SupportView() {
               <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>🛡️ Guardrails</div>
                 {S("Escalation Triggers", "Keywords or phrases that automatically escalate to a human",
-                  <TagInput values={aiConfig.escalation_triggers} onChange={v => updateAiConfig("escalation_triggers", v)} />
+                  <TagInput T={T} values={aiConfig.escalation_triggers} onChange={v => updateAiConfig("escalation_triggers", v)} />
                 )}
                 {S("Restricted Topics", "Topics the AI should never discuss — it will escalate instead",
-                  <TagInput values={aiConfig.restricted_topics} onChange={v => updateAiConfig("restricted_topics", v)} />
+                  <TagInput T={T} values={aiConfig.restricted_topics} onChange={v => updateAiConfig("restricted_topics", v)} />
                 )}
                 {S("Languages", "Languages the agent can respond in",
-                  <TagInput values={aiConfig.languages} onChange={v => updateAiConfig("languages", v)} />
+                  <TagInput T={T} values={aiConfig.languages} onChange={v => updateAiConfig("languages", v)} />
                 )}
               </div>
 
@@ -722,10 +722,10 @@ export default function SupportView() {
 
                 {/* Monitoring Rules */}
                 {S("Monitoring Keywords", "Track brand mentions, hashtags, and competitor mentions",
-                  <TagInput values={["earthbreeze","earth breeze","#earthbreeze","#ecofriendly","laundry sheets"]} onChange={() => {}} />
+                  <TagInput T={T} values={["earthbreeze","earth breeze","#earthbreeze","#ecofriendly","laundry sheets"]} onChange={() => {}} />
                 )}
                 {S("Competitor Monitoring", "Track competitor brand mentions for market intelligence",
-                  <TagInput values={["tru earth","blueland","sheets laundry club","dropps"]} onChange={() => {}} />
+                  <TagInput T={T} values={["tru earth","blueland","sheets laundry club","dropps"]} onChange={() => {}} />
                 )}
 
                 {/* Auto-Engagement Rules */}
@@ -948,3 +948,4 @@ export default function SupportView() {
     </div>
   );
 }
+// CX Support v3 - 20260402025142
