@@ -55,6 +55,9 @@ export default function SupportView() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showNewTicket, setShowNewTicket] = useState(false);
+  const [simSubject, setSimSubject] = useState("");
+  const [simMessage, setSimMessage] = useState("");
+  const [simCategory, setSimCategory] = useState("general");
   const [showMacros, setShowMacros] = useState(false);
   const [aiDraft, setAiDraft] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -1239,6 +1242,7 @@ export default function SupportView() {
               setTickets(p => [ticket, ...p]);
               setSelected(ticket);
               setShowNewTicket(false);
+              setSimSubject(""); setSimMessage(""); setSimCategory("general");
               // Auto-generate AI draft
               try {
                 const draftRes = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/cx-ai-draft", {
@@ -1248,7 +1252,7 @@ export default function SupportView() {
                 });
                 const draftResult = await draftRes.json();
                 if (draftResult.draft) {
-                  setReply(draftResult.draft);
+                  setReplyText(draftResult.draft);
                   setAiDraft(draftResult.draft);
                 }
               } catch (err) { console.log("AI draft error:", err); }
@@ -1264,17 +1268,16 @@ export default function SupportView() {
                     { label: "Billing Issue", subj: "Charged twice for my subscription", msg: "I was charged $24.99 twice this month for my subscription. Can you please refund the duplicate charge?", cat: "billing" },
                   ].map(sc => (
                     <button key={sc.label} type="button" onClick={() => {
-                      const form = document.getElementById("sim-form");
-                      if (form) { form.subject.value = sc.subj; form.message.value = sc.msg; form.category.value = sc.cat; }
+                      setSimSubject(sc.subj); setSimMessage(sc.msg); setSimCategory(sc.cat);
                     }} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}30`, background: T.accentDim, color: T.accent, cursor: "pointer" }}>{sc.label}</button>
                   ))}
                 </div>
               </div>
 
-              <div id="sim-form" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Subject <span style={{ color: "#ef4444" }}>*</span></label>
-                  <input name="subject" placeholder="e.g. I want to cancel my subscription" required style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                  <input name="subject" value={simSubject} onChange={e => setSimSubject(e.target.value)} placeholder="e.g. I want to cancel my subscription" required style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
@@ -1302,7 +1305,7 @@ export default function SupportView() {
                   </div>
                   <div>
                     <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Category</label>
-                    <select name="category" defaultValue="general" style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", cursor: "pointer" }}>
+                    <select name="category" value={simCategory} onChange={e => setSimCategory(e.target.value)} style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", cursor: "pointer" }}>
                       <option value="general">General</option><option value="subscription">Subscription</option><option value="shipping">Shipping</option>
                       <option value="product">Product</option><option value="billing">Billing</option><option value="returns">Returns</option>
                       <option value="account">Account</option><option value="feedback">Feedback</option>
@@ -1311,7 +1314,7 @@ export default function SupportView() {
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Customer Message <span style={{ color: "#ef4444" }}>*</span></label>
-                  <textarea name="message" placeholder="Type the customer's email message here..." rows={5} required style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, resize: "vertical", fontFamily: "inherit", outline: "none", boxSizing: "border-box", lineHeight: 1.5 }} />
+                  <textarea name="message" value={simMessage} onChange={e => setSimMessage(e.target.value)} placeholder="Type the customer's email message here..." rows={5} required style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, resize: "vertical", fontFamily: "inherit", outline: "none", boxSizing: "border-box", lineHeight: 1.5 }} />
                 </div>
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
                   <button type="button" onClick={() => setShowNewTicket(false)} style={{ padding: "9px 18px", background: T.surface3, color: T.text2, border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Cancel</button>
