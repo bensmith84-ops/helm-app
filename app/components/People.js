@@ -114,6 +114,8 @@ export default function PeopleView() {
   const [inviteReportsTo, setInviteReportsTo] = useState("");
   const [inviteReportsSearch, setInviteReportsSearch] = useState("");
   const [inviteReportsOpen, setInviteReportsOpen] = useState(false);
+  const [inviteEmploymentType, setInviteEmploymentType] = useState("full_time");
+  const [invitePersonalEmail, setInvitePersonalEmail] = useState("");
   const [tab, setTab] = useState("overview");
   const [reportsSearch, setReportsSearch] = useState("");
   const [reportsSearchOpen, setReportsSearchOpen] = useState(false);
@@ -207,13 +209,15 @@ export default function PeopleView() {
       if (inviteLocation.trim()) extra.location = inviteLocation.trim();
       if (inviteStartDate) extra.start_date = inviteStartDate;
       if (inviteReportsTo) extra.reports_to = inviteReportsTo;
+      if (inviteEmploymentType) extra.employment_type = inviteEmploymentType;
+      if (invitePersonalEmail.trim()) extra.personal_email = invitePersonalEmail.trim();
       if (Object.keys(extra).length > 0) {
         await supabase.from("profiles").update(extra).eq("id", userId);
       }
       const newMember = { id: userId, display_name: inviteName.trim(), email: inviteEmail.trim(), org_id: profile.org_id, ...extra };
       setMembers(p => [...p.filter(m => m.id !== userId), newMember]);
       setMemberships(p => { const exists = p.find(m => m.user_id === userId); return exists ? p : [...p, { org_id: profile.org_id, user_id: userId, role: inviteRole, is_active: true }]; });
-      setInviteEmail(""); setInviteName(""); setInviteRole("member"); setInviteTitle(""); setInviteDept(""); setInvitePhone(""); setInviteLocation(""); setInviteStartDate(""); setInviteReportsTo(""); setShowInvite(false);
+      setInviteEmail(""); setInviteName(""); setInviteRole("member"); setInviteTitle(""); setInviteDept(""); setInvitePhone(""); setInviteLocation(""); setInviteStartDate(""); setInviteReportsTo(""); setInviteEmploymentType("full_time"); setInvitePersonalEmail(""); setShowInvite(false);
       showToast(result.existing ? "User already exists — added to org" : "Invite sent to " + inviteEmail.trim(), "success");
     } catch (e) {
       showToast("Failed: " + e.message);
@@ -818,6 +822,25 @@ export default function PeopleView() {
           <div>
             <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Start Date</label>
             <input value={inviteStartDate} onChange={e => setInviteStartDate(e.target.value)} type="date"
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          </div>
+        </div>
+        {/* Employment Type & Personal Email */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Employment Type</label>
+            <select value={inviteEmploymentType} onChange={e => setInviteEmploymentType(e.target.value)}
+              style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", cursor: "pointer" }}>
+              <option value="full_time">Full Time</option>
+              <option value="part_time">Part Time</option>
+              <option value="contractor">Contractor</option>
+              <option value="intern">Intern</option>
+              <option value="temporary">Temporary</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Personal Email</label>
+            <input value={invitePersonalEmail} onChange={e => setInvitePersonalEmail(e.target.value)} placeholder="personal@gmail.com" type="email"
               style={{ width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
           </div>
         </div>
