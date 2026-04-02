@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth";
 import { useResponsive } from "../lib/responsive";
 
 const FinanceEmbed = lazy(() => import("./Finance"));
+const DemandPlanningView = lazy(() => import("./DemandPlanning"));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ERP MODULE — Products, Suppliers, POs, Inventory, Orders, Customers, Mfg, Facilities
@@ -103,6 +104,7 @@ const ERP_NAV = [
   { id: "suppliers", label: "Suppliers", icon: "🏭" },
   { id: "purchase_orders", label: "Purchase Orders", icon: "📋" },
   { id: "inventory", label: "Inventory", icon: "📊" },
+  { id: "demand_planning", label: "Demand Planning", icon: "📐" },
   { id: "manufacturing", label: "Manufacturing", icon: "⚙" },
   { type: "header", label: "Sales & Fulfillment" },
   { id: "orders", label: "Orders", icon: "🛒" },
@@ -683,6 +685,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} qboVendors={qboVendors} />}
           {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} landedCosts={landedCosts} setLandedCosts={setLandedCosts} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} binLocations={binLocations} isMobile={isMobile} />}
+          {view === "demand_planning" && <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading...</div>}><DemandPlanningView isMobile={isMobile} orgId={profile?.org_id} /></Suspense>}
           {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} shippingRules={shippingRules} setArInvoices={setArInvoices} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
