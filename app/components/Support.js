@@ -38,6 +38,7 @@ export default function SupportView() {
   const [showMacros, setShowMacros] = useState(false);
   const [aiDraft, setAiDraft] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiConfig, setAiConfig] = useState(null);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const chatEndRef = useRef(null);
@@ -54,13 +55,14 @@ export default function SupportView() {
       const orgId = p?.org_id;
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
         supabase.from("cx_tags").select("*").eq("org_id", orgId).order("name"),
         supabase.from("cx_views").select("*").eq("org_id", orgId).order("name"),
         supabase.from("cx_contacts").select("*").eq("org_id", orgId).order("last_contact_at", { ascending: false }).limit(50),
+        supabase.from("cx_ai_config").select("*").eq("org_id", orgId).single(),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -69,6 +71,7 @@ export default function SupportView() {
       setTags(tagRes.data || []);
       setViews(viewRes.data || []);
       setContacts(contactRes.data || []);
+      if (aiConfRes.data) setAiConfig(aiConfRes.data);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -210,6 +213,7 @@ export default function SupportView() {
 
   const TABS = [
     { key: "inbox", label: "Inbox", icon: "📥", count: stats.open + stats.pending },
+    { key: "ai_agent", label: "AI Agent", icon: "🤖" },
     { key: "kb", label: "Knowledge Base", icon: "📖" },
     { key: "macros", label: "Macros", icon: "⚡" },
     { key: "contacts", label: "Contacts", icon: "👥" },
@@ -424,6 +428,221 @@ export default function SupportView() {
             </div>
           )}
         </>}
+
+        {/* AI Agent Configuration Panel */}
+        {tab === "ai_agent" && aiConfig && (() => {
+          const updateAiConfig = async (field, value) => {
+            const updated = { ...aiConfig, [field]: value, updated_at: new Date().toISOString() };
+            setAiConfig(updated);
+            await supabase.from("cx_ai_config").update({ [field]: value, updated_at: new Date().toISOString() }).eq("id", aiConfig.id);
+          };
+          const S = (label, desc, children) => (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2 }}>{label}</div>
+              {desc && <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>{desc}</div>}
+              {children}
+            </div>
+          );
+          const Inp = ({ value, onChange, placeholder, multiline, rows }) => multiline
+            ? <textarea value={value || ""} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows || 3}
+                style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, outline: "none", resize: "vertical", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }}
+                onBlur={e => onChange(e.target.value)} />
+            : <input value={value || ""} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+                style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />;
+          const Sel = ({ value, onChange, options }) => (
+            <select value={value || ""} onChange={e => onChange(e.target.value)}
+              style={{ padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, cursor: "pointer" }}>
+              {options.map(o => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
+            </select>
+          );
+          const Toggle = ({ value, onChange, label }) => (
+            <div onClick={() => onChange(!value)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "6px 0" }}>
+              <div style={{ width: 40, height: 22, borderRadius: 11, background: value ? "#22c55e" : T.surface3, transition: "background 0.2s", position: "relative" }}>
+                <div style={{ width: 18, height: 18, borderRadius: 9, background: "#fff", position: "absolute", top: 2, left: value ? 20 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+              </div>
+              <span style={{ fontSize: 12, color: T.text }}>{label}</span>
+            </div>
+          );
+          const TagInput = ({ values, onChange, suggestions }) => {
+            const [inp, setInp] = useState("");
+            return (
+              <div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+                  {(values || []).map((v, i) => (
+                    <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 4, background: T.accentDim, color: T.accent, fontSize: 11, fontWeight: 600 }}>
+                      {v} <span onClick={() => onChange(values.filter((_, j) => j !== i))} style={{ cursor: "pointer", opacity: 0.6 }}>×</span>
+                    </span>
+                  ))}
+                </div>
+                <input value={inp} onChange={e => setInp(e.target.value)} placeholder="Type and press Enter..."
+                  onKeyDown={e => { if (e.key === "Enter" && inp.trim()) { onChange([...(values || []), inp.trim()]); setInp(""); e.preventDefault(); } }}
+                  style={{ padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none", width: 200 }} />
+              </div>
+            );
+          };
+          const samples = aiConfig.sample_responses || [];
+          return (
+            <div style={{ flex: 1, overflow: "auto", padding: 24, maxWidth: 800, margin: "0 auto" }}>
+              {/* Agent Identity */}
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28, padding: 20, borderRadius: 12, background: `linear-gradient(135deg, #a855f710 0%, #3b82f610 100%)`, border: `1px solid ${T.border}` }}>
+                <div onClick={() => {
+                  const emojis = ["🌿","🤖","💬","🌊","✨","🧹","🫧","🌍","💚","🌱","☀️","🍃"];
+                  const idx = emojis.indexOf(aiConfig.agent_avatar);
+                  updateAiConfig("agent_avatar", emojis[(idx + 1) % emojis.length]);
+                }} style={{ width: 64, height: 64, borderRadius: 32, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, cursor: "pointer", border: `2px solid ${T.border}`, flexShrink: 0 }} title="Click to change avatar">
+                  {aiConfig.agent_avatar || "🤖"}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <input value={aiConfig.agent_name || ""} onChange={e => updateAiConfig("agent_name", e.target.value)}
+                    style={{ fontSize: 22, fontWeight: 800, color: T.text, background: "transparent", border: "none", outline: "none", width: "100%", padding: 0, marginBottom: 4 }}
+                    placeholder="Agent Name" />
+                  <input value={aiConfig.agent_role || ""} onChange={e => updateAiConfig("agent_role", e.target.value)}
+                    style={{ fontSize: 13, color: T.text3, background: "transparent", border: "none", outline: "none", width: "100%", padding: 0 }}
+                    placeholder="Role / Title" />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                  <div style={{ padding: "4px 12px", borderRadius: 6, background: aiConfig.enabled ? "#22c55e20" : "#ef444420", color: aiConfig.enabled ? "#22c55e" : "#ef4444", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                    onClick={() => updateAiConfig("enabled", !aiConfig.enabled)}>
+                    {aiConfig.enabled ? "● Active" : "○ Inactive"}
+                  </div>
+                  <span style={{ fontSize: 10, color: T.text3 }}>Model: {aiConfig.model || "claude-sonnet-4-6"}</span>
+                </div>
+              </div>
+
+              {/* Personality & Voice */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>🎭 Personality & Voice</div>
+                {S("Brand Voice", "How should the agent represent Earth Breeze? This shapes every response.",
+                  <Inp value={aiConfig.brand_voice} onChange={v => updateAiConfig("brand_voice", v)} multiline rows={3}
+                    placeholder="e.g. Earth Breeze is a friendly, eco-conscious brand..." />
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  {S("Tone", "Overall communication style", <Sel value={aiConfig.tone} onChange={v => updateAiConfig("tone", v)}
+                    options={[{value:"friendly",label:"😊 Friendly"},{value:"professional",label:"👔 Professional"},{value:"casual",label:"🤙 Casual"},{value:"empathetic",label:"💛 Empathetic"}]} />)}
+                  {S("Writing Style", null, <Sel value={aiConfig.writing_style} onChange={v => updateAiConfig("writing_style", v)}
+                    options={["conversational","formal","concise","detailed"].map(s => ({value:s,label:s.charAt(0).toUpperCase()+s.slice(1)}))} />)}
+                  {S("Response Length", null, <Sel value={aiConfig.response_length} onChange={v => updateAiConfig("response_length", v)}
+                    options={[{value:"short",label:"Short (1-2 paragraphs)"},{value:"medium",label:"Medium (2-3 paragraphs)"},{value:"detailed",label:"Detailed (3-4 paragraphs)"}]} />)}
+                  {S("Emoji Usage", null, <Sel value={aiConfig.emoji_usage} onChange={v => updateAiConfig("emoji_usage", v)}
+                    options={[{value:"never",label:"Never"},{value:"occasional",label:"Occasional 🌿"},{value:"frequent",label:"Frequent 🎉🌍💚"}]} />)}
+                </div>
+                {S("Personality Traits", "What traits define this agent?",
+                  <TagInput values={aiConfig.personality_traits} onChange={v => updateAiConfig("personality_traits", v)} />
+                )}
+                {S("Sign-off", "How the agent ends messages",
+                  <Inp value={aiConfig.sign_off} onChange={v => updateAiConfig("sign_off", v)} placeholder="e.g. Happy washing! 🌿" />
+                )}
+                {S("Greeting Template", "First message to new conversations",
+                  <Inp value={aiConfig.greeting_template} onChange={v => updateAiConfig("greeting_template", v)} multiline rows={2} />
+                )}
+                {S("Handoff Message", "When escalating to a human agent",
+                  <Inp value={aiConfig.handoff_message} onChange={v => updateAiConfig("handoff_message", v)} multiline rows={2} />
+                )}
+              </div>
+
+              {/* Automation & Capabilities */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>⚡ Automation & Capabilities</div>
+                <Toggle value={aiConfig.auto_resolve_enabled} onChange={v => updateAiConfig("auto_resolve_enabled", v)} label="Auto-resolve tickets (AI sends response without agent review)" />
+                {aiConfig.auto_resolve_enabled && S("Confidence Threshold", "AI only auto-resolves when confidence is above this level",
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input type="range" min="0.5" max="0.99" step="0.01" value={aiConfig.auto_resolve_confidence_threshold || 0.85}
+                      onChange={e => updateAiConfig("auto_resolve_confidence_threshold", parseFloat(e.target.value))}
+                      style={{ flex: 1 }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, minWidth: 40 }}>{Math.round((aiConfig.auto_resolve_confidence_threshold || 0.85) * 100)}%</span>
+                  </div>
+                )}
+                {S("Max Auto-Responses per Ticket", null,
+                  <Sel value={String(aiConfig.max_auto_responses || 3)} onChange={v => updateAiConfig("max_auto_responses", parseInt(v))}
+                    options={[1,2,3,5,10].map(n => ({value:String(n), label:String(n)}))} />
+                )}
+                <div style={{ borderTop: `1px solid ${T.border}`, margin: "16px 0", paddingTop: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>🔐 Agent Permissions</div>
+                  <Toggle value={aiConfig.can_issue_refunds} onChange={v => updateAiConfig("can_issue_refunds", v)} label="Can issue refunds" />
+                  <Toggle value={aiConfig.can_modify_subscriptions} onChange={v => updateAiConfig("can_modify_subscriptions", v)} label="Can modify subscriptions" />
+                  <Toggle value={aiConfig.can_offer_discounts} onChange={v => updateAiConfig("can_offer_discounts", v)} label="Can offer discounts" />
+                  {aiConfig.can_offer_discounts && S("Max Discount %", null,
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <input type="range" min="5" max="50" step="5" value={aiConfig.max_discount_pct || 20}
+                        onChange={e => updateAiConfig("max_discount_pct", parseInt(e.target.value))} style={{ flex: 1 }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, minWidth: 40 }}>{aiConfig.max_discount_pct || 20}%</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Channels & Routing */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>📡 Channels & Routing</div>
+                {S("Active Channels", "Which channels should the AI agent handle?",
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {[{key:"email",icon:"📧",label:"Email"},{key:"chat",icon:"💬",label:"Chat"},{key:"social_instagram",icon:"📸",label:"Instagram"},{key:"social_facebook",icon:"📘",label:"Facebook"},{key:"social_tiktok",icon:"🎵",label:"TikTok"},{key:"social_twitter",icon:"🐦",label:"Twitter"},{key:"phone",icon:"📞",label:"Phone"}].map(ch => {
+                      const active = (aiConfig.auto_assign_channels || []).includes(ch.key);
+                      return (
+                        <button key={ch.key} onClick={() => {
+                          const next = active ? (aiConfig.auto_assign_channels || []).filter(c => c !== ch.key) : [...(aiConfig.auto_assign_channels || []), ch.key];
+                          updateAiConfig("auto_assign_channels", next);
+                        }} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${active ? T.accent + "50" : T.border}`, background: active ? T.accentDim : "transparent", color: active ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                          {ch.icon} {ch.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <Toggle value={aiConfig.business_hours_only} onChange={v => updateAiConfig("business_hours_only", v)} label="Only active during business hours" />
+                {aiConfig.business_hours_only && (
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 8 }}>
+                    <input type="time" value={aiConfig.business_hours_start || "09:00"} onChange={e => updateAiConfig("business_hours_start", e.target.value)}
+                      style={{ padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
+                    <span style={{ color: T.text3 }}>to</span>
+                    <input type="time" value={aiConfig.business_hours_end || "17:00"} onChange={e => updateAiConfig("business_hours_end", e.target.value)}
+                      style={{ padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
+                    <Sel value={aiConfig.business_hours_tz || "America/Los_Angeles"} onChange={v => updateAiConfig("business_hours_tz", v)}
+                      options={["America/Los_Angeles","America/Denver","America/Chicago","America/New_York","Europe/London","Australia/Sydney"].map(tz => ({value:tz,label:tz.split("/")[1].replace("_"," ")}))} />
+                  </div>
+                )}
+              </div>
+
+              {/* Guardrails */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>🛡️ Guardrails</div>
+                {S("Escalation Triggers", "Keywords or phrases that automatically escalate to a human",
+                  <TagInput values={aiConfig.escalation_triggers} onChange={v => updateAiConfig("escalation_triggers", v)} />
+                )}
+                {S("Restricted Topics", "Topics the AI should never discuss — it will escalate instead",
+                  <TagInput values={aiConfig.restricted_topics} onChange={v => updateAiConfig("restricted_topics", v)} />
+                )}
+                {S("Languages", "Languages the agent can respond in",
+                  <TagInput values={aiConfig.languages} onChange={v => updateAiConfig("languages", v)} />
+                )}
+              </div>
+
+              {/* Sample Responses / Persona Preview */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>💬 Sample Responses</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>Example responses that teach the AI how {aiConfig.agent_name || "the agent"} should sound</div>
+                {samples.map((s, i) => (
+                  <div key={i} style={{ marginBottom: 12, padding: 12, borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
+                    <input value={s.scenario || ""} onChange={e => {
+                      const u = [...samples]; u[i] = { ...u[i], scenario: e.target.value };
+                      updateAiConfig("sample_responses", u);
+                    }} placeholder="Scenario name" style={{ width: "100%", padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.accent, background: "transparent", border: "none", outline: "none", marginBottom: 6, boxSizing: "border-box" }} />
+                    <textarea value={s.response || ""} onChange={e => {
+                      const u = [...samples]; u[i] = { ...u[i], response: e.target.value };
+                      updateAiConfig("sample_responses", u);
+                    }} rows={3} style={{ width: "100%", padding: "6px 8px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none", resize: "vertical", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+                    <button onClick={() => { const u = samples.filter((_, j) => j !== i); updateAiConfig("sample_responses", u); }}
+                      style={{ fontSize: 10, color: "#ef4444", background: "none", border: "none", cursor: "pointer", marginTop: 4 }}>Remove</button>
+                  </div>
+                ))}
+                <button onClick={() => updateAiConfig("sample_responses", [...samples, { scenario: "", response: "" }])}
+                  style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer" }}>
+                  + Add Sample Response
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Knowledge Base tab */}
         {tab === "kb" && (
