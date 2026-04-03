@@ -826,9 +826,11 @@ function APAgingView({ isMobile }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <select value={approvalFilter} onChange={e => setApprovalFilter(e.target.value)} style={{ padding: "4px 8px", fontSize: 10, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: approvalFilter ? T.text : T.text3, cursor: "pointer" }}>
-              <option value="">All Approvals</option>
+              <option value="">All Statuses</option>
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
+              <option value="denied">Denied</option>
+              <option value="paid">Paid</option>
               <option value="scheduled">Scheduled</option>
             </select>
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}` }}>
@@ -852,8 +854,10 @@ function APAgingView({ isMobile }) {
 
           // Filter items
           let filtered = items.filter(b => {
-            if (approvalFilter === "pending") return b.approval_status !== "approved";
-            if (approvalFilter === "approved") return b.approval_status === "approved" && !b.scheduled_payment_date;
+            if (approvalFilter === "pending") return !b.approval_status || b.approval_status === "pending";
+            if (approvalFilter === "approved") return b.approval_status === "approved";
+            if (approvalFilter === "denied") return b.approval_status === "denied";
+            if (approvalFilter === "paid") return b.approval_status === "paid";
             if (approvalFilter === "scheduled") return !!b.scheduled_payment_date;
             return true;
           });
@@ -881,19 +885,21 @@ function APAgingView({ isMobile }) {
                   <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: (overdue ? T.red : T.green) + "18", color: overdue ? T.red : T.green }}>{overdue ? "OVERDUE" : "CURRENT"}</span>
                 </td>
                 <td style={{ padding: "7px 10px", textAlign: "center" }}>
-                  {b.approval_status === "approved" ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: T.green + "18", color: T.green }}>✓ APPROVED</span>
-                      <button onClick={e => { e.stopPropagation(); if (window.confirm("Revoke approval?")) updateBill(b.id, { approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }); }}
-                        style={{ padding: "1px 5px", fontSize: 8, borderRadius: 3, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>✕</button>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
-                      <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: "#94a3b818", color: "#94a3b8" }}>PENDING</span>
-                      <button onClick={e => { e.stopPropagation(); if (window.confirm(`Approve ${fmt(Number(b.balance || b.total_amount))} to ${b[entityField]}?`)) updateBill(b.id, { approval_status: "approved", approved_at: new Date().toISOString() }); }}
-                        style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent + "18", color: T.accent, cursor: "pointer" }}>Approve</button>
-                    </div>
-                  )}
+                  {(() => {
+                    const st = b.approval_status || "pending";
+                    const colors = { pending: { bg: "#94a3b818", c: "#94a3b8" }, approved: { bg: T.green + "18", c: T.green }, denied: { bg: T.red + "18", c: T.red }, paid: { bg: T.accent + "18", c: T.accent } };
+                    const col = colors[st] || colors.pending;
+                    return (
+                      <select value={st} onClick={e => e.stopPropagation()}
+                        onChange={e => { const v = e.target.value; const updates = { approval_status: v, approved_at: v === "approved" ? new Date().toISOString() : (v === "pending" ? null : b.approved_at) }; if (v === "pending" || v === "denied") { updates.scheduled_payment_date = null; updates.scheduled_by = null; updates.scheduled_at = null; } updateBill(b.id, updates); }}
+                        style={{ padding: "2px 4px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: `1px solid ${col.c}40`, background: col.bg, color: col.c, cursor: "pointer", outline: "none", appearance: "auto" }}>
+                        <option value="pending">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="denied">Denied</option>
+                        <option value="paid">Paid</option>
+                      </select>
+                    );
+                  })()}
                 </td>
                 <td style={{ padding: "7px 10px", textAlign: "center" }}>
                   {b.scheduled_payment_date ? (
