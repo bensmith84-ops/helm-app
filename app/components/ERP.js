@@ -4287,38 +4287,88 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
         );
       })()}
 
-      {/* AR / AP Invoice List — ERP only (QBO bills show in their own table above) */}
-      {(subView === "ar" || (subView === "ap" && qboBills.length === 0)) && (
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : selected ? "1fr 1.2fr" : "1fr", gap: 16 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {invoices.length === 0 ? <EmptyState icon="💰" text={`No ${subView === "ap" ? "AP" : "AR"} invoices`} /> :
-              invoices.map(inv => {
-                const entity = subView === "ap" ? getSupplier(inv.supplier_id) : getCustomer(inv.customer_id);
-                const ref = subView === "ap" ? getPO(inv.po_id) : getOrder(inv.order_id);
-                const bal = inv.balance != null ? inv.balance : inv.total - (inv.paid_amount || 0);
-                const sel = selected?.id === inv.id;
-                const overdue = inv.due_date && new Date(inv.due_date) < new Date() && inv.status !== "paid";
-                return (
-                  <Card key={inv.id} onClick={() => setSelected(inv)} style={{ padding: "10px 14px", cursor: "pointer", borderLeft: sel ? `3px solid ${T.accent}` : overdue ? "3px solid #EF4444" : "3px solid transparent" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number}</span>
-                        <Pill status={inv.status} />
-                        {overdue && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#FEE2E2", color: "#991B1B", fontWeight: 700 }}>OVERDUE</span>}
-                      </div>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: bal > 0 ? T.text : "#10B981" }}>{fmt(bal)}</span>
-                    </div>
-                    <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>
-                      {entity?.name || "Unknown"} · {ref ? (subView === "ap" ? ref.po_number : ref.order_number) : "—"} · Due {inv.due_date ? new Date(inv.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
-                    </div>
-                  </Card>
-                );
-              })
-            }
+      {/* AR / AP Invoice List — sortable table with due dates + approval */}
+      {(subView === "ar" || (subView === "ap" && qboBills.length === 0)) && (() => {
+        const [sortKey, sortDir] = qboSort || ["due_date", "asc"];
+        const sorted = [...invoices].sort((a, b) => {
+          let va = a[sortKey], vb = b[sortKey];
+          if (sortKey === "total" || sortKey === "paid_amount") { va = Number(va) || 0; vb = Number(vb) || 0; }
+          if (sortKey === "balance") { va = (a.balance != null ? a.balance : a.total - (a.paid_amount || 0)); vb = (b.balance != null ? b.balance : b.total - (b.paid_amount || 0)); }
+          if (va == null) return 1; if (vb == null) return -1;
+          const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+          return sortDir === "desc" ? -cmp : cmp;
+        });
+        const cols = [
+          { key: "invoice_number", label: "Invoice #", align: "left" },
+          { key: "entity", label: subView === "ap" ? "Vendor" : "Customer", align: "left" },
+          { key: "invoice_date", label: "Date", align: "left" },
+          { key: "due_date", label: "Due Date", align: "left" },
+          { key: "total", label: "Total", align: "right" },
+          { key: "paid_amount", label: "Paid", align: "right" },
+          { key: "balance", label: "Balance", align: "right" },
+          { key: "status", label: "Status", align: "center" },
+          { key: "actions", label: "", align: "center" },
+        ];
+        return (
+        <div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  {cols.map(col => (
+                    <th key={col.key} onClick={() => col.key !== "actions" && col.key !== "entity" && setQboSort([col.key, sortKey === col.key && sortDir === "asc" ? "desc" : "asc"])}
+                      style={{ padding: "8px 10px", textAlign: col.align, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: col.key !== "actions" ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap" }}>
+                      {col.label} {sortKey === col.key ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.length === 0 && <tr><td colSpan={cols.length} style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 12 }}>No {subView === "ap" ? "AP" : "AR"} invoices</td></tr>}
+                {sorted.map((inv, i) => {
+                  const entity = subView === "ap" ? getSupplier(inv.supplier_id) : getCustomer(inv.customer_id);
+                  const bal = inv.balance != null ? inv.balance : inv.total - (inv.paid_amount || 0);
+                  const overdue = inv.due_date && new Date(inv.due_date) < new Date() && inv.status !== "paid";
+                  const daysUntilDue = inv.due_date ? Math.ceil((new Date(inv.due_date) - new Date()) / 86400000) : null;
+                  return (
+                    <tr key={inv.id} onClick={() => setSelected(inv)} style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: selected?.id === inv.id ? T.accentDim : i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entity?.name || "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>{inv.invoice_date ? new Date(inv.invoice_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, whiteSpace: "nowrap", fontWeight: overdue ? 700 : 400, color: overdue ? "#EF4444" : daysUntilDue != null && daysUntilDue <= 7 ? "#F59E0B" : T.text2 }}>
+                        {inv.due_date ? new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}
+                        {overdue && <span style={{ fontSize: 8, marginLeft: 4, padding: "1px 4px", borderRadius: 3, background: "#FEE2E2", color: "#991B1B", fontWeight: 700 }}>OVERDUE</span>}
+                        {!overdue && daysUntilDue != null && daysUntilDue <= 7 && daysUntilDue >= 0 && <span style={{ fontSize: 8, marginLeft: 4, color: "#F59E0B" }}>{daysUntilDue}d</span>}
+                      </td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{fmt(inv.total)}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, color: "#10B981", textAlign: "right", fontFamily: "monospace" }}>{inv.paid_amount ? fmt(inv.paid_amount) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, textAlign: "right", fontFamily: "monospace", color: bal > 0 ? "#EF4444" : "#10B981" }}>{fmt(bal)}</td>
+                      <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4,
+                          background: inv.status === "paid" ? "#10B98118" : inv.status === "partial" ? "#F59E0B18" : overdue ? "#EF444418" : "#94a3b818",
+                          color: inv.status === "paid" ? "#10B981" : inv.status === "partial" ? "#F59E0B" : overdue ? "#EF4444" : "#94a3b8" }}>
+                          {inv.status === "paid" ? "PAID" : inv.status === "partial" ? "PARTIAL" : overdue ? "OVERDUE" : (inv.status || "OPEN").toUpperCase()}
+                        </span>
+                      </td>
+                      <td style={{ padding: "4px 6px", textAlign: "center" }} onClick={e => e.stopPropagation()}>
+                        {inv.status !== "paid" && inv.status !== "voided" && (
+                          <button onClick={() => { setSelected(inv); setPayForm({ amount: String(bal), payment_method: "ach", reference_number: "", notes: "" }); setShowPayment(true); }}
+                            style={{ padding: "3px 10px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#10B98118", color: "#10B981", cursor: "pointer" }}>💳 Pay</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+        </div>
+        );
+      })()}
 
-          {selected && !isMobile && (
-            <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
+      {/* Invoice Detail Panel — shown when an invoice row is clicked */}
+      {selected && (subView === "ar" || subView === "ap") && !isMobile && (
+        <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
             <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
                 <div>
@@ -4364,8 +4414,6 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
               })()}
 
               {selected.notes && <div style={{ fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>{selected.notes}</div>}
-            </div>
-          )}
         </div>
       )}
 
