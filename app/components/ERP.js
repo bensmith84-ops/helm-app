@@ -610,16 +610,18 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
       setMovements(mvmts || []);
       setCarriers(cars || []); setCarrierServices(carSvcs || []); setFulfillmentIntegrations(fIntg || []); setRmas(rmaData || []); setRmaItems(rmaItemsData || []); setApInvoices(apInv || []); setArInvoices(arInv || []); setPayments(pmts || []); setGlAccounts(glAccts || []); setJournalEntries(jeData || []); setBinLocations(bins || []); setShippingRules(shipRules || []); setLandedCosts(lcData || []); setJournalLines(jlData || []); setCreditMemos(cmData || []);
 
-      // Load QBO synced data
-      const [{ data: qa }, { data: qv }, { data: qb }, { data: qc }, { data: qi }, { data: qp }] = await Promise.all([
-        supabase.from("qbo_accounts").select("*").order("account_type").order("name"),
-        supabase.from("qbo_vendors").select("*").order("display_name"),
-        supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }).limit(1000),
-        supabase.from("qbo_customers").select("*").order("display_name"),
-        supabase.from("qbo_invoices").select("*").order("txn_date", { ascending: false }),
-        supabase.from("qbo_pl").select("*").order("account_type").order("account_name"),
-      ]);
-      setQboAccounts(qa || []); setQboVendors(qv || []); setQboBills(qb || []); setQboCustomers(qc || []); setQboInvoices(qi || []); setQboPL(qp || []);
+      // Load QBO synced data (wrapped in try-catch so failures don't block the rest)
+      try {
+        const [{ data: qa }, { data: qv }, { data: qb }, { data: qc }, { data: qi }, { data: qp }] = await Promise.all([
+          supabase.from("qbo_accounts").select("*").order("account_type").order("name"),
+          supabase.from("qbo_vendors").select("*").order("display_name"),
+          supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }).limit(1000),
+          supabase.from("qbo_customers").select("*").order("display_name"),
+          supabase.from("qbo_invoices").select("*").order("txn_date", { ascending: false }),
+          supabase.from("qbo_pl").select("*").order("account_type").order("account_name"),
+        ]);
+        setQboAccounts(qa || []); setQboVendors(qv || []); setQboBills(qb || []); setQboCustomers(qc || []); setQboInvoices(qi || []); setQboPL(qp || []);
+      } catch (e) { console.error("[ERP] QBO load error:", e); }
 
       setLoading(false);
     };
@@ -4067,7 +4069,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
 // AP / AR VIEW — Accounts Payable, Accounts Receivable, Payments
 // ═══════════════════════════════════════════════════════════════════════════════
 function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile, qboBills = [], qboInvoices = [], user }) {
-  const [subView, setSubView] = useState(qboBills.length > 0 ? "qbo_ap" : "ar");
+  const [subView, setSubView] = useState("ap");
   const [selected, setSelected] = useState(null);
   const [showPayment, setShowPayment] = useState(false);
   const [payForm, setPayForm] = useState({ amount: "", payment_method: "ach", reference_number: "", notes: "" });
@@ -4143,8 +4145,7 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
-        {qboBills.length > 0 && <button onClick={() => { setSubView("qbo_ap"); setSelected(null); }} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === "qbo_ap" ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === "qbo_ap" ? T.accent : T.text3, fontSize: 12, fontWeight: subView === "qbo_ap" ? 700 : 500 }}>📒 QBO Bills</button>}
-        {[["ar", "📥 Receivable (AR)"], ["ap", "📤 Payable (AP)"], ["payments", "💳 Payments"], ["credits", "📄 Credit Memos"]].map(([k, l]) => (
+        {[["ap", "📤 Payable (AP)"], ["ar", "📥 Receivable (AR)"], ["payments", "💳 Payments"], ["credits", "📄 Credit Memos"]].map(([k, l]) => (
           <button key={k} onClick={() => { setSubView(k); setSelected(null); }} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: subView === k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", color: subView === k ? T.accent : T.text3, fontSize: 12, fontWeight: subView === k ? 700 : 500 }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
@@ -4174,8 +4175,8 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
         }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ AR Invoice</button>}
       </div>
 
-      {/* QBO BILLS — sortable, filterable, with GL accounts */}
-      {(subView === "qbo_ap" || subView === "ap") && (() => {
+      {/* AP BILLS — sortable, filterable, with approval workflow */}
+      {subView === "ap" && (() => {
         // Merge QBO bills into AP view when on "ap" tab too
         const isQboTab = subView === "qbo_ap";
         const allBills = isQboTab ? filteredQboBills : filteredQboBills;
