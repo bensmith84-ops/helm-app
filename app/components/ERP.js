@@ -692,7 +692,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
           {view === "facilities" && <FacilitiesView facilities={facilities} setFacilities={setFacilities} inventory={inventory} entities={entities} binLocations={binLocations} setBinLocations={setBinLocations} isMobile={isMobile} />}
           {view === "expenses" && <RampExpensesView isMobile={isMobile} orgId={profile?.org_id} />}
           {view === "gl" && <GLView glAccounts={glAccounts} journalEntries={journalEntries} journalLines={journalLines} setJournalEntries={setJournalEntries} entities={entities} isMobile={isMobile} qboAccounts={qboAccounts} qboPL={qboPL} />}
-          {view === "ap_ar" && <APARView creditMemos={creditMemos} setCreditMemos={setCreditMemos} apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} qboBills={qboBills} qboInvoices={qboInvoices} />}
+          {view === "ap_ar" && <APARView creditMemos={creditMemos} setCreditMemos={setCreditMemos} apInvoices={apInvoices} setApInvoices={setApInvoices} arInvoices={arInvoices} setArInvoices={setArInvoices} payments={payments} setPayments={setPayments} suppliers={suppliers} customers={customers} orders={orders} purchaseOrders={purchaseOrders} isMobile={isMobile} qboBills={qboBills} qboInvoices={qboInvoices} user={user} />}
           {view === "returns" && <ReturnsView rmas={rmas} setRmas={setRmas} rmaItems={rmaItems} setRmaItems={setRmaItems} orders={orders} orderItems={orderItems} customers={customers} variants={variants} inventory={inventory} setInventory={setInventory} movements={movements} setMovements={setMovements} facilities={facilities} isMobile={isMobile} />}
           {view === "shipping" && <ShippingView shippingRules={shippingRules} setShippingRules={setShippingRules} carriers={carriers} setCarriers={setCarriers} carrierServices={carrierServices} setCarrierServices={setCarrierServices} fulfillmentIntegrations={fulfillmentIntegrations} orders={orders} isMobile={isMobile} />}
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
@@ -4066,7 +4066,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
 // ═══════════════════════════════════════════════════════════════════════════════
 // AP / AR VIEW — Accounts Payable, Accounts Receivable, Payments
 // ═══════════════════════════════════════════════════════════════════════════════
-function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile, qboBills = [], qboInvoices = [] }) {
+function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile, qboBills = [], qboInvoices = [], user }) {
   const [subView, setSubView] = useState(qboBills.length > 0 ? "qbo_ap" : "ar");
   const [selected, setSelected] = useState(null);
   const [showPayment, setShowPayment] = useState(false);
@@ -4206,9 +4206,11 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                     { key: "gl_accounts", label: "GL Account", align: "left" },
                     { key: "total_amount", label: "Total", align: "right" },
                     { key: "balance", label: "Balance", align: "right" },
-                    { key: "payment_status", label: "Status", align: "center" },
+                    { key: "payment_status", label: "Pay Status", align: "center" },
+                    { key: "approval_status", label: "Approval", align: "center" },
                     { key: "due_date", label: "Due", align: "left" },
-                    { key: "memo", label: "Memo", align: "left" },
+                    { key: "scheduled_payment_date", label: "Sched. Pay", align: "left" },
+                    { key: "actions", label: "", align: "center" },
                   ].map(col => (
                     <th key={col.key} onClick={() => {
                       const [sk, sd] = [col.key, col.key === (qboSort||"")[0] && (qboSort||[])[1] === "asc" ? "desc" : "asc"];
@@ -4238,12 +4240,37 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                       <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
                         <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
                         <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.vendor_name || "—"}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.accent, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.gl_accounts || "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.accent, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.gl_accounts || "—"}</td>
                         <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right" }}>{fmt(Number(b.total_amount))}</td>
                         <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: Number(b.balance) > 0 ? "#EF4444" : "#10B981", textAlign: "right" }}>{fmt(Number(b.balance))}</td>
                         <td style={{ padding: "8px 10px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: b.payment_status === "paid" ? "#10B98118" : overdue ? "#EF444418" : "#F59E0B18", color: b.payment_status === "paid" ? "#10B981" : overdue ? "#EF4444" : "#F59E0B" }}>{b.payment_status === "paid" ? "PAID" : overdue ? "OVERDUE" : "OPEN"}</span></td>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: b.approval_status === "approved" ? "#10B98118" : b.approval_status === "rejected" ? "#EF444418" : "#94a3b818", color: b.approval_status === "approved" ? "#10B981" : b.approval_status === "rejected" ? "#EF4444" : "#94a3b8" }}>
+                            {(b.approval_status || "pending").toUpperCase()}
+                          </span>
+                        </td>
                         <td style={{ padding: "8px 10px", fontSize: 11, color: overdue ? "#EF4444" : T.text3, fontWeight: overdue ? 600 : 400, whiteSpace: "nowrap" }}>{b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: b.scheduled_payment_date ? T.accent : T.text3, fontWeight: b.scheduled_payment_date ? 600 : 400, whiteSpace: "nowrap" }}>
+                          {b.scheduled_payment_date ? new Date(b.scheduled_payment_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                        </td>
+                        <td style={{ padding: "4px 6px", textAlign: "center", whiteSpace: "nowrap" }}>
+                          {b.payment_status !== "paid" && (
+                            <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
+                              {b.approval_status !== "approved" && (
+                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("qbo_bills").update({ approval_status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "approved" }; setQboSort([...qboSort||[]]); }}
+                                  style={{ padding: "3px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#10B98118", color: "#10B981", cursor: "pointer" }} title="Approve payment">✓</button>
+                              )}
+                              {b.approval_status === "approved" && !b.scheduled_payment_date && (
+                                <button onClick={async (e) => { e.stopPropagation(); const d = prompt("Schedule payment date (YYYY-MM-DD):", new Date(Date.now() + 86400000 * 3).toISOString().slice(0,10)); if (!d) return; await supabase.from("qbo_bills").update({ scheduled_payment_date: d, scheduled_by: user?.id, scheduled_at: new Date().toISOString() }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], scheduled_payment_date: d }; setQboSort([...qboSort||[]]); }}
+                                  style={{ padding: "3px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: `${T.accent}18`, color: T.accent, cursor: "pointer" }} title="Schedule payment">📅</button>
+                              )}
+                              {b.approval_status === "approved" && (
+                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("qbo_bills").update({ approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "pending", scheduled_payment_date: null }; setQboSort([...qboSort||[]]); }}
+                                  style={{ padding: "3px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#EF444418", color: "#EF4444", cursor: "pointer" }} title="Revoke approval">✕</button>
+                              )}
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     );
                   });
