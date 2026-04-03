@@ -471,8 +471,22 @@ export default function PeopleView() {
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
           <div style={{ width: 52, height: 52, borderRadius: 26, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: c }}>{ini(selected.display_name)}</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{selected.display_name || "Unknown"}</div>
-            <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{selected.email}</div>
+            <input value={selected.display_name || ""} onChange={e => { const v = e.target.value; setSelected(s => ({ ...s, display_name: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, display_name: v } : m)); }}
+              onBlur={() => supabase.from("profiles").update({ display_name: selected.display_name }).eq("id", selected.id)}
+              style={{ fontSize: 18, fontWeight: 700, border: "none", background: "transparent", color: T.text, outline: "none", width: "100%", padding: 0 }} />
+            <input value={selected.email || ""} onChange={e => { const v = e.target.value; setSelected(s => ({ ...s, email: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, email: v } : m)); }}
+              onBlur={async () => {
+                await supabase.from("profiles").update({ email: selected.email }).eq("id", selected.id);
+                // Also update auth email via edge function
+                const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "update_email", user_id: selected.id, email: selected.email }),
+                });
+                const result = await res.json();
+                if (result.error) showToast("Profile email updated. Auth email update: " + result.error);
+                else showToast("Email updated", "success");
+              }}
+              style={{ fontSize: 12, color: T.text3, marginTop: 2, border: "none", background: "transparent", outline: "none", width: "100%", padding: 0 }} />
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
