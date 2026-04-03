@@ -669,6 +669,8 @@ function APAgingView({ isMobile }) {
   const [tab, setTab] = useState("ap");
   const [expandedBucket, setExpandedBucket] = useState(null);
   const [search, setSearch] = useState("");
+  const [expandedVendor, setExpandedVendor] = useState(null);
+  const [vendorSort, setVendorSort] = useState(["total", "desc"]);
 
   useEffect(() => {
     (async () => {
@@ -718,8 +720,6 @@ function APAgingView({ isMobile }) {
     if (entityMap[v].oldest === null || age > entityMap[v].oldest) entityMap[v].oldest = age;
   });
   const entityList = Object.values(entityMap).sort((a, b) => b.total - a.total);
-  const [expandedVendor, setExpandedVendor] = useState(null);
-  const [vendorSort, setVendorSort] = useState(["total", "desc"]);
 
   const filteredEntities = search ? entityList.filter(v => v.name.toLowerCase().includes(search.toLowerCase())) : entityList;
   const [vSortKey, vSortDir] = vendorSort;
