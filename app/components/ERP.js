@@ -612,12 +612,12 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
 
       // Load QBO synced data
       const [{ data: qa }, { data: qv }, { data: qb }, { data: qc }, { data: qi }, { data: qp }] = await Promise.all([
-        supabase.from("qbo_accounts").select("*").order("account_type, name"),
+        supabase.from("qbo_accounts").select("*").order("account_type").order("name"),
         supabase.from("qbo_vendors").select("*").order("display_name"),
-        supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
+        supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }).limit(1000),
         supabase.from("qbo_customers").select("*").order("display_name"),
         supabase.from("qbo_invoices").select("*").order("txn_date", { ascending: false }),
-        supabase.from("qbo_pl").select("*").order("account_type, account_name"),
+        supabase.from("qbo_pl").select("*").order("account_type").order("account_name"),
       ]);
       setQboAccounts(qa || []); setQboVendors(qv || []); setQboBills(qb || []); setQboCustomers(qc || []); setQboInvoices(qi || []); setQboPL(qp || []);
 
