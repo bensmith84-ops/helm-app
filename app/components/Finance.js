@@ -1011,18 +1011,22 @@ function APAgingView({ isMobile }) {
             const weekList = Object.values(weeks).sort((a, b) => a.sortDate - b.sortDate);
             return (
               <div style={{ overflowX: "auto" }}>
-                {weekList.map(w => (
-                  <div key={w.label}>
-                    <div style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{w.label}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: T.red }}>{fmtK(w.total)} · {w.bills.length} bills</span>
-                    </div>
-                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
-                      {w === weekList[0] && renderBillHeader(true)}
-                      <tbody>{sortBills(w.bills).map(b => renderBillRow(b, true))}</tbody>
-                    </table>
-                  </div>
-                ))}
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                  {renderBillHeader(true)}
+                  <tbody>
+                    {weekList.map(w => (
+                      <Fragment key={w.label}>
+                        <tr><td colSpan={7} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{w.label}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: T.red }}>{fmtK(w.total)} · {w.bills.length} bills</span>
+                          </div>
+                        </td></tr>
+                        {sortBills(w.bills).map(b => renderBillRow(b, true))}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             );
           }
@@ -1035,23 +1039,27 @@ function APAgingView({ isMobile }) {
             ];
             return (
               <div style={{ overflowX: "auto" }}>
-                {groups.map(g => {
-                  const gBills = filtered.filter(g.filter);
-                  if (gBills.length === 0) return null;
-                  const gTotal = gBills.reduce((s, b) => s + Number(b.balance || 0), 0);
-                  return (
-                    <div key={g.key}>
-                      <div style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{g.label}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{fmtK(gTotal)} · {gBills.length} bills</span>
-                      </div>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
-                        {renderBillHeader(true)}
-                        <tbody>{sortBills(gBills).map(b => renderBillRow(b, true))}</tbody>
-                      </table>
-                    </div>
-                  );
-                })}
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                  {renderBillHeader(true)}
+                  <tbody>
+                    {groups.map(g => {
+                      const gBills = filtered.filter(g.filter);
+                      if (gBills.length === 0) return null;
+                      const gTotal = gBills.reduce((s, b) => s + Number(b.balance || 0), 0);
+                      return (
+                        <Fragment key={g.key}>
+                          <tr><td colSpan={7} style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{g.label}</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{fmtK(gTotal)} · {gBills.length} bills</span>
+                            </div>
+                          </td></tr>
+                          {sortBills(gBills).map(b => renderBillRow(b, true))}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             );
           }
