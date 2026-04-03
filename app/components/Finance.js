@@ -718,7 +718,23 @@ function APAgingView({ isMobile }) {
     if (entityMap[v].oldest === null || age > entityMap[v].oldest) entityMap[v].oldest = age;
   });
   const entityList = Object.values(entityMap).sort((a, b) => b.total - a.total);
+  const [expandedVendor, setExpandedVendor] = useState(null);
+  const [vendorSort, setVendorSort] = useState(["total", "desc"]);
+
   const filteredEntities = search ? entityList.filter(v => v.name.toLowerCase().includes(search.toLowerCase())) : entityList;
+  const [vSortKey, vSortDir] = vendorSort;
+  const sortedEntities = [...filteredEntities].sort((a, b) => {
+    let va = a[vSortKey], vb = b[vSortKey];
+    if (va == null) return 1; if (vb == null) return -1;
+    const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+    return vSortDir === "desc" ? -cmp : cmp;
+  });
+
+  // Helpers for approval
+  const updateBill = async (billId, updates) => {
+    await supabase.from("qbo_bills").update(updates).eq("id", billId);
+    setBills(p => p.map(b => b.id === billId ? { ...b, ...updates } : b));
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -728,8 +744,8 @@ function APAgingView({ isMobile }) {
           <div style={{ fontSize: 12, color: T.text3 }}>AP: {fmtK(apTotal)} ({bills.length} bills) · AR: {fmtK(arTotal)} ({invoices.length} invoices)</div>
         </div>
         <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
-          <button onClick={() => { setTab("ap"); setExpandedBucket(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ap" ? T.red + "20" : T.surface2, color: tab === "ap" ? T.red : T.text3 }}>📤 Payables ({bills.length})</button>
-          <button onClick={() => { setTab("ar"); setExpandedBucket(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
+          <button onClick={() => { setTab("ap"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ap" ? T.red + "20" : T.surface2, color: tab === "ap" ? T.red : T.text3 }}>📤 Payables ({bills.length})</button>
+          <button onClick={() => { setTab("ar"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
         </div>
       </div>
 
@@ -801,7 +817,7 @@ function APAgingView({ isMobile }) {
         </div>
       </div>
 
-      {/* Entity table */}
+      {/* Entity table — expandable to show individual bills */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
         <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>By {tab === "ap" ? "Vendor" : "Customer"}</div>
@@ -812,22 +828,87 @@ function APAgingView({ isMobile }) {
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
-            <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{tab === "ap" ? "Vendor" : "Customer"}</th>
-            <th style={{ padding: "8px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Balance</th>
-            <th style={{ padding: "8px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>#</th>
-            <th style={{ padding: "8px 12px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Oldest</th>
+            {[
+              { key: "name", label: tab === "ap" ? "Vendor" : "Customer", align: "left" },
+              { key: "total", label: "Balance", align: "right" },
+              { key: "count", label: "#", align: "right" },
+              { key: "oldest", label: "Oldest", align: "center" },
+            ].map(col => (
+              <th key={col.key} onClick={() => setVendorSort([col.key, vSortKey === col.key && vSortDir === "asc" ? "desc" : "asc"])}
+                style={{ padding: "8px 12px", textAlign: col.align, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer", userSelect: "none" }}>
+                {col.label} {vSortKey === col.key ? (vSortDir === "asc" ? "↑" : "↓") : ""}
+              </th>
+            ))}
           </tr></thead>
           <tbody>
-            {filteredEntities.slice(0, 40).map(v => {
+            {sortedEntities.slice(0, 40).map(v => {
               const ageColor = v.oldest <= 0 ? T.green : v.oldest <= 30 ? T.yellow : v.oldest <= 60 ? "#F97316" : T.red;
               const ageLabel = v.oldest <= 0 ? "Current" : `${v.oldest}d`;
+              const isExpanded = expandedVendor === v.name;
+              const vendorBills = isExpanded ? items.filter(b => b[entityField] === v.name).sort((a, b) => new Date(a.due_date || "2099-01-01") - new Date(b.due_date || "2099-01-01")) : [];
               return (
-                <tr key={v.name} style={{ borderBottom: `1px solid ${T.border}` }}>
-                  <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text }}>{v.name}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(v.total)}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right", fontSize: 12, color: T.text2 }}>{v.count}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: ageColor + "18", color: ageColor }}>{ageLabel}</span></td>
-                </tr>
+                <Fragment key={v.name}>
+                  <tr onClick={() => setExpandedVendor(isExpanded ? null : v.name)} style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: isExpanded ? T.surface2 : "transparent" }}
+                    onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = T.surface2; }} onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = "transparent"; }}>
+                    <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text }}>
+                      <span style={{ fontSize: 10, marginRight: 6, color: T.text3, display: "inline-block", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>▶</span>
+                      {v.name}
+                    </td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(v.total)}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", fontSize: 12, color: T.text2 }}>{v.count}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: ageColor + "18", color: ageColor }}>{ageLabel}</span></td>
+                  </tr>
+                  {isExpanded && vendorBills.map(b => {
+                    const overdue = b.due_date && daysDiff(b.due_date) > 0;
+                    const daysUntil = b.due_date ? -daysDiff(b.due_date) : null;
+                    return (
+                      <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}08`, background: T.surface2 + "60" }}>
+                        <td colSpan={4} style={{ padding: "8px 12px 8px 36px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                            <div style={{ flex: 1, minWidth: 200 }}>
+                              <div style={{ fontSize: 11, color: T.text3 }}>{b.memo || b.gl_accounts || "—"}</div>
+                              <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>Txn: {b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</div>
+                            </div>
+                            {/* Due Date */}
+                            <div style={{ minWidth: 90, textAlign: "center" }}>
+                              <div style={{ fontSize: 9, fontWeight: 600, color: T.text3, textTransform: "uppercase" }}>Due</div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: overdue ? T.red : daysUntil != null && daysUntil <= 7 ? T.yellow : T.text }}>
+                                {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                              </div>
+                              {overdue && <div style={{ fontSize: 8, color: T.red, fontWeight: 700 }}>{daysDiff(b.due_date)}d overdue</div>}
+                              {!overdue && daysUntil != null && daysUntil <= 14 && <div style={{ fontSize: 8, color: T.yellow }}>in {daysUntil}d</div>}
+                            </div>
+                            {/* Amount */}
+                            <div style={{ minWidth: 70, textAlign: "right" }}>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{fmt(Number(b.balance || b.total_amount))}</div>
+                            </div>
+                            {/* Approval Status + Actions */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 180, justifyContent: "flex-end" }}>
+                              {b.approval_status === "approved" ? (
+                                <>
+                                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: T.green + "18", color: T.green }}>✓ APPROVED</span>
+                                  {b.scheduled_payment_date ? (
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: T.accent }}>📅 {new Date(b.scheduled_payment_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                                  ) : (
+                                    <input type="date" min={new Date().toISOString().slice(0, 10)}
+                                      onChange={e => updateBill(b.id, { scheduled_payment_date: e.target.value, scheduled_at: new Date().toISOString() })}
+                                      style={{ padding: "2px 4px", fontSize: 10, borderRadius: 4, border: `1px solid ${T.accent}`, background: T.accent + "10", color: T.accent, cursor: "pointer", width: 110 }}
+                                      title="Schedule payment date" />
+                                  )}
+                                  <button onClick={e => { e.stopPropagation(); if (window.confirm("Revoke approval?")) updateBill(b.id, { approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }); }}
+                                    style={{ padding: "2px 6px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>✕</button>
+                                </>
+                              ) : (
+                                <button onClick={e => { e.stopPropagation(); if (window.confirm(`Approve ${fmt(Number(b.balance || b.total_amount))} to ${v.name}?`)) updateBill(b.id, { approval_status: "approved", approved_at: new Date().toISOString() }); }}
+                                  style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>✓ Approve</button>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </Fragment>
               );
             })}
           </tbody>
