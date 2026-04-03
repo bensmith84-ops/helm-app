@@ -654,7 +654,7 @@ function TransactionSearch({ isMobile }) {
 // AP AGING — Bills by age bucket + cash needed timeline
 // ═══════════════════════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════════════════════
-// AP / AR AGING — Payables + Receivables with aging buckets
+// AP / AR AGING — Payables + Receivables with aging buckets — v3 expandable vendors
 // ═══════════════════════════════════════════════════════════════════════════════
 function APAgingView({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
