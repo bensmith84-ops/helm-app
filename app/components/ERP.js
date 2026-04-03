@@ -4073,7 +4073,7 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
   const [payForm, setPayForm] = useState({ amount: "", payment_method: "ach", reference_number: "", notes: "" });
   const [qboSearch, setQboSearch] = useState("");
   const [qboStatus, setQboStatus] = useState("");
-  const [qboSort, setQboSort] = useState(null);
+  const [qboSort, setQboSort] = useState(["due_date", "asc"]);
   const getSupplier = id => suppliers.find(s => s.id === id);
   const getCustomer = id => customers.find(c => c.id === id);
   const getOrder = id => orders.find(o => o.id === id);
@@ -4255,18 +4255,22 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                         </td>
                         <td style={{ padding: "4px 6px", textAlign: "center", whiteSpace: "nowrap" }}>
                           {b.payment_status !== "paid" && (
-                            <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
+                            <div style={{ display: "flex", gap: 3, justifyContent: "center", alignItems: "center" }}>
                               {b.approval_status !== "approved" && (
-                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("qbo_bills").update({ approval_status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "approved" }; setQboSort([...qboSort||[]]); }}
-                                  style={{ padding: "3px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#10B98118", color: "#10B981", cursor: "pointer" }} title="Approve payment">✓</button>
+                                <button onClick={async (e) => { e.stopPropagation(); if (!window.confirm(`Approve payment of ${fmt(Number(b.balance || b.total_amount))} to ${b.vendor_name}?`)) return; await supabase.from("qbo_bills").update({ approval_status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
+                                  style={{ padding: "3px 10px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#10B98118", color: "#10B981", cursor: "pointer" }} title="Approve payment">✓ Approve</button>
                               )}
                               {b.approval_status === "approved" && !b.scheduled_payment_date && (
-                                <button onClick={async (e) => { e.stopPropagation(); const d = prompt("Schedule payment date (YYYY-MM-DD):", new Date(Date.now() + 86400000 * 3).toISOString().slice(0,10)); if (!d) return; await supabase.from("qbo_bills").update({ scheduled_payment_date: d, scheduled_by: user?.id, scheduled_at: new Date().toISOString() }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], scheduled_payment_date: d }; setQboSort([...qboSort||[]]); }}
-                                  style={{ padding: "3px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: `${T.accent}18`, color: T.accent, cursor: "pointer" }} title="Schedule payment">📅</button>
+                                <input type="date" min={new Date().toISOString().slice(0,10)}
+                                  onChange={async (e) => { const d = e.target.value; if (!d) return; await supabase.from("qbo_bills").update({ scheduled_payment_date: d, scheduled_by: user?.id, scheduled_at: new Date().toISOString() }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], scheduled_payment_date: d }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
+                                  style={{ padding: "2px 4px", fontSize: 10, borderRadius: 4, border: `1px solid ${T.accent}`, background: T.accentDim, color: T.accent, cursor: "pointer", width: 105 }} title="Schedule payment date" />
+                              )}
+                              {b.approval_status === "approved" && b.scheduled_payment_date && (
+                                <span style={{ fontSize: 9, fontWeight: 600, color: "#10B981" }}>✓ Scheduled</span>
                               )}
                               {b.approval_status === "approved" && (
-                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("qbo_bills").update({ approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "pending", scheduled_payment_date: null }; setQboSort([...qboSort||[]]); }}
-                                  style={{ padding: "3px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#EF444418", color: "#EF4444", cursor: "pointer" }} title="Revoke approval">✕</button>
+                                <button onClick={async (e) => { e.stopPropagation(); if (!window.confirm("Revoke approval?")) return; await supabase.from("qbo_bills").update({ approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "pending", approved_by: null, scheduled_payment_date: null }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
+                                  style={{ padding: "3px 6px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#EF444418", color: "#EF4444", cursor: "pointer" }} title="Revoke approval">✕</button>
                               )}
                             </div>
                           )}
