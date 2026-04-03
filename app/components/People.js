@@ -8,6 +8,28 @@ import { useResizableColumns } from "../lib/useResizableColumns";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
+// Editable field — uses local state to avoid cursor bouncing, saves on blur/Enter
+function EditableField({ value, onSave, placeholder, style: customStyle }) {
+  const [editing, setEditing] = useState(false);
+  const [localVal, setLocalVal] = useState(value);
+  const inputRef = useRef(null);
+  useEffect(() => { if (!editing) setLocalVal(value); }, [value, editing]);
+  return editing ? (
+    <input ref={inputRef} autoFocus value={localVal} onChange={e => setLocalVal(e.target.value)}
+      onBlur={() => { setEditing(false); if (localVal !== value) onSave(localVal); }}
+      onKeyDown={e => { if (e.key === "Enter") { e.target.blur(); } if (e.key === "Escape") { setLocalVal(value); setEditing(false); } }}
+      style={{ ...customStyle, border: "none", outline: "none", background: `${T.accent}08`, borderRadius: 4, padding: "2px 6px", margin: "-2px -6px", boxSizing: "content-box" }} />
+  ) : (
+    <div onClick={() => setEditing(true)} title="Click to edit"
+      style={{ ...customStyle, cursor: "pointer", padding: "2px 6px", margin: "-2px -6px", borderRadius: 4, border: `1px dashed transparent`, transition: "all 0.15s" }}
+      onMouseEnter={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.borderColor = T.border; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
+      {value || <span style={{ color: T.text3, fontStyle: "italic", fontWeight: 400 }}>{placeholder}</span>}
+      <span style={{ fontSize: 10, color: T.text3, marginLeft: 6, opacity: 0.5 }}>✎</span>
+    </div>
+  );
+}
+
 const ROLES = ["owner", "admin", "member", "viewer"];
 const ROLE_COLORS = { owner: "#ef4444", admin: "#a855f7", member: "#3b82f6", viewer: "#6b7280" };
 const MODULE_TREE = [
@@ -471,22 +493,22 @@ export default function PeopleView() {
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
           <div style={{ width: 52, height: 52, borderRadius: 26, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: c }}>{ini(selected.display_name)}</div>
           <div style={{ flex: 1 }}>
-            <input value={selected.display_name || ""} onChange={e => { const v = e.target.value; setSelected(s => ({ ...s, display_name: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, display_name: v } : m)); }}
-              onBlur={() => supabase.from("profiles").update({ display_name: selected.display_name }).eq("id", selected.id)}
-              style={{ fontSize: 18, fontWeight: 700, border: "none", background: "transparent", color: T.text, outline: "none", width: "100%", padding: 0 }} />
-            <input value={selected.email || ""} onChange={e => { const v = e.target.value; setSelected(s => ({ ...s, email: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, email: v } : m)); }}
-              onBlur={async () => {
-                await supabase.from("profiles").update({ email: selected.email }).eq("id", selected.id);
-                // Also update auth email via edge function
+            <EditableField value={selected.display_name || ""} placeholder="Full name"
+              style={{ fontSize: 18, fontWeight: 700, color: T.text, width: "100%" }}
+              onSave={async (v) => { await supabase.from("profiles").update({ display_name: v }).eq("id", selected.id); setSelected(s => ({ ...s, display_name: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, display_name: v } : m)); }} />
+            <EditableField value={selected.email || ""} placeholder="Email address"
+              style={{ fontSize: 12, color: T.text3, marginTop: 2, width: "100%" }}
+              onSave={async (v) => {
+                await supabase.from("profiles").update({ email: v }).eq("id", selected.id);
+                setSelected(s => ({ ...s, email: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, email: v } : m));
                 const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
                   method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ action: "update_email", user_id: selected.id, email: selected.email }),
+                  body: JSON.stringify({ action: "update_email", user_id: selected.id, email: v }),
                 });
                 const result = await res.json();
-                if (result.error) showToast("Profile email updated. Auth email update: " + result.error);
+                if (result.error) showToast("Profile updated. Auth: " + result.error);
                 else showToast("Email updated", "success");
-              }}
-              style={{ fontSize: 12, color: T.text3, marginTop: 2, border: "none", background: "transparent", outline: "none", width: "100%", padding: 0 }} />
+              }} />
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
