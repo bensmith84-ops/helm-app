@@ -672,6 +672,8 @@ function APAgingView({ isMobile }) {
   const [expandedVendor, setExpandedVendor] = useState(null);
   const [vendorSort, setVendorSort] = useState(["total", "desc"]);
   const [approvalFilter, setApprovalFilter] = useState("");
+  const [viewMode, setViewMode] = useState("vendor"); // vendor, date, status, all
+  const [billSort, setBillSort] = useState(["due_date", "asc"]);
 
   useEffect(() => {
     (async () => {
@@ -721,15 +723,7 @@ function APAgingView({ isMobile }) {
     if (entityMap[v].oldest === null || age > entityMap[v].oldest) entityMap[v].oldest = age;
   });
   const entityList = Object.values(entityMap).sort((a, b) => b.total - a.total);
-
   const filteredEntities = search ? entityList.filter(v => v.name.toLowerCase().includes(search.toLowerCase())) : entityList;
-  const [vSortKey, vSortDir] = vendorSort;
-  const sortedEntities = [...filteredEntities].sort((a, b) => {
-    let va = a[vSortKey], vb = b[vSortKey];
-    if (va == null) return 1; if (vb == null) return -1;
-    const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
-    return vSortDir === "desc" ? -cmp : cmp;
-  });
 
   // Helpers for approval
   const updateBill = async (billId, updates) => {
@@ -818,10 +812,18 @@ function APAgingView({ isMobile }) {
         </div>
       </div>
 
-      {/* Entity table — expandable to show individual bills with approval workflow */}
+      {/* Bills table — group by vendor, date, status, or show all */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
         <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap", gap: 8 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>By {tab === "ap" ? "Vendor" : "Customer"}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{tab === "ap" ? "Bills" : "Invoices"}</div>
+            <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${T.border}`, marginLeft: 8 }}>
+              {[["vendor", "By Vendor"], ["date", "By Date"], ["status", "By Status"], ["all", "All Bills"]].map(([k, l]) => (
+                <button key={k} onClick={() => { setViewMode(k); setExpandedVendor(null); }}
+                  style={{ padding: "3px 10px", fontSize: 10, fontWeight: viewMode === k ? 700 : 500, border: "none", cursor: "pointer", background: viewMode === k ? T.accent : T.surface2, color: viewMode === k ? "#fff" : T.text3 }}>{l}</button>
+              ))}
+            </div>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <select value={approvalFilter} onChange={e => setApprovalFilter(e.target.value)} style={{ padding: "4px 8px", fontSize: 10, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: approvalFilter ? T.text : T.text3, cursor: "pointer" }}>
               <option value="">All Approvals</option>
@@ -831,114 +833,231 @@ function APAgingView({ isMobile }) {
             </select>
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}` }}>
               <span style={{ fontSize: 12, color: T.text3 }}>🔍</span>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${tab === "ap" ? "vendor" : "customer"}…`} style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 11, width: 140 }} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 11, width: 120 }} />
             </div>
           </div>
         </div>
-        <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
-          <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
-            {[
-              { key: "name", label: tab === "ap" ? "Vendor" : "Customer", align: "left" },
-              { key: "total", label: "Balance", align: "right" },
-              { key: "count", label: "#", align: "center" },
-              { key: "oldest", label: "Status", align: "center" },
-            ].map(col => (
-              <th key={col.key} onClick={() => setVendorSort([col.key, vSortKey === col.key && vSortDir === "asc" ? "desc" : "asc"])}
-                style={{ padding: "8px 12px", textAlign: col.align, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer", userSelect: "none" }}>
-                {col.label} {vSortKey === col.key ? (vSortDir === "asc" ? "↑" : "↓") : ""}
-              </th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {sortedEntities.slice(0, 50).map(v => {
-              const ageColor = v.oldest <= 0 ? T.green : v.oldest <= 30 ? T.yellow : v.oldest <= 60 ? "#F97316" : T.red;
-              const ageLabel = v.oldest <= 0 ? "Current" : `${v.oldest}d`;
-              const isExpanded = expandedVendor === v.name;
-              const vendorBills = isExpanded ? items.filter(b => {
-                if (approvalFilter === "pending") return b.approval_status !== "approved";
-                if (approvalFilter === "approved") return b.approval_status === "approved" && !b.scheduled_payment_date;
-                if (approvalFilter === "scheduled") return !!b.scheduled_payment_date;
-                return true;
-              }).filter(b => b[entityField] === v.name).sort((a, b) => new Date(a.due_date || "2099-01-01") - new Date(b.due_date || "2099-01-01")) : [];
-              return (
-                <Fragment key={v.name}>
-                  <tr onClick={() => setExpandedVendor(isExpanded ? null : v.name)} style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: isExpanded ? T.surface2 : "transparent" }}
-                    onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = T.surface2; }} onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = "transparent"; }}>
-                    <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text }}>
-                      <span style={{ fontSize: 10, marginRight: 6, color: T.text3, display: "inline-block", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>▶</span>
-                      {v.name}
-                    </td>
-                    <td style={{ padding: "8px 12px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(v.total)}</td>
-                    <td style={{ padding: "8px 12px", textAlign: "center", fontSize: 12, color: T.text2 }}>{v.count}</td>
-                    <td style={{ padding: "8px 12px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: ageColor + "18", color: ageColor }}>{ageLabel}</span></td>
-                  </tr>
-                  {isExpanded && vendorBills.length > 0 && (
-                    <tr><td colSpan={4} style={{ padding: 0, background: T.surface2 + "40" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                          {["Memo / GL", "Amount", "Due Date", "Status", "Payment Approved", "Scheduled Payment"].map(h => (
-                            <th key={h} style={{ padding: "6px 10px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: h === "Amount" ? "right" : "left" }}>{h}</th>
-                          ))}
-                        </tr></thead>
-                        <tbody>
-                          {vendorBills.map(b => {
-                            const overdue = b.due_date && daysDiff(b.due_date) > 0;
-                            const daysUntil = b.due_date ? -daysDiff(b.due_date) : null;
-                            return (
-                              <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
-                                <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || b.gl_accounts || "—"}</td>
-                                <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{fmt(Number(b.balance || b.total_amount))}</td>
-                                <td style={{ padding: "7px 10px", fontSize: 11, whiteSpace: "nowrap" }}>
-                                  <span style={{ fontWeight: overdue ? 700 : 400, color: overdue ? T.red : daysUntil != null && daysUntil <= 7 ? T.yellow : T.text2 }}>
-                                    {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}
-                                  </span>
-                                  {overdue && <span style={{ fontSize: 8, marginLeft: 4, padding: "1px 4px", borderRadius: 3, background: T.red + "18", color: T.red, fontWeight: 700 }}>{daysDiff(b.due_date)}d</span>}
-                                  {!overdue && daysUntil != null && daysUntil <= 14 && daysUntil >= 0 && <span style={{ fontSize: 8, marginLeft: 4, color: T.yellow }}>{daysUntil}d</span>}
-                                </td>
-                                <td style={{ padding: "7px 10px" }}>
-                                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: (overdue ? T.red : T.green) + "18", color: overdue ? T.red : T.green }}>{overdue ? "OVERDUE" : "CURRENT"}</span>
-                                </td>
-                                <td style={{ padding: "7px 10px" }}>
-                                  {b.approval_status === "approved" ? (
-                                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: T.green + "18", color: T.green }}>✓ APPROVED</span>
-                                      <button onClick={e => { e.stopPropagation(); if (window.confirm("Revoke approval?")) updateBill(b.id, { approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }); }}
-                                        style={{ padding: "1px 5px", fontSize: 8, borderRadius: 3, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }} title="Revoke">✕</button>
-                                    </div>
-                                  ) : (
-                                    <button onClick={e => { e.stopPropagation(); if (window.confirm(`Approve ${fmt(Number(b.balance || b.total_amount))} to ${v.name}?`)) updateBill(b.id, { approval_status: "approved", approved_at: new Date().toISOString() }); }}
-                                      style={{ padding: "3px 10px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>✓ Approve</button>
-                                  )}
-                                </td>
-                                <td style={{ padding: "7px 10px" }}>
-                                  {b.scheduled_payment_date ? (
-                                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                      <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>📅 {new Date(b.scheduled_payment_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                                      <button onClick={e => { e.stopPropagation(); updateBill(b.id, { scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }); }}
-                                        style={{ padding: "1px 5px", fontSize: 8, borderRadius: 3, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }} title="Clear date">✕</button>
-                                    </div>
-                                  ) : b.approval_status === "approved" ? (
-                                    <input type="date" min={new Date().toISOString().slice(0, 10)}
-                                      onChange={e => { if (e.target.value) updateBill(b.id, { scheduled_payment_date: e.target.value, scheduled_at: new Date().toISOString() }); }}
-                                      style={{ padding: "2px 4px", fontSize: 10, borderRadius: 4, border: `1px solid ${T.accent}`, background: T.accent + "08", color: T.accent, cursor: "pointer", width: 115 }} />
-                                  ) : (
-                                    <span style={{ fontSize: 10, color: T.text3 }}>—</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </td></tr>
+
+        {/* ── Shared bill row renderer ── */}
+        {(() => {
+          const billCols = [
+            { key: "vendor_name", label: tab === "ap" ? "Vendor" : "Customer", align: "left", w: null },
+            { key: "memo", label: "Memo / GL", align: "left", w: 180 },
+            { key: "balance", label: "Amount", align: "right", w: 90 },
+            { key: "due_date", label: "Due Date", align: "left", w: 110 },
+            { key: "status", label: "Status", align: "center", w: 80 },
+            { key: "approval_status", label: "Payment Approved", align: "center", w: 140 },
+            { key: "scheduled_payment_date", label: "Scheduled Payment", align: "center", w: 150 },
+          ];
+
+          // Filter items
+          let filtered = items.filter(b => {
+            if (approvalFilter === "pending") return b.approval_status !== "approved";
+            if (approvalFilter === "approved") return b.approval_status === "approved" && !b.scheduled_payment_date;
+            if (approvalFilter === "scheduled") return !!b.scheduled_payment_date;
+            return true;
+          });
+          if (search) {
+            const q = search.toLowerCase();
+            filtered = filtered.filter(b => (b[entityField] || "").toLowerCase().includes(q) || (b.memo || "").toLowerCase().includes(q) || (b.gl_accounts || "").toLowerCase().includes(q));
+          }
+
+          const renderBillRow = (b, showVendor = true) => {
+            const overdue = b.due_date && daysDiff(b.due_date) > 0;
+            const daysUntil = b.due_date ? -daysDiff(b.due_date) : null;
+            return (
+              <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
+                {showVendor && <td style={{ padding: "7px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b[entityField] || "—"}</td>}
+                <td style={{ padding: "7px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || b.gl_accounts || "—"}</td>
+                <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{fmt(Number(b.balance || b.total_amount))}</td>
+                <td style={{ padding: "7px 10px", fontSize: 11, whiteSpace: "nowrap" }}>
+                  <span style={{ fontWeight: overdue ? 700 : 400, color: overdue ? T.red : daysUntil != null && daysUntil <= 7 ? T.yellow : T.text2 }}>
+                    {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}
+                  </span>
+                  {overdue && <span style={{ fontSize: 8, marginLeft: 4, padding: "1px 4px", borderRadius: 3, background: T.red + "18", color: T.red, fontWeight: 700 }}>{daysDiff(b.due_date)}d</span>}
+                  {!overdue && daysUntil != null && daysUntil <= 14 && daysUntil >= 0 && <span style={{ fontSize: 8, marginLeft: 4, color: T.yellow }}>{daysUntil}d</span>}
+                </td>
+                <td style={{ padding: "7px 10px", textAlign: "center" }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: (overdue ? T.red : T.green) + "18", color: overdue ? T.red : T.green }}>{overdue ? "OVERDUE" : "CURRENT"}</span>
+                </td>
+                <td style={{ padding: "7px 10px", textAlign: "center" }}>
+                  {b.approval_status === "approved" ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: T.green + "18", color: T.green }}>✓ APPROVED</span>
+                      <button onClick={e => { e.stopPropagation(); if (window.confirm("Revoke approval?")) updateBill(b.id, { approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }); }}
+                        style={{ padding: "1px 5px", fontSize: 8, borderRadius: 3, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>✕</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
+                      <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: "#94a3b818", color: "#94a3b8" }}>PENDING</span>
+                      <button onClick={e => { e.stopPropagation(); if (window.confirm(`Approve ${fmt(Number(b.balance || b.total_amount))} to ${b[entityField]}?`)) updateBill(b.id, { approval_status: "approved", approved_at: new Date().toISOString() }); }}
+                        style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent + "18", color: T.accent, cursor: "pointer" }}>Approve</button>
+                    </div>
                   )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-        </div>
+                </td>
+                <td style={{ padding: "7px 10px", textAlign: "center" }}>
+                  {b.scheduled_payment_date ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>📅 {new Date(b.scheduled_payment_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                      <button onClick={e => { e.stopPropagation(); updateBill(b.id, { scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }); }}
+                        style={{ padding: "1px 5px", fontSize: 8, borderRadius: 3, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>✕</button>
+                    </div>
+                  ) : b.approval_status === "approved" ? (
+                    <input type="date" min={new Date().toISOString().slice(0, 10)}
+                      onChange={e => { if (e.target.value) updateBill(b.id, { scheduled_payment_date: e.target.value, scheduled_at: new Date().toISOString() }); }}
+                      style={{ padding: "2px 4px", fontSize: 10, borderRadius: 4, border: `1px solid ${T.accent}`, background: T.accent + "08", color: T.accent, cursor: "pointer", width: 115 }} />
+                  ) : (
+                    <span style={{ fontSize: 10, color: T.text3 }}>—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          };
+
+          const renderBillHeader = (showVendor = true) => (
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+              {billCols.filter(c => showVendor || c.key !== "vendor_name").map(col => (
+                <th key={col.key} onClick={() => col.key !== "status" && setBillSort([col.key, billSort[0] === col.key && billSort[1] === "asc" ? "desc" : "asc"])}
+                  style={{ padding: "6px 10px", textAlign: col.align, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap", maxWidth: col.w || "auto" }}>
+                  {col.label} {billSort[0] === col.key ? (billSort[1] === "asc" ? "↑" : "↓") : ""}
+                </th>
+              ))}
+            </tr></thead>
+          );
+
+          const sortBills = (arr) => {
+            const [sk, sd] = billSort;
+            return [...arr].sort((a, b) => {
+              let va = a[sk], vb = b[sk];
+              if (sk === "balance" || sk === "total_amount") { va = Number(va) || 0; vb = Number(vb) || 0; }
+              if (va == null) return 1; if (vb == null) return -1;
+              const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+              return sd === "desc" ? -cmp : cmp;
+            });
+          };
+
+          // ── ALL BILLS view ──
+          if (viewMode === "all") {
+            const sorted = sortBills(filtered);
+            return (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                  {renderBillHeader(true)}
+                  <tbody>{sorted.slice(0, 100).map(b => renderBillRow(b, true))}</tbody>
+                </table>
+                {sorted.length > 100 && <div style={{ padding: 8, textAlign: "center", fontSize: 10, color: T.text3 }}>Showing 100 of {sorted.length}</div>}
+              </div>
+            );
+          }
+
+          // ── GROUP BY VENDOR ──
+          if (viewMode === "vendor") {
+            const [vsk, vsd] = vendorSort;
+            const sorted = [...filteredEntities].sort((a, b) => { let va = a[vsk], vb = b[vsk]; if (va == null) return 1; if (vb == null) return -1; const c = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb)); return vsd === "desc" ? -c : c; });
+            return (
+              <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  {[{ key: "name", label: tab === "ap" ? "Vendor" : "Customer", align: "left" }, { key: "total", label: "Balance", align: "right" }, { key: "count", label: "#", align: "center" }, { key: "oldest", label: "Status", align: "center" }].map(col => (
+                    <th key={col.key} onClick={() => setVendorSort([col.key, vsk === col.key && vsd === "asc" ? "desc" : "asc"])}
+                      style={{ padding: "8px 12px", textAlign: col.align, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer", userSelect: "none" }}>
+                      {col.label} {vsk === col.key ? (vsd === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {sorted.slice(0, 50).map(v => {
+                    const ageColor = v.oldest <= 0 ? T.green : v.oldest <= 30 ? T.yellow : v.oldest <= 60 ? "#F97316" : T.red;
+                    const ageLabel = v.oldest <= 0 ? "Current" : `${v.oldest}d`;
+                    const isExp = expandedVendor === v.name;
+                    const vBills = isExp ? sortBills(filtered.filter(b => b[entityField] === v.name)) : [];
+                    return (
+                      <Fragment key={v.name}>
+                        <tr onClick={() => setExpandedVendor(isExp ? null : v.name)} style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: isExp ? T.surface2 : "transparent" }}
+                          onMouseEnter={e => { if (!isExp) e.currentTarget.style.background = T.surface2; }} onMouseLeave={e => { if (!isExp) e.currentTarget.style.background = "transparent"; }}>
+                          <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text }}>
+                            <span style={{ fontSize: 10, marginRight: 6, color: T.text3, display: "inline-block", transform: isExp ? "rotate(90deg)" : "rotate(0)", transition: "transform 0.15s" }}>▶</span>{v.name}
+                          </td>
+                          <td style={{ padding: "8px 12px", textAlign: "right", fontSize: 12, fontWeight: 700, color: T.text }}>{fmtK(v.total)}</td>
+                          <td style={{ padding: "8px 12px", textAlign: "center", fontSize: 12, color: T.text2 }}>{v.count}</td>
+                          <td style={{ padding: "8px 12px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: ageColor + "18", color: ageColor }}>{ageLabel}</span></td>
+                        </tr>
+                        {isExp && vBills.length > 0 && (
+                          <tr><td colSpan={4} style={{ padding: 0, background: T.surface2 + "40" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
+                              {renderBillHeader(false)}
+                              <tbody>{vBills.map(b => renderBillRow(b, false))}</tbody>
+                            </table>
+                          </td></tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+              </div>
+            );
+          }
+
+          // ── GROUP BY DATE (week buckets) ──
+          if (viewMode === "date") {
+            const weeks = {};
+            filtered.forEach(b => {
+              const d = b.due_date ? new Date(b.due_date + "T12:00:00") : null;
+              const label = d ? `Week of ${new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "No Due Date";
+              if (!weeks[label]) weeks[label] = { label, bills: [], total: 0, sortDate: d ? d.getTime() : 99999999999999 };
+              weeks[label].bills.push(b); weeks[label].total += Number(b.balance || 0);
+            });
+            const weekList = Object.values(weeks).sort((a, b) => a.sortDate - b.sortDate);
+            return (
+              <div style={{ overflowX: "auto" }}>
+                {weekList.map(w => (
+                  <div key={w.label}>
+                    <div style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{w.label}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.red }}>{fmtK(w.total)} · {w.bills.length} bills</span>
+                    </div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                      {w === weekList[0] && renderBillHeader(true)}
+                      <tbody>{sortBills(w.bills).map(b => renderBillRow(b, true))}</tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            );
+          }
+
+          // ── GROUP BY STATUS ──
+          if (viewMode === "status") {
+            const groups = [
+              { key: "overdue", label: "Overdue", color: T.red, filter: b => b.due_date && daysDiff(b.due_date) > 0 },
+              { key: "current", label: "Current", color: T.green, filter: b => !b.due_date || daysDiff(b.due_date) <= 0 },
+            ];
+            return (
+              <div style={{ overflowX: "auto" }}>
+                {groups.map(g => {
+                  const gBills = filtered.filter(g.filter);
+                  if (gBills.length === 0) return null;
+                  const gTotal = gBills.reduce((s, b) => s + Number(b.balance || 0), 0);
+                  return (
+                    <div key={g.key}>
+                      <div style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{g.label}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{fmtK(gTotal)} · {gBills.length} bills</span>
+                      </div>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                        {renderBillHeader(true)}
+                        <tbody>{sortBills(gBills).map(b => renderBillRow(b, true))}</tbody>
+                      </table>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          }
+
+          return null;
+        })()}
       </div>
     </div>
   );
