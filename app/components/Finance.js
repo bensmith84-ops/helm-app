@@ -885,6 +885,7 @@ function APAgingView({ isMobile }) {
             { key: "status", label: "Status", align: "center", w: 80 },
             { key: "approval_status", label: "Payment Approved", align: "center", w: 140 },
             { key: "scheduled_payment_date", label: "Scheduled Payment", align: "center", w: 150 },
+            { key: "invoice", label: "Invoice", align: "center", w: 60 },
             { key: "notes", label: "Notes", align: "center", w: 60 },
           ];
 
@@ -955,6 +956,20 @@ function APAgingView({ isMobile }) {
                   )}
                 </td>
                 <td style={{ padding: "7px 6px", textAlign: "center" }}>
+                  {b.attachment_url ? (
+                    <a href={b.attachment_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                      style={{ fontSize: 10, color: T.accent, fontWeight: 600, textDecoration: "none" }} title={b.attachment_name || "View Invoice"}>📄</a>
+                  ) : (
+                    <button onClick={async e => { e.stopPropagation();
+                      try {
+                        const res = await fetch(supabase.supabaseUrl + "/functions/v1/qbo-attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "get_attachment", bill_id: b.id, qbo_id: b.qbo_id }) });
+                        const result = await res.json();
+                        if (result.attachments?.length > 0) { setBills(p => p.map(x => x.id === b.id ? { ...x, attachment_url: result.attachments[0].temp_download_uri, attachment_name: result.attachments[0].file_name } : x)); }
+                      } catch (_) {}
+                    }} style={{ padding: "2px 6px", fontSize: 10, borderRadius: 4, border: "none", background: "transparent", color: T.text3, cursor: "pointer" }} title="Fetch invoice from QBO">📎</button>
+                  )}
+                </td>
+                <td style={{ padding: "7px 6px", textAlign: "center" }}>
                   <button onClick={e => { e.stopPropagation(); openNotes(b.id); }}
                     style={{ padding: "2px 6px", fontSize: 10, borderRadius: 4, border: "none", background: notesBillId === b.id ? T.accent + "20" : "transparent", color: notesBillId === b.id ? T.accent : T.text3, cursor: "pointer", fontWeight: 600 }}
                     title="Notes">💬{notesBillId === b.id && notes.length > 0 ? ` ${notes.length}` : ""}</button>
@@ -1014,8 +1029,8 @@ function APAgingView({ isMobile }) {
           const renderBillHeader = (showVendor = true) => (
             <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
               {billCols.filter(c => showVendor || c.key !== "vendor_name").map(col => (
-                <th key={col.key} onClick={() => col.key !== "status" && col.key !== "notes" && setBillSort([col.key, billSort[0] === col.key && billSort[1] === "asc" ? "desc" : "asc"])}
-                  style={{ padding: "6px 10px", textAlign: col.align, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: col.key !== "notes" ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap", maxWidth: col.w || "auto" }}>
+                <th key={col.key} onClick={() => col.key !== "status" && col.key !== "notes" && col.key !== "invoice" && setBillSort([col.key, billSort[0] === col.key && billSort[1] === "asc" ? "desc" : "asc"])}
+                  style={{ padding: "6px 10px", textAlign: col.align, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: col.key !== "notes" && col.key !== "invoice" ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap", maxWidth: col.w || "auto" }}>
                   {col.label} {billSort[0] === col.key ? (billSort[1] === "asc" ? "↑" : "↓") : ""}
                 </th>
               ))}
@@ -1113,7 +1128,7 @@ function APAgingView({ isMobile }) {
                   <tbody>
                     {weekList.map(w => (
                       <Fragment key={w.label}>
-                        <tr><td colSpan={9} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                        <tr><td colSpan={10} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{w.label}</span>
                             <span style={{ fontSize: 11, fontWeight: 700, color: T.red }}>{fmtK(w.total)} · {w.bills.length} bills</span>
@@ -1145,7 +1160,7 @@ function APAgingView({ isMobile }) {
                       const gTotal = gBills.reduce((s, b) => s + Number(b.balance || 0), 0);
                       return (
                         <Fragment key={g.key}>
-                          <tr><td colSpan={9} style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                          <tr><td colSpan={10} style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
                             <div style={{ display: "flex", justifyContent: "space-between" }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{g.label}</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{fmtK(gTotal)} · {gBills.length} bills</span>
