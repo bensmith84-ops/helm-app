@@ -546,6 +546,7 @@ function TransactionSearch({ isMobile }) {
   filtered.sort((a, b) => {
     let va, vb;
     if (sortBy === "date") { va = a.txn_date || ""; vb = b.txn_date || ""; return sortDir === "desc" ? vb.localeCompare(va) : va.localeCompare(vb); }
+    if (sortBy === "due_date") { va = a.due_date || "9999"; vb = b.due_date || "9999"; return sortDir === "desc" ? vb.localeCompare(va) : va.localeCompare(vb); }
     if (sortBy === "amount") { va = Number(a.total_amount) || 0; vb = Number(b.total_amount) || 0; return sortDir === "desc" ? vb - va : va - vb; }
     if (sortBy === "entity") { va = (a.entity || "").toLowerCase(); vb = (b.entity || "").toLowerCase(); return sortDir === "desc" ? vb.localeCompare(va) : va.localeCompare(vb); }
     return 0;
@@ -608,7 +609,8 @@ function TransactionSearch({ isMobile }) {
           <thead>
             <tr style={{ borderBottom: `2px solid ${T.border}` }}>
               <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", width: 60 }}>Type</th>
-              <th onClick={() => toggleSort("date")} style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer" }}>Date {sortBy === "date" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+              <th onClick={() => toggleSort("date")} style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer" }}>Txn Date {sortBy === "date" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+              <th onClick={() => toggleSort("due_date")} style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer" }}>Due Date {sortBy === "due_date" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
               <th onClick={() => toggleSort("entity")} style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer" }}>Entity {sortBy === "entity" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
               <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Memo</th>
               <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>GL</th>
@@ -625,6 +627,15 @@ function TransactionSearch({ isMobile }) {
                   </td>
                   <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>
                     {t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                  </td>
+                  <td style={{ padding: "6px 10px", fontSize: 11, whiteSpace: "nowrap" }}>
+                    {t.due_date ? (() => {
+                      const overdue = t.txn_type === "bill" && new Date(t.due_date + "T12:00:00") < new Date();
+                      return <span style={{ fontWeight: overdue ? 700 : 400, color: overdue ? T.red : T.text2 }}>
+                        {new Date(t.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        {overdue && <span style={{ fontSize: 8, marginLeft: 3, padding: "1px 3px", borderRadius: 3, background: T.red + "18", color: T.red, fontWeight: 700 }}>!</span>}
+                      </span>;
+                    })() : <span style={{ color: T.text3 }}>—</span>}
                   </td>
                   <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {t.entity || "—"}
