@@ -759,7 +759,45 @@ function APAgingView({ isMobile }) {
     if (!noteText.trim() || !notesBillId) return;
     const note = { bill_id: notesBillId, parent_id: parentId, user_id: user?.id, user_name: profile?.display_name || user?.email, content: noteText.trim() };
     const { data } = await supabase.from("bill_notes").insert(note).select().single();
-    if (data) setNotes(p => [...p, data]);
+    if (data) {
+      setNotes(p => [...p, data]);
+      // Send notification to Ben (admin) for any bill note
+      const bill = bills.find(b => b.id === notesBillId);
+      const BEN_ID = "32cad5dd-9e94-4095-a16d-b4521391b050";
+      if (user?.id !== BEN_ID) {
+        // Note from someone else — notify Ben
+        await supabase.from("notifications").insert({
+          org_id: "a0000000-0000-0000-0000-000000000001",
+          user_id: BEN_ID,
+          type: "bill_note",
+          title: `New note on ${bill?.vendor_name || "bill"}`,
+          body: `${profile?.display_name || "Someone"}: ${noteText.trim().slice(0, 120)}`,
+          entity_type: "qbo_bill",
+          entity_id: notesBillId,
+          actor_id: user?.id,
+          category: "finance",
+          link: "/finance/ap-ar",
+        });
+      } else {
+        // Ben's own note — notify all other org members who have notes on this bill
+        const { data: otherNoters } = await supabase.from("bill_notes").select("user_id").eq("bill_id", notesBillId).neq("user_id", BEN_ID);
+        const uniqueUsers = [...new Set((otherNoters || []).map(n => n.user_id).filter(Boolean))];
+        for (const uid of uniqueUsers) {
+          await supabase.from("notifications").insert({
+            org_id: "a0000000-0000-0000-0000-000000000001",
+            user_id: uid,
+            type: "bill_note",
+            title: `Ben replied on ${bill?.vendor_name || "bill"}`,
+            body: noteText.trim().slice(0, 120),
+            entity_type: "qbo_bill",
+            entity_id: notesBillId,
+            actor_id: user?.id,
+            category: "finance",
+            link: "/finance/ap-ar",
+          });
+        }
+      }
+    }
     setNoteText(""); setReplyTo(null);
   };
 
