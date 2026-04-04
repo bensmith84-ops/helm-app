@@ -857,6 +857,7 @@ function APAgingView({ isMobile }) {
             { key: "vendor_name", label: tab === "ap" ? "Vendor" : "Customer", align: "left", w: null },
             { key: "memo", label: "Memo / GL", align: "left", w: 180 },
             { key: "balance", label: "Amount", align: "right", w: 90 },
+            { key: "txn_date", label: "Received", align: "left", w: 100 },
             { key: "due_date", label: "Due Date", align: "left", w: 110 },
             { key: "status", label: "Status", align: "center", w: 80 },
             { key: "approval_status", label: "Payment Approved", align: "center", w: 140 },
@@ -885,6 +886,7 @@ function APAgingView({ isMobile }) {
                 {showVendor && <td style={{ padding: "7px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b[entityField] || "—"}</td>}
                 <td style={{ padding: "7px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || b.gl_accounts || "—"}</td>
                 <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{fmt(Number(b.balance || b.total_amount))}</td>
+                <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
                 <td style={{ padding: "7px 10px", fontSize: 11, whiteSpace: "nowrap" }}>
                   <span style={{ fontWeight: overdue ? 700 : 400, color: overdue ? T.red : daysUntil != null && daysUntil <= 7 ? T.yellow : T.text2 }}>
                     {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}
@@ -1033,7 +1035,7 @@ function APAgingView({ isMobile }) {
                   <tbody>
                     {weekList.map(w => (
                       <Fragment key={w.label}>
-                        <tr><td colSpan={7} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                        <tr><td colSpan={8} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{w.label}</span>
                             <span style={{ fontSize: 11, fontWeight: 700, color: T.red }}>{fmtK(w.total)} · {w.bills.length} bills</span>
@@ -1065,7 +1067,7 @@ function APAgingView({ isMobile }) {
                       const gTotal = gBills.reduce((s, b) => s + Number(b.balance || 0), 0);
                       return (
                         <Fragment key={g.key}>
-                          <tr><td colSpan={7} style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                          <tr><td colSpan={8} style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
                             <div style={{ display: "flex", justifyContent: "space-between" }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{g.label}</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{fmtK(gTotal)} · {gBills.length} bills</span>
