@@ -685,6 +685,12 @@ function APAgingView({ isMobile }) {
   const [approvalFilter, setApprovalFilter] = useState("");
   const [viewMode, setViewMode] = useState("vendor"); // vendor, date, status, all
   const [billSort, setBillSort] = useState(["due_date", "asc"]);
+  const [notesBillId, setNotesBillId] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [noteText, setNoteText] = useState("");
+  const [replyTo, setReplyTo] = useState(null);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const { user, profile } = useAuth();
 
   useEffect(() => {
     (async () => {
@@ -741,6 +747,23 @@ function APAgingView({ isMobile }) {
     await supabase.from("qbo_bills").update(updates).eq("id", billId);
     setBills(p => p.map(b => b.id === billId ? { ...b, ...updates } : b));
   };
+
+  const openNotes = async (billId) => {
+    if (notesBillId === billId) { setNotesBillId(null); return; }
+    setNotesBillId(billId); setNotesLoading(true); setReplyTo(null); setNoteText("");
+    const { data } = await supabase.from("bill_notes").select("*").eq("bill_id", billId).order("created_at");
+    setNotes(data || []); setNotesLoading(false);
+  };
+
+  const addNote = async (parentId = null) => {
+    if (!noteText.trim() || !notesBillId) return;
+    const note = { bill_id: notesBillId, parent_id: parentId, user_id: user?.id, user_name: profile?.display_name || user?.email, content: noteText.trim() };
+    const { data } = await supabase.from("bill_notes").insert(note).select().single();
+    if (data) setNotes(p => [...p, data]);
+    setNoteText(""); setReplyTo(null);
+  };
+
+  const noteCount = (billId) => notes.filter(n => n.bill_id === billId).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -862,6 +885,7 @@ function APAgingView({ isMobile }) {
             { key: "status", label: "Status", align: "center", w: 80 },
             { key: "approval_status", label: "Payment Approved", align: "center", w: 140 },
             { key: "scheduled_payment_date", label: "Scheduled Payment", align: "center", w: 150 },
+            { key: "notes", label: "Notes", align: "center", w: 60 },
           ];
 
           // Filter items
@@ -882,7 +906,8 @@ function APAgingView({ isMobile }) {
             const overdue = b.due_date && daysDiff(b.due_date) > 0;
             const daysUntil = b.due_date ? -daysDiff(b.due_date) : null;
             return (
-              <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
+            <Fragment key={b.id}>
+              <tr style={{ borderBottom: `1px solid ${T.border}15` }}>
                 {showVendor && <td style={{ padding: "7px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b[entityField] || "—"}</td>}
                 <td style={{ padding: "7px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || b.gl_accounts || "—"}</td>
                 <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{fmt(Number(b.balance || b.total_amount))}</td>
@@ -929,15 +954,68 @@ function APAgingView({ isMobile }) {
                     <span style={{ fontSize: 10, color: T.text3 }}>—</span>
                   )}
                 </td>
+                <td style={{ padding: "7px 6px", textAlign: "center" }}>
+                  <button onClick={e => { e.stopPropagation(); openNotes(b.id); }}
+                    style={{ padding: "2px 6px", fontSize: 10, borderRadius: 4, border: "none", background: notesBillId === b.id ? T.accent + "20" : "transparent", color: notesBillId === b.id ? T.accent : T.text3, cursor: "pointer", fontWeight: 600 }}
+                    title="Notes">💬{notesBillId === b.id && notes.length > 0 ? ` ${notes.length}` : ""}</button>
+                </td>
               </tr>
+              {notesBillId === b.id && (
+                <tr><td colSpan={billCols.length + (showVendor ? 0 : -1)} style={{ padding: 0, background: T.surface2 + "60" }}>
+                  <div style={{ padding: "10px 16px", maxHeight: 300, overflow: "auto" }}>
+                    {notesLoading ? <div style={{ fontSize: 11, color: T.text3 }}>Loading notes…</div> : (
+                      <>
+                        {notes.filter(n => !n.parent_id).length === 0 && !replyTo && <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>No notes yet. Add one below.</div>}
+                        {notes.filter(n => !n.parent_id).map(n => (
+                          <div key={n.id} style={{ marginBottom: 10 }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                              <div style={{ width: 24, height: 24, borderRadius: 12, background: T.accent + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.accent, flexShrink: 0 }}>{(n.user_name || "?")[0]}</div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 10, color: T.text3 }}><strong style={{ color: T.text }}>{n.user_name || "Unknown"}</strong> · {new Date(n.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} {new Date(n.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
+                                <div style={{ fontSize: 12, color: T.text, marginTop: 2, lineHeight: 1.5 }}>{n.content}</div>
+                                <button onClick={() => setReplyTo(replyTo === n.id ? null : n.id)} style={{ fontSize: 9, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: "2px 0", fontWeight: 600 }}>Reply</button>
+                              </div>
+                            </div>
+                            {/* Replies */}
+                            {notes.filter(r => r.parent_id === n.id).map(r => (
+                              <div key={r.id} style={{ marginLeft: 32, marginTop: 6, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                <div style={{ width: 20, height: 20, borderRadius: 10, background: T.green + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: T.green, flexShrink: 0 }}>{(r.user_name || "?")[0]}</div>
+                                <div>
+                                  <div style={{ fontSize: 10, color: T.text3 }}><strong style={{ color: T.text }}>{r.user_name || "Unknown"}</strong> · {new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} {new Date(r.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
+                                  <div style={{ fontSize: 11, color: T.text, marginTop: 1, lineHeight: 1.4 }}>{r.content}</div>
+                                </div>
+                              </div>
+                            ))}
+                            {replyTo === n.id && (
+                              <div style={{ marginLeft: 32, marginTop: 6, display: "flex", gap: 6 }}>
+                                <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Reply…" onKeyDown={e => { if (e.key === "Enter" && noteText.trim()) addNote(n.id); }}
+                                  style={{ flex: 1, padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none" }} autoFocus />
+                                <button onClick={() => addNote(n.id)} disabled={!noteText.trim()} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 700, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: noteText.trim() ? 1 : 0.5 }}>Reply</button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {!replyTo && (
+                          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                            <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Add a note…" onKeyDown={e => { if (e.key === "Enter" && noteText.trim()) addNote(null); }}
+                              style={{ flex: 1, padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none" }} />
+                            <button onClick={() => addNote(null)} disabled={!noteText.trim()} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 700, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: noteText.trim() ? 1 : 0.5 }}>Post</button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </td></tr>
+              )}
+            </Fragment>
             );
           };
 
           const renderBillHeader = (showVendor = true) => (
             <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
               {billCols.filter(c => showVendor || c.key !== "vendor_name").map(col => (
-                <th key={col.key} onClick={() => col.key !== "status" && setBillSort([col.key, billSort[0] === col.key && billSort[1] === "asc" ? "desc" : "asc"])}
-                  style={{ padding: "6px 10px", textAlign: col.align, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap", maxWidth: col.w || "auto" }}>
+                <th key={col.key} onClick={() => col.key !== "status" && col.key !== "notes" && setBillSort([col.key, billSort[0] === col.key && billSort[1] === "asc" ? "desc" : "asc"])}
+                  style={{ padding: "6px 10px", textAlign: col.align, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: col.key !== "notes" ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap", maxWidth: col.w || "auto" }}>
                   {col.label} {billSort[0] === col.key ? (billSort[1] === "asc" ? "↑" : "↓") : ""}
                 </th>
               ))}
@@ -1035,7 +1113,7 @@ function APAgingView({ isMobile }) {
                   <tbody>
                     {weekList.map(w => (
                       <Fragment key={w.label}>
-                        <tr><td colSpan={8} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                        <tr><td colSpan={9} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{w.label}</span>
                             <span style={{ fontSize: 11, fontWeight: 700, color: T.red }}>{fmtK(w.total)} · {w.bills.length} bills</span>
@@ -1067,7 +1145,7 @@ function APAgingView({ isMobile }) {
                       const gTotal = gBills.reduce((s, b) => s + Number(b.balance || 0), 0);
                       return (
                         <Fragment key={g.key}>
-                          <tr><td colSpan={8} style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                          <tr><td colSpan={9} style={{ padding: "8px 12px", background: g.color + "10", borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
                             <div style={{ display: "flex", justifyContent: "space-between" }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{g.label}</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{fmtK(gTotal)} · {gBills.length} bills</span>
