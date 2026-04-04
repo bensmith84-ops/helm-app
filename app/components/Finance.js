@@ -956,17 +956,11 @@ function APAgingView({ isMobile }) {
                   )}
                 </td>
                 <td style={{ padding: "7px 6px", textAlign: "center" }}>
-                  {b.attachment_url ? (
+                  {b.attachment_url && b.attachment_url !== "none" ? (
                     <a href={b.attachment_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                      style={{ fontSize: 10, color: T.accent, fontWeight: 600, textDecoration: "none" }} title={b.attachment_name || "View Invoice"}>📄</a>
+                      style={{ fontSize: 13, textDecoration: "none" }} title={b.attachment_name || "View Invoice"}>📄</a>
                   ) : (
-                    <button onClick={async e => { e.stopPropagation();
-                      try {
-                        const res = await fetch(supabase.supabaseUrl + "/functions/v1/qbo-attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "get_attachment", bill_id: b.id, qbo_id: b.qbo_id }) });
-                        const result = await res.json();
-                        if (result.attachments?.length > 0) { setBills(p => p.map(x => x.id === b.id ? { ...x, attachment_url: result.attachments[0].temp_download_uri, attachment_name: result.attachments[0].file_name } : x)); }
-                      } catch (_) {}
-                    }} style={{ padding: "2px 6px", fontSize: 10, borderRadius: 4, border: "none", background: "transparent", color: T.text3, cursor: "pointer" }} title="Fetch invoice from QBO">📎</button>
+                    <span style={{ fontSize: 10, color: T.text3 }}>—</span>
                   )}
                 </td>
                 <td style={{ padding: "7px 6px", textAlign: "center" }}>
