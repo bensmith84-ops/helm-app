@@ -1223,6 +1223,32 @@ function APAgingView({ isMobile }) {
           <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Invoice Inbox</div>
             <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => {
+                const name = prompt("Rule name (e.g. 'Large bills need CFO approval'):");
+                if (!name) return;
+                const minAmt = prompt("Minimum amount (or leave empty):");
+                const maxAmt = prompt("Maximum amount (or leave empty):");
+                const vendors = prompt("Vendor names (comma-separated, or leave empty):");
+                const approverEmail = prompt("Approver email:");
+                if (!approverEmail) return;
+                (async () => {
+                  const { data: approver } = await supabase.from("profiles").select("id").eq("email", approverEmail).single();
+                  if (!approver) { alert("Approver not found"); return; }
+                  const approver2Email = prompt("Second approver email (or leave empty):");
+                  const approvers = [approver.id];
+                  if (approver2Email) {
+                    const { data: a2 } = await supabase.from("profiles").select("id").eq("email", approver2Email).single();
+                    if (a2) approvers.push(a2.id);
+                  }
+                  await supabase.from("ap_approval_rules").insert({
+                    org_id: "a0000000-0000-0000-0000-000000000001",
+                    name, min_amount: minAmt ? parseFloat(minAmt) : null, max_amount: maxAmt ? parseFloat(maxAmt) : null,
+                    vendor_names: vendors ? vendors.split(",").map(v => v.trim()) : null,
+                    approvers, created_by: user?.id,
+                  });
+                  alert("Approval rule created: " + name);
+                })();
+              }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>⚙ Rules</button>
               <label style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, borderRadius: 6, background: T.accent, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
                 📎 Upload Invoice
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: "none" }} onChange={async (e) => {
@@ -1277,7 +1303,7 @@ function APAgingView({ isMobile }) {
                 </tr></thead>
                 <tbody>
                   {inboxItems.map(inv => {
-                    const statusColors = { pending: { bg: "#94a3b818", c: "#94a3b8" }, processing: { bg: T.accent + "18", c: T.accent }, extracted: { bg: T.green + "18", c: T.green }, approved: { bg: "#10B98118", c: "#10B981" }, duplicate: { bg: T.yellow + "18", c: T.yellow }, error: { bg: T.red + "18", c: T.red } };
+                    const statusColors = { pending: { bg: "#94a3b818", c: "#94a3b8" }, processing: { bg: T.accent + "18", c: T.accent }, extracted: { bg: T.green + "18", c: T.green }, approved: { bg: "#10B98118", c: "#10B981" }, duplicate: { bg: T.yellow + "18", c: T.yellow }, denied: { bg: T.red + "18", c: T.red }, error: { bg: T.red + "18", c: T.red } };
                     const sc = statusColors[inv.status] || statusColors.pending;
                     const conf = inv.extracted_data?.confidence;
                     return (
@@ -1290,23 +1316,33 @@ function APAgingView({ isMobile }) {
                         <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{inv.total_amount ? fmt(Number(inv.total_amount)) : "—"}</td>
                         <td style={{ padding: "7px 10px", fontSize: 11, color: T.accent }}>{inv.gl_account || "—"}</td>
                         <td style={{ padding: "7px 10px" }}>{conf != null ? <span style={{ fontSize: 10, fontWeight: 600, color: conf >= 0.9 ? T.green : conf >= 0.7 ? T.yellow : T.red }}>{Math.round(conf * 100)}%</span> : "—"}</td>
-                        <td style={{ padding: "7px 10px", display: "flex", gap: 4 }}>
-                          {inv.file_url && <a href={inv.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, textDecoration: "none" }} title="View file">📄</a>}
-                          {inv.status === "extracted" && (
-                            <button onClick={async () => {
-                              await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", inbox_id: inv.id, user_id: user?.id }) });
-                              setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "approved" } : x));
-                            }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>Approve</button>
-                          )}
-                          {inv.status === "error" && (
-                            <button onClick={async () => {
-                              setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "processing" } : x));
-                              const res = await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "extract", inbox_id: inv.id }) });
-                              const result = await res.json();
-                              if (result.success) { const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("id", inv.id).single(); if (updated) setInboxItems(p => p.map(x => x.id === inv.id ? updated : x)); }
-                            }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent + "18", color: T.accent, cursor: "pointer" }}>Retry</button>
-                          )}
-                          {inv.duplicate_of && <span style={{ fontSize: 9, color: T.yellow }}>⚠ Duplicate</span>}
+                        <td style={{ padding: "7px 10px" }}>
+                          <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                            {inv.file_url && <a href={inv.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, textDecoration: "none" }} title="View file">📄</a>}
+                            {inv.status === "extracted" && (
+                              <button onClick={async () => {
+                                await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", inbox_id: inv.id, user_id: user?.id }) });
+                                setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "approved" } : x));
+                              }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>Approve</button>
+                            )}
+                            {inv.status === "extracted" && (
+                              <button onClick={async () => {
+                                await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", inbox_id: inv.id, user_id: user?.id, overrides: { status: "denied" } }) });
+                                setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "denied" } : x));
+                              }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>Deny</button>
+                            )}
+                            {inv.status === "error" && (
+                              <button onClick={async () => {
+                                setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "processing" } : x));
+                                const res = await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "extract", inbox_id: inv.id }) });
+                                const result = await res.json();
+                                if (result.success) { const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("id", inv.id).single(); if (updated) setInboxItems(p => p.map(x => x.id === inv.id ? updated : x)); }
+                              }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent + "18", color: T.accent, cursor: "pointer" }}>Retry</button>
+                            )}
+                            {inv.duplicate_of && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.yellow + "18", color: T.yellow, fontWeight: 600 }}>⚠ Duplicate</span>}
+                            {inv.extracted_data?.po_match && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: inv.extracted_data.po_match.match === "exact" ? T.green + "18" : T.yellow + "18", color: inv.extracted_data.po_match.match === "exact" ? T.green : T.yellow, fontWeight: 600 }}>PO: {inv.extracted_data.po_match.po_number}</span>}
+                            {inv.extracted_data?.approval_rule && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>🔗 {inv.extracted_data.approval_rule.name}</span>}
+                          </div>
                         </td>
                       </tr>
                     );
