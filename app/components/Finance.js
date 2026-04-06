@@ -690,6 +690,9 @@ function APAgingView({ isMobile }) {
   const [noteText, setNoteText] = useState("");
   const [replyTo, setReplyTo] = useState(null);
   const [notesLoading, setNotesLoading] = useState(false);
+  const [inboxItems, setInboxItems] = useState([]);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [uploadingInvoice, setUploadingInvoice] = useState(false);
   const { user, profile } = useAuth();
 
   useEffect(() => {
@@ -813,6 +816,8 @@ function APAgingView({ isMobile }) {
         <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
           <button onClick={() => { setTab("ap"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ap" ? T.red + "20" : T.surface2, color: tab === "ap" ? T.red : T.text3 }}>📤 Payables ({bills.length})</button>
           <button onClick={() => { setTab("ar"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
+          <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); }}
+            style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "inbox" ? T.accent + "20" : T.surface2, color: tab === "inbox" ? T.accent : T.text3, borderLeft: `1px solid ${T.border}` }}>📋 Invoice Inbox</button>
         </div>
       </div>
 
@@ -1211,6 +1216,107 @@ function APAgingView({ isMobile }) {
           return null;
         })()}
       </div>
+
+      {/* Invoice Inbox */}
+      {tab === "inbox" && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Invoice Inbox</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <label style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, borderRadius: 6, background: T.accent, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                📎 Upload Invoice
+                <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: "none" }} onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadingInvoice(true);
+                  try {
+                    const path = `invoices/${Date.now()}_${file.name}`;
+                    const { error: upErr } = await supabase.storage.from("bill-attachments").upload(path, file, { contentType: file.type, upsert: true });
+                    if (upErr) throw upErr;
+                    const fileUrl = `${supabase.supabaseUrl}/storage/v1/object/public/bill-attachments/${path}`;
+                    const { data: inbox } = await supabase.from("invoice_inbox").insert({
+                      org_id: "a0000000-0000-0000-0000-000000000001",
+                      file_name: file.name, file_url: fileUrl, file_content_type: file.type, file_size: file.size,
+                      source: "upload", status: "pending", uploaded_by: user?.id,
+                    }).select().single();
+                    if (inbox) {
+                      setInboxItems(p => [inbox, ...p]);
+                      // Trigger AI extraction
+                      const res = await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "extract", inbox_id: inbox.id }),
+                      });
+                      const result = await res.json();
+                      if (result.success) {
+                        const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("id", inbox.id).single();
+                        if (updated) setInboxItems(p => p.map(x => x.id === inbox.id ? updated : x));
+                      }
+                    }
+                  } catch (err) { console.error("Upload error:", err); }
+                  setUploadingInvoice(false);
+                  e.target.value = "";
+                }} />
+              </label>
+            </div>
+          </div>
+          {inboxLoading || uploadingInvoice ? (
+            <div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 12 }}>{uploadingInvoice ? "Uploading & extracting invoice data with AI…" : "Loading inbox…"}</div>
+          ) : inboxItems.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>No invoices in inbox</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Upload a vendor invoice PDF or image — AI will extract all the details automatically.</div>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
+                <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  {["Status", "Vendor", "Invoice #", "Date", "Due", "Amount", "GL Account", "Confidence", "Actions"].map(h => (
+                    <th key={h} style={{ padding: "6px 10px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: h === "Amount" ? "right" : "left" }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {inboxItems.map(inv => {
+                    const statusColors = { pending: { bg: "#94a3b818", c: "#94a3b8" }, processing: { bg: T.accent + "18", c: T.accent }, extracted: { bg: T.green + "18", c: T.green }, approved: { bg: "#10B98118", c: "#10B981" }, duplicate: { bg: T.yellow + "18", c: T.yellow }, error: { bg: T.red + "18", c: T.red } };
+                    const sc = statusColors[inv.status] || statusColors.pending;
+                    const conf = inv.extracted_data?.confidence;
+                    return (
+                      <tr key={inv.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
+                        <td style={{ padding: "7px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: sc.bg, color: sc.c }}>{(inv.status || "pending").toUpperCase()}</span></td>
+                        <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 600, color: T.text }}>{inv.vendor_name || <span style={{ color: T.text3, fontStyle: "italic" }}>Extracting…</span>}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 11, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number || "—"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2 }}>{inv.invoice_date ? new Date(inv.invoice_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2 }}>{inv.due_date ? new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{inv.total_amount ? fmt(Number(inv.total_amount)) : "—"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.accent }}>{inv.gl_account || "—"}</td>
+                        <td style={{ padding: "7px 10px" }}>{conf != null ? <span style={{ fontSize: 10, fontWeight: 600, color: conf >= 0.9 ? T.green : conf >= 0.7 ? T.yellow : T.red }}>{Math.round(conf * 100)}%</span> : "—"}</td>
+                        <td style={{ padding: "7px 10px", display: "flex", gap: 4 }}>
+                          {inv.file_url && <a href={inv.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, textDecoration: "none" }} title="View file">📄</a>}
+                          {inv.status === "extracted" && (
+                            <button onClick={async () => {
+                              await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", inbox_id: inv.id, user_id: user?.id }) });
+                              setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "approved" } : x));
+                            }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>Approve</button>
+                          )}
+                          {inv.status === "error" && (
+                            <button onClick={async () => {
+                              setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "processing" } : x));
+                              const res = await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "extract", inbox_id: inv.id }) });
+                              const result = await res.json();
+                              if (result.success) { const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("id", inv.id).single(); if (updated) setInboxItems(p => p.map(x => x.id === inv.id ? updated : x)); }
+                            }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent + "18", color: T.accent, cursor: "pointer" }}>Retry</button>
+                          )}
+                          {inv.duplicate_of && <span style={{ fontSize: 9, color: T.yellow }}>⚠ Duplicate</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
