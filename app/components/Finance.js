@@ -755,6 +755,16 @@ function APAgingView({ isMobile }) {
   const updateBill = async (billId, updates) => {
     await supabase.from("qbo_bills").update(updates).eq("id", billId);
     setBills(p => p.map(b => b.id === billId ? { ...b, ...updates } : b));
+    // Push approval status to QBO as memo update (non-blocking)
+    if (updates.approval_status) {
+      const bill = bills.find(b => b.id === billId);
+      if (bill?.qbo_id) {
+        const statusLabel = updates.approval_status === "approved" ? "✓ Approved in Helm" : updates.approval_status === "paid" ? "✓ Paid" : updates.approval_status === "denied" ? "✗ Denied in Helm" : "";
+        if (statusLabel) {
+          fetch(supabase.supabaseUrl + "/functions/v1/qbo-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update_bill_memo", qbo_id: bill.qbo_id, memo: `${statusLabel} (${new Date().toLocaleDateString()})` }) }).catch(() => {});
+        }
+      }
+    }
   };
 
   const openNotes = async (billId) => {
@@ -966,6 +976,40 @@ function APAgingView({ isMobile }) {
                 </div>
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* Spending Insights — Top Vendors */}
+      {tab === "ap" && (() => {
+        const vendorSpend = {};
+        items.forEach(b => {
+          const v = b.vendor_name || "Unknown";
+          if (!vendorSpend[v]) vendorSpend[v] = { name: v, total: 0, count: 0, open: 0 };
+          vendorSpend[v].total += Number(b.total_amount) || 0;
+          vendorSpend[v].count++;
+          if (b.payment_status === "open") vendorSpend[v].open += Number(b.balance) || 0;
+        });
+        const topVendors = Object.values(vendorSpend).sort((a, b) => b.total - a.total).slice(0, 8);
+        const maxSpend = topVendors[0]?.total || 1;
+        return (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top Vendors by Spend</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {topVendors.map((v, i) => (
+                <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 120, fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>{v.name}</div>
+                  <div style={{ flex: 1, height: 20, background: T.surface2, borderRadius: 4, position: "relative", overflow: "hidden" }}>
+                    <div style={{ width: `${(v.total / maxSpend) * 100}%`, height: "100%", background: i === 0 ? T.accent : i < 3 ? T.accent + "80" : T.accent + "40", borderRadius: 4, transition: "width 0.3s" }} />
+                    {v.open > 0 && (
+                      <div style={{ position: "absolute", right: 4, top: 2, fontSize: 9, fontWeight: 600, color: T.red }}>{fmtK(v.open)} open</div>
+                    )}
+                  </div>
+                  <div style={{ width: 80, fontSize: 11, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace", flexShrink: 0 }}>{fmtK(v.total)}</div>
+                  <div style={{ width: 30, fontSize: 10, color: T.text3, textAlign: "right", flexShrink: 0 }}>{v.count}</div>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })()}
