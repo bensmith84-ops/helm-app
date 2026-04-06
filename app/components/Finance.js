@@ -697,6 +697,8 @@ function APAgingView({ isMobile }) {
   const [forecastLoading, setForecastLoading] = useState(false);
   const [selectedInbox, setSelectedInbox] = useState(null);
   const [batchSelected, setBatchSelected] = useState(new Set());
+  const [reminders, setReminders] = useState([]);
+  const [remindersLoading, setRemindersLoading] = useState(false);
   const { user, profile } = useAuth();
 
   useEffect(() => {
@@ -967,6 +969,73 @@ function APAgingView({ isMobile }) {
           </div>
         );
       })()}
+
+      {/* AR Payment Reminders */}
+      {tab === "ar" && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Payment Reminders</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {reminders.length > 0 && <span style={{ fontSize: 11, color: T.text3, alignSelf: "center" }}>{reminders.filter(r => r.status === "draft").length} drafts · {reminders.filter(r => r.status === "sent").length} sent</span>}
+              <button onClick={async () => {
+                setRemindersLoading(true);
+                try {
+                  const res = await fetch(supabase.supabaseUrl + "/functions/v1/ar-reminders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate_reminders" }) });
+                  const data = await res.json();
+                  if (data.reminders) setReminders(data.reminders);
+                } catch (e) { console.error(e); }
+                setRemindersLoading(false);
+              }} disabled={remindersLoading}
+                style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.accent + "18", border: `1px solid ${T.accent}40`, color: T.accent, cursor: "pointer", opacity: remindersLoading ? 0.5 : 1 }}>
+                {remindersLoading ? "Generating…" : "Generate Reminders"}
+              </button>
+            </div>
+          </div>
+          {remindersLoading ? (
+            <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 12 }}>AI is drafting personalized payment reminders for overdue invoices…</div>
+          ) : reminders.length === 0 ? (
+            <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 12 }}>Click "Generate Reminders" to draft payment reminders for overdue AR invoices. AI will personalize each email based on the customer and how overdue they are.</div>
+          ) : (
+            <div>
+              {reminders.map(r => {
+                const toneColor = r.days_overdue > 60 ? T.red : r.days_overdue > 30 ? "#F97316" : r.days_overdue > 14 ? T.yellow : T.green;
+                return (
+                  <div key={r.id} style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.customer_name}</span>
+                        <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: toneColor + "18", color: toneColor }}>{r.days_overdue}d overdue</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.red, fontFamily: "monospace" }}>${Number(r.amount).toLocaleString()}</span>
+                        {r.status === "sent" && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: T.green + "18", color: T.green }}>SENT</span>}
+                        {!r.customer_email && <span style={{ fontSize: 9, color: T.yellow }}>No email on file</span>}
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginBottom: 2 }}>{r.subject}</div>
+                      <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 60, overflow: "hidden" }}>{r.body}</div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+                      {r.status === "draft" && r.customer_email && (
+                        <button onClick={async () => {
+                          await fetch(supabase.supabaseUrl + "/functions/v1/ar-reminders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send_reminder", reminder_id: r.id, user_id: user?.id }) });
+                          setReminders(p => p.map(x => x.id === r.id ? { ...x, status: "sent" } : x));
+                        }} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Send</button>
+                      )}
+                      {r.status === "draft" && (
+                        <button onClick={() => {
+                          const newBody = prompt("Edit email body:", r.body);
+                          if (newBody) {
+                            fetch(supabase.supabaseUrl + "/functions/v1/ar-reminders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update", reminder_id: r.id, body: newBody }) });
+                            setReminders(p => p.map(x => x.id === r.id ? { ...x, body: newBody } : x));
+                          }
+                        }} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Edit</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bills table — group by vendor, date, status, or show all */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
