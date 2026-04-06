@@ -703,6 +703,8 @@ function APAgingView({ isMobile }) {
   const [expensesLoading, setExpensesLoading] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [expForm, setExpForm] = useState({ merchant_name: "", amount: "", category: "supplies", description: "", expense_date: new Date().toISOString().slice(0, 10) });
+  const [gmailConn, setGmailConn] = useState(null);
+  const [scanning, setScanning] = useState(false);
   const { user, profile } = useAuth();
 
   useEffect(() => {
@@ -836,7 +838,7 @@ function APAgingView({ isMobile }) {
         <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
           <button onClick={() => { setTab("ap"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ap" ? T.red + "20" : T.surface2, color: tab === "ap" ? T.red : T.text3 }}>📤 Payables ({bills.length})</button>
           <button onClick={() => { setTab("ar"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
-          <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); }}
+          <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); if (!gmailConn) { const r = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections" }) }).then(r => r.json()).catch(() => ({})); if (r.connections?.length > 0) setGmailConn(r.connections[0]); } }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "inbox" ? T.accent + "20" : T.surface2, color: tab === "inbox" ? T.accent : T.text3, borderLeft: `1px solid ${T.border}` }}>📋 Invoice Inbox</button>
           <button onClick={async () => { setTab("expenses"); setExpensesLoading(true); const { data } = await supabase.from("expense_submissions").select("*").order("created_at", { ascending: false }).limit(50); setExpenses(data || []); setExpensesLoading(false); }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "expenses" ? "#F59E0B20" : T.surface2, color: tab === "expenses" ? "#F59E0B" : T.text3, borderLeft: `1px solid ${T.border}` }}>💰 Expenses</button>
@@ -1447,11 +1449,39 @@ function APAgingView({ isMobile }) {
                   alert("Approval rule created: " + name);
                 })();
               }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>⚙ Rules</button>
-              <button onClick={() => {
-                const edgeUrl = supabase.supabaseUrl + "/functions/v1/invoice-inbound";
-                navigator.clipboard?.writeText(edgeUrl);
-                alert("📧 Connect ap@earthbreeze.com to Helm\n\nInbound endpoint (copied to clipboard):\n" + edgeUrl + "\n\n━━━ OPTION A: Google Workspace Routing (recommended) ━━━\n1. Go to Google Admin → Gmail → Routing\n2. Add a routing rule for ap@earthbreeze.com\n3. Add a recipient: forward a copy to the endpoint above via Content Compliance webhook\n\n━━━ OPTION B: SendGrid Inbound Parse ━━━\n1. Add MX record: invoices.earthbreeze.com → mx.sendgrid.net\n2. SendGrid → Inbound Parse → URL: " + edgeUrl + "\n3. Forward ap@ emails to ap@invoices.earthbreeze.com\n\n━━━ OPTION C: Zapier / Make ━━━\n1. Trigger: New email in ap@earthbreeze.com with attachment\n2. Action: POST to " + edgeUrl + "\n3. Send: { file_base64, file_name, from, subject }\n\nAny PDF/image attachment will be auto-extracted by AI.");
-              }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>📧 Email Setup</button>
+              {/* Gmail connect + scan */}
+              {!gmailConn ? (
+                <button onClick={async () => {
+                  // Check for existing connection first
+                  const res = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections" }) });
+                  const data = await res.json();
+                  if (data.connections?.length > 0) { setGmailConn(data.connections[0]); return; }
+                  // No connection — start OAuth
+                  const authRes = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "auth_url" }) });
+                  const authData = await authRes.json();
+                  if (authData.auth_url) window.open(authData.auth_url, "gmail_connect", "width=600,height=700");
+                }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>📧 Connect Gmail</button>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 10, color: T.green }}>✓ {gmailConn.email}</span>
+                  <button onClick={async () => {
+                    setScanning(true);
+                    try {
+                      const res = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "scan", connection_id: gmailConn.id }) });
+                      const result = await res.json();
+                      if (result.imported > 0) {
+                        // Reload inbox
+                        const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50);
+                        setInboxItems(data || []);
+                        alert(`Scanned ${gmailConn.email}: ${result.imported} new invoices imported, ${result.skipped} already imported`);
+                      } else {
+                        alert(result.message || `No new invoices found (${result.skipped} already imported)`);
+                      }
+                    } catch (e) { alert("Scan error: " + e.message); }
+                    setScanning(false);
+                  }} disabled={scanning} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, borderRadius: 6, background: scanning ? T.surface2 : T.accent, color: scanning ? T.text3 : "#fff", cursor: "pointer", border: "none" }}>{scanning ? "Scanning…" : "📥 Scan Inbox"}</button>
+                </div>
+              )}
               <label style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, borderRadius: 6, background: T.accent, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
                 📎 Upload Invoice
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: "none" }} onChange={async (e) => {
