@@ -1344,7 +1344,7 @@ function APAgingView({ isMobile }) {
                 </tr></thead>
                 <tbody>
                   {inboxItems.map(inv => {
-                    const statusColors = { pending: { bg: "#94a3b818", c: "#94a3b8" }, processing: { bg: T.accent + "18", c: T.accent }, extracted: { bg: T.green + "18", c: T.green }, approved: { bg: "#10B98118", c: "#10B981" }, duplicate: { bg: T.yellow + "18", c: T.yellow }, denied: { bg: T.red + "18", c: T.red }, error: { bg: T.red + "18", c: T.red } };
+                    const statusColors = { pending: { bg: "#94a3b818", c: "#94a3b8" }, processing: { bg: T.accent + "18", c: T.accent }, extracted: { bg: T.green + "18", c: T.green }, approved: { bg: "#10B98118", c: "#10B981" }, duplicate: { bg: T.yellow + "18", c: T.yellow }, denied: { bg: T.red + "18", c: T.red }, error: { bg: T.red + "18", c: T.red }, synced_to_qbo: { bg: "#8B5CF618", c: "#8B5CF6" }, pushing_to_qbo: { bg: "#8B5CF618", c: "#8B5CF6" } };
                     const sc = statusColors[inv.status] || statusColors.pending;
                     const conf = inv.extracted_data?.confidence;
                     const isSelected = selectedInbox === inv.id;
@@ -1385,6 +1385,23 @@ function APAgingView({ isMobile }) {
                             )}
                             {inv.duplicate_of && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.yellow + "18", color: T.yellow, fontWeight: 600 }}>⚠ Dup</span>}
                             {inv.extracted_data?.po_match && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: inv.extracted_data.po_match.match === "exact" ? T.green + "18" : T.yellow + "18", color: inv.extracted_data.po_match.match === "exact" ? T.green : T.yellow, fontWeight: 600 }}>PO: {inv.extracted_data.po_match.po_number}</span>}
+                            {inv.status === "approved" && inv.matched_vendor_ref && (
+                              <button onClick={async () => {
+                                setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "pushing_to_qbo" } : x));
+                                try {
+                                  const res = await fetch(supabase.supabaseUrl + "/functions/v1/qbo-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create_bill", inbox_id: inv.id }) });
+                                  const result = await res.json();
+                                  if (result.success) { setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "synced_to_qbo" } : x)); }
+                                  else { setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "approved" } : x)); alert(result.error); }
+                                } catch (e) { setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "approved" } : x)); }
+                              }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#8B5CF618", color: "#8B5CF6", cursor: "pointer" }}>⬆ Push to QBO</button>
+                            )}
+                            {inv.status === "approved" && !inv.matched_vendor_ref && (
+                              <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.yellow + "12", color: T.yellow, fontWeight: 600 }}>No vendor match</span>
+                            )}
+                            {(inv.status === "synced_to_qbo" || inv.status === "pushing_to_qbo") && (
+                              <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#8B5CF618", color: "#8B5CF6", fontWeight: 600 }}>{inv.status === "pushing_to_qbo" ? "Syncing…" : "✓ In QBO"}</span>
+                            )}
                           </div>
                         </td>
                       </tr>
