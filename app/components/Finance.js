@@ -1447,6 +1447,11 @@ function APAgingView({ isMobile }) {
                   alert("Approval rule created: " + name);
                 })();
               }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>⚙ Rules</button>
+              <button onClick={() => {
+                const url = window.location.origin + "/api/inbound-invoice";
+                navigator.clipboard?.writeText(url);
+                alert("Invoice webhook URL copied to clipboard:\n\n" + url + "\n\nSet this as your SendGrid Inbound Parse URL, or forward emails with invoice attachments here.\n\nVendors can also email invoices directly — set up a Gmail filter to forward to this webhook.");
+              }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>📧 Email Setup</button>
               <label style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, borderRadius: 6, background: T.accent, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
                 📎 Upload Invoice
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: "none" }} onChange={async (e) => {
