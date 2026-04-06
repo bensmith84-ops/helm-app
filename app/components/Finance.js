@@ -838,7 +838,7 @@ function APAgingView({ isMobile }) {
           <button onClick={() => { setTab("ar"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
           <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "inbox" ? T.accent + "20" : T.surface2, color: tab === "inbox" ? T.accent : T.text3, borderLeft: `1px solid ${T.border}` }}>📋 Invoice Inbox</button>
-          <button onClick={() => setTab("expenses")}
+          <button onClick={async () => { setTab("expenses"); setExpensesLoading(true); const { data } = await supabase.from("expense_submissions").select("*").order("created_at", { ascending: false }).limit(50); setExpenses(data || []); setExpensesLoading(false); }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "expenses" ? "#F59E0B20" : T.surface2, color: tab === "expenses" ? "#F59E0B" : T.text3, borderLeft: `1px solid ${T.border}` }}>💰 Expenses</button>
         </div>
       </div>
