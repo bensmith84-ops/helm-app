@@ -693,6 +693,8 @@ function APAgingView({ isMobile }) {
   const [inboxItems, setInboxItems] = useState([]);
   const [inboxLoading, setInboxLoading] = useState(false);
   const [uploadingInvoice, setUploadingInvoice] = useState(false);
+  const [forecast, setForecast] = useState(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
   const { user, profile } = useAuth();
 
   useEffect(() => {
@@ -888,6 +890,44 @@ function APAgingView({ isMobile }) {
           ))}
         </div>
       </div>
+
+      {/* AI Cash Forecast */}
+      {tab === "ap" && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: forecast ? 10 : 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>AI Cash Forecast</div>
+            <button onClick={async () => {
+              setForecastLoading(true);
+              try {
+                const res = await fetch(supabase.supabaseUrl + "/functions/v1/ap-alerts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cash_forecast" }) });
+                const data = await res.json();
+                if (data.success) setForecast(data);
+              } catch (e) { console.error(e); }
+              setForecastLoading(false);
+            }} disabled={forecastLoading}
+              style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.accent + "18", border: `1px solid ${T.accent}40`, color: T.accent, cursor: "pointer", opacity: forecastLoading ? 0.5 : 1 }}>
+              {forecastLoading ? "Analyzing…" : forecast ? "Refresh" : "Generate Forecast"}
+            </button>
+          </div>
+          {forecast && (
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <div style={{ padding: "10px 12px", background: T.red + "08", borderRadius: 8, border: `1px solid ${T.red}20` }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.red, textTransform: "uppercase" }}>Total AP (outgoing)</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: T.red }}>{fmtK(forecast.total_ap)}</div>
+                </div>
+                <div style={{ padding: "10px 12px", background: T.green + "08", borderRadius: 8, border: `1px solid ${T.green}20` }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.green, textTransform: "uppercase" }}>Total AR (incoming)</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: T.green }}>{fmtK(forecast.total_ar)}</div>
+                </div>
+              </div>
+              {forecast.forecast && (
+                <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.7, padding: "10px 12px", background: T.surface2, borderRadius: 8 }}>{forecast.forecast}</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bills table — group by vendor, date, status, or show all */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
