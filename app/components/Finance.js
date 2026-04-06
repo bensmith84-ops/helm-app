@@ -699,6 +699,10 @@ function APAgingView({ isMobile }) {
   const [batchSelected, setBatchSelected] = useState(new Set());
   const [reminders, setReminders] = useState([]);
   const [remindersLoading, setRemindersLoading] = useState(false);
+  const [expenses, setExpenses] = useState([]);
+  const [expensesLoading, setExpensesLoading] = useState(false);
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [expForm, setExpForm] = useState({ merchant_name: "", amount: "", category: "supplies", description: "", expense_date: new Date().toISOString().slice(0, 10) });
   const { user, profile } = useAuth();
 
   useEffect(() => {
@@ -834,6 +838,8 @@ function APAgingView({ isMobile }) {
           <button onClick={() => { setTab("ar"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
           <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "inbox" ? T.accent + "20" : T.surface2, color: tab === "inbox" ? T.accent : T.text3, borderLeft: `1px solid ${T.border}` }}>📋 Invoice Inbox</button>
+          <button onClick={() => setTab("expenses")}
+            style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "expenses" ? "#F59E0B20" : T.surface2, color: tab === "expenses" ? "#F59E0B" : T.text3, borderLeft: `1px solid ${T.border}` }}>💰 Expenses</button>
         </div>
       </div>
 
@@ -1660,6 +1666,152 @@ function APAgingView({ isMobile }) {
                 </tbody>
               </table>
             </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Expenses Tab — Employee expense submissions */}
+      {tab === "expenses" && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Expense Submissions</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setShowExpenseForm(!showExpenseForm)} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, borderRadius: 6, background: showExpenseForm ? T.surface2 : T.accent, color: showExpenseForm ? T.text3 : "#fff", cursor: "pointer", border: showExpenseForm ? `1px solid ${T.border}` : "none" }}>{showExpenseForm ? "Cancel" : "+ Submit Expense"}</button>
+              {expenses.length === 0 && !expensesLoading && (
+                <button onClick={async () => {
+                  setExpensesLoading(true);
+                  const { data } = await supabase.from("expense_submissions").select("*").order("created_at", { ascending: false }).limit(50);
+                  setExpenses(data || []);
+                  setExpensesLoading(false);
+                }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>Load Expenses</button>
+              )}
+            </div>
+          </div>
+          {/* Expense submission form */}
+          {showExpenseForm && (
+            <div style={{ padding: 16, borderBottom: `1px solid ${T.border}`, background: T.surface2 + "40" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>MERCHANT / VENDOR</div>
+                  <input value={expForm.merchant_name} onChange={e => setExpForm(p => ({ ...p, merchant_name: e.target.value }))} placeholder="e.g. Staples, Uber, Restaurant" style={{ width: "100%", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>AMOUNT ($)</div>
+                  <input value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} placeholder="0.00" type="number" step="0.01" style={{ width: "100%", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>CATEGORY</div>
+                  <select value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))} style={{ width: "100%", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, boxSizing: "border-box" }}>
+                    {["supplies", "meals", "travel", "software", "equipment", "shipping", "marketing", "professional_services", "other"].map(c => <option key={c} value={c}>{c.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>DATE</div>
+                  <input value={expForm.expense_date} onChange={e => setExpForm(p => ({ ...p, expense_date: e.target.value }))} type="date" style={{ width: "100%", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>DESCRIPTION</div>
+                  <input value={expForm.description} onChange={e => setExpForm(p => ({ ...p, description: e.target.value }))} placeholder="What was this expense for?" style={{ width: "100%", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <label style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>
+                  📎 Attach Receipt
+                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: "none" }} onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const path = `expenses/${Date.now()}_${file.name}`;
+                    await supabase.storage.from("bill-attachments").upload(path, file, { contentType: file.type, upsert: true });
+                    const url = `${supabase.supabaseUrl}/storage/v1/object/public/bill-attachments/${path}`;
+                    setExpForm(p => ({ ...p, receipt_url: url, receipt_name: file.name }));
+                    e.target.value = "";
+                  }} />
+                </label>
+                {expForm.receipt_url && <span style={{ fontSize: 11, color: T.green }}>✓ {expForm.receipt_name}</span>}
+                <div style={{ flex: 1 }} />
+                <button onClick={async () => {
+                  if (!expForm.merchant_name || !expForm.amount) { alert("Merchant and amount required"); return; }
+                  const { data } = await supabase.from("expense_submissions").insert({
+                    org_id: "a0000000-0000-0000-0000-000000000001",
+                    submitted_by: user?.id, submitter_name: profile?.display_name || user?.email,
+                    merchant_name: expForm.merchant_name, amount: parseFloat(expForm.amount),
+                    category: expForm.category, description: expForm.description,
+                    expense_date: expForm.expense_date, receipt_url: expForm.receipt_url,
+                    receipt_name: expForm.receipt_name, status: "pending",
+                  }).select().single();
+                  if (data) {
+                    setExpenses(p => [data, ...p]);
+                    setExpForm({ merchant_name: "", amount: "", category: "supplies", description: "", expense_date: new Date().toISOString().slice(0, 10) });
+                    setShowExpenseForm(false);
+                    // Notify Ben
+                    await supabase.from("notifications").insert({
+                      org_id: "a0000000-0000-0000-0000-000000000001",
+                      user_id: "32cad5dd-9e94-4095-a16d-b4521391b050",
+                      type: "expense_submitted", title: `Expense: ${expForm.merchant_name} — $${parseFloat(expForm.amount).toFixed(2)}`,
+                      body: `${profile?.display_name || "Team member"} submitted an expense for reimbursement`,
+                      entity_type: "expense", entity_id: data.id, category: "finance", link: "/finance/ap-ar",
+                    });
+                  }
+                }} style={{ padding: "6px 18px", fontSize: 12, fontWeight: 700, borderRadius: 6, background: T.accent, color: "#fff", border: "none", cursor: "pointer" }}>Submit</button>
+              </div>
+            </div>
+          )}
+          {/* Expense list */}
+          {expensesLoading ? (
+            <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 12 }}>Loading expenses…</div>
+          ) : expenses.length === 0 ? (
+            <div style={{ padding: 30, textAlign: "center" }}>
+              <div style={{ fontSize: 28, marginBottom: 6 }}>💰</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>No expenses yet</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 3 }}>Click "Submit Expense" to request reimbursement for out-of-pocket purchases.</div>
+            </div>
+          ) : (
+            <div>
+              {expenses.map(exp => {
+                const stColors = { pending: { bg: "#94a3b818", c: "#94a3b8", l: "PENDING" }, approved: { bg: T.green + "18", c: T.green, l: "APPROVED" }, denied: { bg: T.red + "18", c: T.red, l: "DENIED" }, reimbursed: { bg: "#8B5CF618", c: "#8B5CF6", l: "REIMBURSED" } };
+                const st = stColors[exp.status] || stColors.pending;
+                return (
+                  <div key={exp.id} style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{exp.merchant_name}</span>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: T.text, fontFamily: "monospace" }}>${Number(exp.amount).toFixed(2)}</span>
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: st.bg, color: st.c }}>{st.l}</span>
+                        <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: T.surface2, color: T.text3 }}>{exp.category?.replace("_", " ")}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                        {exp.submitter_name} · {exp.expense_date ? new Date(exp.expense_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
+                        {exp.description && <span> · {exp.description}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                      {exp.receipt_url && <a href={exp.receipt_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, textDecoration: "none" }}>📄</a>}
+                      {exp.status === "pending" && user?.id === "32cad5dd-9e94-4095-a16d-b4521391b050" && (
+                        <>
+                          <button onClick={async () => {
+                            await supabase.from("expense_submissions").update({ status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }).eq("id", exp.id);
+                            setExpenses(p => p.map(x => x.id === exp.id ? { ...x, status: "approved" } : x));
+                          }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>Approve</button>
+                          <button onClick={async () => {
+                            const reason = prompt("Denial reason:");
+                            await supabase.from("expense_submissions").update({ status: "denied", approved_by: user?.id, approved_at: new Date().toISOString(), denial_reason: reason }).eq("id", exp.id);
+                            setExpenses(p => p.map(x => x.id === exp.id ? { ...x, status: "denied" } : x));
+                          }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>Deny</button>
+                        </>
+                      )}
+                      {exp.status === "approved" && user?.id === "32cad5dd-9e94-4095-a16d-b4521391b050" && (
+                        <button onClick={async () => {
+                          await supabase.from("expense_submissions").update({ status: "reimbursed", reimbursed_at: new Date().toISOString() }).eq("id", exp.id);
+                          setExpenses(p => p.map(x => x.id === exp.id ? { ...x, status: "reimbursed" } : x));
+                        }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#8B5CF618", color: "#8B5CF6", cursor: "pointer" }}>Mark Reimbursed</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
