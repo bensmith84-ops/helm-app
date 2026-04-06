@@ -695,6 +695,7 @@ function APAgingView({ isMobile }) {
   const [uploadingInvoice, setUploadingInvoice] = useState(false);
   const [forecast, setForecast] = useState(null);
   const [forecastLoading, setForecastLoading] = useState(false);
+  const [selectedInbox, setSelectedInbox] = useState(null);
   const { user, profile } = useAuth();
 
   useEffect(() => {
@@ -1346,8 +1347,11 @@ function APAgingView({ isMobile }) {
                     const statusColors = { pending: { bg: "#94a3b818", c: "#94a3b8" }, processing: { bg: T.accent + "18", c: T.accent }, extracted: { bg: T.green + "18", c: T.green }, approved: { bg: "#10B98118", c: "#10B981" }, duplicate: { bg: T.yellow + "18", c: T.yellow }, denied: { bg: T.red + "18", c: T.red }, error: { bg: T.red + "18", c: T.red } };
                     const sc = statusColors[inv.status] || statusColors.pending;
                     const conf = inv.extracted_data?.confidence;
+                    const isSelected = selectedInbox === inv.id;
+                    const lineItems = inv.line_items ? (typeof inv.line_items === "string" ? JSON.parse(inv.line_items) : inv.line_items) : [];
                     return (
-                      <tr key={inv.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
+                      <Fragment key={inv.id}>
+                      <tr onClick={() => setSelectedInbox(isSelected ? null : inv.id)} style={{ borderBottom: `1px solid ${T.border}15`, cursor: "pointer", background: isSelected ? T.surface2 : "transparent" }}>
                         <td style={{ padding: "7px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: sc.bg, color: sc.c }}>{(inv.status || "pending").toUpperCase()}</span></td>
                         <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 600, color: T.text }}>{inv.vendor_name || <span style={{ color: T.text3, fontStyle: "italic" }}>Extracting…</span>}</td>
                         <td style={{ padding: "7px 10px", fontSize: 11, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number || "—"}</td>
@@ -1356,7 +1360,7 @@ function APAgingView({ isMobile }) {
                         <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{inv.total_amount ? fmt(Number(inv.total_amount)) : "—"}</td>
                         <td style={{ padding: "7px 10px", fontSize: 11, color: T.accent }}>{inv.gl_account || "—"}</td>
                         <td style={{ padding: "7px 10px" }}>{conf != null ? <span style={{ fontSize: 10, fontWeight: 600, color: conf >= 0.9 ? T.green : conf >= 0.7 ? T.yellow : T.red }}>{Math.round(conf * 100)}%</span> : "—"}</td>
-                        <td style={{ padding: "7px 10px" }}>
+                        <td style={{ padding: "7px 10px" }} onClick={e => e.stopPropagation()}>
                           <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                             {inv.file_url && <a href={inv.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, textDecoration: "none" }} title="View file">📄</a>}
                             {inv.status === "extracted" && (
@@ -1367,7 +1371,7 @@ function APAgingView({ isMobile }) {
                             )}
                             {inv.status === "extracted" && (
                               <button onClick={async () => {
-                                await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", inbox_id: inv.id, user_id: user?.id, overrides: { status: "denied" } }) });
+                                await supabase.from("invoice_inbox").update({ status: "denied" }).eq("id", inv.id);
                                 setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "denied" } : x));
                               }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>Deny</button>
                             )}
@@ -1379,12 +1383,76 @@ function APAgingView({ isMobile }) {
                                 if (result.success) { const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("id", inv.id).single(); if (updated) setInboxItems(p => p.map(x => x.id === inv.id ? updated : x)); }
                               }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent + "18", color: T.accent, cursor: "pointer" }}>Retry</button>
                             )}
-                            {inv.duplicate_of && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.yellow + "18", color: T.yellow, fontWeight: 600 }}>⚠ Duplicate</span>}
+                            {inv.duplicate_of && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.yellow + "18", color: T.yellow, fontWeight: 600 }}>⚠ Dup</span>}
                             {inv.extracted_data?.po_match && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: inv.extracted_data.po_match.match === "exact" ? T.green + "18" : T.yellow + "18", color: inv.extracted_data.po_match.match === "exact" ? T.green : T.yellow, fontWeight: 600 }}>PO: {inv.extracted_data.po_match.po_number}</span>}
-                            {inv.extracted_data?.approval_rule && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>🔗 {inv.extracted_data.approval_rule.name}</span>}
                           </div>
                         </td>
                       </tr>
+                      {/* Expandable detail panel */}
+                      {isSelected && (
+                        <tr><td colSpan={9} style={{ padding: 0, background: T.surface2 + "40" }}>
+                          <div style={{ padding: "14px 16px", display: "grid", gridTemplateColumns: inv.file_url ? "1fr 1fr" : "1fr", gap: 16 }}>
+                            {/* Left: extracted details */}
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Extracted Details</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                                {[
+                                  { l: "Vendor", v: inv.vendor_name }, { l: "Invoice #", v: inv.invoice_number },
+                                  { l: "Invoice Date", v: inv.invoice_date }, { l: "Due Date", v: inv.due_date },
+                                  { l: "Total", v: inv.total_amount ? fmt(Number(inv.total_amount)) : "—" }, { l: "GL Account", v: inv.gl_account },
+                                  { l: "Payment Terms", v: inv.extracted_data?.payment_terms }, { l: "Currency", v: inv.currency },
+                                  { l: "Memo", v: inv.memo }, { l: "PO #", v: inv.extracted_data?.po_number },
+                                ].map(d => d.v ? (
+                                  <div key={d.l}>
+                                    <div style={{ fontSize: 9, fontWeight: 600, color: T.text3, textTransform: "uppercase" }}>{d.l}</div>
+                                    <div style={{ fontSize: 12, color: T.text, marginTop: 1 }}>{d.v}</div>
+                                  </div>
+                                ) : null)}
+                              </div>
+                              {/* Line items */}
+                              {lineItems.length > 0 && (
+                                <div>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 4 }}>Line Items</div>
+                                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                                    <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                                      {["Description", "Qty", "Unit Price", "Amount", "GL"].map(h => <th key={h} style={{ padding: "4px 6px", fontSize: 9, fontWeight: 600, color: T.text3, textAlign: h === "Qty" || h === "Unit Price" || h === "Amount" ? "right" : "left" }}>{h}</th>)}
+                                    </tr></thead>
+                                    <tbody>
+                                      {lineItems.map((li, idx) => (
+                                        <tr key={idx} style={{ borderBottom: `1px solid ${T.border}08` }}>
+                                          <td style={{ padding: "4px 6px", color: T.text }}>{li.description || "—"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.text2, textAlign: "right" }}>{li.quantity || "—"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.text2, textAlign: "right", fontFamily: "monospace" }}>{li.unit_price ? fmt(Number(li.unit_price)) : "—"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.text, fontWeight: 600, textAlign: "right", fontFamily: "monospace" }}>{li.amount ? fmt(Number(li.amount)) : "—"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.accent, fontSize: 10 }}>{li.gl_account || "—"}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                              {/* Vendor match info */}
+                              {inv.matched_vendor_ref && <div style={{ marginTop: 8, fontSize: 10, color: T.green }}>✓ Matched to QBO vendor (ref: {inv.matched_vendor_ref})</div>}
+                              {inv.extracted_data?.vendor_address && <div style={{ marginTop: 4, fontSize: 10, color: T.text3 }}>Address: {inv.extracted_data.vendor_address}</div>}
+                              {inv.extracted_data?.vendor_email && <div style={{ fontSize: 10, color: T.text3 }}>Email: {inv.extracted_data.vendor_email}</div>}
+                            </div>
+                            {/* Right: file preview */}
+                            {inv.file_url && (
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Invoice Document</div>
+                                {inv.file_content_type?.startsWith("image/") ? (
+                                  <img src={inv.file_url} alt="Invoice" style={{ width: "100%", borderRadius: 8, border: `1px solid ${T.border}` }} />
+                                ) : (
+                                  <div style={{ background: T.surface3, borderRadius: 8, padding: 20, textAlign: "center" }}>
+                                    <a href={inv.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: T.accent, textDecoration: "none", fontWeight: 600 }}>📄 Open {inv.file_name || "PDF"} in new tab</a>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td></tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
