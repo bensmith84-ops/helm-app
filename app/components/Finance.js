@@ -696,6 +696,7 @@ function APAgingView({ isMobile }) {
   const [forecast, setForecast] = useState(null);
   const [forecastLoading, setForecastLoading] = useState(false);
   const [selectedInbox, setSelectedInbox] = useState(null);
+  const [batchSelected, setBatchSelected] = useState(new Set());
   const { user, profile } = useAuth();
 
   useEffect(() => {
@@ -929,6 +930,43 @@ function APAgingView({ isMobile }) {
           )}
         </div>
       )}
+
+      {/* Smart Alerts Strip */}
+      {tab === "ap" && (() => {
+        const today = new Date();
+        const unapprovedDueSoon = items.filter(b => {
+          if (b.approval_status === "approved" || b.approval_status === "paid") return false;
+          if (!b.due_date) return false;
+          const d = new Date(b.due_date + "T12:00:00");
+          return d <= new Date(today.getTime() + 7 * 86400000);
+        });
+        const overdueUnapproved = items.filter(b => b.due_date && daysDiff(b.due_date) > 0 && b.approval_status !== "approved" && b.approval_status !== "paid");
+        const totalUnapprovedDue = unapprovedDueSoon.reduce((s, b) => s + Number(b.balance), 0);
+        
+        if (unapprovedDueSoon.length === 0 && overdueUnapproved.length === 0) return null;
+        return (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {overdueUnapproved.length > 0 && (
+              <div style={{ flex: 1, minWidth: 200, padding: "10px 14px", background: T.red + "08", border: `1px solid ${T.red}20`, borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 20 }}>🚨</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.red }}>{overdueUnapproved.length} overdue bills need approval</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{fmtK(overdueUnapproved.reduce((s, b) => s + Number(b.balance), 0))} total — payment delayed</div>
+                </div>
+              </div>
+            )}
+            {unapprovedDueSoon.length > 0 && (
+              <div style={{ flex: 1, minWidth: 200, padding: "10px 14px", background: T.yellow + "08", border: `1px solid ${T.yellow}20`, borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 20 }}>⏰</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.yellow }}>{unapprovedDueSoon.length} bills due this week — not yet approved</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{fmtK(totalUnapprovedDue)} needs approval to avoid late payment</div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Bills table — group by vendor, date, status, or show all */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
@@ -1335,9 +1373,40 @@ function APAgingView({ isMobile }) {
               <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Upload a vendor invoice PDF or image — AI will extract all the details automatically.</div>
             </div>
           ) : (
+            <div>
+              {/* Batch action bar */}
+              {batchSelected.size > 0 && (
+                <div style={{ padding: "8px 16px", background: T.accent + "10", borderBottom: `1px solid ${T.accent}30`, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{batchSelected.size} selected</span>
+                  <button onClick={async () => {
+                    for (const id of batchSelected) {
+                      await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", inbox_id: id, user_id: user?.id }) });
+                    }
+                    setInboxItems(p => p.map(x => batchSelected.has(x.id) ? { ...x, status: "approved" } : x));
+                    setBatchSelected(new Set());
+                  }} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>Approve All</button>
+                  <button onClick={async () => {
+                    for (const id of batchSelected) { await supabase.from("invoice_inbox").update({ status: "denied" }).eq("id", id); }
+                    setInboxItems(p => p.map(x => batchSelected.has(x.id) ? { ...x, status: "denied" } : x));
+                    setBatchSelected(new Set());
+                  }} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>Deny All</button>
+                  <button onClick={async () => {
+                    for (const id of batchSelected) {
+                      const inv = inboxItems.find(x => x.id === id);
+                      if (inv?.status === "approved" && inv?.matched_vendor_ref) {
+                        await fetch(supabase.supabaseUrl + "/functions/v1/qbo-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create_bill", inbox_id: id }) });
+                      }
+                    }
+                    setInboxItems(p => p.map(x => batchSelected.has(x.id) && x.status === "approved" ? { ...x, status: "synced_to_qbo" } : x));
+                    setBatchSelected(new Set());
+                  }} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none", background: "#8B5CF618", color: "#8B5CF6", cursor: "pointer" }}>Push All to QBO</button>
+                  <button onClick={() => setBatchSelected(new Set())} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Clear</button>
+                </div>
+              )}
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
                 <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  <th style={{ padding: "6px 6px", width: 30 }}><input type="checkbox" checked={batchSelected.size === inboxItems.filter(i => i.status === "extracted").length && batchSelected.size > 0} onChange={e => { if (e.target.checked) setBatchSelected(new Set(inboxItems.filter(i => i.status === "extracted").map(i => i.id))); else setBatchSelected(new Set()); }} style={{ cursor: "pointer" }} /></th>
                   {["Status", "Vendor", "Invoice #", "Date", "Due", "Amount", "GL Account", "Confidence", "Actions"].map(h => (
                     <th key={h} style={{ padding: "6px 10px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: h === "Amount" ? "right" : "left" }}>{h}</th>
                   ))}
@@ -1352,6 +1421,9 @@ function APAgingView({ isMobile }) {
                     return (
                       <Fragment key={inv.id}>
                       <tr onClick={() => setSelectedInbox(isSelected ? null : inv.id)} style={{ borderBottom: `1px solid ${T.border}15`, cursor: "pointer", background: isSelected ? T.surface2 : "transparent" }}>
+                        <td style={{ padding: "7px 6px" }} onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={batchSelected.has(inv.id)} onChange={e => { const n = new Set(batchSelected); if (e.target.checked) n.add(inv.id); else n.delete(inv.id); setBatchSelected(n); }} style={{ cursor: "pointer" }} />
+                        </td>
                         <td style={{ padding: "7px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: sc.bg, color: sc.c }}>{(inv.status || "pending").toUpperCase()}</span></td>
                         <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 600, color: T.text }}>{inv.vendor_name || <span style={{ color: T.text3, fontStyle: "italic" }}>Extracting…</span>}</td>
                         <td style={{ padding: "7px 10px", fontSize: 11, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number || "—"}</td>
@@ -1407,7 +1479,7 @@ function APAgingView({ isMobile }) {
                       </tr>
                       {/* Expandable detail panel */}
                       {isSelected && (
-                        <tr><td colSpan={9} style={{ padding: 0, background: T.surface2 + "40" }}>
+                        <tr><td colSpan={10} style={{ padding: 0, background: T.surface2 + "40" }}>
                           <div style={{ padding: "14px 16px", display: "grid", gridTemplateColumns: inv.file_url ? "1fr 1fr" : "1fr", gap: 16 }}>
                             {/* Left: extracted details */}
                             <div>
@@ -1474,6 +1546,7 @@ function APAgingView({ isMobile }) {
                   })}
                 </tbody>
               </table>
+            </div>
             </div>
           )}
         </div>
