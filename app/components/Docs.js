@@ -521,7 +521,7 @@ export default function DocsView({ setActive }) {
               if (file.name.endsWith(".md")) {
                 const text = await file.text();
                 const title = file.name.replace(".md", "").replace(/\s+[a-f0-9]{32}$/, ""); // Strip Notion IDs
-                const res = await fetch(supabase.supabaseUrl + "/functions/v1/notion-import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "import", user_id: user?.id, pages: [{ title, content_md: text, path: title, emoji: "📄" }] }) });
+                const res = await fetch(supabase.supabaseUrl + "/functions/v1/notion-import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "import", user_id: user?.id, use_ai: true, pages: [{ title, content_md: text, path: title, emoji: "📄" }] }) });
                 const result = await res.json();
                 alert(result.success ? `Imported: ${title}` : `Error: ${result.error}`);
                 loadDocs(); e.target.value = ""; return;
@@ -566,7 +566,7 @@ export default function DocsView({ setActive }) {
                   let totalImported = 0;
                   for (let i = 0; i < pages.length; i += 50) {
                     const batch = pages.slice(i, i + 50);
-                    const res = await fetch(supabase.supabaseUrl + "/functions/v1/notion-import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "import", user_id: user?.id, pages: batch }) });
+                    const res = await fetch(supabase.supabaseUrl + "/functions/v1/notion-import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "import", user_id: user?.id, use_ai: true, pages: batch }) });
                     const result = await res.json();
                     if (result.imported) totalImported += result.imported;
                   }
