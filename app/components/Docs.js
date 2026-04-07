@@ -510,6 +510,77 @@ export default function DocsView({ setActive }) {
         </div>
         <div style={{ padding: "0 10px 8px", display: "flex", gap: 6 }}>
           <button onClick={() => createDoc()} style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ New Page</button>
+          <label title="Import from Notion" style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text3, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center" }}>
+            <span>📥</span>
+            <input type="file" accept=".zip,.md,.html,.csv" multiple style={{ display: "none" }} onChange={async (e) => {
+              const files = e.target.files;
+              if (!files || files.length === 0) return;
+              const file = files[0];
+
+              // Handle individual markdown files
+              if (file.name.endsWith(".md")) {
+                const text = await file.text();
+                const title = file.name.replace(".md", "").replace(/\s+[a-f0-9]{32}$/, ""); // Strip Notion IDs
+                const res = await fetch(supabase.supabaseUrl + "/functions/v1/notion-import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "import", user_id: user?.id, pages: [{ title, content_md: text, path: title, emoji: "📄" }] }) });
+                const result = await res.json();
+                alert(result.success ? `Imported: ${title}` : `Error: ${result.error}`);
+                loadDocs(); e.target.value = ""; return;
+              }
+
+              // Handle zip files (Notion export)
+              if (file.name.endsWith(".zip")) {
+                try {
+                  const JSZip = (await import("jszip")).default;
+                  const zip = await JSZip.loadAsync(file);
+                  const pages = [];
+                  const mdFiles = [];
+
+                  // Collect all markdown files
+                  zip.forEach((relativePath, zipEntry) => {
+                    if (!zipEntry.dir && (relativePath.endsWith(".md") || relativePath.endsWith(".csv"))) {
+                      mdFiles.push({ path: relativePath, entry: zipEntry });
+                    }
+                  });
+
+                  // Process each file
+                  for (const { path, entry } of mdFiles) {
+                    const text = await entry.async("string");
+                    // Clean up the path: remove Notion IDs (32 hex chars before extension)
+                    const cleanPath = path.replace(/\s+[a-f0-9]{32}\.(md|csv)/g, "").replace(/\.(md|csv)$/, "");
+                    const parts = cleanPath.split("/").filter(Boolean);
+                    const title = parts[parts.length - 1] || "Untitled";
+                    const isCSV = path.endsWith(".csv");
+
+                    pages.push({
+                      title,
+                      content_md: isCSV ? "```csv\n" + text.slice(0, 10000) + "\n```" : text,
+                      path: cleanPath,
+                      emoji: isCSV ? "📊" : "📄",
+                      is_database: isCSV,
+                    });
+                  }
+
+                  if (pages.length === 0) { alert("No markdown or CSV files found in the zip"); e.target.value = ""; return; }
+
+                  // Send in batches of 50
+                  let totalImported = 0;
+                  for (let i = 0; i < pages.length; i += 50) {
+                    const batch = pages.slice(i, i + 50);
+                    const res = await fetch(supabase.supabaseUrl + "/functions/v1/notion-import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "import", user_id: user?.id, pages: batch }) });
+                    const result = await res.json();
+                    if (result.imported) totalImported += result.imported;
+                  }
+
+                  alert(`Notion import complete: ${totalImported} of ${pages.length} pages imported`);
+                  loadDocs();
+                } catch (err) { alert("Import error: " + err.message); }
+                e.target.value = ""; return;
+              }
+
+              alert("Please upload a .zip (Notion export) or .md file");
+              e.target.value = "";
+            }} />
+          </label>
           <button onClick={() => setShowTemplateGallery(v => !v)} title="Templates" style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: showTemplateGallery ? T.accentDim : "transparent", color: showTemplateGallery ? T.accent : T.text3, fontSize: 12, cursor: "pointer" }}>⊞</button>
         </div>
         {showTemplateGallery && (
@@ -620,6 +691,9 @@ export default function DocsView({ setActive }) {
             <div style={{ fontSize: 22, fontWeight: 700, color: T.text, marginBottom: 8 }}>Documents</div>
             <div style={{ fontSize: 14, color: T.text3, marginBottom: 24, textAlign: "center", maxWidth: 400 }}>Create rich documents with nested pages, headings, lists, to-dos, tables, code blocks, and more.</div>
             <button onClick={() => createDoc()} style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Create a Page</button>
+            <div style={{ marginTop: 12, fontSize: 12, color: T.text3 }}>
+              or <label style={{ color: T.accent, cursor: "pointer", fontWeight: 600, textDecoration: "underline" }}>import from Notion<input type="file" accept=".zip,.md" style={{ display: "none" }} onChange={e => { const inp = document.querySelector("input[accept='.zip,.md,.html,.csv']"); if (inp) { inp.files = e.target.files; inp.dispatchEvent(new Event("change", { bubbles: true })); } }} /></label>
+            </div>
             {docs.length > 0 && <div style={{ marginTop: 32, width: "100%", maxWidth: 500 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 8, textTransform: "uppercase" }}>Recent</div>
               {docs.slice(0, 8).map(d => (
