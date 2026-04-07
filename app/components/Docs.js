@@ -438,12 +438,12 @@ export default function DocsView({ setActive }) {
     const placeholder = block.type === "h1" ? "Heading 1" : block.type === "h2" ? "Heading 2" : block.type === "h3" ? "Heading 3" : block.type === "quote" ? "Quote..." : index === 0 && blocks.length <= 1 ? "Type '/' for commands..." : "";
 
     return (
-      <div style={{ position: "relative", padding: "1px 0", display: "flex", alignItems: "flex-start", gap: 0 }}
+      <div style={{ position: "relative", padding: "1px 0", display: "flex", alignItems: "flex-start", gap: 0, marginLeft: (block.indent || 0) * 24 }}
         onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}>
         <div style={{ width: 32, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", paddingTop: block.type.startsWith("h") ? 6 : 3, opacity: hov ? 0.6 : 0, transition: "opacity 0.1s", cursor: "grab" }}>
           <span style={{ fontSize: 10, color: T.text3, userSelect: "none" }}>⠿</span>
         </div>
-        {block.type === "bullet" && <span style={{ color: T.text3, fontSize: 20, lineHeight: "26px", flexShrink: 0, width: 18, textAlign: "center" }}>•</span>}
+        {block.type === "bullet" && <span style={{ color: T.text3, fontSize: block.indent >= 2 ? 10 : block.indent === 1 ? 14 : 20, lineHeight: "26px", flexShrink: 0, width: 18, textAlign: "center" }}>{block.indent >= 2 ? "▪" : block.indent === 1 ? "◦" : "•"}</span>}
         {block.type === "numbered" && <span style={{ color: T.text3, fontSize: 13, lineHeight: "26px", flexShrink: 0, width: 22, textAlign: "right", paddingRight: 4, fontFamily: "monospace" }}>{numIdx}.</span>}
         {block.type === "todo" && <input type="checkbox" checked={block.checked || false} onChange={() => updateBlockMeta(block.id, { checked: !block.checked })} style={{ marginTop: 6, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }} />}
         {block.type === "callout" && (
