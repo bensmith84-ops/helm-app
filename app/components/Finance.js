@@ -298,8 +298,8 @@ function RevenueAnalytics({ isMobile }) {
   useEffect(() => {
     (async () => {
       const [r1, r2] = await Promise.all([
-        supabase.from("qbo_pl").select("*").eq("classification", "Revenue"),
-        supabase.from("qbo_pl_monthly").select("*").eq("classification", "Revenue").order("period_month"),
+        supabase.from("qbo_pl").select("*").eq("org_id", orgId).eq("classification", "Revenue"),
+        supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).eq("classification", "Revenue").order("period_month"),
       ]);
       setPLYTD(r1.data || []); setPLMonthly(r2.data || []);
       setLoading(false);
@@ -713,8 +713,8 @@ function APAgingView({ isMobile }) {
   useEffect(() => {
     (async () => {
       const [r1, r2, r3] = await Promise.all([
-        supabase.from("qbo_bills").select("*").eq("payment_status", "open").order("due_date"),
-        supabase.from("qbo_invoices").select("*").gt("balance", 0).order("due_date"),
+        supabase.from("qbo_bills").select("*").eq("org_id", orgId).eq("payment_status", "open").order("due_date"),
+        supabase.from("qbo_invoices").select("*").eq("org_id", orgId).gt("balance", 0).order("due_date"),
         // Load approved inbox invoices (not yet in QBO) as standalone bills
         supabase.from("invoice_inbox").select("*").in("status", ["approved", "extracted"]).order("created_at", { ascending: false }),
       ]);
@@ -801,7 +801,7 @@ function APAgingView({ isMobile }) {
   const openNotes = async (billId) => {
     if (notesBillId === billId) { setNotesBillId(null); return; }
     setNotesBillId(billId); setNotesLoading(true); setReplyTo(null); setNoteText("");
-    const { data } = await supabase.from("bill_notes").select("*").eq("bill_id", billId).order("created_at");
+    const { data } = await supabase.from("bill_notes").select("*").eq("org_id", orgId).eq("bill_id", billId).order("created_at");
     setNotes(data || []); setNotesLoading(false);
   };
 
@@ -886,7 +886,7 @@ function APAgingView({ isMobile }) {
           link: "/finance/ap-ar",
         });
       } else if (user?.id === BEN_ID) {
-        const { data: otherNoters } = await supabase.from("bill_notes").select("user_id").eq("bill_id", notesBillId).neq("user_id", BEN_ID);
+        const { data: otherNoters } = await supabase.from("bill_notes").select("user_id").eq("org_id", orgId).eq("bill_id", notesBillId).neq("user_id", BEN_ID);
         const uniqueUsers = [...new Set((otherNoters || []).map(n => n.user_id).filter(Boolean))];
         for (const uid of uniqueUsers) {
           if (!mentionedUsers.some(m => m.id === uid)) {
@@ -1990,7 +1990,7 @@ function VendorIntelligence({ isMobile }) {
   useEffect(() => {
     (async () => {
       const [r1, r2, r3] = await Promise.all([
-        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_status"),
+        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_status").eq("org_id", orgId),
         supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_type").limit(5000),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
       ]);
@@ -2283,11 +2283,11 @@ function CashFlowView({ isMobile }) {
   useEffect(() => {
     (async () => {
       const [r1, r2, r3, r4, r5] = await Promise.all([
-        supabase.from("qbo_deposits").select("*").order("txn_date"),
+        supabase.from("qbo_deposits").select("*").eq("org_id", orgId).order("txn_date"),
         supabase.from("qbo_payments").select("*").order("txn_date"),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").limit(5000).order("txn_date"),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").eq("org_id", orgId).limit(5000).order("txn_date"),
         supabase.from("qbo_transfers").select("*").order("txn_date"),
-        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,payment_status").order("txn_date"),
+        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,payment_status").eq("org_id", orgId).order("txn_date"),
       ]);
       setDeposits(r1.data || []); setPayments(r2.data || []);
       setPurchases(r3.data || []); setTransfers(r4.data || []); setBills(r5.data || []);
@@ -2506,10 +2506,10 @@ function PLExplorer({ isMobile }) {
   useEffect(() => {
     (async () => {
       const [r1, r2, r3, r4] = await Promise.all([
-        supabase.from("qbo_pl_monthly").select("*").order("period_month"),
+        supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).order("period_month"),
         supabase.from("qbo_pl").select("*"),
-        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo"),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo").limit(5000),
+        supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo").eq("org_id", orgId),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo").eq("org_id", orgId).limit(5000),
       ]);
       setPLMonthly(r1.data || []); setPLYTD(r2.data || []);
       setBills(r3.data || []); setPurchases(r4.data || []);
@@ -2720,18 +2720,18 @@ function CFODashboard({ isMobile }) {
   useEffect(() => {
     (async () => {
       const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12] = await Promise.all([
-        supabase.from("qbo_pl").select("*"),
-        supabase.from("qbo_pl_monthly").select("*").order("period_month"),
+        supabase.from("qbo_pl").select("*").eq("org_id", orgId),
+        supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).order("period_month"),
         supabase.from("qbo_balance_sheet").select("*"),
-        supabase.from("qbo_bills").select("vendor_name,total_amount,balance,payment_status,txn_date,gl_accounts"),
-        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").limit(5000),
+        supabase.from("qbo_bills").select("vendor_name,total_amount,balance,payment_status,txn_date,gl_accounts").eq("org_id", orgId),
+        supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").eq("org_id", orgId).limit(5000),
         supabase.from("qbo_deposits").select("*"),
-        supabase.from("qbo_payments").select("*"),
+        supabase.from("qbo_payments").select("*").eq("org_id", orgId),
         supabase.from("qbo_transfers").select("*"),
         supabase.from("qbo_journal_entries").select("qbo_id,txn_date,total_amount,memo"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
         supabase.from("qbo_connections").select("*").order("connected_at", { ascending: false }).limit(1),
-        supabase.from("qbo_accounts").select("*").eq("account_type", "Bank"),
+        supabase.from("qbo_accounts").select("*").eq("org_id", orgId).eq("account_type", "Bank"),
       ]);
       setPL(r1.data || []); setPLMonthly(r2.data || []); setBS(r3.data || []);
       setBills(r4.data || []); setPurchases(r5.data || []); setDeposits(r6.data || []);
@@ -3840,9 +3840,9 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       const [{ data: pl }, { data: maps }, { data: bills }, { data: purchases }, { data: plm }] = await Promise.all([
         supabase.from("qbo_pl").select("*").eq("classification", "Expense"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
-        supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
-        supabase.from("qbo_purchases").select("*").limit(5000).order("txn_date", { ascending: false }),
-        supabase.from("qbo_pl_monthly").select("*").eq("classification", "Expense").order("period_month"),
+        supabase.from("qbo_bills").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }),
+        supabase.from("qbo_purchases").select("*").eq("org_id", orgId).limit(5000).order("txn_date", { ascending: false }),
+        supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).eq("classification", "Expense").order("period_month"),
       ]);
       setQboPL(pl || []);
       setQboPLMonthly(plm || []);
@@ -4713,7 +4713,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
         // Load QBO P&L and Bills
         const [{ data: pl }, { data: bills }] = await Promise.all([
           supabase.from("qbo_pl").select("*").order("account_type, account_name"),
-          supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
+          supabase.from("qbo_bills").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }),
         ]);
         setQboPL(pl || []);
         setQboBills(bills || []);

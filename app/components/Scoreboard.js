@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 import { useResponsive } from "../lib/responsive";
 const ShopifySkuSetup = lazy(() => import("./ShopifySkuSetup"));
@@ -627,6 +628,7 @@ function ShopifySkuTab() {
 // ── Main Scoreboard View ────────────────────────────────────────────────────
 export default function ScoreboardView() {
   const { isMobile } = useResponsive();
+  const { orgId } = useAuth();
   const [metrics, setMetrics] = useState([]);
   const [monthly, setMonthly] = useState({});
   const [monthlyPrev, setMonthlyPrev] = useState({});
@@ -667,7 +669,7 @@ export default function ScoreboardView() {
     let page = 0;
     const pageSize = 1000;
     while (true) {
-      const { data: batch } = await supabase.from("scoreboard_daily").select("*")
+      const { data: batch } = await supabase.from("scoreboard_daily").select("*").eq("org_id", orgId)
         .order("date", { ascending: false })
         .range(page * pageSize, (page + 1) * pageSize - 1);
       if (!batch?.length) break;
