@@ -85,16 +85,16 @@ export default function LearningView({ modulePerms = {} }) {
     if (!user?.id) return;
     (async () => {
       const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10] = await Promise.all([
-        supabase.from("lms_courses").select("*").is("deleted_at", null).order("title"),
+        supabase.from("lms_courses").select("*").eq("org_id", orgId).is("deleted_at", null).order("title"),
         supabase.from("lms_lessons").select("*").order("sort_order"),
         supabase.from("lms_quizzes").select("*"),
-        supabase.from("lms_assignments").select("*"),
-        supabase.from("lms_progress").select("*").eq("user_id", user.id),
+        supabase.from("lms_assignments").select("*").eq("org_id", orgId),
+        supabase.from("lms_progress").select("*").eq("org_id", orgId).eq("user_id", user.id),
         supabase.from("lms_quiz_attempts").select("*").eq("user_id", user.id).order("attempted_at",{ascending:false}),
         supabase.from("profiles").select("id,display_name,email,department"),
         supabase.from("teams").select("*").is("deleted_at", null),
         supabase.from("team_members").select("*"),
-        supabase.from("lms_progress").select("*"),
+        supabase.from("lms_progress").select("*").eq("org_id", orgId),
       ]);
       setCourses(r1.data||[]); setLessons(r2.data||[]); setQuizzes(r3.data||[]);
       setAssignments(r4.data||[]); setProgress(r5.data||[]); setQuizAttempts(r6.data||[]);

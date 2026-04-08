@@ -25,7 +25,7 @@ const relTime = (d) => {
 };
 
 export default function NotificationBell({ setActive }) {
-  const { user, profile } = useAuth();
+  const { user, profile , orgId } = useAuth();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);

@@ -716,7 +716,7 @@ function APAgingView({ isMobile }) {
         supabase.from("qbo_bills").select("*").eq("org_id", orgId).eq("payment_status", "open").order("due_date"),
         supabase.from("qbo_invoices").select("*").eq("org_id", orgId).gt("balance", 0).order("due_date"),
         // Load approved inbox invoices (not yet in QBO) as standalone bills
-        supabase.from("invoice_inbox").select("*").in("status", ["approved", "extracted"]).order("created_at", { ascending: false }),
+        supabase.from("invoice_inbox").select("*").eq("org_id", orgId).in("status", ["approved", "extracted"]).order("created_at", { ascending: false }),
       ]);
       // Convert approved inbox items to bill-like objects so they show in Payables
       const qboBills = r1.data || [];
@@ -921,9 +921,9 @@ function APAgingView({ isMobile }) {
         <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
           <button onClick={() => { setTab("ap"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ap" ? T.red + "20" : T.surface2, color: tab === "ap" ? T.red : T.text3 }}>📤 Payables ({bills.length})</button>
           <button onClick={() => { setTab("ar"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
-          <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); if (!gmailConn) { const r = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections", org_id: orgId }) }).then(r => r.json()).catch(() => ({})); if (r.connections?.length > 0) setGmailConn(r.connections[0]); } }}
+          <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); if (!gmailConn) { const r = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections", org_id: orgId }) }).then(r => r.json()).catch(() => ({})); if (r.connections?.length > 0) setGmailConn(r.connections[0]); } }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "inbox" ? T.accent + "20" : T.surface2, color: tab === "inbox" ? T.accent : T.text3, borderLeft: `1px solid ${T.border}` }}>📋 Invoice Inbox</button>
-          <button onClick={async () => { setTab("expenses"); setExpensesLoading(true); const { data } = await supabase.from("expense_submissions").select("*").order("created_at", { ascending: false }).limit(50); setExpenses(data || []); setExpensesLoading(false); }}
+          <button onClick={async () => { setTab("expenses"); setExpensesLoading(true); const { data } = await supabase.from("expense_submissions").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(50); setExpenses(data || []); setExpensesLoading(false); }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "expenses" ? "#F59E0B20" : T.surface2, color: tab === "expenses" ? "#F59E0B" : T.text3, borderLeft: `1px solid ${T.border}` }}>💰 Expenses</button>
         </div>
       </div>
@@ -1582,7 +1582,7 @@ function APAgingView({ isMobile }) {
                       const result = await res.json();
                       if (result.imported > 0) {
                         // Reload inbox
-                        const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50);
+                        const { data } = await supabase.from("invoice_inbox").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(50);
                         setInboxItems(data || []);
                         alert(`Scanned ${gmailConn.email}: ${result.imported} new invoices imported, ${result.skipped} already imported`);
                       } else {
@@ -1618,7 +1618,7 @@ function APAgingView({ isMobile }) {
                       });
                       const result = await res.json();
                       if (result.success) {
-                        const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("id", inbox.id).single();
+                        const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("org_id", orgId).eq("id", inbox.id).single();
                         if (updated) setInboxItems(p => p.map(x => x.id === inbox.id ? updated : x));
                       }
                     }
@@ -1717,7 +1717,7 @@ function APAgingView({ isMobile }) {
                                 setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "processing" } : x));
                                 const res = await fetch(supabase.supabaseUrl + "/functions/v1/invoice-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "extract", inbox_id: inv.id }) });
                                 const result = await res.json();
-                                if (result.success) { const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("id", inv.id).single(); if (updated) setInboxItems(p => p.map(x => x.id === inv.id ? updated : x)); }
+                                if (result.success) { const { data: updated } = await supabase.from("invoice_inbox").select("*").eq("org_id", orgId).eq("id", inv.id).single(); if (updated) setInboxItems(p => p.map(x => x.id === inv.id ? updated : x)); }
                               }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent + "18", color: T.accent, cursor: "pointer" }}>Retry</button>
                             )}
                             {inv.duplicate_of && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.yellow + "18", color: T.yellow, fontWeight: 600 }}>⚠ Dup</span>}
@@ -1827,7 +1827,7 @@ function APAgingView({ isMobile }) {
               {expenses.length === 0 && !expensesLoading && (
                 <button onClick={async () => {
                   setExpensesLoading(true);
-                  const { data } = await supabase.from("expense_submissions").select("*").order("created_at", { ascending: false }).limit(50);
+                  const { data } = await supabase.from("expense_submissions").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(50);
                   setExpenses(data || []);
                   setExpensesLoading(false);
                 }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>Load Expenses</button>

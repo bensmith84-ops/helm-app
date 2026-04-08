@@ -57,7 +57,7 @@ function Card({ title, children, action }) {
 
 export default function ReportsView() {
   const { isMobile } = useResponsive();
-  const { profile } = useAuth();
+  const { profile , orgId } = useAuth();
   const [activeTab, setActiveTab] = useState("Executive Summary");
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({});
@@ -84,15 +84,15 @@ export default function ReportsView() {
       supabase.from("projects").select("*").is("deleted_at", null),
       supabase.from("tasks").select("*").is("deleted_at", null),
       supabase.from("profiles").select("id,display_name"),
-      supabase.from("objectives").select("*").is("deleted_at", null),
-      supabase.from("key_results").select("*").is("deleted_at", null),
-      supabase.from("okr_cycles").select("*").order("start_date",{ascending:false}),
+      supabase.from("objectives").select("*").eq("org_id", orgId).is("deleted_at", null),
+      supabase.from("key_results").select("*").eq("org_id", orgId).is("deleted_at", null),
+      supabase.from("okr_cycles").select("*").eq("org_id", orgId).order("start_date",{ascending:false}),
       supabase.from("plm_programs").select("*").is("deleted_at", null),
       supabase.from("plm_issues").select("*").eq("status","open"),
       supabase.from("okr_financial_metrics").select("*").eq("year",yr),
       supabase.from("scorecard_metrics").select("*").eq("active",true),
       supabase.from("scorecard_entries").select("*").gte("week_start", `${yr}-01-01`),
-      supabase.from("okr_check_ins").select("key_result_id,check_in_date,health_status,value,created_at").order("created_at", { ascending: false }),
+      supabase.from("okr_check_ins").select("key_result_id,check_in_date,health_status,value,created_at").eq("org_id", orgId).order("created_at", { ascending: false }),
     ]);
 
     const profMap = {};

@@ -34,10 +34,10 @@ export default function MessagesView() {
   useEffect(() => {
     (async () => {
       const [{ data: ch }, { data: prof }, { data: reads }, { data: projs }, { data: secs }] = await Promise.all([
-        supabase.from("channels").select("*").eq("is_archived", false).order("name"),
+        supabase.from("channels").select("*").eq("org_id", orgId).eq("is_archived", false).order("name"),
         supabase.from("profiles").select("id,display_name,avatar_url"),
         supabase.from("message_reads").select("*").eq("user_id", user?.id),
-        supabase.from("projects").select("id,name,color").is("deleted_at", null).order("name"),
+        supabase.from("projects").select("id,name,color").eq("org_id", orgId).is("deleted_at", null).order("name"),
         supabase.from("sections").select("id,name,project_id,sort_order").order("sort_order"),
       ]);
       setChannels(ch || []);
@@ -50,7 +50,7 @@ export default function MessagesView() {
       for (const c of (ch || [])) {
         const r = (reads || []).find(rr => rr.channel_id === c.id);
         const since = r?.last_read_at || "2000-01-01T00:00:00Z";
-        const { count } = await supabase.from("messages").select("id", { count: "exact", head: true })
+        const { count } = await supabase.from("messages").select("id", { count: "exact", head: true }).eq("org_id", orgId)
           .eq("channel_id", c.id).neq("author_id", user?.id).gt("created_at", since).is("deleted_at", null);
         if (count > 0 || r?.is_unread_override) uc[c.id] = (count || 0) + (r?.is_unread_override && count === 0 ? 1 : 0);
       }
@@ -63,7 +63,7 @@ export default function MessagesView() {
   useEffect(() => {
     if (!activeCh) return;
     (async () => {
-      const { data: msgs } = await supabase.from("messages").select("*")
+      const { data: msgs } = await supabase.from("messages").select("*").eq("org_id", orgId)
         .eq("channel_id", activeCh).is("deleted_at", null)
         .order("created_at", { ascending: true });
       setMessages(msgs || []);

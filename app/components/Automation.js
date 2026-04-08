@@ -99,7 +99,7 @@ const relTime = (d) => {
 
 export default function AutomationView() {
   const { isMobile } = useResponsive();
-  const { user, profile } = useAuth();
+  const { user, profile , orgId } = useAuth();
   const [rules, setRules] = useState([]);
   const [selectedRule, setSelectedRule] = useState(null);
   const [loading, setLoading] = useState(true);

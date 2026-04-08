@@ -179,12 +179,12 @@ export default function PeopleView() {
       const [mR, omR, tR, pR, pmR, tmR, tmrR, krR] = await Promise.all([
         supabase.from("profiles").select("*").eq("org_id", profile.org_id),
         supabase.from("org_memberships").select("*").eq("org_id", profile.org_id),
-        supabase.from("tasks").select("id, title, status, priority, assignee_id, project_id, due_date").is("deleted_at", null),
+        supabase.from("tasks").select("id, title, status, priority, assignee_id, project_id, due_date").eq("org_id", orgId).is("deleted_at", null),
         supabase.from("projects").select("id, name, color").is("deleted_at", null),
         supabase.from("project_members").select("*"),
         supabase.from("teams").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
         supabase.from("team_members").select("*"),
-        supabase.from("key_results").select("id,title,progress,target_value,unit,owner_id").is("deleted_at", null),
+        supabase.from("key_results").select("id,title,progress,target_value,unit,owner_id").eq("org_id", orgId).is("deleted_at", null),
       ]);
       setMembers(mR.data || []); setMemberships(omR.data || []); setTasks(tR.data || []); setProjects(pR.data || []); setProjectMembers(pmR.data || []); setTeams(tmR.data || []); setTeamMembers(tmrR.data || []);
       setKeyResults(krR.data || []);

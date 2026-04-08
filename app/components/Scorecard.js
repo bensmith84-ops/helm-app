@@ -158,7 +158,7 @@ export default function ScorecardView() {
         supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order").order("created_at"),
         supabase.from("profiles").select("id,display_name"),
         supabase.from("org_memberships").select("org_id").eq("user_id", (await supabase.auth.getUser()).data.user?.id).maybeSingle(),
-        supabase.from("key_results").select("id,title,current_value,target_value,unit,progress").is("deleted_at", null).order("sort_order"),
+        supabase.from("key_results").select("id,title,current_value,target_value,unit,progress").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
       ]);
       const profMap = {};
       (prof || []).forEach(u => { profMap[u.id] = u; });

@@ -22,7 +22,7 @@ const PRI_COLORS = { critical: "#ef4444", high: "#f97316", medium: "#eab308", lo
 
 export default function LaunchHub() {
   const { isMobile } = useResponsive();
-  const { user, profile } = useAuth();
+  const { user, profile , orgId } = useAuth();
   const [view, setView] = useState("cards");
   const [programs, setPrograms] = useState([]);
   const [projects, setProjects] = useState([]);

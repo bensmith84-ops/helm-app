@@ -56,7 +56,7 @@ const dayLabel = (date) => {
 };
 
 export default function ActivityView({ setActive }) {
-  const { user } = useAuth();
+  const { user , orgId } = useAuth();
   const [activities, setActivities] = useState([]);
   const [profiles, setProfiles] = useState({});
   const [entityFilter, setEntityFilter] = useState("all");
@@ -69,7 +69,7 @@ export default function ActivityView({ setActive }) {
   const load = useCallback(async (offset = 0) => {
     if (offset === 0) setLoading(true); else setLoadingMore(true);
     const [{ data: acts }, { data: prof }] = await Promise.all([
-      supabase.from("activity_log").select("*").order("created_at", { ascending: false }).range(offset, offset + PAGE - 1),
+      supabase.from("activity_log").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).range(offset, offset + PAGE - 1),
       offset === 0 ? supabase.from("profiles").select("id,display_name") : Promise.resolve({ data: null }),
     ]);
     if (offset === 0) {

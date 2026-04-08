@@ -131,7 +131,7 @@ export default function OKRsView() {
   useEffect(() => {
     (async () => {
       const [{ data: c }, { data: prof }] = await Promise.all([
-        supabase.from("okr_cycles").select("*").order("start_date", { ascending: false }),
+        supabase.from("okr_cycles").select("*").eq("org_id", orgId).order("start_date", { ascending: false }),
         supabase.from("profiles").select("id,display_name,avatar_url"),
       ]);
       setCycles(c || []);
@@ -175,8 +175,8 @@ export default function OKRsView() {
     if (!activeCycle) return;
     (async () => {
       const [{ data: obj }, { data: kr }, { data: ms }] = await Promise.all([
-        supabase.from("objectives").select("*").eq("cycle_id", activeCycle).is("deleted_at", null).order("sort_order"),
-        supabase.from("key_results").select("*").is("deleted_at", null).order("sort_order"),
+        supabase.from("objectives").select("*").eq("org_id", orgId).eq("cycle_id", activeCycle).is("deleted_at", null).order("sort_order"),
+        supabase.from("key_results").select("*").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
         supabase.from("okr_milestones").select("*").order("sort_order"),
       ]);
       setObjectives(obj || []);
@@ -187,7 +187,7 @@ export default function OKRsView() {
       // Fetch check-ins for this cycle (filter by key_result_ids)
       const krIds = filteredKR.map(k => k.id);
       if (krIds.length > 0) {
-        const { data: ciData } = await supabase.from("okr_check_ins").select("*").in("key_result_id", krIds).order("created_at", { ascending: false });
+        const { data: ciData } = await supabase.from("okr_check_ins").select("*").eq("org_id", orgId).in("key_result_id", krIds).order("created_at", { ascending: false });
         setCheckIns(ciData || []);
       } else {
         setCheckIns([]);
@@ -201,7 +201,7 @@ export default function OKRsView() {
       // Fetch OKR status updates for this cycle's objectives
       if (obj?.length > 0) {
         const objIds = (obj || []).map(o => o.id);
-        const { data: suData } = await supabase.from("okr_status_updates").select("*").in("objective_id", objIds).order("created_at", { ascending: false });
+        const { data: suData } = await supabase.from("okr_status_updates").select("*").eq("org_id", orgId).in("objective_id", objIds).order("created_at", { ascending: false });
         setOkrStatusUpdates(suData || []);
       }
       setSelectedKR(null);

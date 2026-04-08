@@ -138,7 +138,7 @@ export default function DocsView({ setActive }) {
       const [{ data: d }, { data: p }, { data: proj }] = await Promise.all([
         supabase.from("documents").select("id,title,emoji,cover_url,parent_id,status,created_by,created_at,updated_at,sort_order,depth,project_id").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
         supabase.from("profiles").select("id,display_name"),
-        supabase.from("projects").select("id,name,color,emoji").is("deleted_at", null).order("name"),
+        supabase.from("projects").select("id,name,color,emoji").eq("org_id", orgId).is("deleted_at", null).order("name"),
       ]);
       setDocs(d || []);
       setProjects(proj || []);
@@ -156,7 +156,7 @@ export default function DocsView({ setActive }) {
 
   const openDoc = async (doc) => {
     setActiveDoc(doc); setEmojiPicker(false); setCoverPicker(false); setSlashMenu(null); setCalloutEmojiPicker(null);
-    const { data } = await supabase.from("documents").select("content,content_text").eq("id", doc.id).single();
+    const { data } = await supabase.from("documents").select("content,content_text").eq("org_id", orgId).eq("id", doc.id).single();
     let newBlocks;
     if (data?.content && Array.isArray(data.content)) newBlocks = data.content;
     else if (data?.content_text) newBlocks = data.content_text.split("\n").map(l => mkBlock("text", l));
@@ -275,7 +275,7 @@ export default function DocsView({ setActive }) {
   };
 
   const duplicateDoc = async (doc) => {
-    const { data: src } = await supabase.from("documents").select("content").eq("id", doc.id).single();
+    const { data: src } = await supabase.from("documents").select("content").eq("org_id", orgId).eq("id", doc.id).single();
     const { data } = await supabase.from("documents").insert({
       org_id: orgId, title: doc.title + " (copy)", emoji: doc.emoji, status: "draft", visibility: "team",
       parent_id: doc.parent_id, created_by: user?.id, content: src?.content || [mkBlock()], sort_order: docs.length, depth: doc.depth || 0,

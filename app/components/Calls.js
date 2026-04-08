@@ -37,7 +37,7 @@ export default function CallsView() {
   useEffect(() => {
     (async () => {
       const [{ data: c }, { data: p }] = await Promise.all([
-        supabase.from("calls").select("*").order("scheduled_at", { ascending: false }),
+        supabase.from("calls").select("*").eq("org_id", orgId).order("scheduled_at", { ascending: false }),
         supabase.from("profiles").select("id,display_name"),
       ]);
       setCalls(c || []);

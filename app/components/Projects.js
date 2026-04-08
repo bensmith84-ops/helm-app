@@ -250,9 +250,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           supabase.from("teams").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("objectives").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
           supabase.from("project_favorites").select("project_id").eq("user_id", user?.id),
-          supabase.from("project_members").select("project_id, user_id, role").eq("user_id", user?.id),
+          supabase.from("project_members").select("project_id, user_id, role").eq("org_id", orgId).eq("user_id", user?.id),
           supabase.from("user_module_permissions").select("is_admin").eq("user_id", user?.id).maybeSingle(),
-          supabase.from("project_members").select("project_id, user_id, role"),
+          supabase.from("project_members").select("project_id, user_id, role").eq("org_id", orgId),
         ]);
         // Filter projects by visibility: public visible to all, private only to members/owner/admin
         const isAdmin = permR.data?.is_admin === true;
@@ -270,7 +270,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
         // Load labels, assignments, custom fields
         const [lblR, lblAR] = await Promise.all([
-          supabase.from("task_labels").select("*").order("name"),
+          supabase.from("task_labels").select("*").eq("org_id", orgId).order("name"),
           supabase.from("task_label_assignments").select("*"),
         ]);
         setLabels(lblR.data || []);
@@ -282,7 +282,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         // Load templates and docs
         const [tmplR, docsR] = await Promise.all([
           supabase.from("project_templates").select("*").order("is_builtin", { ascending: false }).order("name"),
-          supabase.from("documents").select("id,title,emoji,updated_at,project_id,status").is("deleted_at", null).order("updated_at", { ascending: false }),
+          supabase.from("documents").select("id,title,emoji,updated_at,project_id,status").eq("org_id", orgId).is("deleted_at", null).order("updated_at", { ascending: false }),
         ]);
         setTemplates(tmplR.data || []);
         setDocs(docsR.data || []);
@@ -311,8 +311,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   useEffect(() => {
     if (!selectedTask) return;
     Promise.all([
-      supabase.from("comments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
-      supabase.from("attachments").select("*").eq("entity_type", "task").eq("entity_id", selectedTask.id),
+      supabase.from("comments").select("*").eq("org_id", orgId).eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
+      supabase.from("attachments").select("*").eq("org_id", orgId).eq("entity_type", "task").eq("entity_id", selectedTask.id),
     ]).then(([cR, aR]) => { setComments(cR.data || []); setAttachments(aR.data || []); });
   }, [selectedTask?.id]);
 
@@ -323,7 +323,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       supabase.from("custom_fields").select("*").eq("project_id", activeProject).order("sort_order"),
       supabase.from("custom_field_values").select("*"),
       supabase.from("milestones").select("*").eq("project_id", activeProject).order("sort_order"),
-      supabase.from("project_status_updates").select("*").eq("project_id", activeProject).order("created_at", { ascending: false }).limit(10),
+      supabase.from("project_status_updates").select("*").eq("org_id", orgId).eq("project_id", activeProject).order("created_at", { ascending: false }).limit(10),
       supabase.from("project_rules").select("*").eq("project_id", activeProject).order("created_at"),
     ]).then(([dR, cfR, cvR, msR, suR, ruR]) => {
       setDependencies(dR.data || []); setCustomFields(cfR.data || []); setMilestones(msR.data || []); setStatusUpdates(suR.data || []);
@@ -558,7 +558,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       if (secData) setSections(p => [...p, secData]);
     }
     // Reload tasks
-    const { data: newTasks } = await supabase.from("tasks").select("*").eq("project_id", data.id).is("deleted_at", null);
+    const { data: newTasks } = await supabase.from("tasks").select("*").eq("org_id", orgId).eq("project_id", data.id).is("deleted_at", null);
     setTasks(p => [...p.filter(t => t.project_id !== data.id), ...(newTasks || [])]);
     showToast(`Project created from ${template.name} template`, "success");
   };

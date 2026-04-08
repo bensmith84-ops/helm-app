@@ -358,7 +358,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
     const viewDate = new Date(); viewDate.setDate(viewDate.getDate() + dayOffset);
     const dayStart = new Date(viewDate); dayStart.setHours(0,0,0,0);
     const dayEnd = new Date(viewDate); dayEnd.setHours(23,59,59,999);
-    const { data: evts } = await supabase.from("calendar_events").select("*").gte("start_at", dayStart.toISOString()).lte("start_at", dayEnd.toISOString()).is("deleted_at", null).order("start_at");
+    const { data: evts } = await supabase.from("calendar_events").select("*").eq("org_id", orgId).gte("start_at", dayStart.toISOString()).lte("start_at", dayEnd.toISOString()).is("deleted_at", null).order("start_at");
     setEvents(evts || []);
   };
 
@@ -369,8 +369,8 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
     const dayStart = new Date(viewDate); dayStart.setHours(0,0,0,0);
     const dayEnd = new Date(viewDate); dayEnd.setHours(23,59,59,999);
     const [{ data: cals }, { data: evts }] = await Promise.all([
-      supabase.from("calendars").select("*").eq("owner_id", profile.id).is("deleted_at", null).order("name"),
-      supabase.from("calendar_events").select("*").gte("start_at", dayStart.toISOString()).lte("start_at", dayEnd.toISOString()).is("deleted_at", null).order("start_at"),
+      supabase.from("calendars").select("*").eq("org_id", orgId).eq("owner_id", profile.id).is("deleted_at", null).order("name"),
+      supabase.from("calendar_events").select("*").eq("org_id", orgId).gte("start_at", dayStart.toISOString()).lte("start_at", dayEnd.toISOString()).is("deleted_at", null).order("start_at"),
     ]);
     setCalendars(cals || []); setEvents(evts || []);
     const saved = localStorage.getItem("helm-enabled-cals");
@@ -865,20 +865,20 @@ export default function DashboardView({ setActive }) {
         { data: approvals }, { data: spendRequests }, { data: fmData }, { data: plm },
         { data: activity }, { data: focus }, { data: scoreboardDaily },
       ] = await Promise.all([
-        supabase.from("projects").select("*").is("deleted_at", null).order("name"),
+        supabase.from("projects").select("*").eq("org_id", orgId).is("deleted_at", null).order("name"),
         supabase.from("sections").select("*").order("sort_order"),
         supabase.from("tasks").select("*").is("deleted_at", null),
         supabase.from("profiles").select("id,display_name,avatar_url"),
-        supabase.from("objectives").select("*").is("deleted_at", null).order("sort_order"),
-        supabase.from("key_results").select("*").is("deleted_at", null),
-        supabase.from("okr_cycles").select("*").order("start_date", { ascending: false }),
+        supabase.from("objectives").select("*").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
+        supabase.from("key_results").select("*").eq("org_id", orgId).is("deleted_at", null),
+        supabase.from("okr_cycles").select("*").eq("org_id", orgId).order("start_date", { ascending: false }),
         supabase.from("approval_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(5),
         supabase.from("af_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }),
         supabase.from("okr_financial_metrics").select("*").eq("year", yr).order("sort_order"),
         supabase.from("plm_programs").select("*").is("deleted_at", null).order("created_at", { ascending: false }).limit(10),
-        supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(20),
+        supabase.from("activity_log").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(20),
         supabase.from("dashboard_focus_items").select("*").eq("focus_date", todayStr).order("sort_order"),
-        supabase.from("scoreboard_daily").select("date,metric_key,value").in("metric_key", ["revenue", "amazon_revenue", "net_dollars"]).gte("date", `${yr}-01-01`).order("date"),
+        supabase.from("scoreboard_daily").select("date,metric_key,value").eq("org_id", orgId).in("metric_key", ["revenue", "amazon_revenue", "net_dollars"]).gte("date", `${yr}-01-01`).order("date"),
       ]);
 
       const profMap = {};

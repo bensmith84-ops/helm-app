@@ -43,7 +43,7 @@ export default function CampaignsView() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("campaigns").select("*").is("deleted_at", null).order("created_at", { ascending: false });
+      const { data } = await supabase.from("campaigns").select("*").eq("org_id", orgId).is("deleted_at", null).order("created_at", { ascending: false });
       setCampaigns(data || []);
       setLoading(false);
     })();

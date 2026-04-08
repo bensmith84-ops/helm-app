@@ -27,7 +27,7 @@ const TaskCard = ({ task, onClick, color }) => (
 );
 
 export default function WMSView() {
-  const { user } = useAuth();
+  const { user , orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState("tasks");
   const [tasks, setTasks] = useState([]);
