@@ -682,7 +682,7 @@ function APAgingView({ isMobile }) {
   const [search, setSearch] = useState("");
   const [expandedVendor, setExpandedVendor] = useState(null);
   const [vendorSort, setVendorSort] = useState(["total", "desc"]);
-  const [approvalFilter, setApprovalFilter] = useState("");
+  const [approvalFilter, setApprovalFilter] = useState([]);
   const [viewMode, setViewMode] = useState("vendor"); // vendor, date, status, all
   const [billSort, setBillSort] = useState(["due_date", "asc"]);
   const [notesBillId, setNotesBillId] = useState(null);
@@ -690,6 +690,9 @@ function APAgingView({ isMobile }) {
   const [noteText, setNoteText] = useState("");
   const [replyTo, setReplyTo] = useState(null);
   const [notesLoading, setNotesLoading] = useState(false);
+  const [mentionSearch, setMentionSearch] = useState(null); // null = hidden, string = search query
+  const [mentionResults, setMentionResults] = useState([]);
+  const [allProfiles, setAllProfiles] = useState([]);
   const [inboxItems, setInboxItems] = useState([]);
   const [inboxLoading, setInboxLoading] = useState(false);
   const [uploadingInvoice, setUploadingInvoice] = useState(false);
@@ -780,17 +783,74 @@ function APAgingView({ isMobile }) {
     setNotes(data || []); setNotesLoading(false);
   };
 
+  const renderMentions = (text) => {
+    if (!text || !text.includes("@")) return text;
+    const parts = text.split(/(@[\w\s]+?)(?=\s@|\s*$|[.!?,;:])/g);
+    return parts.map((part, i) => part.startsWith("@") ? <span key={i} style={{ color: T.accent, fontWeight: 600 }}>{part}</span> : part);
+  };
+
+  const handleNoteChange = async (val) => {
+    setNoteText(val);
+    // Detect @mention trigger
+    const atMatch = val.match(/@(\w*)$/);
+    if (atMatch) {
+      const query = atMatch[1].toLowerCase();
+      setMentionSearch(query);
+      // Load profiles if we haven't yet
+      if (allProfiles.length === 0) {
+        const { data } = await supabase.from("profiles").select("id, display_name, email").eq("org_id", "a0000000-0000-0000-0000-000000000001").limit(100);
+        setAllProfiles(data || []);
+        setMentionResults((data || []).filter(p => !query || p.display_name?.toLowerCase().includes(query) || p.email?.toLowerCase().includes(query)).slice(0, 6));
+      } else {
+        setMentionResults(allProfiles.filter(p => !query || p.display_name?.toLowerCase().includes(query) || p.email?.toLowerCase().includes(query)).slice(0, 6));
+      }
+    } else {
+      setMentionSearch(null);
+      setMentionResults([]);
+    }
+  };
+  const insertMention = (person) => {
+    // Replace @query with @Name
+    const newText = noteText.replace(/@\w*$/, `@${person.display_name} `);
+    setNoteText(newText);
+    setMentionSearch(null);
+    setMentionResults([]);
+  };
+
   const addNote = async (parentId = null) => {
     if (!noteText.trim() || !notesBillId) return;
     const note = { bill_id: notesBillId, parent_id: parentId, user_id: user?.id, user_name: profile?.display_name || user?.email, content: noteText.trim() };
     const { data } = await supabase.from("bill_notes").insert(note).select().single();
     if (data) {
       setNotes(p => [...p, data]);
-      // Send notification to Ben (admin) for any bill note
       const bill = bills.find(b => b.id === notesBillId);
       const BEN_ID = "32cad5dd-9e94-4095-a16d-b4521391b050";
-      if (user?.id !== BEN_ID) {
-        // Note from someone else — notify Ben
+
+      // Extract @mentioned users from the note text
+      const mentions = noteText.match(/@([\w\s]+?)(?=\s@|\s*$|[.!?,;:])/g) || [];
+      const mentionedNames = mentions.map(m => m.slice(1).trim().toLowerCase());
+      const mentionedUsers = allProfiles.filter(p => mentionedNames.some(mn => p.display_name?.toLowerCase().startsWith(mn)));
+
+      // Notify @mentioned users
+      for (const mentioned of mentionedUsers) {
+        if (mentioned.id !== user?.id) {
+          await supabase.from("notifications").insert({
+            org_id: "a0000000-0000-0000-0000-000000000001",
+            user_id: mentioned.id,
+            type: "bill_note_mention",
+            title: `${profile?.display_name || "Someone"} mentioned you on ${bill?.vendor_name || "a bill"}`,
+            body: noteText.trim().slice(0, 120),
+            entity_type: "qbo_bill",
+            entity_id: notesBillId,
+            actor_id: user?.id,
+            category: "finance",
+            link: "/finance/ap-ar",
+          });
+        }
+      }
+
+      // Standard notification logic (Ben gets notified for all notes, others get notified for their bill threads)
+      if (user?.id !== BEN_ID && !mentionedUsers.some(m => m.id === BEN_ID)) {
         await supabase.from("notifications").insert({
           org_id: "a0000000-0000-0000-0000-000000000001",
           user_id: BEN_ID,
@@ -803,27 +863,28 @@ function APAgingView({ isMobile }) {
           category: "finance",
           link: "/finance/ap-ar",
         });
-      } else {
-        // Ben's own note — notify all other org members who have notes on this bill
+      } else if (user?.id === BEN_ID) {
         const { data: otherNoters } = await supabase.from("bill_notes").select("user_id").eq("bill_id", notesBillId).neq("user_id", BEN_ID);
         const uniqueUsers = [...new Set((otherNoters || []).map(n => n.user_id).filter(Boolean))];
         for (const uid of uniqueUsers) {
-          await supabase.from("notifications").insert({
-            org_id: "a0000000-0000-0000-0000-000000000001",
-            user_id: uid,
-            type: "bill_note",
-            title: `Ben replied on ${bill?.vendor_name || "bill"}`,
-            body: noteText.trim().slice(0, 120),
-            entity_type: "qbo_bill",
-            entity_id: notesBillId,
-            actor_id: user?.id,
-            category: "finance",
-            link: "/finance/ap-ar",
-          });
+          if (!mentionedUsers.some(m => m.id === uid)) {
+            await supabase.from("notifications").insert({
+              org_id: "a0000000-0000-0000-0000-000000000001",
+              user_id: uid,
+              type: "bill_note",
+              title: `Ben replied on ${bill?.vendor_name || "bill"}`,
+              body: noteText.trim().slice(0, 120),
+              entity_type: "qbo_bill",
+              entity_id: notesBillId,
+              actor_id: user?.id,
+              category: "finance",
+              link: "/finance/ap-ar",
+            });
+          }
         }
       }
     }
-    setNoteText(""); setReplyTo(null);
+    setNoteText(""); setReplyTo(null); setMentionSearch(null);
   };
 
   const noteCount = (billId) => notes.filter(n => n.bill_id === billId).length;
@@ -1101,15 +1162,15 @@ function APAgingView({ isMobile }) {
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <select value={approvalFilter} onChange={e => setApprovalFilter(e.target.value)} style={{ padding: "4px 8px", fontSize: 10, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: approvalFilter ? T.text : T.text3, cursor: "pointer" }}>
-              <option value="">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="denied">Denied</option>
-              <option value="paid">Paid</option>
-              <option value="scheduled">Scheduled</option>
-            </select>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+              {[["pending", "Pending"], ["approved", "Approved"], ["denied", "Denied"], ["paid", "Paid"], ["scheduled", "Scheduled"]].map(([val, label]) => {
+                const active = approvalFilter.includes(val);
+                return <button key={val} onClick={() => setApprovalFilter(p => active ? p.filter(v => v !== val) : [...p, val])}
+                  style={{ padding: "3px 10px", fontSize: 10, fontWeight: active ? 700 : 500, borderRadius: 20, border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.text3, cursor: "pointer" }}>{label}</button>;
+              })}
+              {approvalFilter.length > 0 && <button onClick={() => setApprovalFilter([])} style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, borderRadius: 20, border: "none", background: T.surface2, color: T.text3, cursor: "pointer" }}>Clear</button>}
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}` }}>
               <span style={{ fontSize: 12, color: T.text3 }}>🔍</span>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 11, width: 120 }} />
@@ -1134,12 +1195,10 @@ function APAgingView({ isMobile }) {
 
           // Filter items
           let filtered = items.filter(b => {
-            if (approvalFilter === "pending") return !b.approval_status || b.approval_status === "pending";
-            if (approvalFilter === "approved") return b.approval_status === "approved";
-            if (approvalFilter === "denied") return b.approval_status === "denied";
-            if (approvalFilter === "paid") return b.approval_status === "paid";
-            if (approvalFilter === "scheduled") return !!b.scheduled_payment_date;
-            return true;
+            if (approvalFilter.length === 0) return true;
+            const st = b.approval_status || "pending";
+            if (approvalFilter.includes("scheduled") && !!b.scheduled_payment_date) return true;
+            return approvalFilter.includes(st);
           });
           if (search) {
             const q = search.toLowerCase();
@@ -1224,7 +1283,7 @@ function APAgingView({ isMobile }) {
                               <div style={{ width: 24, height: 24, borderRadius: 12, background: T.accent + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.accent, flexShrink: 0 }}>{(n.user_name || "?")[0]}</div>
                               <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: 10, color: T.text3 }}><strong style={{ color: T.text }}>{n.user_name || "Unknown"}</strong> · {new Date(n.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} {new Date(n.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
-                                <div style={{ fontSize: 12, color: T.text, marginTop: 2, lineHeight: 1.5 }}>{n.content}</div>
+                                <div style={{ fontSize: 12, color: T.text, marginTop: 2, lineHeight: 1.5 }}>{renderMentions(n.content)}</div>
                                 <button onClick={() => setReplyTo(replyTo === n.id ? null : n.id)} style={{ fontSize: 9, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: "2px 0", fontWeight: 600 }}>Reply</button>
                               </div>
                             </div>
@@ -1234,23 +1293,53 @@ function APAgingView({ isMobile }) {
                                 <div style={{ width: 20, height: 20, borderRadius: 10, background: T.green + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: T.green, flexShrink: 0 }}>{(r.user_name || "?")[0]}</div>
                                 <div>
                                   <div style={{ fontSize: 10, color: T.text3 }}><strong style={{ color: T.text }}>{r.user_name || "Unknown"}</strong> · {new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} {new Date(r.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
-                                  <div style={{ fontSize: 11, color: T.text, marginTop: 1, lineHeight: 1.4 }}>{r.content}</div>
+                                  <div style={{ fontSize: 11, color: T.text, marginTop: 1, lineHeight: 1.4 }}>{renderMentions(r.content)}</div>
                                 </div>
                               </div>
                             ))}
                             {replyTo === n.id && (
-                              <div style={{ marginLeft: 32, marginTop: 6, display: "flex", gap: 6 }}>
-                                <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Reply…" onKeyDown={e => { if (e.key === "Enter" && noteText.trim()) addNote(n.id); }}
+                              <div style={{ marginLeft: 32, marginTop: 6, display: "flex", gap: 6, position: "relative" }}>
+                                <input value={noteText} onChange={e => handleNoteChange(e.target.value)} placeholder="Reply… (use @ to mention)" onKeyDown={e => { if (e.key === "Enter" && noteText.trim() && mentionSearch === null) addNote(n.id); if (e.key === "Escape") { setMentionSearch(null); setMentionResults([]); } }}
                                   style={{ flex: 1, padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none" }} autoFocus />
+                                {mentionSearch !== null && mentionResults.length > 0 && (
+                                  <div style={{ position: "absolute", bottom: "100%", left: 0, right: 60, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 50, maxHeight: 200, overflow: "auto", marginBottom: 4 }}>
+                                    {mentionResults.map(p => (
+                                      <div key={p.id} onClick={() => insertMention(p)}
+                                        style={{ padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                                        onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                                        <div style={{ width: 22, height: 22, borderRadius: 11, background: T.accent + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.accent }}>{(p.display_name || "?")[0]}</div>
+                                        <div>
+                                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{p.display_name}</div>
+                                          <div style={{ fontSize: 10, color: T.text3 }}>{p.email}</div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                                 <button onClick={() => addNote(n.id)} disabled={!noteText.trim()} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 700, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: noteText.trim() ? 1 : 0.5 }}>Reply</button>
                               </div>
                             )}
                           </div>
                         ))}
                         {!replyTo && (
-                          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                            <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Add a note…" onKeyDown={e => { if (e.key === "Enter" && noteText.trim()) addNote(null); }}
+                          <div style={{ display: "flex", gap: 6, marginTop: 6, position: "relative" }}>
+                            <input value={noteText} onChange={e => handleNoteChange(e.target.value)} placeholder="Add a note… (use @ to mention)" onKeyDown={e => { if (e.key === "Enter" && noteText.trim() && mentionSearch === null) addNote(null); if (e.key === "Escape") { setMentionSearch(null); setMentionResults([]); } }}
                               style={{ flex: 1, padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none" }} />
+                            {mentionSearch !== null && mentionResults.length > 0 && (
+                              <div style={{ position: "absolute", bottom: "100%", left: 0, right: 60, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 50, maxHeight: 200, overflow: "auto", marginBottom: 4 }}>
+                                {mentionResults.map(p => (
+                                  <div key={p.id} onClick={() => insertMention(p)}
+                                    style={{ padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                                    onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                                    <div style={{ width: 22, height: 22, borderRadius: 11, background: T.accent + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.accent }}>{(p.display_name || "?")[0]}</div>
+                                    <div>
+                                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{p.display_name}</div>
+                                      <div style={{ fontSize: 10, color: T.text3 }}>{p.email}</div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             <button onClick={() => addNote(null)} disabled={!noteText.trim()} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 700, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: noteText.trim() ? 1 : 0.5 }}>Post</button>
                           </div>
                         )}
