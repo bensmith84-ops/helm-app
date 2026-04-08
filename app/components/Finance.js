@@ -712,11 +712,33 @@ function APAgingView({ isMobile }) {
 
   useEffect(() => {
     (async () => {
-      const [r1, r2] = await Promise.all([
+      const [r1, r2, r3] = await Promise.all([
         supabase.from("qbo_bills").select("*").eq("payment_status", "open").order("due_date"),
         supabase.from("qbo_invoices").select("*").gt("balance", 0).order("due_date"),
+        // Load approved inbox invoices (not yet in QBO) as standalone bills
+        supabase.from("invoice_inbox").select("*").in("status", ["approved", "extracted"]).order("created_at", { ascending: false }),
       ]);
-      setBills(r1.data || []); setInvoices(r2.data || []);
+      // Convert approved inbox items to bill-like objects so they show in Payables
+      const qboBills = r1.data || [];
+      const inboxBills = (r3.data || []).filter(inv =>
+        inv.status === "approved" && !inv.matched_bill_id // Not already pushed to QBO
+      ).map(inv => ({
+        id: inv.id,
+        vendor_name: inv.vendor_name || "Unknown Vendor",
+        total_amount: Number(inv.total_amount) || 0,
+        balance: Number(inv.total_amount) || 0,
+        txn_date: inv.invoice_date,
+        due_date: inv.due_date,
+        memo: inv.memo,
+        gl_accounts: inv.gl_account,
+        payment_status: "open",
+        approval_status: "approved",
+        currency: inv.currency || "USD",
+        attachment_url: inv.file_url,
+        _source: "inbox", // Mark as inbox-sourced so we know it's not a QBO bill
+      }));
+      setBills([...qboBills, ...inboxBills]);
+      setInvoices(r2.data || []);
       setLoading(false);
     })();
   }, []);

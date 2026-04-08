@@ -671,11 +671,33 @@ export default function SettingsView({ isAdmin }) {
               <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 10 }}>Your Workspaces</div>
               {(orgs || []).map(org => (
                 <div key={org.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: org.id === orgId ? T.accent + "08" : T.surface, border: `1px solid ${org.id === orgId ? T.accent + "40" : T.border}`, borderRadius: 10, marginBottom: 8 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: org.id === orgId ? T.accent : T.surface3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: org.id === orgId ? "#fff" : T.text3 }}>{(org.name || "?")[0]}</div>
+                  {org.logo_url ? (
+                    <img src={org.logo_url} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: "cover" }} />
+                  ) : (
+                    <div style={{ width: 36, height: 36, borderRadius: 8, background: org.id === orgId ? T.accent : T.surface3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: org.id === orgId ? "#fff" : T.text3 }}>{(org.name || "?")[0]}</div>
+                  )}
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{org.name}</div>
                     <div style={{ fontSize: 11, color: T.text3 }}>Role: {org.role} · ID: {org.id?.slice(0, 8)}…</div>
                   </div>
+                  {org.id === orgId && (
+                    <label style={{ padding: "3px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>
+                      {org.logo_url ? "Change Logo" : "Upload Logo"}
+                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const path = `${org.id}/${Date.now()}_${file.name}`;
+                        const { error } = await supabase.storage.from("org-logos").upload(path, file, { contentType: file.type, upsert: true });
+                        if (!error) {
+                          const url = `${supabase.supabaseUrl}/storage/v1/object/public/org-logos/${path}`;
+                          await supabase.from("organizations").update({ logo_url: url }).eq("id", org.id);
+                          alert("Logo updated! Refresh to see it in the sidebar.");
+                          window.location.reload();
+                        }
+                        e.target.value = "";
+                      }} />
+                    </label>
+                  )}
                   {org.id === orgId ? (
                     <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: T.accent + "18", color: T.accent }}>Active</span>
                   ) : (

@@ -64,8 +64,13 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
     <div style={{ width: w, height: "100vh", background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", flexShrink: 0, transition: "width 0.2s cubic-bezier(0.4,0,0.2,1)", overflow: "hidden" }}>
       {/* Logo + Org Switcher */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: expanded ? "14px 14px 8px" : "14px 0 8px", justifyContent: expanded ? "flex-start" : "center", position: "relative" }}>
-        <div onClick={orgs?.length > 1 && expanded ? () => setShowOrgMenu(!showOrgMenu) : undefined}
-          style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900, color: "#fff", cursor: orgs?.length > 1 ? "pointer" : "default" }}>{(activeOrg?.name || "H")[0]}</div>
+        {activeOrg?.logo_url ? (
+          <img src={activeOrg.logo_url} alt="" onClick={orgs?.length > 1 && expanded ? () => setShowOrgMenu(!showOrgMenu) : undefined}
+            style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, objectFit: "cover", cursor: orgs?.length > 1 ? "pointer" : "default" }} />
+        ) : (
+          <div onClick={orgs?.length > 1 && expanded ? () => setShowOrgMenu(!showOrgMenu) : undefined}
+            style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900, color: "#fff", cursor: orgs?.length > 1 ? "pointer" : "default" }}>{(activeOrg?.name || "H")[0]}</div>
+        )}
         {expanded && (
           <div style={{ flex: 1, minWidth: 0, cursor: orgs?.length > 1 ? "pointer" : "default" }} onClick={orgs?.length > 1 ? () => setShowOrgMenu(!showOrgMenu) : undefined}>
             <div style={{ fontSize: 13, fontWeight: 800, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.3px" }}>{activeOrg?.name || "Helm"}</div>
@@ -86,7 +91,13 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
                 style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: org.id === orgId ? T.accent + "10" : "transparent" }}
                 onMouseEnter={e => { if (org.id !== orgId) e.currentTarget.style.background = T.surface2; }}
                 onMouseLeave={e => { e.currentTarget.style.background = org.id === orgId ? T.accent + "10" : "transparent"; }}>
-                <div style={{ width: 24, height: 24, borderRadius: 6, background: org.id === orgId ? T.accent : T.surface3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: org.id === orgId ? "#fff" : T.text3 }}>{(org.name || "?")[0]}</div>
+                <div style={{ width: 24, height: 24, borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                  {org.logo_url ? (
+                    <img src={org.logo_url} alt="" style={{ width: 24, height: 24, objectFit: "cover" }} />
+                  ) : (
+                    <div style={{ width: 24, height: 24, background: org.id === orgId ? T.accent : T.surface3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: org.id === orgId ? "#fff" : T.text3 }}>{(org.name || "?")[0]}</div>
+                  )}
+                </div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{org.name}</div>
                   <div style={{ fontSize: 9, color: T.text3 }}>{org.role}</div>
