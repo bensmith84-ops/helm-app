@@ -37,10 +37,13 @@ export const NAV_GROUPS = [
 
 export const NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items);
 
-export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile, allowedModules, isAdmin }) {
+export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile, allowedModules, isAdmin, orgId, orgs, switchOrg }) {
   const w = expanded ? 216 : 52;
   const [collapsed, setCollapsed] = useState({});
+  const [showOrgMenu, setShowOrgMenu] = useState(false);
   const toggle = (label) => setCollapsed(c => ({ ...c, [label]: !c[label] }));
+  
+  const activeOrg = orgs?.find(o => o.id === orgId);
   
   // Use sidebar_config from profile if available, otherwise default NAV_GROUPS
   const groups = profile?.sidebar_config?.groups
@@ -59,15 +62,39 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
 
   return (
     <div style={{ width: w, height: "100vh", background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", flexShrink: 0, transition: "width 0.2s cubic-bezier(0.4,0,0.2,1)", overflow: "hidden" }}>
-      {/* Logo */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: expanded ? "14px 14px 8px" : "14px 0 8px", justifyContent: expanded ? "flex-start" : "center" }}>
-        <div style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900, color: "#fff" }}>H</div>
-        {expanded && <span style={{ fontSize: 15, fontWeight: 800, color: T.text, whiteSpace: "nowrap", flex: 1, letterSpacing: "-0.3px" }}>Helm</span>}
+      {/* Logo + Org Switcher */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: expanded ? "14px 14px 8px" : "14px 0 8px", justifyContent: expanded ? "flex-start" : "center", position: "relative" }}>
+        <div onClick={orgs?.length > 1 && expanded ? () => setShowOrgMenu(!showOrgMenu) : undefined}
+          style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900, color: "#fff", cursor: orgs?.length > 1 ? "pointer" : "default" }}>{(activeOrg?.name || "H")[0]}</div>
+        {expanded && (
+          <div style={{ flex: 1, minWidth: 0, cursor: orgs?.length > 1 ? "pointer" : "default" }} onClick={orgs?.length > 1 ? () => setShowOrgMenu(!showOrgMenu) : undefined}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.3px" }}>{activeOrg?.name || "Helm"}</div>
+            {orgs?.length > 1 && <div style={{ fontSize: 9, color: T.text3, marginTop: -1 }}>Switch workspace ▾</div>}
+          </div>
+        )}
         {expanded && (
           <button onClick={() => setExpanded(false)} title="Collapse" style={{ width: 24, height: 24, borderRadius: 6, border: "none", cursor: "pointer", flexShrink: 0, background: "transparent", color: T.text3, display: "flex", alignItems: "center", justifyContent: "center" }}
             onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 19l-7-7 7-7"/><path d="M18 19l-7-7 7-7"/></svg>
           </button>
+        )}
+        {/* Org switcher dropdown */}
+        {showOrgMenu && expanded && (
+          <div style={{ position: "absolute", top: "100%", left: 10, right: 10, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 100, overflow: "hidden" }}>
+            {orgs.map(org => (
+              <div key={org.id} onClick={() => { switchOrg(org.id); setShowOrgMenu(false); window.location.reload(); }}
+                style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: org.id === orgId ? T.accent + "10" : "transparent" }}
+                onMouseEnter={e => { if (org.id !== orgId) e.currentTarget.style.background = T.surface2; }}
+                onMouseLeave={e => { e.currentTarget.style.background = org.id === orgId ? T.accent + "10" : "transparent"; }}>
+                <div style={{ width: 24, height: 24, borderRadius: 6, background: org.id === orgId ? T.accent : T.surface3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: org.id === orgId ? "#fff" : T.text3 }}>{(org.name || "?")[0]}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{org.name}</div>
+                  <div style={{ fontSize: 9, color: T.text3 }}>{org.role}</div>
+                </div>
+                {org.id === orgId && <span style={{ marginLeft: "auto", fontSize: 10, color: T.accent }}>✓</span>}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

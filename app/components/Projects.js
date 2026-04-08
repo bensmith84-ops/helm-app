@@ -109,7 +109,7 @@ function MentionInput({ members, profiles, onSubmit, placeholder, T, ini, acol }
 }
 
 export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
   const { showPrompt, showConfirm } = useModal();
   const [projects, setProjects] = useState([]);
@@ -431,7 +431,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     }
   };
   const createLabel = async (name, color) => {
-    const { data } = await supabase.from("task_labels").insert({ name, color, org_id: profile?.org_id || "a0000000-0000-0000-0000-000000000001" }).select().single();
+    const { data } = await supabase.from("task_labels").insert({ name, color, org_id: profile?.org_id || orgId }).select().single();
     if (data) setLabels(p => [...p, data]);
     return data;
   };

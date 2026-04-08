@@ -107,7 +107,7 @@ function SetPasswordPage() {
 }
 
 export default function HelmApp() {
-  const { user, profile, loading: authLoading, signOut, needsPasswordSetup } = useAuth();
+  const { user, profile, loading: authLoading, signOut, needsPasswordSetup, orgId, orgs, switchOrg } = useAuth();
   const { tokens, mode } = useTheme();
   _setTokens(tokens); // sync theme tokens to global singleton for T proxy
   const [active, setActive] = useState("dashboard");
@@ -364,7 +364,7 @@ export default function HelmApp() {
         {/* Sidebar — hidden on mobile unless toggled */}
         {(!isMobile || sidebarOpen) && (
           <div className={isMobile ? "sidebar-mobile-overlay" : ""}>
-            <Sidebar active={active} setActive={(v) => { setActive(v); if (isMobile) setSidebarOpen(false); }} expanded={isMobile ? true : expanded} setExpanded={isMobile ? () => setSidebarOpen(false) : setExpanded} badges={badges} profile={profile} allowedModules={allowedModules} isAdmin={isAdmin} />
+            <Sidebar active={active} setActive={(v) => { setActive(v); if (isMobile) setSidebarOpen(false); }} expanded={isMobile ? true : expanded} setExpanded={isMobile ? () => setSidebarOpen(false) : setExpanded} badges={badges} profile={profile} allowedModules={allowedModules} isAdmin={isAdmin} orgId={orgId} orgs={orgs} switchOrg={switchOrg} />
           </div>
         )}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", width: 0 }}>

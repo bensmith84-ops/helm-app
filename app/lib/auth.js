@@ -3,13 +3,15 @@ import { createContext, useContext, useState, useEffect } from "react";
 import { supabase } from "./supabase";
 
 const AuthContext = createContext(null);
-const ORG_ID = "a0000000-0000-0000-0000-000000000001";
+const DEFAULT_ORG_ID = "a0000000-0000-0000-0000-000000000001";
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
+  const [orgId, setOrgId] = useState(null); // Active org
+  const [orgs, setOrgs] = useState([]); // All orgs user belongs to
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -50,6 +52,14 @@ export function AuthProvider({ children }) {
 
     if (existingProfile) {
       setProfile(existingProfile);
+      // Load org memberships
+      const { data: memberships } = await supabase.from("org_memberships").select("org_id, role, organizations(id, name, slug, logo_url)").eq("user_id", userId).eq("is_active", true);
+      const userOrgs = (memberships || []).map(m => ({ id: m.org_id, role: m.role, ...(m.organizations || {}) }));
+      setOrgs(userOrgs);
+      // Set active org: use saved preference, or profile.org_id, or first membership
+      const savedOrg = typeof window !== "undefined" && localStorage.getItem("helm_active_org");
+      const activeOrg = (savedOrg && userOrgs.some(o => o.id === savedOrg)) ? savedOrg : existingProfile.org_id || userOrgs[0]?.id || DEFAULT_ORG_ID;
+      setOrgId(activeOrg);
       setLoading(false);
       return;
     }
@@ -69,20 +79,25 @@ export function AuthProvider({ children }) {
         setProfile(updated);
       } else {
         const { data: newProfile } = await supabase.from("profiles").upsert({
-          id: userId, display_name: displayName, email, org_id: emailProfile.org_id || ORG_ID,
+          id: userId, display_name: displayName, email, org_id: emailProfile.org_id || DEFAULT_ORG_ID,
         }, { onConflict: "id" }).select().single();
         setProfile(newProfile);
       }
+      // Load org memberships
+      const { data: memberships } = await supabase.from("org_memberships").select("org_id, role, organizations(id, name, slug, logo_url)").eq("user_id", userId).eq("is_active", true);
+      const userOrgs = (memberships || []).map(m => ({ id: m.org_id, role: m.role, ...(m.organizations || {}) }));
+      setOrgs(userOrgs);
+      setOrgId(userOrgs[0]?.id || DEFAULT_ORG_ID);
       setLoading(false);
       return;
     }
 
     const { data: newProfile } = await supabase.from("profiles").upsert({
-      id: userId, display_name: displayName, email, org_id: ORG_ID,
+      id: userId, display_name: displayName, email, org_id: DEFAULT_ORG_ID,
     }, { onConflict: "id" }).select().single();
 
     await supabase.from("org_memberships").upsert({
-      org_id: ORG_ID, user_id: userId, role: "member", is_active: true,
+      org_id: DEFAULT_ORG_ID, user_id: userId, role: "member", is_active: true,
     }, { onConflict: "org_id,user_id" }).select();
 
     await supabase.from("user_module_permissions").upsert({
@@ -92,6 +107,8 @@ export function AuthProvider({ children }) {
     }, { onConflict: "user_id" });
 
     setProfile(newProfile);
+    setOrgs([{ id: DEFAULT_ORG_ID, name: "Earth Breeze", role: "member" }]);
+    setOrgId(DEFAULT_ORG_ID);
     setLoading(false);
   };
 
@@ -120,11 +137,20 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setOrgs([]);
+    setOrgId(null);
     setNeedsPasswordSetup(false);
   };
 
+  const switchOrg = (newOrgId) => {
+    if (orgs.some(o => o.id === newOrgId)) {
+      setOrgId(newOrgId);
+      if (typeof window !== "undefined") localStorage.setItem("helm_active_org", newOrgId);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, needsPasswordSetup, setPassword, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, profile, loading, needsPasswordSetup, setPassword, signUp, signIn, signOut, orgId, orgs, switchOrg }}>
       {children}
     </AuthContext.Provider>
   );

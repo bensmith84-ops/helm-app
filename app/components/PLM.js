@@ -682,7 +682,7 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
 
 function SourcingTab({ program }) {
   const [subTab, setSubTab] = useState("ingredients"); // ingredients | cm
-  const { user } = useAuth();
+  const { user, orgId } = useAuth();
 
   return (
     <div>
@@ -702,7 +702,7 @@ function SourcingTab({ program }) {
 // ─── Ingredient Sourcing with AI ──────────────────────────────────────────────
 function IngredientSourcingView({ program }) {
   const { isMobile } = useResponsive();
-  const { user } = useAuth();
+  const { user, orgId } = useAuth();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
@@ -795,7 +795,7 @@ Respond ONLY with a JSON array:
       // Save suppliers to DB
       if (found.length > 0) {
         const rows = found.map(s => ({
-          request_id: req.id, org_id: program.org_id || "a0000000-0000-0000-0000-000000000001",
+          request_id: req.id, org_id: program.org_id || orgId,
           ingredient_name: s.ingredient_name || s.inci_name || "Unknown",
           inci_name: s.inci_name, trade_name: s.trade_name,
           supplier_name: s.supplier_name || "Unknown", supplier_website: s.supplier_website,
@@ -1054,7 +1054,7 @@ function CMSourcingView({ program }) {
 // ─── STANDALONE SOURCING VIEW (all programs) ──────────────────────────────────
 function SourcingStandalone({ programs }) {
   const { isMobile } = useResponsive();
-  const { user } = useAuth();
+  const { user, orgId } = useAuth();
   const [subTab, setSubTab] = useState("ingredients");
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1129,7 +1129,7 @@ JSON array only:
 
       if (found.length > 0) {
         const rows = found.map(s => ({
-          request_id: req.id, org_id: "a0000000-0000-0000-0000-000000000001",
+          request_id: req.id, org_id: orgId,
           ingredient_name: s.ingredient_name || "Unknown", inci_name: s.inci_name,
           trade_name: s.trade_name, supplier_name: s.supplier_name || "Unknown",
           supplier_website: s.supplier_website, cas_number: s.cas_number,

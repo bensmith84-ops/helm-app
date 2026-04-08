@@ -8,7 +8,7 @@ import { useTheme } from "../lib/theme";
 import { notifySlack } from "../lib/slack";
 import { NAV_ITEMS, NAV_GROUPS } from "./Sidebar";
 
-const ALL_TABS = ["Profile","Organization","Team","Permissions","Integrations","Notifications","About"];
+const ALL_TABS = ["Profile","Organization","Team","Permissions","Organizations","Integrations","Notifications","About"];
 const MEMBER_TABS = ["Profile","Notifications"];
 const TIMEZONES = ["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Anchorage","Pacific/Honolulu","Europe/London","Europe/Paris","Europe/Berlin","Asia/Tokyo","Asia/Shanghai","Asia/Kolkata","Australia/Sydney","Pacific/Auckland"];
 
@@ -42,7 +42,7 @@ const inp = {
 
 export default function SettingsView({ isAdmin }) {
   const { isMobile } = useResponsive();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, orgId, orgs, switchOrg } = useAuth();
   const { mode, toggle, accentKey, setAccent, ACCENT_PRESETS } = useTheme();
   const [activeTab, setActiveTab] = useState("Profile");
   const [saving, setSaving] = useState(false);
@@ -53,6 +53,11 @@ export default function SettingsView({ isAdmin }) {
   const [timezone, setTimezone] = useState("");
   const [title, setTitle] = useState("");
   const [bio, setBio] = useState("");
+
+  // New Org creation
+  const [newOrgName, setNewOrgName] = useState("");
+  const [newOrgSlug, setNewOrgSlug] = useState("");
+  const [creatingOrg, setCreatingOrg] = useState(false);
 
   // Org
   const [orgName, setOrgName] = useState("Earth Breeze");
@@ -655,6 +660,80 @@ export default function SettingsView({ isAdmin }) {
             </>
           );
         })()}
+
+        {/* ── Organizations (Multi-tenant) ── */}
+        {activeTab === "Organizations" && (
+          <>
+            <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 20 }}>Organizations</h1>
+
+            {/* Current orgs */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 10 }}>Your Workspaces</div>
+              {(orgs || []).map(org => (
+                <div key={org.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: org.id === orgId ? T.accent + "08" : T.surface, border: `1px solid ${org.id === orgId ? T.accent + "40" : T.border}`, borderRadius: 10, marginBottom: 8 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 8, background: org.id === orgId ? T.accent : T.surface3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: org.id === orgId ? "#fff" : T.text3 }}>{(org.name || "?")[0]}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{org.name}</div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>Role: {org.role} · ID: {org.id?.slice(0, 8)}…</div>
+                  </div>
+                  {org.id === orgId ? (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: T.accent + "18", color: T.accent }}>Active</span>
+                  ) : (
+                    <button onClick={() => { switchOrg(org.id); window.location.reload(); }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer" }}>Switch</button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Create new org */}
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Create New Organization</div>
+              <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>Create a separate workspace for another business. Each org has its own data, team members, and settings — completely isolated.</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Organization Name</div>
+                  <input value={newOrgName} onChange={e => { setNewOrgName(e.target.value); setNewOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")); }}
+                    placeholder="e.g. Acme Corp" style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Slug (URL-friendly)</div>
+                  <input value={newOrgSlug} onChange={e => setNewOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                    placeholder="acme-corp" style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box", fontFamily: "monospace" }} />
+                </div>
+              </div>
+              <button onClick={async () => {
+                if (!newOrgName.trim()) { alert("Organization name required"); return; }
+                setCreatingOrg(true);
+                try {
+                  // Create the organization
+                  const { data: newOrg, error: orgErr } = await supabase.from("organizations").insert({
+                    name: newOrgName.trim(), slug: newOrgSlug || newOrgName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                  }).select().single();
+                  if (orgErr) throw orgErr;
+
+                  // Add current user as admin
+                  await supabase.from("org_memberships").insert({
+                    org_id: newOrg.id, user_id: user?.id, role: "admin", is_active: true,
+                  });
+
+                  alert(`Organization "${newOrgName}" created! You can switch to it from the sidebar or click "Switch" below.`);
+                  setNewOrgName(""); setNewOrgSlug("");
+                  // Reload page to refresh orgs list
+                  window.location.reload();
+                } catch (e) { alert("Error: " + (e.message || e)); }
+                setCreatingOrg(false);
+              }} disabled={creatingOrg || !newOrgName.trim()}
+                style={{ padding: "8px 20px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: creatingOrg || !newOrgName.trim() ? 0.5 : 1 }}>
+                {creatingOrg ? "Creating…" : "Create Organization"}
+              </button>
+            </div>
+
+            {/* Security note */}
+            <div style={{ marginTop: 20, padding: "12px 16px", background: T.surface2, borderRadius: 8, fontSize: 11, color: T.text3, lineHeight: 1.6 }}>
+              <strong style={{ color: T.text }}>Data Isolation:</strong> Each organization is completely separate. Team members in one org cannot see data from another org. All tables are filtered by org_id, and Row Level Security ensures isolation at the database level. A user can belong to multiple orgs but only sees data for the active workspace.
+            </div>
+          </>
+        )}
 
         {/* ── Integrations ── */}
         {activeTab === "Integrations" && (

@@ -173,7 +173,7 @@ function RampExpensesView({ isMobile, orgId }) {
   const [syncError, setSyncError] = useState(null);
 
   const EDGE_BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
-  const ORG = orgId || "a0000000-0000-0000-0000-000000000001";
+  const ORG = orgId || orgId;
 
   const load = async () => {
     const [{ data: tx }, { data: cd }, { data: sl }] = await Promise.all([
@@ -482,7 +482,7 @@ function RampExpensesView({ isMobile, orgId }) {
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function ERPView({ modulePerms = {}, pendingSubView, clearPendingSubView }) {
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState("dashboard");
   // Handle pending sub-view navigation from other modules (e.g. Dashboard approval badge)

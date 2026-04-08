@@ -38,7 +38,7 @@ const ProgressRing = ({ pct, size = 52, stroke = 4, color = G.accent }) => {
 const Badge = ({ label, color, bg }) => <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: bg || color + "18", color, letterSpacing: "0.03em" }}>{label}</span>;
 
 export default function LearningView({ modulePerms = {} }) {
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState("my_learning");
   const [courses, setCourses] = useState([]);
@@ -134,7 +134,7 @@ export default function LearningView({ modulePerms = {} }) {
       await supabase.from("lms_progress").update(patch).eq("id", prog.id);
       setProgress(p => p.map(x => x.id === prog.id ? {...x,...patch} : x));
     } else {
-      const row = { org_id:"a0000000-0000-0000-0000-000000000001", course_id:courseId, user_id:user.id, status:done?"completed":"in_progress", completed_lessons:completed, started_at:new Date().toISOString(), completed_at:done?new Date().toISOString():null };
+      const row = { org_id:orgId, course_id:courseId, user_id:user.id, status:done?"completed":"in_progress", completed_lessons:completed, started_at:new Date().toISOString(), completed_at:done?new Date().toISOString():null };
       const { data } = await supabase.from("lms_progress").insert(row).select().single();
       if (data) setProgress(p => [...p, data]);
     }
@@ -164,7 +164,7 @@ export default function LearningView({ modulePerms = {} }) {
     if (!courseForm.title.trim()) return;
     const row = { title:courseForm.title, description:courseForm.description, category:courseForm.category, is_required:courseForm.is_required, passing_score:parseInt(courseForm.passing_score)||70, refresh_interval_days:courseForm.refresh_interval_days?parseInt(courseForm.refresh_interval_days):null, estimated_minutes:courseForm.estimated_minutes?parseInt(courseForm.estimated_minutes):null };
     if (editingCourse) { await supabase.from("lms_courses").update(row).eq("id",editingCourse.id); setCourses(p=>p.map(c=>c.id===editingCourse.id?{...c,...row}:c)); }
-    else { const{data}=await supabase.from("lms_courses").insert({...row,status:"draft",created_by:user.id,org_id:"a0000000-0000-0000-0000-000000000001"}).select().single(); if(data) setCourses(p=>[...p,data]); }
+    else { const{data}=await supabase.from("lms_courses").insert({...row,status:"draft",created_by:user.id,org_id:orgId}).select().single(); if(data) setCourses(p=>[...p,data]); }
     setShowNewCourse(false); setEditingCourse(null); setCourseForm({title:"",description:"",category:"onboarding",is_required:false,refresh_interval_days:"",estimated_minutes:"",passing_score:70});
   };
 
@@ -192,7 +192,7 @@ export default function LearningView({ modulePerms = {} }) {
 
   const assignCourse = async () => {
     if(!showAssign||(!assignForm.user_id&&!assignForm.team_id)) return;
-    const row = {org_id:"a0000000-0000-0000-0000-000000000001",course_id:showAssign,assigned_by:user.id,due_date:assignForm.due_date||null,is_mandatory:assignForm.is_mandatory};
+    const row = {org_id:orgId,course_id:showAssign,assigned_by:user.id,due_date:assignForm.due_date||null,is_mandatory:assignForm.is_mandatory};
     if(assignForm.user_id) row.user_id=assignForm.user_id;
     if(assignForm.team_id) row.team_id=assignForm.team_id;
     const{data}=await supabase.from("lms_assignments").insert(row).select().single();

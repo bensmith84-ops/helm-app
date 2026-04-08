@@ -118,7 +118,7 @@ const ApprovalChain = ({ req, members }) => {
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function FinanceView({ initialView, embedded, modulePerms = {} } = {}) {
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState(initialView || "cfo");
   const [loading, setLoading] = useState(true);
@@ -708,7 +708,7 @@ function APAgingView({ isMobile }) {
   const [expForm, setExpForm] = useState({ merchant_name: "", amount: "", category: "supplies", description: "", expense_date: new Date().toISOString().slice(0, 10) });
   const [gmailConn, setGmailConn] = useState(null);
   const [scanning, setScanning] = useState(false);
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
 
   useEffect(() => {
     (async () => {
@@ -798,7 +798,7 @@ function APAgingView({ isMobile }) {
       setMentionSearch(query);
       // Load profiles if we haven't yet
       if (allProfiles.length === 0) {
-        const { data } = await supabase.from("profiles").select("id, display_name, email").eq("org_id", "a0000000-0000-0000-0000-000000000001").limit(100);
+        const { data } = await supabase.from("profiles").select("id, display_name, email").eq("org_id", orgId).limit(100);
         setAllProfiles(data || []);
         setMentionResults((data || []).filter(p => !query || p.display_name?.toLowerCase().includes(query) || p.email?.toLowerCase().includes(query)).slice(0, 6));
       } else {
@@ -835,7 +835,7 @@ function APAgingView({ isMobile }) {
       for (const mentioned of mentionedUsers) {
         if (mentioned.id !== user?.id) {
           await supabase.from("notifications").insert({
-            org_id: "a0000000-0000-0000-0000-000000000001",
+            org_id: orgId,
             user_id: mentioned.id,
             type: "bill_note_mention",
             title: `${profile?.display_name || "Someone"} mentioned you on ${bill?.vendor_name || "a bill"}`,
@@ -852,7 +852,7 @@ function APAgingView({ isMobile }) {
       // Standard notification logic (Ben gets notified for all notes, others get notified for their bill threads)
       if (user?.id !== BEN_ID && !mentionedUsers.some(m => m.id === BEN_ID)) {
         await supabase.from("notifications").insert({
-          org_id: "a0000000-0000-0000-0000-000000000001",
+          org_id: orgId,
           user_id: BEN_ID,
           type: "bill_note",
           title: `New note on ${bill?.vendor_name || "bill"}`,
@@ -869,7 +869,7 @@ function APAgingView({ isMobile }) {
         for (const uid of uniqueUsers) {
           if (!mentionedUsers.some(m => m.id === uid)) {
             await supabase.from("notifications").insert({
-              org_id: "a0000000-0000-0000-0000-000000000001",
+              org_id: orgId,
               user_id: uid,
               type: "bill_note",
               title: `Ben replied on ${bill?.vendor_name || "bill"}`,
@@ -1530,7 +1530,7 @@ function APAgingView({ isMobile }) {
                     if (a2) approvers.push(a2.id);
                   }
                   await supabase.from("ap_approval_rules").insert({
-                    org_id: "a0000000-0000-0000-0000-000000000001",
+                    org_id: orgId,
                     name, min_amount: minAmt ? parseFloat(minAmt) : null, max_amount: maxAmt ? parseFloat(maxAmt) : null,
                     vendor_names: vendors ? vendors.split(",").map(v => v.trim()) : null,
                     approvers, created_by: user?.id,
@@ -1583,7 +1583,7 @@ function APAgingView({ isMobile }) {
                     if (upErr) throw upErr;
                     const fileUrl = `${supabase.supabaseUrl}/storage/v1/object/public/bill-attachments/${path}`;
                     const { data: inbox } = await supabase.from("invoice_inbox").insert({
-                      org_id: "a0000000-0000-0000-0000-000000000001",
+                      org_id: orgId,
                       file_name: file.name, file_url: fileUrl, file_content_type: file.type, file_size: file.size,
                       source: "upload", status: "pending", uploaded_by: user?.id,
                     }).select().single();
@@ -1859,7 +1859,7 @@ function APAgingView({ isMobile }) {
                 <button onClick={async () => {
                   if (!expForm.merchant_name || !expForm.amount) { alert("Merchant and amount required"); return; }
                   const { data } = await supabase.from("expense_submissions").insert({
-                    org_id: "a0000000-0000-0000-0000-000000000001",
+                    org_id: orgId,
                     submitted_by: user?.id, submitter_name: profile?.display_name || user?.email,
                     merchant_name: expForm.merchant_name, amount: parseFloat(expForm.amount),
                     category: expForm.category, description: expForm.description,
@@ -1872,7 +1872,7 @@ function APAgingView({ isMobile }) {
                     setShowExpenseForm(false);
                     // Notify Ben
                     await supabase.from("notifications").insert({
-                      org_id: "a0000000-0000-0000-0000-000000000001",
+                      org_id: orgId,
                       user_id: "32cad5dd-9e94-4095-a16d-b4521391b050",
                       type: "expense_submitted", title: `Expense: ${expForm.merchant_name} — $${parseFloat(expForm.amount).toFixed(2)}`,
                       body: `${profile?.display_name || "Team member"} submitted an expense for reimbursement`,
@@ -1970,7 +1970,7 @@ function VendorIntelligence({ isMobile }) {
       const [r1, r2, r3] = await Promise.all([
         supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_status"),
         supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo,payment_type").limit(5000),
-        supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
+        supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
       ]);
       setBills(r1.data || []); setPurchases(r2.data || []);
       if (r3.data) { const m = {}; r3.data.forEach(r => { m[r.account_name] = r.ga_category; }); setMappings(m); }
@@ -2707,7 +2707,7 @@ function CFODashboard({ isMobile }) {
         supabase.from("qbo_payments").select("*"),
         supabase.from("qbo_transfers").select("*"),
         supabase.from("qbo_journal_entries").select("qbo_id,txn_date,total_amount,memo"),
-        supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
+        supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
         supabase.from("qbo_connections").select("*").order("connected_at", { ascending: false }).limit(1),
         supabase.from("qbo_accounts").select("*").eq("account_type", "Bank"),
       ]);
@@ -3817,7 +3817,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     (async () => {
       const [{ data: pl }, { data: maps }, { data: bills }, { data: purchases }, { data: plm }] = await Promise.all([
         supabase.from("qbo_pl").select("*").eq("classification", "Expense"),
-        supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001"),
+        supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
         supabase.from("qbo_bills").select("*").order("txn_date", { ascending: false }),
         supabase.from("qbo_purchases").select("*").limit(5000).order("txn_date", { ascending: false }),
         supabase.from("qbo_pl_monthly").select("*").eq("classification", "Expense").order("period_month"),
@@ -4663,7 +4663,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
 
   const assignCategory = async (accountName, category) => {
     setCustomMappings(p => ({ ...p, [accountName]: category }));
-    await supabase.from("qbo_category_mappings").upsert({ org_id: "a0000000-0000-0000-0000-000000000001", account_name: accountName, ga_category: category }, { onConflict: "org_id,account_name" });
+    await supabase.from("qbo_category_mappings").upsert({ org_id: orgId, account_name: accountName, ga_category: category }, { onConflict: "org_id,account_name" });
   };
 
   // Load seed data
@@ -4685,7 +4685,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
           }));
           setData(rows);
           for (let i = 0; i < rows.length; i += 100) {
-            supabase.from("fin_vendor_spend").insert(rows.slice(i, i + 100).map(r => ({ ...r, org_id: "a0000000-0000-0000-0000-000000000001" }))).then(() => {});
+            supabase.from("fin_vendor_spend").insert(rows.slice(i, i + 100).map(r => ({ ...r, org_id: orgId }))).then(() => {});
           }
         }
         // Load QBO P&L and Bills
@@ -4696,7 +4696,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
         setQboPL(pl || []);
         setQboBills(bills || []);
         // Load custom category mappings
-        const { data: maps } = await supabase.from("qbo_category_mappings").select("*").eq("org_id", "a0000000-0000-0000-0000-000000000001");
+        const { data: maps } = await supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId);
         if (maps) {
           const m = {};
           maps.forEach(r => { m[r.account_name] = r.ga_category; });
