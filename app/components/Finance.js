@@ -899,7 +899,7 @@ function APAgingView({ isMobile }) {
         <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
           <button onClick={() => { setTab("ap"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ap" ? T.red + "20" : T.surface2, color: tab === "ap" ? T.red : T.text3 }}>📤 Payables ({bills.length})</button>
           <button onClick={() => { setTab("ar"); setExpandedBucket(null); setExpandedVendor(null); }} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "ar" ? T.green + "20" : T.surface2, color: tab === "ar" ? T.green : T.text3, borderLeft: `1px solid ${T.border}` }}>📥 Receivables ({invoices.length})</button>
-          <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); if (!gmailConn) { const r = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections" }) }).then(r => r.json()).catch(() => ({})); if (r.connections?.length > 0) setGmailConn(r.connections[0]); } }}
+          <button onClick={async () => { setTab("inbox"); setInboxLoading(true); const { data } = await supabase.from("invoice_inbox").select("*").order("created_at", { ascending: false }).limit(50); setInboxItems(data || []); setInboxLoading(false); if (!gmailConn) { const r = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections", org_id: orgId }) }).then(r => r.json()).catch(() => ({})); if (r.connections?.length > 0) setGmailConn(r.connections[0]); } }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "inbox" ? T.accent + "20" : T.surface2, color: tab === "inbox" ? T.accent : T.text3, borderLeft: `1px solid ${T.border}` }}>📋 Invoice Inbox</button>
           <button onClick={async () => { setTab("expenses"); setExpensesLoading(true); const { data } = await supabase.from("expense_submissions").select("*").order("created_at", { ascending: false }).limit(50); setExpenses(data || []); setExpensesLoading(false); }}
             style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: tab === "expenses" ? "#F59E0B20" : T.surface2, color: tab === "expenses" ? "#F59E0B" : T.text3, borderLeft: `1px solid ${T.border}` }}>💰 Expenses</button>
@@ -982,7 +982,7 @@ function APAgingView({ isMobile }) {
             <button onClick={async () => {
               setForecastLoading(true);
               try {
-                const res = await fetch(supabase.supabaseUrl + "/functions/v1/ap-alerts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cash_forecast" }) });
+                const res = await fetch(supabase.supabaseUrl + "/functions/v1/ap-alerts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cash_forecast", org_id: orgId }) });
                 const data = await res.json();
                 if (data.success) setForecast(data);
               } catch (e) { console.error(e); }
@@ -1093,7 +1093,7 @@ function APAgingView({ isMobile }) {
               <button onClick={async () => {
                 setRemindersLoading(true);
                 try {
-                  const res = await fetch(supabase.supabaseUrl + "/functions/v1/ar-reminders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate_reminders" }) });
+                  const res = await fetch(supabase.supabaseUrl + "/functions/v1/ar-reminders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate_reminders", org_id: orgId }) });
                   const data = await res.json();
                   if (data.reminders) setReminders(data.reminders);
                 } catch (e) { console.error(e); }
@@ -1542,11 +1542,11 @@ function APAgingView({ isMobile }) {
               {!gmailConn ? (
                 <button onClick={async () => {
                   // Check for existing connection first
-                  const res = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections" }) });
+                  const res = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections", org_id: orgId }) });
                   const data = await res.json();
                   if (data.connections?.length > 0) { setGmailConn(data.connections[0]); return; }
                   // No connection — start OAuth
-                  const authRes = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "auth_url" }) });
+                  const authRes = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "auth_url", org_id: orgId }) });
                   const authData = await authRes.json();
                   if (authData.auth_url) window.open(authData.auth_url, "gmail_connect", "width=600,height=700");
                 }} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: T.surface2, border: `1px solid ${T.border}`, color: T.text2, cursor: "pointer" }}>📧 Connect Gmail</button>
