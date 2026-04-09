@@ -38,7 +38,7 @@ export default function CallsView() {
     (async () => {
       const [{ data: c }, { data: p }] = await Promise.all([
         supabase.from("calls").select("*").eq("org_id", orgId).order("scheduled_at", { ascending: false }),
-        supabase.from("profiles").select("id,display_name"),
+        supabase.from("profiles").select("id,display_name").eq("org_id", orgId),
       ]);
       setCalls(c || []);
       const m = {}; (p || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
@@ -49,7 +49,7 @@ export default function CallsView() {
   const update = async (id, updates) => {
     setCalls(p => p.map(c => c.id === id ? { ...c, ...updates } : c));
     if (selected?.id === id) setSelected(p => ({ ...p, ...updates }));
-    await supabase.from("calls").update(updates).eq("id", id);
+    await supabase.from("calls").update(updates).eq("org_id", orgId).eq("id", id);
   };
 
   const createCall = async () => {
@@ -79,7 +79,7 @@ export default function CallsView() {
     if (!(await showConfirm("Delete Call", "Delete this call record?"))) return;
     setCalls(p => p.filter(c => c.id !== id));
     if (selected?.id === id) setSelected(null);
-    await supabase.from("calls").delete().eq("id", id);
+    await supabase.from("calls").delete().eq("org_id", orgId).eq("id", id);
   };
 
   const addActionItem = async () => {

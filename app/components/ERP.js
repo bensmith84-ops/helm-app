@@ -574,7 +574,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
         supabase.from("erp_facilities").select("*").order("name"),
         supabase.from("erp_inventory").select("*"),
         supabase.from("erp_inventory_lots").select("*").order("created_at", { ascending: false }),
-        supabase.from("erp_purchase_orders").select("*").order("created_at", { ascending: false }),
+        supabase.from("erp_purchase_orders").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
         supabase.from("erp_po_items").select("*"),
         supabase.from("erp_orders").select("*").order("order_date", { ascending: false }),
         supabase.from("erp_order_items").select("*"),
@@ -1641,7 +1641,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
 
     if (selected && (selected.status === "draft" || selected.status === "submitted")) {
       // UPDATE existing PO
-      const { data: po } = await supabase.from("erp_purchase_orders").update(payload).eq("id", selected.id).select().single();
+      const { data: po } = await supabase.from("erp_purchase_orders").update(payload).eq("org_id", orgId).eq("id", selected.id).select().single();
       if (!po) return;
       // Delete old items and re-insert
       await supabase.from("erp_po_items").delete().eq("po_id", selected.id);
@@ -1675,7 +1675,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
   const updateStatus = async (po, newStatus) => {
     const updates = { status: newStatus };
     if (newStatus === "received") updates.received_date = new Date().toISOString().slice(0, 10);
-    const { data } = await supabase.from("erp_purchase_orders").update(updates).eq("id", po.id).select().single();
+    const { data } = await supabase.from("erp_purchase_orders").update(updates).eq("org_id", orgId).eq("id", po.id).select().single();
     if (data) { setPurchaseOrders(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
   };
 
@@ -2019,7 +2019,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
                     const newStatus = allReceived ? "received" : anyPartial || updatedItems.some(i => i.received_quantity > 0) ? "partially_received" : selected.status;
                     const updates = { status: newStatus };
                     if (allReceived) updates.received_date = new Date().toISOString().slice(0, 10);
-                    const { data: updPO } = await supabase.from("erp_purchase_orders").update(updates).eq("id", selected.id).select().single();
+                    const { data: updPO } = await supabase.from("erp_purchase_orders").update(updates).eq("org_id", orgId).eq("id", selected.id).select().single();
                     if (updPO) { setPurchaseOrders(p => p.map(x => x.id === updPO.id ? updPO : x)); setSelected(updPO); }
 
                     // Auto-create AP Invoice on full receipt (Checklist 2.4)
@@ -4258,19 +4258,19 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                           {b.payment_status !== "paid" && (
                             <div style={{ display: "flex", gap: 3, justifyContent: "center", alignItems: "center" }}>
                               {b.approval_status !== "approved" && (
-                                <button onClick={async (e) => { e.stopPropagation(); if (!window.confirm(`Approve payment of ${fmt(Number(b.balance || b.total_amount))} to ${b.vendor_name}?`)) return; await supabase.from("qbo_bills").update({ approval_status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
+                                <button onClick={async (e) => { e.stopPropagation(); if (!window.confirm(`Approve payment of ${fmt(Number(b.balance || b.total_amount))} to ${b.vendor_name}?`)) return; await supabase.from("qbo_bills").update({ approval_status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
                                   style={{ padding: "3px 10px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#10B98118", color: "#10B981", cursor: "pointer" }} title="Approve payment">✓ Approve</button>
                               )}
                               {b.approval_status === "approved" && !b.scheduled_payment_date && (
                                 <input type="date" min={new Date().toISOString().slice(0,10)}
-                                  onChange={async (e) => { const d = e.target.value; if (!d) return; await supabase.from("qbo_bills").update({ scheduled_payment_date: d, scheduled_by: user?.id, scheduled_at: new Date().toISOString() }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], scheduled_payment_date: d }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
+                                  onChange={async (e) => { const d = e.target.value; if (!d) return; await supabase.from("qbo_bills").update({ scheduled_payment_date: d, scheduled_by: user?.id, scheduled_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], scheduled_payment_date: d }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
                                   style={{ padding: "2px 4px", fontSize: 10, borderRadius: 4, border: `1px solid ${T.accent}`, background: T.accentDim, color: T.accent, cursor: "pointer", width: 105 }} title="Schedule payment date" />
                               )}
                               {b.approval_status === "approved" && b.scheduled_payment_date && (
                                 <span style={{ fontSize: 9, fontWeight: 600, color: "#10B981" }}>✓ Scheduled</span>
                               )}
                               {b.approval_status === "approved" && (
-                                <button onClick={async (e) => { e.stopPropagation(); if (!window.confirm("Revoke approval?")) return; await supabase.from("qbo_bills").update({ approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "pending", approved_by: null, scheduled_payment_date: null }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
+                                <button onClick={async (e) => { e.stopPropagation(); if (!window.confirm("Revoke approval?")) return; await supabase.from("qbo_bills").update({ approval_status: "pending", approved_by: null, approved_at: null, scheduled_payment_date: null, scheduled_by: null, scheduled_at: null }).eq("org_id", orgId).eq("id", b.id); const idx = qboBills.findIndex(x => x.id === b.id); if (idx >= 0) qboBills[idx] = { ...qboBills[idx], approval_status: "pending", approved_by: null, scheduled_payment_date: null }; setQboSort(prev => prev ? [...prev] : ["due_date","asc"]); }}
                                   style={{ padding: "3px 6px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#EF444418", color: "#EF4444", cursor: "pointer" }} title="Revoke approval">✕</button>
                               )}
                             </div>

@@ -82,7 +82,7 @@ export default function SupportView() {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) return;
       setUser(u);
-      const { data: p } = await supabase.from("profiles").select("*").eq("id", u.id).single();
+      const { data: p } = await supabase.from("profiles").select("*").eq("org_id", orgId).eq("id", u.id).single();
       setProfile(p);
       const orgId = p?.org_id;
       if (!orgId) return;
@@ -133,7 +133,7 @@ export default function SupportView() {
   useEffect(() => {
     if (!selected) return;
     const loadMsgs = async () => {
-      const { data } = await supabase.from("cx_messages").select("*").eq("ticket_id", selected.id).order("created_at");
+      const { data } = await supabase.from("cx_messages").select("*").eq("org_id", orgId).eq("ticket_id", selected.id).order("created_at");
       setMessages(data || []);
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     };
@@ -180,7 +180,7 @@ export default function SupportView() {
       if (direction === "outbound" && selected.status === "open") updates.status = "pending";
       if (!selected.first_response_at && direction === "outbound") updates.first_response_at = new Date().toISOString();
       if (Object.keys(updates).length) {
-        await supabase.from("cx_tickets").update(updates).eq("id", selected.id);
+        await supabase.from("cx_tickets").update(updates).eq("org_id", orgId).eq("id", selected.id);
         setSelected(s => ({ ...s, ...updates }));
         setTickets(p => p.map(t => t.id === selected.id ? { ...t, ...updates } : t));
       }
@@ -193,7 +193,7 @@ export default function SupportView() {
 
   const updateTicket = async (field, value) => {
     if (!selected) return;
-    await supabase.from("cx_tickets").update({ [field]: value, updated_at: new Date().toISOString() }).eq("id", selected.id);
+    await supabase.from("cx_tickets").update({ [field]: value, updated_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", selected.id);
     setSelected(s => ({ ...s, [field]: value }));
     setTickets(p => p.map(t => t.id === selected.id ? { ...t, [field]: value } : t));
   };
@@ -875,12 +875,12 @@ export default function SupportView() {
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <div style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   <input value={selected.title} onChange={e => setSelected(s => ({ ...s, title: e.target.value }))}
-                    onBlur={e => supabase.from("cx_kb_articles").update({ title: e.target.value }).eq("id", selected.id)}
+                    onBlur={e => supabase.from("cx_kb_articles").update({ title: e.target.value }).eq("org_id", orgId).eq("id", selected.id)}
                     style={{ flex: 1, fontSize: 15, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", padding: 0 }} />
                   <select value={selected.category} onChange={async e => {
                     const v = e.target.value;
                     setSelected(s => ({ ...s, category: v }));
-                    await supabase.from("cx_kb_articles").update({ category: v }).eq("id", selected.id);
+                    await supabase.from("cx_kb_articles").update({ category: v }).eq("org_id", orgId).eq("id", selected.id);
                     setKbArticles(p => p.map(a => a.id === selected.id ? { ...a, category: v } : a));
                   }} style={{ padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text }}>
                     {["general", "shipping", "returns", "subscription", "product", "billing", "account", "troubleshooting", "policy", "faq"].map(c => <option key={c} value={c}>{c}</option>)}
@@ -888,17 +888,17 @@ export default function SupportView() {
                   <select value={selected.status} onChange={async e => {
                     const v = e.target.value;
                     setSelected(s => ({ ...s, status: v }));
-                    await supabase.from("cx_kb_articles").update({ status: v }).eq("id", selected.id);
+                    await supabase.from("cx_kb_articles").update({ status: v }).eq("org_id", orgId).eq("id", selected.id);
                     setKbArticles(p => p.map(a => a.id === selected.id ? { ...a, status: v } : a));
                   }} style={{ padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: selected.status === "published" ? "#22c55e15" : T.surface, color: selected.status === "published" ? "#22c55e" : T.text }}>
                     <option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option>
                   </select>
-                  <button onClick={async () => { await supabase.from("cx_kb_articles").delete().eq("id", selected.id); setKbArticles(p => p.filter(a => a.id !== selected.id)); setSelected(null); }}
+                  <button onClick={async () => { await supabase.from("cx_kb_articles").delete().eq("org_id", orgId).eq("id", selected.id); setKbArticles(p => p.filter(a => a.id !== selected.id)); setSelected(null); }}
                     style={{ padding: "3px 8px", fontSize: 10, color: "#ef4444", background: "#ef444410", border: `1px solid #ef444430`, borderRadius: 4, cursor: "pointer" }}>Delete</button>
                 </div>
                 <textarea value={selected.content || ""} onChange={e => setSelected(s => ({ ...s, content: e.target.value }))}
                   onBlur={async e => {
-                    await supabase.from("cx_kb_articles").update({ content: e.target.value, updated_at: new Date().toISOString() }).eq("id", selected.id);
+                    await supabase.from("cx_kb_articles").update({ content: e.target.value, updated_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", selected.id);
                     setKbArticles(p => p.map(a => a.id === selected.id ? { ...a, content: e.target.value } : a));
                   }}
                   style={{ flex: 1, padding: 16, fontSize: 13, color: T.text, background: T.bg, border: "none", outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.7 }}

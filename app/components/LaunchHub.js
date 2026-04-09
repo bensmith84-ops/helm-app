@@ -53,11 +53,11 @@ export default function LaunchHub() {
     if (!profile?.org_id) return;
     const load = async () => {
       const [pgR, prR, tR, oR, krR, tagR, taR] = await Promise.all([
-        supabase.from("plm_programs").select("*").is("deleted_at", null).order("target_launch_date"),
+        supabase.from("plm_programs").select("*").eq("org_id", orgId).is("deleted_at", null).order("target_launch_date"),
         supabase.from("projects").select("*").is("deleted_at", null).order("name"),
         supabase.from("tasks").select("id,project_id,status,parent_task_id").is("deleted_at", null),
-        supabase.from("objectives").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
-        supabase.from("key_results").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
+        supabase.from("objectives").select("*").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
+        supabase.from("key_results").select("*").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
         supabase.from("launch_tags").select("*").eq("org_id", profile.org_id).order("sort_order"),
         supabase.from("launch_tag_assignments").select("*"),
       ]);
@@ -138,7 +138,7 @@ export default function LaunchHub() {
       brand: pgFields.brand || null,
       objective_id: linked_objective_id || null,
     };
-    const { error } = await supabase.from("plm_programs").update(payload).eq("id", pgId);
+    const { error } = await supabase.from("plm_programs").update(payload).eq("org_id", orgId).eq("id", pgId);
     if (!error) setPrograms(p => p.map(x => x.id === pgId ? { ...x, ...payload } : x));
 
     // Handle project linking
@@ -146,12 +146,12 @@ export default function LaunchHub() {
     if (linked_project_id) {
       // Unlink previously linked projects that aren't the selected one
       for (const p of prevLinked.filter(p => p.id !== linked_project_id)) {
-        await supabase.from("projects").update({ plm_program_id: null }).eq("id", p.id);
+        await supabase.from("projects").update({ plm_program_id: null }).eq("org_id", orgId).eq("id", p.id);
       }
       // Link selected project + set its objective
       const projUpdate = { plm_program_id: pgId };
       if (linked_objective_id) projUpdate.objective_id = linked_objective_id;
-      await supabase.from("projects").update(projUpdate).eq("id", linked_project_id);
+      await supabase.from("projects").update(projUpdate).eq("org_id", orgId).eq("id", linked_project_id);
       setProjects(p => p.map(x => {
         if (x.plm_program_id === pgId && x.id !== linked_project_id) return { ...x, plm_program_id: null };
         if (x.id === linked_project_id) return { ...x, ...projUpdate };
@@ -160,7 +160,7 @@ export default function LaunchHub() {
     } else {
       // Unlink all
       for (const p of prevLinked) {
-        await supabase.from("projects").update({ plm_program_id: null }).eq("id", p.id);
+        await supabase.from("projects").update({ plm_program_id: null }).eq("org_id", orgId).eq("id", p.id);
       }
       if (prevLinked.length > 0) setProjects(p => p.map(x => x.plm_program_id === pgId ? { ...x, plm_program_id: null } : x));
     }

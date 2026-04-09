@@ -70,7 +70,7 @@ export default function ActivityView({ setActive }) {
     if (offset === 0) setLoading(true); else setLoadingMore(true);
     const [{ data: acts }, { data: prof }] = await Promise.all([
       supabase.from("activity_log").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).range(offset, offset + PAGE - 1),
-      offset === 0 ? supabase.from("profiles").select("id,display_name") : Promise.resolve({ data: null }),
+      offset === 0 ? supabase.from("profiles").select("id,display_name").eq("org_id", orgId) : Promise.resolve({ data: null }),
     ]);
     if (offset === 0) {
       setActivities(acts || []);

@@ -169,7 +169,7 @@ export default function ScorecardView() {
 
       if (met?.length) {
         const [{ data: ent }, { data: gp }] = await Promise.all([
-          supabase.from("scorecard_entries").select("*").in("metric_id", met.map(m => m.id)).in("week_start", WEEKS),
+          supabase.from("scorecard_entries").select("*").eq("org_id", orgId).in("metric_id", met.map(m => m.id)).in("week_start", WEEKS),
           supabase.from("scorecard_goal_periods").select("*").in("metric_id", met.map(m => m.id)).order("start_date"),
         ]);
         const map = {};
@@ -312,7 +312,7 @@ export default function ScorecardView() {
       if (freshMetrics) setMetrics(freshMetrics);
       // Reload entries — match original load format exactly
       const metricIds = (freshMetrics || metrics).map(m => m.id);
-      const { data: allEntries } = await supabase.from("scorecard_entries").select("*")
+      const { data: allEntries } = await supabase.from("scorecard_entries").select("*").eq("org_id", orgId)
         .in("metric_id", metricIds).in("week_start", WEEKS);
       const eMap = {};
       const cMap = {};

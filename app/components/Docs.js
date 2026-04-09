@@ -174,7 +174,7 @@ export default function DocsView({ setActive }) {
     // Merge ref contents into blocks for save
     const toSave = blockList.map(b => ({ ...b, content: blockContents.current[b.id] ?? b.content }));
     const txt = toSave.map(b => b.content || "").join("\n");
-    await supabase.from("documents").update({ content: toSave, content_text: txt, word_count: txt.split(/\s+/).filter(Boolean).length, updated_at: now(), last_edited_by: user?.id }).eq("id", docId);
+    await supabase.from("documents").update({ content: toSave, content_text: txt, word_count: txt.split(/\s+/).filter(Boolean).length, updated_at: now(), last_edited_by: user?.id }).eq("org_id", orgId).eq("id", docId);
     setSaving(false); setLastSaved(new Date());
   }, [user]);
 
@@ -263,13 +263,13 @@ export default function DocsView({ setActive }) {
   };
 
   const deleteDoc = async (id) => {
-    await supabase.from("documents").update({ deleted_at: now() }).eq("id", id);
+    await supabase.from("documents").update({ deleted_at: now() }).eq("org_id", orgId).eq("id", id);
     setDocs(p => p.filter(d => d.id !== id));
     if (activeDoc?.id === id) { setActiveDoc(null); setBlocks([]); }
   };
 
   const updateMeta = async (id, upd) => {
-    await supabase.from("documents").update({ ...upd, updated_at: now() }).eq("id", id);
+    await supabase.from("documents").update({ ...upd, updated_at: now() }).eq("org_id", orgId).eq("id", id);
     setDocs(p => p.map(d => d.id === id ? { ...d, ...upd } : d));
     if (activeDoc?.id === id) setActiveDoc(p => ({ ...p, ...upd }));
   };
@@ -729,7 +729,7 @@ export default function DocsView({ setActive }) {
                 <select onChange={async e => {
                   const pid = e.target.value;
                   if (!pid) return;
-                  await supabase.from("documents").update({ project_id: pid }).eq("id", activeDoc.id);
+                  await supabase.from("documents").update({ project_id: pid }).eq("org_id", orgId).eq("id", activeDoc.id);
                   setActiveDoc(p => ({ ...p, project_id: pid }));
                   setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, project_id: pid } : d));
                 }} defaultValue="" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer", outline: "none" }}>
@@ -802,7 +802,7 @@ export default function DocsView({ setActive }) {
                 {emojiPicker && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", padding: "8px 0", maxWidth: 320 }}>
                   {EMOJIS.map(e => <span key={e} onClick={() => { updateMeta(activeDoc.id, { emoji: e }); setEmojiPicker(false); }} style={{ fontSize: 22, cursor: "pointer", padding: 4, borderRadius: 4 }} onMouseEnter={ev => ev.currentTarget.style.background = T.surface2} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>{e}</span>)}
                 </div>}
-                <input value={activeDoc.title || ""} onChange={e => { const t = e.target.value; setActiveDoc(p => ({ ...p, title: t })); setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, title: t } : d)); if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current); titleSaveTimer.current = setTimeout(() => supabase.from("documents").update({ title: t, updated_at: now() }).eq("id", activeDoc.id), 600); }}
+                <input value={activeDoc.title || ""} onChange={e => { const t = e.target.value; setActiveDoc(p => ({ ...p, title: t })); setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, title: t } : d)); if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current); titleSaveTimer.current = setTimeout(() => supabase.from("documents").update({ title: t, updated_at: now() }).eq("org_id", orgId).eq("id", activeDoc.id), 600); }}
                   placeholder="Untitled" style={{ fontSize: 34, fontWeight: 800, color: T.text, background: "transparent", border: "none", outline: "none", width: "100%", fontFamily: "inherit", padding: 0, letterSpacing: "-0.02em" }} />
               </div>
               <div style={{ paddingBottom: 200, paddingTop: 8 }}>

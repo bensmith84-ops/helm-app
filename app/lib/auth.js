@@ -60,6 +60,10 @@ export function AuthProvider({ children }) {
       const savedOrg = typeof window !== "undefined" && localStorage.getItem("helm_active_org");
       const activeOrg = (savedOrg && userOrgs.some(o => o.id === savedOrg)) ? savedOrg : existingProfile.org_id || userOrgs[0]?.id || DEFAULT_ORG_ID;
       setOrgId(activeOrg);
+      // Sync active org to profile so RLS policies can read it
+      if (activeOrg !== existingProfile.active_org_id) {
+        supabase.from("profiles").update({ active_org_id: activeOrg }).eq("id", userId).then(() => {});
+      }
       setLoading(false);
       return;
     }
@@ -142,10 +146,14 @@ export function AuthProvider({ children }) {
     setNeedsPasswordSetup(false);
   };
 
-  const switchOrg = (newOrgId) => {
+  const switchOrg = async (newOrgId) => {
     if (orgs.some(o => o.id === newOrgId)) {
       setOrgId(newOrgId);
       if (typeof window !== "undefined") localStorage.setItem("helm_active_org", newOrgId);
+      // Update profile's active_org_id so RLS policies filter to this org
+      if (user?.id) {
+        await supabase.from("profiles").update({ active_org_id: newOrgId }).eq("id", user.id);
+      }
     }
   };
 

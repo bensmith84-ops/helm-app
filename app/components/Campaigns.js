@@ -53,7 +53,7 @@ export default function CampaignsView() {
     const ts = { ...updates, updated_at: new Date().toISOString() };
     setCampaigns(p => p.map(c => c.id === id ? { ...c, ...ts } : c));
     if (selected?.id === id) setSelected(p => ({ ...p, ...ts }));
-    await supabase.from("campaigns").update(ts).eq("id", id);
+    await supabase.from("campaigns").update(ts).eq("org_id", orgId).eq("id", id);
   };
 
   const createCampaign = async () => {
@@ -69,7 +69,7 @@ export default function CampaignsView() {
     if (!(await showConfirm("Delete Campaign", "Delete this campaign? This cannot be undone."))) return;
     setCampaigns(p => p.filter(c => c.id !== id));
     if (selected?.id === id) setSelected(null);
-    await supabase.from("campaigns").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    await supabase.from("campaigns").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", id);
   };
 
   const filtered = filter === "all" ? campaigns : campaigns.filter(c => c.status === filter);

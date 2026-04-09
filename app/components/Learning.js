@@ -90,7 +90,7 @@ export default function LearningView({ modulePerms = {} }) {
         supabase.from("lms_quizzes").select("*"),
         supabase.from("lms_assignments").select("*").eq("org_id", orgId),
         supabase.from("lms_progress").select("*").eq("org_id", orgId).eq("user_id", user.id),
-        supabase.from("lms_quiz_attempts").select("*").eq("user_id", user.id).order("attempted_at",{ascending:false}),
+        supabase.from("lms_quiz_attempts").select("*").eq("org_id", orgId).eq("user_id", user.id).order("attempted_at",{ascending:false}),
         supabase.from("profiles").select("id,display_name,email,department"),
         supabase.from("teams").select("*").is("deleted_at", null),
         supabase.from("team_members").select("*"),
@@ -131,7 +131,7 @@ export default function LearningView({ modulePerms = {} }) {
     const done = allDone && (!quiz || qP);
     if (prog) {
       const patch = { completed_lessons: completed, status: done?"completed":"in_progress", completed_at: done?new Date().toISOString():null };
-      await supabase.from("lms_progress").update(patch).eq("id", prog.id);
+      await supabase.from("lms_progress").update(patch).eq("org_id", orgId).eq("id", prog.id);
       setProgress(p => p.map(x => x.id === prog.id ? {...x,...patch} : x));
     } else {
       const row = { org_id:orgId, course_id:courseId, user_id:user.id, status:done?"completed":"in_progress", completed_lessons:completed, started_at:new Date().toISOString(), completed_at:done?new Date().toISOString():null };
@@ -154,7 +154,7 @@ export default function LearningView({ modulePerms = {} }) {
       const prog = getMyProgress(showQuiz.course_id);
       const cL = getCourseLessons(showQuiz.course_id);
       if (prog && cL.every(l => (prog.completed_lessons||[]).includes(l.id))) {
-        await supabase.from("lms_progress").update({ status:"completed", completed_at:new Date().toISOString() }).eq("id", prog.id);
+        await supabase.from("lms_progress").update({ status:"completed", completed_at:new Date().toISOString() }).eq("org_id", orgId).eq("id", prog.id);
         setProgress(p => p.map(x => x.id === prog.id ? {...x, status:"completed", completed_at:new Date().toISOString()} : x));
       }
     }
@@ -163,12 +163,12 @@ export default function LearningView({ modulePerms = {} }) {
   const saveCourse = async () => {
     if (!courseForm.title.trim()) return;
     const row = { title:courseForm.title, description:courseForm.description, category:courseForm.category, is_required:courseForm.is_required, passing_score:parseInt(courseForm.passing_score)||70, refresh_interval_days:courseForm.refresh_interval_days?parseInt(courseForm.refresh_interval_days):null, estimated_minutes:courseForm.estimated_minutes?parseInt(courseForm.estimated_minutes):null };
-    if (editingCourse) { await supabase.from("lms_courses").update(row).eq("id",editingCourse.id); setCourses(p=>p.map(c=>c.id===editingCourse.id?{...c,...row}:c)); }
+    if (editingCourse) { await supabase.from("lms_courses").update(row).eq("org_id", orgId).eq("id",editingCourse.id); setCourses(p=>p.map(c=>c.id===editingCourse.id?{...c,...row}:c)); }
     else { const{data}=await supabase.from("lms_courses").insert({...row,status:"draft",created_by:user.id,org_id:orgId}).select().single(); if(data) setCourses(p=>[...p,data]); }
     setShowNewCourse(false); setEditingCourse(null); setCourseForm({title:"",description:"",category:"onboarding",is_required:false,refresh_interval_days:"",estimated_minutes:"",passing_score:70});
   };
 
-  const togglePublish = async c => { const n=c.status==="published"?"draft":"published"; await supabase.from("lms_courses").update({status:n}).eq("id",c.id); setCourses(p=>p.map(x=>x.id===c.id?{...x,status:n}:x)); };
+  const togglePublish = async c => { const n=c.status==="published"?"draft":"published"; await supabase.from("lms_courses").update({status:n}).eq("org_id", orgId).eq("id",c.id); setCourses(p=>p.map(x=>x.id===c.id?{...x,status:n}:x)); };
 
   const saveLesson = async () => {
     if (!lessonForm.title.trim()||!showLessonForm) return;

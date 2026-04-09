@@ -239,7 +239,7 @@ function FormulaItemRow({ item, onUpdate, onDelete }) {
       input_qty:vals.input_qty?parseFloat(vals.input_qty):null,
       input_uom:vals.input_uom||null,
       function_in_formula:vals.function_in_formula,
-    }).eq("id",item.id);
+    }).eq("org_id", orgId).eq("id",item.id);
     onUpdate(vals);
   };
   const td={padding:"4px 6px",verticalAlign:"middle"};
@@ -259,7 +259,7 @@ function FormulaItemRow({ item, onUpdate, onDelete }) {
               ingredient_name: name,
               item_type: type||vals.item_type||"ingredient",
               input_uom: uom||vals.input_uom||null,
-            }).eq("id", item.id);
+            }).eq("org_id", orgId).eq("id", item.id);
             onUpdate(newVals);
           }}
           onChange={v=>handleChange("ingredient_name",v)}
@@ -292,7 +292,7 @@ function FormulaItemRow({ item, onUpdate, onDelete }) {
 function ClaimRow({ claim, onUpdate, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [vals, setVals] = useState(claim);
-  const save = async () => { await supabase.from("plm_claims").update({claim_text:vals.claim_text,status:vals.status,claim_type:vals.claim_type}).eq("id",claim.id); onUpdate(vals); setEditing(false); };
+  const save = async () => { await supabase.from("plm_claims").update({claim_text:vals.claim_text,status:vals.status,claim_type:vals.claim_type}).eq("org_id", orgId).eq("id",claim.id); onUpdate(vals); setEditing(false); };
   const sc = STATUS_COLORS[claim.status]||"#8b93a8";
   return (
     <div style={{ padding:"10px 12px", background:T.surface2, borderRadius:8, border:"1px solid "+T.border, marginBottom:8 }}>
@@ -423,10 +423,10 @@ function OverviewTab({ program, onUpdate, counts }) {
     if(!Object.keys(editing).length)return;
     const NUMERIC_FIELDS=["target_gross_margin_pct","target_unit_price","development_budget"];
     const payload=Object.fromEntries(Object.entries(editing).map(([k,v])=>[k,NUMERIC_FIELDS.includes(k)&&v!==""?parseFloat(v):v===" "?null:v]));
-    await supabase.from("plm_programs").update(payload).eq("id",program.id);
+    await supabase.from("plm_programs").update(payload).eq("org_id", orgId).eq("id",program.id);
     onUpdate({...program,...editing}); setEditing({});
   };
-  const advanceStage=async k=>{ await supabase.from("plm_programs").update({current_stage:k}).eq("id",program.id); onUpdate({...program,current_stage:k}); };
+  const advanceStage=async k=>{ await supabase.from("plm_programs").update({current_stage:k}).eq("org_id", orgId).eq("id",program.id); onUpdate({...program,current_stage:k}); };
   return (
     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:24 }}>
       <div>
@@ -491,7 +491,7 @@ function ClaimsSubstantiationTab({ program, onUpdate }) {
     supabase.from("plm_claim_documents").select("*").eq("program_id",program.id).order("created_at").then(({data})=>{setDocs(data||[]);setLoadingDocs(false);});
   },[program.id]);
 
-  const saveClaims=async updated=>{setClaims(updated);await supabase.from("plm_programs").update({desired_claims:updated}).eq("id",program.id);onUpdate({...program,desired_claims:updated});};
+  const saveClaims=async updated=>{setClaims(updated);await supabase.from("plm_programs").update({desired_claims:updated}).eq("org_id", orgId).eq("id",program.id);onUpdate({...program,desired_claims:updated});};
   const addClaim=()=>{const t=newClaim.trim();if(!t)return;saveClaims([...claims,t]);setNewClaim("");};
   const removeClaim=idx=>saveClaims(claims.filter((_,i)=>i!==idx));
   const editClaim=(idx,val)=>{const u=[...claims];u[idx]=val;setClaims(u);};
@@ -1636,11 +1636,11 @@ function FormulationsTab({ programId }) {
   const [showPicker, setShowPicker] = useState(false);
   const [editingMfg, setEditingMfg] = useState(false);
   const [printingFormula, setPrintingFormula] = useState(null);
-  useEffect(()=>{ supabase.from("plm_formulations").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setFormulas(data||[]);setLoading(false);}); },[programId]);
-  useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("formulation_id",selected.id).order("sort_order").order("created_at").then(({data})=>setItems(data||[])); },[selected]);
+  useEffect(()=>{ supabase.from("plm_formulations").select("*").eq("org_id", orgId).eq("program_id",programId).order("created_at").then(({data})=>{setFormulas(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ if(!selected){setItems([]);return;} supabase.from("plm_formula_items").select("*").eq("org_id", orgId).eq("formulation_id",selected.id).order("sort_order").order("created_at").then(({data})=>setItems(data||[])); },[selected]);
   const addFormula=async()=>{ const{data}=await supabase.from("plm_formulations").insert({program_id:programId,name:"New Formulation",version:"v1.0",status:"draft"}).select().single(); if(data){setFormulas(p=>[...p,data]);setSelected(data);} };
-  const updateFormula=async(field,val)=>{ await supabase.from("plm_formulations").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setFormulas(p=>p.map(x=>x.id===u.id?u:x)); };
-  const deleteFormula=async()=>{ if(!window.confirm(`Delete "${selected.name}"?`))return; await supabase.from("plm_formula_items").delete().eq("formulation_id",selected.id); await supabase.from("plm_formulations").delete().eq("id",selected.id); setFormulas(p=>p.filter(x=>x.id!==selected.id)); setSelected(null); };
+  const updateFormula=async(field,val)=>{ await supabase.from("plm_formulations").update({[field]:val}).eq("org_id", orgId).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setFormulas(p=>p.map(x=>x.id===u.id?u:x)); };
+  const deleteFormula=async()=>{ if(!window.confirm(`Delete "${selected.name}"?`))return; await supabase.from("plm_formula_items").delete().eq("formulation_id",selected.id); await supabase.from("plm_formulations").delete().eq("org_id", orgId).eq("id",selected.id); setFormulas(p=>p.filter(x=>x.id!==selected.id)); setSelected(null); };
   const addItem=async({ name="", uom="", type="ingredient" }={})=>{ if(!selected)return; const{data}=await supabase.from("plm_formula_items").insert({formulation_id:selected.id,ingredient_name:name,item_type:type,quantity:0,unit:"%",input_qty:null,input_uom:uom||null}).select().single(); if(data)setItems(p=>[...p,data]); };
   const totalPct=items.filter(i=>i.unit==="%").reduce((a,b)=>a+parseFloat(b.quantity||0),0);
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
@@ -1680,7 +1680,7 @@ function FormulationsTab({ programId }) {
             </div>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Name","Type","Formula %","Unit","Input Qty","UOM","Function",""].map(h=><th key={h} style={{ padding:"4px 6px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>{h}</th>)}</tr></thead>
-              <tbody>{items.map(item=><FormulaItemRow key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={async()=>{await supabase.from("plm_formula_items").delete().eq("id",item.id);setItems(p=>p.filter(x=>x.id!==item.id));}} />)}</tbody>
+              <tbody>{items.map(item=><FormulaItemRow key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={async()=>{await supabase.from("plm_formula_items").delete().eq("org_id", orgId).eq("id",item.id);setItems(p=>p.filter(x=>x.id!==item.id));}} />)}</tbody>
             </table>
             {items.length===0&&<EmptyState icon="🧪" text="No ingredients — click + Ingredient to add from library or type your own" />}
             
@@ -1757,7 +1757,7 @@ function ExperimentsTab({ programId }) {
   const [printingRun, setPrintingRun] = useState(null);
   const [trialFormula, setTrialFormula] = useState(null);
   const [trialFormulaItems, setTrialFormulaItems] = useState([]);
-  useEffect(()=>{ supabase.from("plm_experiments").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setExperiments(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_experiments").select("*").eq("org_id", orgId).eq("program_id",programId).order("created_at").then(({data})=>{setExperiments(data||[]);setLoading(false);}); },[programId]);
   // Load trial runs + formula when experiment is selected
   useEffect(()=>{
     if(!selected?.id){setTrialRuns([]);setTrialFormula(null);setTrialFormulaItems([]);return;}
@@ -1766,9 +1766,9 @@ function ExperimentsTab({ programId }) {
       const { data: runs } = await supabase.from("plm_experiment_runs").select("*").eq("experiment_id",selected.id).order("run_number");
       setTrialRuns(runs||[]);
       if(selected.formulation_id) {
-        const { data: f } = await supabase.from("plm_formulations").select("*").eq("id",selected.formulation_id).single();
+        const { data: f } = await supabase.from("plm_formulations").select("*").eq("org_id", orgId).eq("id",selected.formulation_id).single();
         setTrialFormula(f||null);
-        if(f) { const { data: items } = await supabase.from("plm_formula_items").select("*").eq("formulation_id",f.id).order("sort_order"); setTrialFormulaItems(items||[]); }
+        if(f) { const { data: items } = await supabase.from("plm_formula_items").select("*").eq("org_id", orgId).eq("formulation_id",f.id).order("sort_order"); setTrialFormulaItems(items||[]); }
         else setTrialFormulaItems([]);
       } else { setTrialFormula(null); setTrialFormulaItems([]); }
       setTrialsLoading(false);
@@ -1776,8 +1776,8 @@ function ExperimentsTab({ programId }) {
     loadAll();
   },[selected?.id]);
   const add=async()=>{ const{data}=await supabase.from("plm_experiments").insert({program_id:programId,name:"New Experiment",experiment_type:"formulation",status:"planning",factors:[],responses:[],run_matrix:[]}).select().single(); if(data){setExperiments(p=>[...p,data]);setSelected(data);} };
-  const update=async(field,val)=>{ await supabase.from("plm_experiments").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setExperiments(p=>p.map(x=>x.id===u.id?u:x)); };
-  const del=async()=>{ if(!window.confirm(`Delete "${selected.name}"?`))return; await supabase.from("plm_experiments").delete().eq("id",selected.id); setExperiments(p=>p.filter(x=>x.id!==selected.id)); setSelected(null); };
+  const update=async(field,val)=>{ await supabase.from("plm_experiments").update({[field]:val}).eq("org_id", orgId).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setExperiments(p=>p.map(x=>x.id===u.id?u:x)); };
+  const del=async()=>{ if(!window.confirm(`Delete "${selected.name}"?`))return; await supabase.from("plm_experiments").delete().eq("org_id", orgId).eq("id",selected.id); setExperiments(p=>p.filter(x=>x.id!==selected.id)); setSelected(null); };
 
   // Factor/response/run helpers
   const factors = Array.isArray(selected?.factors) ? selected.factors : [];
@@ -2257,9 +2257,9 @@ function TrialsTab({ programId }) {
   const [trials, setTrials] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(()=>{ supabase.from("plm_manufacturing_trials").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setTrials(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_manufacturing_trials").select("*").eq("org_id", orgId).eq("program_id",programId).order("created_at").then(({data})=>{setTrials(data||[]);setLoading(false);}); },[programId]);
   const add=async()=>{ const count=trials.length+1; const{data}=await supabase.from("plm_manufacturing_trials").insert({program_id:programId,trial_number:"T-"+String(count).padStart(3,"0"),name:"Trial "+count,trial_type:"lab_bench",status:"planned"}).select().single(); if(data){setTrials(p=>[...p,data]);setSelected(data);} };
-  const update=async(field,val)=>{ await supabase.from("plm_manufacturing_trials").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setTrials(p=>p.map(x=>x.id===u.id?u:x)); };
+  const update=async(field,val)=>{ await supabase.from("plm_manufacturing_trials").update({[field]:val}).eq("org_id", orgId).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setTrials(p=>p.map(x=>x.id===u.id?u:x)); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
     <div className="plm-grid">
@@ -2298,7 +2298,7 @@ function TrialsTab({ programId }) {
 function RegClaimsTab({ programId }) {
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(()=>{ supabase.from("plm_claims").select("*").eq("program_id",programId).order("priority").order("created_at").then(({data})=>{setClaims(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_claims").select("*").eq("org_id", orgId).eq("program_id",programId).order("priority").order("created_at").then(({data})=>{setClaims(data||[]);setLoading(false);}); },[programId]);
   const add=async()=>{ const{data}=await supabase.from("plm_claims").insert({program_id:programId,claim_text:"New claim",claim_type:"efficacy",status:"proposed"}).select().single(); if(data)setClaims(p=>[...p,data]); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -2308,7 +2308,7 @@ function RegClaimsTab({ programId }) {
         <AddBtn onClick={add} label="Add Claim" />
       </div>
       {claims.length===0&&<EmptyState icon="✅" text="No regulatory claims yet" />}
-      {claims.map(c=><ClaimRow key={c.id} claim={c} onUpdate={u=>setClaims(p=>p.map(x=>x.id===u.id?u:x))} onDelete={async()=>{await supabase.from("plm_claims").delete().eq("id",c.id);setClaims(p=>p.filter(x=>x.id!==c.id));}} />)}
+      {claims.map(c=><ClaimRow key={c.id} claim={c} onUpdate={u=>setClaims(p=>p.map(x=>x.id===u.id?u:x))} onDelete={async()=>{await supabase.from("plm_claims").delete().eq("org_id", orgId).eq("id",c.id);setClaims(p=>p.filter(x=>x.id!==c.id));}} />)}
     </div>
   );
 }
@@ -2319,9 +2319,9 @@ function SKUsTab({ programId }) {
   const [skus, setSkus] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(()=>{ supabase.from("plm_skus").select("*").eq("program_id",programId).order("created_at").then(({data})=>{setSkus(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_skus").select("*").eq("org_id", orgId).eq("program_id",programId).order("created_at").then(({data})=>{setSkus(data||[]);setLoading(false);}); },[programId]);
   const add=async()=>{ const count=skus.length+1; const{data}=await supabase.from("plm_skus").insert({program_id:programId,sku_code:"SKU-"+String(count).padStart(4,"0"),name:"New SKU",status:"draft"}).select().single(); if(data){setSkus(p=>[...p,data]);setSelected(data);} };
-  const update=async(field,val)=>{ await supabase.from("plm_skus").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setSkus(p=>p.map(x=>x.id===u.id?u:x)); };
+  const update=async(field,val)=>{ await supabase.from("plm_skus").update({[field]:val}).eq("org_id", orgId).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setSkus(p=>p.map(x=>x.id===u.id?u:x)); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
     <div className="plm-grid">
@@ -2363,9 +2363,9 @@ function IssuesTab({ programId }) {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState(null);
-  useEffect(()=>{ supabase.from("plm_programs").select("org_id").eq("id",programId).single().then(({data})=>setOrgId(data?.org_id)); supabase.from("plm_issues").select("*").eq("program_id",programId).order("created_at",{ascending:false}).then(({data})=>{setIssues(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_programs").select("org_id").eq("org_id", orgId).eq("id",programId).single().then(({data})=>setOrgId(data?.org_id)); supabase.from("plm_issues").select("*").eq("org_id", orgId).eq("program_id",programId).order("created_at",{ascending:false}).then(({data})=>{setIssues(data||[]);setLoading(false);}); },[programId]);
   const add=async()=>{ const{data}=await supabase.from("plm_issues").insert({program_id:programId,title:"New Issue",issue_type:"formulation",severity:"minor",status:"open",org_id:orgId}).select().single(); if(data){setIssues(p=>[data,...p]);setSelected(data);} };
-  const update=async(field,val)=>{ await supabase.from("plm_issues").update({[field]:val}).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setIssues(p=>p.map(x=>x.id===u.id?u:x)); };
+  const update=async(field,val)=>{ await supabase.from("plm_issues").update({[field]:val}).eq("org_id", orgId).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setIssues(p=>p.map(x=>x.id===u.id?u:x)); };
   const sc={critical:"#ef4444",high:"#f97316",medium:"#eab308",low:"#22c55e"};
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -2402,7 +2402,7 @@ function IssuesTab({ programId }) {
 function TestResultsTab({ programId }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(()=>{ supabase.from("plm_test_results").select("*").eq("program_id",programId).order("tested_date",{ascending:false}).then(({data})=>{setResults(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_test_results").select("*").eq("org_id", orgId).eq("program_id",programId).order("tested_date",{ascending:false}).then(({data})=>{setResults(data||[]);setLoading(false);}); },[programId]);
   const add=async()=>{ const{data}=await supabase.from("plm_test_results").insert({program_id:programId,test_name:"New Test",test_category:"physical",status:"pending"}).select().single(); if(data)setResults(p=>[data,...p]); };
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -2436,7 +2436,7 @@ function TestResultsTab({ programId }) {
 function GateReviewsTab({ programId }) {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(()=>{ supabase.from("plm_gate_reviews").select("*").eq("program_id",programId).order("review_date",{ascending:false}).then(({data})=>{setReviews(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_gate_reviews").select("*").eq("org_id", orgId).eq("program_id",programId).order("review_date",{ascending:false}).then(({data})=>{setReviews(data||[]);setLoading(false);}); },[programId]);
   const dc={approved:"#22c55e",rejected:"#ef4444",conditional:"#eab308",deferred:"#8b93a8"};
   if(loading)return <div style={{ color:T.text3,fontSize:13 }}>Loading…</div>;
   return (
@@ -2470,7 +2470,7 @@ function ShareDropdown({ conversationId, onClose }) {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       const myId = session?.user?.id;
-      const { data: profiles } = await supabase.from("profiles").select("id, display_name, email").not("id", "eq", myId);
+      const { data: profiles } = await supabase.from("profiles").select("id, display_name, email").eq("org_id", orgId).not("id", "eq", myId);
       setUsers(profiles || []);
       const { data: existing } = await supabase.from("plm_ai_shares").select("*").eq("conversation_id", conversationId);
       setShares(existing || []);
@@ -2935,12 +2935,12 @@ function ProgramDetail({ program, onBack, onUpdate, onDelete }) {
   useEffect(()=>{
     const load=async()=>{
       const[{count:formulations},{count:experiments},{count:trials},{count:skus},{count:claims},{count:issues}]=await Promise.all([
-        supabase.from("plm_formulations").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_experiments").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_manufacturing_trials").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_skus").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_claims").select("*",{count:"exact",head:true}).eq("program_id",program.id),
-        supabase.from("plm_issues").select("*",{count:"exact",head:true}).eq("program_id",program.id),
+        supabase.from("plm_formulations").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
+        supabase.from("plm_experiments").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
+        supabase.from("plm_manufacturing_trials").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
+        supabase.from("plm_skus").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
+        supabase.from("plm_claims").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
+        supabase.from("plm_issues").select("*",{count:"exact",head:true}).eq("org_id", orgId).eq("program_id",program.id),
       ]);
       setCounts({formulations,experiments,trials,skus,claims,issues});
     };
@@ -3247,19 +3247,19 @@ export default function PLMView() {
       const{data:{user}}=await supabase.auth.getUser();
       if(user){
         // Try org_memberships first
-        const{data:membership}=await supabase.from("org_memberships").select("org_id").eq("user_id",user.id).maybeSingle();
+        const{data:membership}=await supabase.from("org_memberships").select("org_id").eq("org_id", orgId).eq("user_id",user.id).maybeSingle();
         if(membership?.org_id){
           setOrgId(membership.org_id);
         } else {
           // Fall back to reading org_id from any existing plm_program
-          const{data:prog}=await supabase.from("plm_programs").select("org_id").not("org_id","is",null).limit(1).maybeSingle();
+          const{data:prog}=await supabase.from("plm_programs").select("org_id").eq("org_id", orgId).not("org_id","is",null).limit(1).maybeSingle();
           if(prog?.org_id) setOrgId(prog.org_id);
         }
       }
-      const{data}=await supabase.from("plm_programs").select("*").is("deleted_at",null).order("created_at",{ascending:false});
+      const{data}=await supabase.from("plm_programs").select("*").eq("org_id", orgId).is("deleted_at",null).order("created_at",{ascending:false});
       setPrograms(data||[]); setLoading(false);
       // Load all SKUs for roadmap view
-      supabase.from("plm_skus").select("*").order("launch_date").then(({ data: skuData }) => setAllSkus(skuData || []));
+      supabase.from("plm_skus").select("*").eq("org_id", orgId).order("launch_date").then(({ data: skuData }) => setAllSkus(skuData || []));
     };
     load();
   },[]);
@@ -3268,7 +3268,7 @@ export default function PLMView() {
   const handleUpdate=u=>{setPrograms(p=>p.map(x=>x.id===u.id?u:x));setSelected(u);};
   const handleCreated=p=>{setPrograms(prev=>[p,...prev]);setSelected(p);setShowNew(false);};
   const deleteProgram=async id=>{
-    await supabase.from("plm_programs").update({deleted_at:new Date().toISOString()}).eq("id",id);
+    await supabase.from("plm_programs").update({deleted_at:new Date().toISOString()}).eq("org_id", orgId).eq("id",id);
     setPrograms(p=>p.filter(x=>x.id!==id));
     if(selected?.id===id)setSelected(null);
   };

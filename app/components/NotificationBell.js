@@ -137,18 +137,18 @@ export default function NotificationBell({ setActive }) {
   };
 
   const markRead = async (id) => {
-    await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+    await supabase.from("notifications").update({ is_read: true }).eq("org_id", orgId).eq("id", id);
     setNotifications(p => p.map(n => n.id === id ? {...n, is_read: true} : n));
   };
 
   const markAllRead = async () => {
-    await supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("is_read", false);
+    await supabase.from("notifications").update({ is_read: true }).eq("org_id", orgId).eq("user_id", user.id).eq("is_read", false);
     setNotifications(p => p.map(n => ({...n, is_read: true})));
   };
 
   const deleteNotif = async (id, e) => {
     e.stopPropagation();
-    await supabase.from("notifications").delete().eq("id", id);
+    await supabase.from("notifications").delete().eq("org_id", orgId).eq("id", id);
     setNotifications(p => p.filter(n => n.id !== id));
   };
 

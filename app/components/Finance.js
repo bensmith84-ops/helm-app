@@ -146,7 +146,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {} } 
         supabase.from("af_gl_categories").select("*").order("sort_order"),
         supabase.from("af_gl_codes").select("*").order("code"),
         supabase.from("af_departments").select("*").order("name"),
-        supabase.from("org_memberships").select("*, profiles(display_name, email, avatar_url)").eq("org_id", profile?.org_id),
+        supabase.from("org_memberships").select("*, profiles(display_name, email, avatar_url)").eq("org_id", orgId).eq("org_id", profile?.org_id),
         supabase.from("af_rules").select("*").order("sort_order"),
         supabase.from("af_audit_log").select("*").order("created_at", { ascending: false }).limit(200),
         supabase.from("af_budget_versions").select("*").order("saved_at", { ascending: false }),
@@ -784,7 +784,7 @@ function APAgingView({ isMobile }) {
 
   // Helpers for approval
   const updateBill = async (billId, updates) => {
-    await supabase.from("qbo_bills").update(updates).eq("id", billId);
+    await supabase.from("qbo_bills").update(updates).eq("org_id", orgId).eq("id", billId);
     setBills(p => p.map(b => b.id === billId ? { ...b, ...updates } : b));
     // Push approval status to QBO as memo update (non-blocking)
     if (updates.approval_status) {
@@ -1543,12 +1543,12 @@ function APAgingView({ isMobile }) {
                 const approverEmail = prompt("Approver email:");
                 if (!approverEmail) return;
                 (async () => {
-                  const { data: approver } = await supabase.from("profiles").select("id").eq("email", approverEmail).single();
+                  const { data: approver } = await supabase.from("profiles").select("id").eq("org_id", orgId).eq("email", approverEmail).single();
                   if (!approver) { alert("Approver not found"); return; }
                   const approver2Email = prompt("Second approver email (or leave empty):");
                   const approvers = [approver.id];
                   if (approver2Email) {
-                    const { data: a2 } = await supabase.from("profiles").select("id").eq("email", approver2Email).single();
+                    const { data: a2 } = await supabase.from("profiles").select("id").eq("org_id", orgId).eq("email", approver2Email).single();
                     if (a2) approvers.push(a2.id);
                   }
                   await supabase.from("ap_approval_rules").insert({
@@ -1651,7 +1651,7 @@ function APAgingView({ isMobile }) {
                     setBatchSelected(new Set());
                   }} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>Approve All</button>
                   <button onClick={async () => {
-                    for (const id of batchSelected) { await supabase.from("invoice_inbox").update({ status: "denied" }).eq("id", id); }
+                    for (const id of batchSelected) { await supabase.from("invoice_inbox").update({ status: "denied" }).eq("org_id", orgId).eq("id", id); }
                     setInboxItems(p => p.map(x => batchSelected.has(x.id) ? { ...x, status: "denied" } : x));
                     setBatchSelected(new Set());
                   }} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>Deny All</button>
@@ -1708,7 +1708,7 @@ function APAgingView({ isMobile }) {
                             )}
                             {inv.status === "extracted" && (
                               <button onClick={async () => {
-                                await supabase.from("invoice_inbox").update({ status: "denied" }).eq("id", inv.id);
+                                await supabase.from("invoice_inbox").update({ status: "denied" }).eq("org_id", orgId).eq("id", inv.id);
                                 setInboxItems(p => p.map(x => x.id === inv.id ? { ...x, status: "denied" } : x));
                               }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>Deny</button>
                             )}
@@ -1938,19 +1938,19 @@ function APAgingView({ isMobile }) {
                       {exp.status === "pending" && user?.id === "32cad5dd-9e94-4095-a16d-b4521391b050" && (
                         <>
                           <button onClick={async () => {
-                            await supabase.from("expense_submissions").update({ status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }).eq("id", exp.id);
+                            await supabase.from("expense_submissions").update({ status: "approved", approved_by: user?.id, approved_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", exp.id);
                             setExpenses(p => p.map(x => x.id === exp.id ? { ...x, status: "approved" } : x));
                           }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: "pointer" }}>Approve</button>
                           <button onClick={async () => {
                             const reason = prompt("Denial reason:");
-                            await supabase.from("expense_submissions").update({ status: "denied", approved_by: user?.id, approved_at: new Date().toISOString(), denial_reason: reason }).eq("id", exp.id);
+                            await supabase.from("expense_submissions").update({ status: "denied", approved_by: user?.id, approved_at: new Date().toISOString(), denial_reason: reason }).eq("org_id", orgId).eq("id", exp.id);
                             setExpenses(p => p.map(x => x.id === exp.id ? { ...x, status: "denied" } : x));
                           }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: "pointer" }}>Deny</button>
                         </>
                       )}
                       {exp.status === "approved" && user?.id === "32cad5dd-9e94-4095-a16d-b4521391b050" && (
                         <button onClick={async () => {
-                          await supabase.from("expense_submissions").update({ status: "reimbursed", reimbursed_at: new Date().toISOString() }).eq("id", exp.id);
+                          await supabase.from("expense_submissions").update({ status: "reimbursed", reimbursed_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", exp.id);
                           setExpenses(p => p.map(x => x.id === exp.id ? { ...x, status: "reimbursed" } : x));
                         }} style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, borderRadius: 4, border: "none", background: "#8B5CF618", color: "#8B5CF6", cursor: "pointer" }}>Mark Reimbursed</button>
                       )}
@@ -3807,7 +3807,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   useEffect(() => {
     (async () => {
       if (!user?.id) { setMyPerms({}); return; }
-      const { data } = await supabase.from("org_memberships").select("role, module_permissions").eq("user_id", user.id).maybeSingle();
+      const { data } = await supabase.from("org_memberships").select("role, module_permissions").eq("org_id", orgId).eq("user_id", user.id).maybeSingle();
       if (data?.role === "owner" || data?.role === "admin") { setMyPerms({ _admin: true }); }
       else { setMyPerms(data?.module_permissions || {}); }
     })();

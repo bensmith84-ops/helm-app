@@ -132,7 +132,7 @@ export default function OKRsView() {
     (async () => {
       const [{ data: c }, { data: prof }] = await Promise.all([
         supabase.from("okr_cycles").select("*").eq("org_id", orgId).order("start_date", { ascending: false }),
-        supabase.from("profiles").select("id,display_name,avatar_url"),
+        supabase.from("profiles").select("id,display_name,avatar_url").eq("org_id", orgId),
       ]);
       setCycles(c || []);
       const m = {}; (prof || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
@@ -195,7 +195,7 @@ export default function OKRsView() {
       // Fetch milestone updates
       if (filteredMS.length > 0) {
         const msIds = filteredMS.map(m => m.id);
-        const { data: upd } = await supabase.from("milestone_updates").select("*").in("milestone_id", msIds).order("period_start");
+        const { data: upd } = await supabase.from("milestone_updates").select("*").eq("org_id", orgId).in("milestone_id", msIds).order("period_start");
         setMsUpdates(upd || []);
       }
       // Fetch OKR status updates for this cycle's objectives
@@ -217,22 +217,22 @@ export default function OKRsView() {
     if (!kr) return;
     const newProgress = calcProgress(value, Number(kr.target_value), kr.target_direction);
     setKeyResults(p => p.map(k => k.id === krId ? { ...k, current_value: value, progress: newProgress } : k));
-    await supabase.from("key_results").update({ current_value: value, progress: newProgress }).eq("id", krId);
+    await supabase.from("key_results").update({ current_value: value, progress: newProgress }).eq("org_id", orgId).eq("id", krId);
     const objId = kr.objective_id;
     const objKRs = keyResults.map(k => k.id === krId ? { ...k, progress: newProgress } : k).filter(k => k.objective_id === objId);
     const avgProgress = objKRs.length > 0 ? Math.round(objKRs.reduce((s, k) => s + Number(k.progress || 0), 0) / objKRs.length) : 0;
     setObjectives(p => p.map(o => o.id === objId ? { ...o, progress: avgProgress } : o));
-    await supabase.from("objectives").update({ progress: avgProgress }).eq("id", objId);
+    await supabase.from("objectives").update({ progress: avgProgress }).eq("org_id", orgId).eq("id", objId);
   };
 
   const updateHealth = async (objId, health) => {
     setObjectives(p => p.map(o => o.id === objId ? { ...o, health } : o));
-    await supabase.from("objectives").update({ health }).eq("id", objId);
+    await supabase.from("objectives").update({ health }).eq("org_id", orgId).eq("id", objId);
   };
 
   const updateObjectiveTimeframe = async (objId, field, value) => {
     setObjectives(p => p.map(o => o.id === objId ? { ...o, [field]: value } : o));
-    await supabase.from("objectives").update({ [field]: value }).eq("id", objId);
+    await supabase.from("objectives").update({ [field]: value }).eq("org_id", orgId).eq("id", objId);
   };
 
   const openObjectiveForm = () => {
@@ -358,24 +358,24 @@ export default function OKRsView() {
     setMilestones(p => p.filter(m => m.objective_id !== objId));
     await supabase.from("key_results").update({ deleted_at: new Date().toISOString() }).eq("objective_id", objId);
     await supabase.from("okr_milestones").delete().eq("objective_id", objId);
-    await supabase.from("objectives").update({ deleted_at: new Date().toISOString() }).eq("id", objId);
+    await supabase.from("objectives").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", objId);
   };
 
   const archiveObjective = async (objId) => {
     setObjectives(p => p.filter(o => o.id !== objId));
-    await supabase.from("objectives").update({ visibility: "archived" }).eq("id", objId);
+    await supabase.from("objectives").update({ visibility: "archived" }).eq("org_id", orgId).eq("id", objId);
     showToast("Objective archived", "success");
   };
 
   const markObjectiveComplete = async (objId) => {
     setObjectives(p => p.map(o => o.id === objId ? { ...o, health: "completed", progress: 100 } : o));
-    await supabase.from("objectives").update({ health: "completed", progress: 100 }).eq("id", objId);
+    await supabase.from("objectives").update({ health: "completed", progress: 100 }).eq("org_id", orgId).eq("id", objId);
     showToast("🎉 Objective marked complete!", "success");
   };
 
   const deleteKeyResult = async (krId) => {
     setKeyResults(p => p.filter(k => k.id !== krId));
-    await supabase.from("key_results").update({ deleted_at: new Date().toISOString() }).eq("id", krId);
+    await supabase.from("key_results").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", krId);
   };
 
   // Milestone CRUD
@@ -404,7 +404,7 @@ export default function OKRsView() {
     const objKRs = (krArr || keyResults).filter(k => k.objective_id === objId);
     const avg = objKRs.length > 0 ? Math.round(objKRs.reduce((s, k) => s + Number(k.progress || 0), 0) / objKRs.length) : 0;
     setObjectives(p => p.map(o => o.id === objId ? { ...o, progress: avg } : o));
-    await supabase.from("objectives").update({ progress: avg }).eq("id", objId);
+    await supabase.from("objectives").update({ progress: avg }).eq("org_id", orgId).eq("id", objId);
   };
 
   const recalcKRFromMilestones = async (krId, msArr) => {
@@ -416,7 +416,7 @@ export default function OKRsView() {
     const tv = Number(kr.target_value) || 100;
     const prog = tv > 0 ? Math.round((cv / tv) * 100) : 0;
     setKeyResults(p => p.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
-    await supabase.from("key_results").update({ progress: prog, current_value: cv }).eq("id", krId);
+    await supabase.from("key_results").update({ progress: prog, current_value: cv }).eq("org_id", orgId).eq("id", krId);
     recalcObjectiveProgress(kr.objective_id, keyResults.map(k => k.id === krId ? { ...k, progress: prog, current_value: cv } : k));
   };
 
@@ -427,7 +427,7 @@ export default function OKRsView() {
       const { id, ...rest } = data;
       const updates = { title: rest.title, description: rest.description, health: rest.health, owner_id: rest.owner_id || null, timeframe: rest.timeframe, start_date: rest.start_date || null, end_date: rest.end_date || null };
       setObjectives(p => p.map(o => o.id === id ? { ...o, ...updates } : o));
-      await supabase.from("objectives").update(updates).eq("id", id);
+      await supabase.from("objectives").update(updates).eq("org_id", orgId).eq("id", id);
     } else if (type === "kr") {
       const { id, ...rest } = data;
       const mode = rest.progress_mode || "manual";
@@ -440,7 +440,7 @@ export default function OKRsView() {
         updates.current_value = Math.round((updates.progress / 100) * updates.target_value);
       }
       setKeyResults(p => p.map(k => k.id === id ? { ...k, ...updates } : k));
-      await supabase.from("key_results").update(updates).eq("id", id);
+      await supabase.from("key_results").update(updates).eq("org_id", orgId).eq("id", id);
       recalcObjectiveProgress(keyResults.find(k => k.id === id)?.objective_id, keyResults.map(k => k.id === id ? { ...k, ...updates } : k));
     } else if (type === "milestone") {
       const { id, _newUpdate, ...rest } = data;
@@ -1134,7 +1134,7 @@ export default function OKRsView() {
                                 const ed = d._editUpdateData || u;
                                 const newVal = Number(ed.value) || 0;
                                 const oldVal = Number(u.value) || 0;
-                                await supabase.from("milestone_updates").update({ period_start: ed.period_start, period_end: ed.period_end, value: newVal, note: ed.note || null }).eq("id", u.id);
+                                await supabase.from("milestone_updates").update({ period_start: ed.period_start, period_end: ed.period_end, value: newVal, note: ed.note || null }).eq("org_id", orgId).eq("id", u.id);
                                 setMsUpdates(p => p.map(x => x.id === u.id ? { ...x, period_start: ed.period_start, period_end: ed.period_end, value: newVal, note: ed.note || null } : x));
                                 const newCum = cumulative - oldVal + newVal;
                                 const newProg = tv > 0 ? Math.round((Math.max(0, newCum) / tv) * 100) : 0;
@@ -1154,7 +1154,7 @@ export default function OKRsView() {
                             <span onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ fontSize: 11, color: T.text3, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{u.note || "—"}</span>
                             <button onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 9, opacity: 0.4, padding: "2px 4px" }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>✎</button>
                             <button onClick={async () => {
-                              await supabase.from("milestone_updates").delete().eq("id", u.id);
+                              await supabase.from("milestone_updates").delete().eq("org_id", orgId).eq("id", u.id);
                               setMsUpdates(p => p.filter(x => x.id !== u.id));
                               const newCum = cumulative - Number(u.value);
                               const newProg = tv > 0 ? Math.round((Math.max(0, newCum) / tv) * 100) : 0;
@@ -1297,7 +1297,7 @@ export default function OKRsView() {
     const { data, error } = await supabase.from("okr_check_ins").insert(payload).select().single();
     if (error) { console.error("Check-in error:", error); return; }
     // Also update last_check_in_at on the KR
-    await supabase.from("key_results").update({ last_check_in_at: new Date().toISOString() }).eq("id", kr.id);
+    await supabase.from("key_results").update({ last_check_in_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", kr.id);
     setCheckIns(p => [data, ...p]);
     // Update KR current value
     if (newValue !== kr.current_value) {

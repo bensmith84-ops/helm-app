@@ -73,7 +73,7 @@ export default function SettingsView({ isAdmin }) {
   const [qboConn, setQboConn] = useState(null);
   const [qboSyncing, setQboSyncing] = useState(false);
   useEffect(() => {
-    supabase.from("qbo_connections").select("*").order("connected_at", { ascending: false }).limit(1).then(({ data }) => {
+    supabase.from("qbo_connections").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1).then(({ data }) => {
       if (data && data.length > 0) setQboConn(data[0]);
     });
   }, []);
@@ -122,7 +122,7 @@ export default function SettingsView({ isAdmin }) {
     // Load permissions
     (async () => {
       const [{ data: users }, { data: permData }] = await Promise.all([
-        supabase.from("profiles").select("id,display_name,email,role").eq("org_id", profile?.org_id).order("display_name"),
+        supabase.from("profiles").select("id,display_name,email,role").eq("org_id", orgId).eq("org_id", profile?.org_id).order("display_name"),
         supabase.from("user_module_permissions").select("*"),
       ]);
       setAllUsers(users || []);
@@ -136,7 +136,7 @@ export default function SettingsView({ isAdmin }) {
   };
 
   const saveSidebarConfig = async (groups) => {
-    await supabase.from("profiles").update({ sidebar_config: { groups } }).eq("id", user.id);
+    await supabase.from("profiles").update({ sidebar_config: { groups } }).eq("org_id", orgId).eq("id", user.id);
   };
   const showToast = (msg, color="#22c55e") => {
     setToast({ msg, color });
@@ -148,7 +148,7 @@ export default function SettingsView({ isAdmin }) {
     await supabase.from("profiles").update({
       display_name: displayName.trim(), timezone, title: title.trim(), bio: bio.trim(),
       updated_at: new Date().toISOString(),
-    }).eq("id", user.id);
+    }).eq("org_id", orgId).eq("id", user.id);
     setSaving(false);
     showToast("Profile saved");
   };
@@ -217,7 +217,7 @@ export default function SettingsView({ isAdmin }) {
                       if (error) return showToast("Upload failed: " + error.message, "#ef4444");
                       const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
                       const url = publicUrl + "?t=" + Date.now();
-                      await supabase.from("profiles").update({ avatar_url: url }).eq("id", user.id);
+                      await supabase.from("profiles").update({ avatar_url: url }).eq("org_id", orgId).eq("id", user.id);
                       showToast("Photo updated");
                       window.location.reload();
                     }} />
@@ -227,7 +227,7 @@ export default function SettingsView({ isAdmin }) {
                   <div style={{ fontSize:14, fontWeight:600 }}>{displayName || "Your name"}</div>
                   <div style={{ fontSize:12, color:T.text3 }}>{user?.email}</div>
                   {profile?.avatar_url && <button onClick={async () => {
-                    await supabase.from("profiles").update({ avatar_url: null }).eq("id", user.id);
+                    await supabase.from("profiles").update({ avatar_url: null }).eq("org_id", orgId).eq("id", user.id);
                     showToast("Photo removed");
                     window.location.reload();
                   }} style={{ fontSize:11, color:T.text3, background:"none", border:"none", cursor:"pointer", padding:0, marginTop:4, textDecoration:"underline" }}>Remove photo</button>}
@@ -367,7 +367,7 @@ export default function SettingsView({ isAdmin }) {
                 <button onClick={async () => {
                   const defaults = NAV_GROUPS.map(g => ({ label: g.label, items: g.items.map(i => ({ key: i.key, icon: i.icon, label: i.label, visible: true, adminOnly: i.adminOnly })) }));
                   setSidebarGroups(defaults);
-                  await supabase.from("profiles").update({ sidebar_config: null, nav_order: null }).eq("id", user.id);
+                  await supabase.from("profiles").update({ sidebar_config: null, nav_order: null }).eq("org_id", orgId).eq("id", user.id);
                   showToast("Reset to default layout");
                 }} style={{ marginTop: 6, fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
                   Reset to default layout
@@ -448,7 +448,7 @@ export default function SettingsView({ isAdmin }) {
             const count = selectedMembers.size;
             if (!window.confirm(`Remove ${count} member${count !== 1 ? "s" : ""} from the organization? This cannot be undone.`)) return;
             for (const uid of selectedMembers) {
-              await supabase.from("org_memberships").delete().eq("user_id", uid);
+              await supabase.from("org_memberships").delete().eq("org_id", orgId).eq("user_id", uid);
             }
             setMembers(p => p.filter(m => !selectedMembers.has(m.user_id)));
             setSelectedMembers(new Set());
@@ -459,7 +459,7 @@ export default function SettingsView({ isAdmin }) {
             const count = selectedMembers.size;
             if (!window.confirm(`Deactivate ${count} member${count !== 1 ? "s" : ""}? They will lose access but can be reactivated later.`)) return;
             for (const uid of selectedMembers) {
-              await supabase.from("org_memberships").update({ role: "deactivated" }).eq("user_id", uid);
+              await supabase.from("org_memberships").update({ role: "deactivated" }).eq("org_id", orgId).eq("user_id", uid);
             }
             setMembers(p => p.map(m => selectedMembers.has(m.user_id) ? { ...m, role: "deactivated" } : m));
             setSelectedMembers(new Set());
@@ -468,7 +468,7 @@ export default function SettingsView({ isAdmin }) {
           const bulkActivate = async () => {
             if (!selectedMembers.size) return;
             for (const uid of selectedMembers) {
-              await supabase.from("org_memberships").update({ role: "member" }).eq("user_id", uid);
+              await supabase.from("org_memberships").update({ role: "member" }).eq("org_id", orgId).eq("user_id", uid);
             }
             setMembers(p => p.map(m => selectedMembers.has(m.user_id) ? { ...m, role: "member" } : m));
             setSelectedMembers(new Set());
@@ -839,7 +839,7 @@ export default function SettingsView({ isAdmin }) {
                           if (data.error) { showToast("QBO sync error: " + data.error, "#ef4444"); }
                           else { showToast(`QBO synced: ${data.accounts||0} accounts, ${data.vendors||0} vendors, ${data.bills||0} bills, ${data.customers||0} customers, ${data.invoices||0} invoices`, "#22c55e"); }
                           // Refresh connection state
-                          const { data: conn } = await supabase.from("qbo_connections").select("*").order("connected_at", { ascending: false }).limit(1);
+                          const { data: conn } = await supabase.from("qbo_connections").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1);
                           if (conn && conn.length > 0) setQboConn(conn[0]);
                         } catch(e) { showToast("Sync failed: " + e, "#ef4444"); }
                         setQboSyncing(false);
@@ -848,7 +848,7 @@ export default function SettingsView({ isAdmin }) {
                       </button>
                       <button onClick={async ()=>{
                         if (!confirm("Disconnect QuickBooks? You can reconnect later.")) return;
-                        await supabase.from("qbo_connections").delete().eq("id", qboConn.id);
+                        await supabase.from("qbo_connections").delete().eq("org_id", orgId).eq("id", qboConn.id);
                         setQboConn(null);
                         showToast("QuickBooks disconnected", "#f59e0b");
                       }} style={{ padding:"7px 14px", fontSize:12, fontWeight:500, borderRadius:7, cursor:"pointer", flexShrink:0, background:T.surface2, color:T.text3, border:`1px solid ${T.border}` }}>

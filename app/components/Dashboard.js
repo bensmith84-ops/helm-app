@@ -336,7 +336,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
 
   // Load profiles for attendee search
   useEffect(() => {
-    supabase.from("profiles").select("id,display_name,email,avatar_url").then(({ data }) => setAllProfiles(data || []));
+    supabase.from("profiles").select("id,display_name,email,avatar_url").eq("org_id", orgId).then(({ data }) => setAllProfiles(data || []));
   }, []);
 
   // Server-side iCal sync
@@ -403,7 +403,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   };
 
   const removeCalendar = async (calId) => {
-    await supabase.from("calendars").update({ deleted_at: new Date().toISOString() }).eq("id", calId);
+    await supabase.from("calendars").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", calId);
     setCalendars(prev => prev.filter(c => c.id !== calId));
   };
 
@@ -436,7 +436,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
       start_at: editingEvent.start_at ? new Date(editingEvent.start_at).toISOString() : selectedEvent.start_at,
       end_at: editingEvent.end_at ? new Date(editingEvent.end_at).toISOString() : null,
     };
-    await supabase.from("calendar_events").update(updates).eq("id", selectedEvent.id);
+    await supabase.from("calendar_events").update(updates).eq("org_id", orgId).eq("id", selectedEvent.id);
     setEvents(prev => prev.map(e => e.id === selectedEvent.id ? { ...e, ...updates } : e));
     setSelectedEvent(prev => ({ ...prev, ...updates }));
   };
@@ -462,7 +462,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   };
 
   const deleteEvent = async (id) => {
-    await supabase.from("calendar_events").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    await supabase.from("calendar_events").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", id);
     setEvents(prev => prev.filter(e => e.id !== id));
     setSelectedEvent(null);
   };
@@ -679,7 +679,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
                           </div>
                           <span onClick={() => toggleCalendar(cal.id)} style={{ flex:1, fontSize:10, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cal.name}</span>
                           {cal.calendar_type === "ical" && (
-                            <button onClick={() => { const url = prompt("iCal URL:", cal.external_calendar_id || ""); if (url && url !== cal.external_calendar_id) { supabase.from("calendars").update({ external_calendar_id: url }).eq("id", cal.id).then(() => { setCalendars(prev => prev.map(c => c.id === cal.id ? {...c, external_calendar_id: url} : c)); syncIcalFeeds([{...cal, external_calendar_id: url}]); }); }}} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:9, opacity:0.4 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4} title="Edit iCal URL">✎</button>
+                            <button onClick={() => { const url = prompt("iCal URL:", cal.external_calendar_id || ""); if (url && url !== cal.external_calendar_id) { supabase.from("calendars").update({ external_calendar_id: url }).eq("org_id", orgId).eq("id", cal.id).then(() => { setCalendars(prev => prev.map(c => c.id === cal.id ? {...c, external_calendar_id: url} : c)); syncIcalFeeds([{...cal, external_calendar_id: url}]); }); }}} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:9, opacity:0.4 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4} title="Edit iCal URL">✎</button>
                           )}
                           <button onClick={() => removeCalendar(cal.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:10, opacity:0.3 }} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.3}>×</button>
                         </div>
@@ -1213,7 +1213,7 @@ export default function DashboardView({ setActive }) {
                 <button onClick={async () => {
                   const unread = inbox.filter(n => !n.is_read).map(n => n.id);
                   if (unread.length === 0) return;
-                  await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).in("id", unread);
+                  await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("org_id", orgId).in("id", unread);
                   setInbox(p => p.map(n => ({ ...n, is_read: true, read_at: new Date().toISOString() })));
                 }} style={{ background:"none", border:"none", color:T.accent, fontSize:11, cursor:"pointer", fontWeight:500 }}>Mark all read</button>
               ) : <span style={{ fontSize:10, color:T.text3 }}>All caught up</span>
@@ -1237,7 +1237,7 @@ export default function DashboardView({ setActive }) {
                     <div key={n.id}
                       onClick={async () => {
                         if (isUnread) {
-                          await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("id", n.id);
+                          await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", n.id);
                           setInbox(p => p.map(x => x.id === n.id ? { ...x, is_read: true } : x));
                         }
                         if (n.entity_type === "task" && n.entity_id) setActive("projects", n.entity_id);

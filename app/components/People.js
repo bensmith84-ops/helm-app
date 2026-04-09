@@ -180,8 +180,8 @@ export default function PeopleView() {
         supabase.from("profiles").select("*").eq("org_id", profile.org_id),
         supabase.from("org_memberships").select("*").eq("org_id", profile.org_id),
         supabase.from("tasks").select("id, title, status, priority, assignee_id, project_id, due_date").eq("org_id", orgId).is("deleted_at", null),
-        supabase.from("projects").select("id, name, color").is("deleted_at", null),
-        supabase.from("project_members").select("*"),
+        supabase.from("projects").select("id, name, color").eq("org_id", orgId).is("deleted_at", null),
+        supabase.from("project_members").select("*").eq("org_id", orgId),
         supabase.from("teams").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
         supabase.from("team_members").select("*"),
         supabase.from("key_results").select("id,title,progress,target_value,unit,owner_id").eq("org_id", orgId).is("deleted_at", null),
@@ -234,7 +234,7 @@ export default function PeopleView() {
       if (inviteEmploymentType) extra.employment_type = inviteEmploymentType;
       if (invitePersonalEmail.trim()) extra.personal_email = invitePersonalEmail.trim();
       if (Object.keys(extra).length > 0) {
-        await supabase.from("profiles").update(extra).eq("id", userId);
+        await supabase.from("profiles").update(extra).eq("org_id", orgId).eq("id", userId);
       }
       const newMember = { id: userId, display_name: inviteName.trim(), email: inviteEmail.trim(), org_id: profile.org_id, ...extra };
       setMembers(p => [...p.filter(m => m.id !== userId), newMember]);
@@ -246,12 +246,12 @@ export default function PeopleView() {
     }
   };
 
-  const updateRole = async (uid, newRole) => { const om = getMembership(uid); if (!om) return; const { error } = await supabase.from("org_memberships").update({ role: newRole }).eq("id", om.id); if (error) return showToast("Failed to update role"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, role: newRole } : m)); showToast("Role updated", "success"); };
+  const updateRole = async (uid, newRole) => { const om = getMembership(uid); if (!om) return; const { error } = await supabase.from("org_memberships").update({ role: newRole }).eq("org_id", orgId).eq("id", om.id); if (error) return showToast("Failed to update role"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, role: newRole } : m)); showToast("Role updated", "success"); };
   const permScrollRef = React.useRef(0);
   useEffect(() => { if (permScrollRef.current > 0) { setTimeout(() => { const el = document.querySelector("[data-perm-scroll]"); if (el) el.scrollTop = permScrollRef.current; }, 10); } }, [memberships]);
-  const toggleModuleAccess = async (uid, mod) => { const om = getMembership(uid); if (!om) return; const perms = om.module_permissions || {}; const current = perms[mod] !== false; const updated = { ...perms, [mod]: !current }; const scrollEl = document.querySelector("[data-perm-scroll]"); permScrollRef.current = scrollEl?.scrollTop || 0; await supabase.from("org_memberships").update({ module_permissions: updated }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, module_permissions: updated } : m)); };
-  const toggleProjectAccess = async (uid, projectId) => { const existing = projectMembers.find(pm => pm.user_id === uid && pm.project_id === projectId); if (existing) { await supabase.from("project_members").delete().eq("id", existing.id); setProjectMembers(p => p.filter(pm => pm.id !== existing.id)); } else { const { data, error } = await supabase.from("project_members").insert({ project_id: projectId, user_id: uid, role: "member" }).select().single(); if (!error && data) setProjectMembers(p => [...p, data]); } };
-  const deactivateUser = async (uid) => { const om = getMembership(uid); if (!om) return; const newActive = !om.is_active; const updates = { is_active: newActive }; if (!newActive) updates.deactivated_at = new Date().toISOString(); else updates.deactivated_at = null; const { error } = await supabase.from("org_memberships").update(updates).eq("id", om.id); if (error) return showToast("Failed to update"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, ...updates } : m)); showToast(newActive ? "User reactivated" : "User deactivated", "success"); };
+  const toggleModuleAccess = async (uid, mod) => { const om = getMembership(uid); if (!om) return; const perms = om.module_permissions || {}; const current = perms[mod] !== false; const updated = { ...perms, [mod]: !current }; const scrollEl = document.querySelector("[data-perm-scroll]"); permScrollRef.current = scrollEl?.scrollTop || 0; await supabase.from("org_memberships").update({ module_permissions: updated }).eq("org_id", orgId).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, module_permissions: updated } : m)); };
+  const toggleProjectAccess = async (uid, projectId) => { const existing = projectMembers.find(pm => pm.user_id === uid && pm.project_id === projectId); if (existing) { await supabase.from("project_members").delete().eq("org_id", orgId).eq("id", existing.id); setProjectMembers(p => p.filter(pm => pm.id !== existing.id)); } else { const { data, error } = await supabase.from("project_members").insert({ project_id: projectId, user_id: uid, role: "member" }).select().single(); if (!error && data) setProjectMembers(p => [...p, data]); } };
+  const deactivateUser = async (uid) => { const om = getMembership(uid); if (!om) return; const newActive = !om.is_active; const updates = { is_active: newActive }; if (!newActive) updates.deactivated_at = new Date().toISOString(); else updates.deactivated_at = null; const { error } = await supabase.from("org_memberships").update(updates).eq("org_id", orgId).eq("id", om.id); if (error) return showToast("Failed to update"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, ...updates } : m)); showToast(newActive ? "User reactivated" : "User deactivated", "success"); };
   const removeUser = async (uid) => {
     try {
       const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/remove-user", {
@@ -274,9 +274,9 @@ export default function PeopleView() {
 
   // Team CRUD
   const createTeam = async () => { if (!teamForm.name.trim()) return showToast("Team name required"); const { data, error } = await supabase.from("teams").insert({ org_id: profile.org_id, name: teamForm.name.trim(), description: teamForm.description, color: teamForm.color, parent_team_id: teamForm.parent_team_id || null, created_by: user.id }).select().single(); if (error) return showToast("Failed to create team"); setTeams(p => [...p, data]); setShowTeamForm(false); setTeamForm({ name: "", description: "", color: TEAM_COLORS[0], parent_team_id: null }); showToast("Team created", "success"); };
-  const deleteTeam = async (tid) => { if (!confirm("Delete this team?")) return; await supabase.from("team_members").delete().eq("team_id", tid); await supabase.from("teams").update({ deleted_at: new Date().toISOString() }).eq("id", tid); setTeams(p => p.filter(t => t.id !== tid)); setTeamMembers(p => p.filter(tm => tm.team_id !== tid)); if (selectedTeam === tid) setSelectedTeam(null); showToast("Team deleted", "success"); };
+  const deleteTeam = async (tid) => { if (!confirm("Delete this team?")) return; await supabase.from("team_members").delete().eq("team_id", tid); await supabase.from("teams").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", tid); setTeams(p => p.filter(t => t.id !== tid)); setTeamMembers(p => p.filter(tm => tm.team_id !== tid)); if (selectedTeam === tid) setSelectedTeam(null); showToast("Team deleted", "success"); };
   const addTeamMember = async (teamId, userId) => { const exists = teamMembers.find(tm => tm.team_id === teamId && tm.user_id === userId); if (exists) return; const { data, error } = await supabase.from("team_members").insert({ team_id: teamId, user_id: userId }).select().single(); if (!error && data) { setTeamMembers(p => [...p, data]); showToast("Member added", "success"); } };
-  const removeTeamMember = async (tmId) => { await supabase.from("team_members").delete().eq("id", tmId); setTeamMembers(p => p.filter(tm => tm.id !== tmId)); };
+  const removeTeamMember = async (tmId) => { await supabase.from("team_members").delete().eq("org_id", orgId).eq("id", tmId); setTeamMembers(p => p.filter(tm => tm.id !== tmId)); };
 
   // === Searchable Person Picker (reusable) ===
   const SearchablePicker = ({ people, selected: selIds, onToggle, placeholder }) => {
@@ -334,11 +334,11 @@ export default function PeopleView() {
           <span style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{selectedPeople.size} selected</span>
           <div style={{ flex: 1 }} />
           <button onClick={async () => {
-            for (const uid of selectedPeople) { const om = getMembership(uid); if (om?.is_active === false) { await supabase.from("org_memberships").update({ is_active: true }).eq("user_id", uid).eq("org_id", profile?.org_id); setMemberships(p => p.map(m => m.user_id === uid ? { ...m, is_active: true } : m)); } }
+            for (const uid of selectedPeople) { const om = getMembership(uid); if (om?.is_active === false) { await supabase.from("org_memberships").update({ is_active: true }).eq("org_id", orgId).eq("user_id", uid).eq("org_id", profile?.org_id); setMemberships(p => p.map(m => m.user_id === uid ? { ...m, is_active: true } : m)); } }
             setSelectedPeople(new Set());
           }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: "#22c55e", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✓ Activate</button>
           <button onClick={async () => {
-            for (const uid of selectedPeople) { await supabase.from("org_memberships").update({ is_active: false }).eq("user_id", uid).eq("org_id", profile?.org_id); setMemberships(p => p.map(m => m.user_id === uid ? { ...m, is_active: false } : m)); }
+            for (const uid of selectedPeople) { await supabase.from("org_memberships").update({ is_active: false }).eq("org_id", orgId).eq("user_id", uid).eq("org_id", profile?.org_id); setMemberships(p => p.map(m => m.user_id === uid ? { ...m, is_active: false } : m)); }
             setSelectedPeople(new Set());
           }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: "#eab308", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>⊘ Deactivate</button>
           <button onClick={async () => {
@@ -495,11 +495,11 @@ export default function PeopleView() {
           <div style={{ flex: 1 }}>
             <EditableField value={selected.display_name || ""} placeholder="Full name"
               style={{ fontSize: 18, fontWeight: 700, color: T.text, width: "100%" }}
-              onSave={async (v) => { await supabase.from("profiles").update({ display_name: v }).eq("id", selected.id); setSelected(s => ({ ...s, display_name: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, display_name: v } : m)); }} />
+              onSave={async (v) => { await supabase.from("profiles").update({ display_name: v }).eq("org_id", orgId).eq("id", selected.id); setSelected(s => ({ ...s, display_name: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, display_name: v } : m)); }} />
             <EditableField value={selected.email || ""} placeholder="Email address"
               style={{ fontSize: 12, color: T.text3, marginTop: 2, width: "100%" }}
               onSave={async (v) => {
-                await supabase.from("profiles").update({ email: v }).eq("id", selected.id);
+                await supabase.from("profiles").update({ email: v }).eq("org_id", orgId).eq("id", selected.id);
                 setSelected(s => ({ ...s, email: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, email: v } : m));
                 const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
                   method: "POST", headers: { "Content-Type": "application/json" },
@@ -540,20 +540,20 @@ export default function PeopleView() {
                       style={{ flex: 1, fontSize: 12, border: "none", outline: "none", background: "transparent", color: T.text, padding: 0 }} />
                   )}
                   {selected.reports_to && !reportsSearchOpen && (
-                    <span onClick={async (e) => { e.stopPropagation(); await supabase.from("profiles").update({ reports_to: null }).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: null } : m)); setSelected(s => ({ ...s, reports_to: null })); }}
+                    <span onClick={async (e) => { e.stopPropagation(); await supabase.from("profiles").update({ reports_to: null }).eq("org_id", orgId).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: null } : m)); setSelected(s => ({ ...s, reports_to: null })); }}
                       style={{ fontSize: 11, color: T.text3, cursor: "pointer", padding: "0 4px" }} title="Clear">✕</span>
                   )}
                   <span style={{ fontSize: 10, color: T.text3 }}>▾</span>
                 </div>
                 {reportsSearchOpen && (
                   <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100, maxHeight: 200, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", marginTop: 2 }}>
-                    <div onClick={async () => { await supabase.from("profiles").update({ reports_to: null }).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: null } : m)); setSelected(s => ({ ...s, reports_to: null })); setReportsSearchOpen(false); }}
+                    <div onClick={async () => { await supabase.from("profiles").update({ reports_to: null }).eq("org_id", orgId).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: null } : m)); setSelected(s => ({ ...s, reports_to: null })); setReportsSearchOpen(false); }}
                       style={{ padding: "7px 10px", fontSize: 12, color: T.text3, cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
                       onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       — No supervisor —
                     </div>
                     {filtered.slice(0, 20).map(m => (
-                      <div key={m.id} onClick={async () => { await supabase.from("profiles").update({ reports_to: m.id }).eq("id", selected.id); setMembers(p => p.map(x => x.id === selected.id ? { ...x, reports_to: m.id } : x)); setSelected(s => ({ ...s, reports_to: m.id })); setReportsSearchOpen(false); }}
+                      <div key={m.id} onClick={async () => { await supabase.from("profiles").update({ reports_to: m.id }).eq("org_id", orgId).eq("id", selected.id); setMembers(p => p.map(x => x.id === selected.id ? { ...x, reports_to: m.id } : x)); setSelected(s => ({ ...s, reports_to: m.id })); setReportsSearchOpen(false); }}
                         style={{ padding: "7px 10px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
                         onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <div style={{ width: 22, height: 22, borderRadius: 11, background: acol(m.id) + "20", color: acol(m.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{ini(m.display_name)}</div>
@@ -590,7 +590,7 @@ export default function PeopleView() {
             <div key={field} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <span style={{ fontSize: 11, color: T.text3, width: 90, flexShrink: 0 }}>{label}</span>
               <input defaultValue={selected[field] || ""} key={selected.id + "-" + field}
-                onBlur={async (e) => { const v = e.target.value.trim() || null; if (v === (selected[field] || null)) return; await supabase.from("profiles").update({ [field]: v }).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, [field]: v } : m)); setSelected(s => ({ ...s, [field]: v })); }}
+                onBlur={async (e) => { const v = e.target.value.trim() || null; if (v === (selected[field] || null)) return; await supabase.from("profiles").update({ [field]: v }).eq("org_id", orgId).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, [field]: v } : m)); setSelected(s => ({ ...s, [field]: v })); }}
                 onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
                 placeholder={`No ${label.toLowerCase()}`}
                 style={{ flex: 1, padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, outline: "none", boxSizing: "border-box" }} />
@@ -696,7 +696,7 @@ export default function PeopleView() {
                 <button key={v} onClick={async () => { 
                   const membership = getMembership(selected?.id); 
                   if (!membership?.id) { showToast("No membership found for this user"); return; } 
-                  const { error } = await supabase.from("org_memberships").update({ af_role: v }).eq("id", membership.id); 
+                  const { error } = await supabase.from("org_memberships").update({ af_role: v }).eq("org_id", orgId).eq("id", membership.id); 
                   if (error) { showToast("Error: " + error.message); return; }
                   setMemberships(p => p.map(m => m.id === membership.id ? { ...m, af_role: v } : m)); 
                   showToast("Finance role → " + l, "success"); 
@@ -715,8 +715,8 @@ export default function PeopleView() {
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 13, color: T.text3 }}>$</span>
               <input type="number" defaultValue={om?.af_spend_limit || 500}
-                onBlur={async (e) => { if (!om?.id) return; const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); }}
-                onKeyDown={async (e) => { if (e.key === "Enter") { if (!om?.id) return; const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); e.target.blur(); } }}
+                onBlur={async (e) => { if (!om?.id) return; const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("org_id", orgId).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); }}
+                onKeyDown={async (e) => { if (e.key === "Enter") { if (!om?.id) return; const val = parseFloat(e.target.value) || 0; await supabase.from("org_memberships").update({ af_spend_limit: val }).eq("org_id", orgId).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_spend_limit: val } : m)); showToast("Spend limit updated", "success"); e.target.blur(); } }}
                 style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 700, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>Requests below this amount auto-approve without routing through the approval chain</div>
@@ -724,7 +724,7 @@ export default function PeopleView() {
           {/* Level */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Org Level</div>
-            <select defaultValue={om?.af_level || "IC"} onChange={async (e) => { if (!om?.id) return; await supabase.from("org_memberships").update({ af_level: e.target.value }).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_level: e.target.value } : m)); showToast("Level updated", "success"); }}
+            <select defaultValue={om?.af_level || "IC"} onChange={async (e) => { if (!om?.id) return; await supabase.from("org_memberships").update({ af_level: e.target.value }).eq("org_id", orgId).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, af_level: e.target.value } : m)); showToast("Level updated", "success"); }}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, cursor: "pointer", outline: "none", boxSizing: "border-box" }}>
               {["IC","Senior IC","Lead","Manager","Director","VP","C-Suite","Contractor"].map(l => <option key={l} value={l}>{l}</option>)}
             </select>
@@ -1054,7 +1054,7 @@ export default function PeopleView() {
               return kids.some(k => isDescendant(k.id, checkId));
             };
             if (isDescendant(dragPerson, targetId)) { setDragPerson(null); setDropTarget(null); return; }
-            await supabase.from("profiles").update({ reports_to: targetId }).eq("id", dragPerson);
+            await supabase.from("profiles").update({ reports_to: targetId }).eq("org_id", orgId).eq("id", dragPerson);
             setMembers(p => p.map(m => m.id === dragPerson ? { ...m, reports_to: targetId } : m));
             if (selected?.id === dragPerson) setSelected(s => ({ ...s, reports_to: targetId }));
             setDragPerson(null); setDropTarget(null);
@@ -1062,7 +1062,7 @@ export default function PeopleView() {
 
           const handleUnassign = async () => {
             if (!dragPerson) return;
-            await supabase.from("profiles").update({ reports_to: null }).eq("id", dragPerson);
+            await supabase.from("profiles").update({ reports_to: null }).eq("org_id", orgId).eq("id", dragPerson);
             setMembers(p => p.map(m => m.id === dragPerson ? { ...m, reports_to: null } : m));
             if (selected?.id === dragPerson) setSelected(s => ({ ...s, reports_to: null }));
             setDragPerson(null); setDropTarget(null);

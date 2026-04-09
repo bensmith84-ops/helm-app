@@ -226,9 +226,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       await supabase.from("project_favorites").insert({ user_id: user?.id, project_id: projectId });
     }
   };
-  const archiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "archived" }).eq("id", id); if (error) return showToast("Failed to archive"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "archived" } : pr)); if (activeProject === id) setActiveProject(null); showToast("Project archived", "success"); };
-  const unarchiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "active" }).eq("id", id); if (error) return showToast("Failed to restore"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "active" } : pr)); showToast("Project restored", "success"); };
-  const deleteProject = async (id) => { const name = projects.find(p => p.id === id)?.name || "this project"; if (!window.confirm(`Delete "${name}"? This will permanently remove the project and all its tasks. This cannot be undone.`)) return; const { error } = await supabase.from("projects").delete().eq("id", id); if (error) return showToast("Failed to delete: " + error.message); setProjects(p => p.filter(pr => pr.id !== id)); setTasks(p => p.filter(t => t.project_id !== id)); setSections(p => p.filter(s => s.project_id !== id)); if (activeProject === id) { setActiveProject(null); setSelectedTask(null); } showToast("Project deleted", "success"); };
+  const archiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "archived" }).eq("org_id", orgId).eq("id", id); if (error) return showToast("Failed to archive"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "archived" } : pr)); if (activeProject === id) setActiveProject(null); showToast("Project archived", "success"); };
+  const unarchiveProject = async (id) => { const { error } = await supabase.from("projects").update({ status: "active" }).eq("org_id", orgId).eq("id", id); if (error) return showToast("Failed to restore"); setProjects(p => p.map(pr => pr.id === id ? { ...pr, status: "active" } : pr)); showToast("Project restored", "success"); };
+  const deleteProject = async (id) => { const name = projects.find(p => p.id === id)?.name || "this project"; if (!window.confirm(`Delete "${name}"? This will permanently remove the project and all its tasks. This cannot be undone.`)) return; const { error } = await supabase.from("projects").delete().eq("org_id", orgId).eq("id", id); if (error) return showToast("Failed to delete: " + error.message); setProjects(p => p.filter(pr => pr.id !== id)); setTasks(p => p.filter(t => t.project_id !== id)); setSections(p => p.filter(s => s.project_id !== id)); if (activeProject === id) { setActiveProject(null); setSelectedTask(null); } showToast("Project deleted", "success"); };
   const ini = (uid) => { const u = _profilesRef.current[uid]; return u?.display_name ? u.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const iniName = (name) => name ? name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?";
   const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
@@ -243,11 +243,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       setLoading(true);
       try {
         const [pR, sR, tR, prR, tmR, obR, favR, pmR, permR, allPmR] = await Promise.all([
-          supabase.from("projects").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
+          supabase.from("projects").select("*").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("sections").select("*").order("sort_order"),
-          supabase.from("tasks").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("sort_order"),
-          supabase.from("profiles").select("*").eq("org_id", profile.org_id),
-          supabase.from("teams").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
+          supabase.from("tasks").select("*").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("sort_order"),
+          supabase.from("profiles").select("*").eq("org_id", orgId).eq("org_id", profile.org_id),
+          supabase.from("teams").select("*").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("objectives").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
           supabase.from("project_favorites").select("project_id").eq("user_id", user?.id),
           supabase.from("project_members").select("project_id, user_id, role").eq("org_id", orgId).eq("user_id", user?.id),
@@ -263,7 +263,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         setProjects(visibleProjects); setSections(sR.data || []); setTasks(tR.data || []);
         setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
         // Load key results for linking
-        supabase.from("key_results").select("id,title,objective_id,progress,unit,target_value,current_value").eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
+        supabase.from("key_results").select("id,title,objective_id,progress,unit,target_value,current_value").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
         setFavorites(new Set((favR.data || []).map(f => f.project_id)));
         setProjMembersList(allPmR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
@@ -278,7 +278,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         // Load custom project labels
         supabase.from("project_labels").select("*").eq("org_id", profile.org_id).order("sort_order").then(({ data }) => setProjectLabels(data || []));
         // Load PLM programs for linking
-        supabase.from("plm_programs").select("id, name, category, current_stage, brand").is("deleted_at", null).order("name").then(({ data }) => setPlmPrograms(data || []));
+        supabase.from("plm_programs").select("id, name, category, current_stage, brand").eq("org_id", orgId).is("deleted_at", null).order("name").then(({ data }) => setPlmPrograms(data || []));
         // Load templates and docs
         const [tmplR, docsR] = await Promise.all([
           supabase.from("project_templates").select("*").order("is_builtin", { ascending: false }).order("name"),
@@ -450,7 +450,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const done = taskList.filter(t => t.project_id === pid && t.status === "done").length;
     const total = taskList.filter(t => t.project_id === pid && !t.parent_task_id).length;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    await supabase.from("projects").update({ progress: pct }).eq("id", pid);
+    await supabase.from("projects").update({ progress: pct }).eq("org_id", orgId).eq("id", pid);
     if (pct === 100 && total > 0) {
       showToast("🎉 Project complete! All tasks done.", "success");
     }
@@ -461,7 +461,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const createStandaloneTask = async (title) => { if (!title?.trim() || !profile?.org_id) return; const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, title: title.trim(), status: "todo", priority: "none", assignee_id: user.id, sort_order: 0, created_by: user.id }).select().single(); if (error) return showToast("Failed to create task"); setTasks(p => [...p, data]); showToast("Personal task created", "success"); };
   const createSubtask = async (parentTask, titleOverride) => { const title = titleOverride || _newSubTitleRef.current || newSubtaskTitle; if (!title.trim()) return; const currentTasks = _tasksRef.current; const mx = currentTasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id, title: title.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create subtask"); setTasks(p => [...p, data]); setExpandedTasks(p => ({ ...p, [parentTask.id]: true })); setNewSubtaskTitle(""); setAddingSubtaskTo(null); executeRules(data.id, "__created", true, null, data); };
   const startAddSubtask = (task, e) => { e?.stopPropagation(); setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); setExpandedTasks(p => ({ ...p, [task.id]: true })); };
-  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); return; } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); }
+  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("org_id", orgId).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); return; } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); }
     // Notify on assignment
     if (field === "assignee_id" && value && value !== user?.id && value !== old?.assignee_id) {
       const proj = projects.find(p => p.id === (old?.project_id || activeProject));
@@ -511,11 +511,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       }
     }
   };
-  const deleteTask = async (taskId) => { const ok = await showConfirm("Delete Task", "Are you sure?"); if (!ok) return; await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId); setTasks(p => p.filter(t => t.id !== taskId)); if (selectedTask?.id === taskId) setSelectedTask(null); };
+  const deleteTask = async (taskId) => { const ok = await showConfirm("Delete Task", "Are you sure?"); if (!ok) return; await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", taskId); setTasks(p => p.filter(t => t.id !== taskId)); if (selectedTask?.id === taskId) setSelectedTask(null); };
   const duplicateTask = async (task) => { const mx = tasks.filter(t => t.section_id === task.section_id && !t.parent_task_id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: task.section_id, title: task.title + " (copy)", status: task.status, priority: task.priority, assignee_id: task.assignee_id, due_date: task.due_date, sort_order: mx + 1, created_by: user.id }).select().single(); if (!error && data) { setTasks(p => [...p, data]); executeRules(data.id, "__created", true, null, data); } };
   const createSection = async () => { if (!newSectionName.trim()) return; const mx = projSections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0); const { data, error } = await supabase.from("sections").insert({ project_id: activeProject, name: newSectionName.trim(), sort_order: mx + 1 }).select().single(); if (!error && data) setSections(p => [...p, data]); setNewSectionName(""); setAddingSection(false); };
   const renameSection = async (secId) => { if (!editingSectionName.trim()) return; await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId); setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s)); setEditingSectionId(null); };
-  const deleteSection = async (secId) => { const st = tasks.filter(t => t.section_id === secId); const ok = await showConfirm("Delete Section", st.length ? `Delete ${st.length} task(s) too?` : "Delete this section?"); if (!ok) return; if (st.length) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("section_id", secId); await supabase.from("sections").delete().eq("id", secId); setSections(p => p.filter(s => s.id !== secId)); setTasks(p => p.filter(t => t.section_id !== secId)); };
+  const deleteSection = async (secId) => { const st = tasks.filter(t => t.section_id === secId); const ok = await showConfirm("Delete Section", st.length ? `Delete ${st.length} task(s) too?` : "Delete this section?"); if (!ok) return; if (st.length) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("section_id", secId); await supabase.from("sections").delete().eq("id", secId); setSections(p => p.filter(s => s.id !== secId)); setTasks(p => p.filter(t => t.section_id !== secId)); };
   const moveSection = async (secId, direction) => {
     const idx = projSections.findIndex(s => s.id === secId);
     if (idx < 0) return;
@@ -611,7 +611,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     if (error) return showToast("Failed to save update");
     setStatusUpdates(p => [data, ...p]);
     // Update project health based on status
-    await supabase.from("projects").update({ status: statusForm.health === "off_track" ? "on_hold" : "active" }).eq("id", activeProject);
+    await supabase.from("projects").update({ status: statusForm.health === "off_track" ? "on_hold" : "active" }).eq("org_id", orgId).eq("id", activeProject);
     setShowStatusForm(false);
     setStatusForm({ health: "on_track", summary: "", highlights: "", blockers: "" });
     showToast("Status update posted", "success");
@@ -620,7 +620,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const bulkUpdateTasks = async (field, value) => {
     const ids = [...selectedTasks];
     setTasks(p => p.map(t => ids.includes(t.id) ? { ...t, [field]: value } : t));
-    await supabase.from("tasks").update({ [field]: value }).in("id", ids);
+    await supabase.from("tasks").update({ [field]: value }).eq("org_id", orgId).in("id", ids);
     setSelectedTasks(new Set()); setBulkMode(false);
     showToast(`Updated ${ids.length} task${ids.length > 1 ? "s" : ""}`, "success");
   };
@@ -658,7 +658,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     showToast(`"${srcProject.name}" saved as template`, "success");
   };
 
-  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, key_result_id: projectForm.key_result_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
+  const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, key_result_id: projectForm.key_result_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); } } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); } } else { const { error } = await supabase.from("projects").update(payload).eq("org_id", orgId).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
   const addCommentFromRef = async (text) => {
     if (!text || !selectedTask) return;
     // Extract @mentions — pattern: @[Name](userId)
@@ -690,18 +690,18 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   };
   const editComment = async (id, newContent) => {
     if (!newContent?.trim()) return;
-    const { data, error } = await supabase.from("comments").update({ content: newContent.trim(), is_edited: true, edited_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id).select().single();
+    const { data, error } = await supabase.from("comments").update({ content: newContent.trim(), is_edited: true, edited_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", id).select().single();
     if (!error && data) setComments(p => p.map(c => c.id === data.id ? data : c));
     setEditingCommentId(null);
   };
   const deleteComment = async (id) => {
     if (!window.confirm("Delete this comment?")) return;
-    await supabase.from("comments").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    await supabase.from("comments").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", id);
     setComments(p => p.filter(c => c.id !== id));
   };
   const addComment = async () => { if (!newComment.trim() || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: newComment.trim() }).select().single(); if (!error && data) setComments(p => [...p, data]); setNewComment(""); };
   const uploadAttachment = async (file) => { if (!selectedTask) return; const path = `${profile.org_id}/${selectedTask.id}/${Date.now()}_${file.name}`; const { error: ue } = await supabase.storage.from("attachments").upload(path, file); if (ue) return showToast("Upload failed"); const { data, error } = await supabase.from("attachments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user.id }).select().single(); if (!error && data) setAttachments(p => [...p, data]); };
-  const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
+  const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("org_id", orgId).eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
   const addDependency = async (pre, suc) => { if (pre === suc || dependencies.some(d => d.predecessor_id === pre && d.successor_id === suc)) return; const { data, error } = await supabase.from("task_dependencies").insert({ predecessor_id: pre, successor_id: suc, dependency_type: "finish_to_start" }).select().single(); if (!error && data) setDependencies(p => [...p, data]); };
   const removeDependency = async (depId) => { await supabase.from("task_dependencies").delete().eq("id", depId); setDependencies(p => p.filter(d => d.id !== depId)); };
   const [showCFCreate, setShowCFCreate] = useState(false);
@@ -1751,7 +1751,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                         const affected = tasks.filter(t => (t.labels || []).includes(l));
                         for (const t of affected) {
                           const newLabels = (t.labels || []).filter(x => x !== l);
-                          await supabase.from("tasks").update({ labels: newLabels }).eq("id", t.id);
+                          await supabase.from("tasks").update({ labels: newLabels }).eq("org_id", orgId).eq("id", t.id);
                         }
                         setTasks(p => p.map(t => (t.labels || []).includes(l) ? { ...t, labels: (t.labels || []).filter(x => x !== l) } : t));
                       }} style={{ fontSize: 8, padding: "1px 3px", background: "none", border: `1px solid ${T.border}`, borderRadius: 3, color: T.text3, cursor: "pointer", opacity: 0.5 }} title="Delete label">✕</button>}
@@ -2360,7 +2360,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         setDocs(p => [data, ...p]);
         // Also set as the linked doc if none linked yet
         if (!proj?.linked_doc_id) {
-          await supabase.from("projects").update({ linked_doc_id: data.id }).eq("id", activeProject);
+          await supabase.from("projects").update({ linked_doc_id: data.id }).eq("org_id", orgId).eq("id", activeProject);
           setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: data.id } : pr));
         }
         showToast("Doc created — open it in the Docs module to edit", "success");
@@ -2377,14 +2377,14 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       await supabase.from("documents").update({ project_id: activeProject }).eq("id", docId);
       setDocs(p => p.map(d => d.id === docId ? { ...d, project_id: activeProject } : d));
       if (!proj?.linked_doc_id) {
-        await supabase.from("projects").update({ linked_doc_id: docId }).eq("id", activeProject);
+        await supabase.from("projects").update({ linked_doc_id: docId }).eq("org_id", orgId).eq("id", activeProject);
         setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: docId } : pr));
       }
       showToast("Doc linked to project", "success");
     };
 
     const setPrimary = async (docId) => {
-      await supabase.from("projects").update({ linked_doc_id: docId }).eq("id", activeProject);
+      await supabase.from("projects").update({ linked_doc_id: docId }).eq("org_id", orgId).eq("id", activeProject);
       setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: docId } : pr));
     };
 
@@ -2392,7 +2392,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       await supabase.from("documents").update({ project_id: null }).eq("id", docId);
       setDocs(p => p.map(d => d.id === docId ? { ...d, project_id: null } : d));
       if (proj?.linked_doc_id === docId) {
-        await supabase.from("projects").update({ linked_doc_id: null }).eq("id", activeProject);
+        await supabase.from("projects").update({ linked_doc_id: null }).eq("org_id", orgId).eq("id", activeProject);
         setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: null } : pr));
       }
       showToast("Doc unlinked", "success");
@@ -3213,7 +3213,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           setProjMembersList(p => [...p, { project_id: activeProject, user_id: uid, role: "member" }]);
         };
         const removeMember = async (uid) => {
-          await supabase.from("project_members").delete().eq("project_id", activeProject).eq("user_id", uid);
+          await supabase.from("project_members").delete().eq("org_id", orgId).eq("project_id", activeProject).eq("user_id", uid);
           setProjMembersList(p => p.filter(pm => !(pm.project_id === activeProject && pm.user_id === uid)));
         };
         return (
