@@ -287,6 +287,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
    ═══════════════════════════════════════════════════════ */
 function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   const { isMobile } = useResponsive();
+  const { orgId } = useAuth();
   const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4";
   const EDGE_BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
 
