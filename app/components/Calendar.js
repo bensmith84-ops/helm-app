@@ -12,7 +12,7 @@ const MONTHS = ["January","February","March","April","May","June","July","August
 const SHORT_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 export default function CalendarView() {
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [tasks, setTasks] = useState([]);
   const [milestones, setMilestones] = useState([]);

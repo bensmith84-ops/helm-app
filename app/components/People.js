@@ -112,7 +112,7 @@ const TEAM_COLORS = ["#3b82f6","#22c55e","#a855f7","#f97316","#ec4899","#06b6d4"
 
 export default function PeopleView() {
   const { isMobile } = useResponsive();
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const [members, setMembers] = useState([]);
   const [memberships, setMemberships] = useState([]);
   const [tasks, setTasks] = useState([]);

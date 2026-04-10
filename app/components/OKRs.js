@@ -83,7 +83,7 @@ function generatePeriods(startStr, endStr, freq) {
 }
 
 export default function OKRsView() {
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { showPrompt, showConfirm } = useModal();
   const { isMobile } = useResponsive();
   const [cycles, setCycles] = useState([]);

@@ -30,7 +30,7 @@ const cpa  = (spend, conv) => conv > 0 ? "$"+(Number(spend)/Number(conv)).toFixe
 const cvr  = (clicks, conv) => clicks > 0 ? ((Number(conv)/Number(clicks))*100).toFixed(1)+"%" : "—";
 
 export default function CampaignsView() {
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { showPrompt, showConfirm } = useModal();
   const { isMobile } = useResponsive();
   const [campaigns, setCampaigns] = useState([]);

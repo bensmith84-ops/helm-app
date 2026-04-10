@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 import { useResponsive } from "../lib/responsive";
 
@@ -306,6 +307,7 @@ function IngredientDetail({ ingredient, onUpdate, onClose }) {
 
 // ── Main Library View ─────────────────────────────────────────────────────────
 export default function PLMLibraryView() {
+  const { orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -315,19 +317,9 @@ export default function PLMLibraryView() {
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newItem, setNewItem] = useState({ name:"", ingredient_type:"ingredient", category:"", default_uom:"kg" });
-  const [orgId, setOrgId] = useState(null);
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: mem } = await supabase.from("org_memberships").select("org_id").eq("user_id", user.id).maybeSingle();
-        if (mem?.org_id) setOrgId(mem.org_id);
-        else {
-          const { data: prog } = await supabase.from("plm_programs").select("org_id").not("org_id","is",null).limit(1).maybeSingle();
-          if (prog?.org_id) setOrgId(prog.org_id);
-        }
-      }
       const { data } = await supabase.from("plm_ingredient_library").select("*").eq("active", true).order("ingredient_type").order("name");
       setItems(data || []);
       setLoading(false);

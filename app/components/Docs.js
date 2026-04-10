@@ -109,8 +109,7 @@ const evalFormula = (formula, tableData) => {
 };
 
 export default function DocsView({ setActive }) {
-  const { user, profile } = useAuth();
-  const orgId = profile?.org_id;
+  const { user, profile, orgId } = useAuth();
   const [docs, setDocs] = useState([]);
   const [profiles, setProfiles] = useState({});
   const [loading, setLoading] = useState(true);

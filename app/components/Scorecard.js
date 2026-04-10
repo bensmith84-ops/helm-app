@@ -123,7 +123,7 @@ function SparkTrend({ values }) {
 
 export default function ScorecardView() {
   const { isMobile } = useResponsive();
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const [metrics, setMetrics] = useState([]);
   const [entries, setEntries] = useState({}); // { metricId: { weekStart: value } }
   const [comments, setComments] = useState({}); // { metricId: { weekStart: { comment, comment_by, comment_at } } }
@@ -136,7 +136,6 @@ export default function ScorecardView() {
   const [showAddMetric, setShowAddMetric] = useState(false);
   const [newMetric, setNewMetric] = useState({ name:"", unit:"number", goal:"", frequency:"weekly", description:"", linked_kr_id:"", auto_source:"", auto_agg:"sum", auto_weight_key:"", target_direction:"above", metric_type:"quantitative" });
   const [saving, setSaving] = useState(false);
-  const [orgId, setOrgId] = useState(null);
   const [autoCalcRunning, setAutoCalcRunning] = useState(false);
   const [editAutoSource, setEditAutoSource] = useState(null);
   const [ragModal, setRagModal] = useState(null); // { metricId, weekStart, currentColor, currentComment }
@@ -163,7 +162,6 @@ export default function ScorecardView() {
       const profMap = {};
       (prof || []).forEach(u => { profMap[u.id] = u; });
       setProfiles(profMap);
-      setOrgId(mem?.org_id);
       setMetrics(met || []);
       setKeyResults(krs || []);
 

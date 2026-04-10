@@ -23,7 +23,7 @@ const TYPE_CFG = {
 
 export default function CallsView() {
   const { isMobile } = useResponsive();
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { showConfirm } = useModal();
   const [calls, setCalls] = useState([]);
   const [profiles, setProfiles] = useState({});

@@ -10,7 +10,7 @@ const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
 
 export default function MessagesView() {
-  const { user, profile } = useAuth();
+  const { user, profile, orgId } = useAuth();
   const { showPrompt } = useModal();
   const { isMobile } = useResponsive();
   const [channels, setChannels] = useState([]);

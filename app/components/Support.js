@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth";
 import { T as TK } from "../tokens";
 
 const STATUS_COLORS = { open: "#3b82f6", pending: "#f59e0b", waiting: "#8b5cf6", resolved: "#22c55e", closed: "#6b7280" };
@@ -38,6 +39,7 @@ const timeAgo = (d) => {
 };
 
 export default function SupportView() {
+  const { orgId } = useAuth();
   const T = TK;
   const [tab, setTab] = useState("inbox");
   const [tickets, setTickets] = useState([]);
@@ -84,7 +86,7 @@ export default function SupportView() {
       setUser(u);
       const { data: p } = await supabase.from("profiles").select("*").eq("org_id", orgId).eq("id", u.id).single();
       setProfile(p);
-      const orgId = p?.org_id;
+
       if (!orgId) return;
 
       const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes] = await Promise.all([
@@ -150,7 +152,7 @@ export default function SupportView() {
   });
 
   const loadAllTickets = async (statusFilter) => {
-    const orgId = profile?.org_id;
+
     if (!orgId) return;
     let q = supabase.from("cx_tickets").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(200);
     if (statusFilter && statusFilter.length) q = q.in("status", statusFilter);
@@ -199,7 +201,7 @@ export default function SupportView() {
   };
 
   const createTicket = async (form) => {
-    const orgId = profile?.org_id;
+
     const { data } = await supabase.from("cx_tickets").insert({
       org_id: orgId,
       subject: form.subject,

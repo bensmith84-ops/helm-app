@@ -2359,11 +2359,11 @@ function SKUsTab({ programId }) {
 
 function IssuesTab({ programId }) {
   const { isMobile } = useResponsive();
+  const { orgId } = useAuth();
   const [issues, setIssues] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [orgId, setOrgId] = useState(null);
-  useEffect(()=>{ supabase.from("plm_programs").select("org_id").eq("org_id", orgId).eq("id",programId).single().then(({data})=>setOrgId(data?.org_id)); supabase.from("plm_issues").select("*").eq("org_id", orgId).eq("program_id",programId).order("created_at",{ascending:false}).then(({data})=>{setIssues(data||[]);setLoading(false);}); },[programId]);
+  useEffect(()=>{ supabase.from("plm_issues").select("*").eq("org_id", orgId).eq("program_id",programId).order("created_at",{ascending:false}).then(({data})=>{setIssues(data||[]);setLoading(false);}); },[programId]);
   const add=async()=>{ const{data}=await supabase.from("plm_issues").insert({program_id:programId,title:"New Issue",issue_type:"formulation",severity:"minor",status:"open",org_id:orgId}).select().single(); if(data){setIssues(p=>[data,...p]);setSelected(data);} };
   const update=async(field,val)=>{ await supabase.from("plm_issues").update({[field]:val}).eq("org_id", orgId).eq("id",selected.id); const u={...selected,[field]:val}; setSelected(u); setIssues(p=>p.map(x=>x.id===u.id?u:x)); };
   const sc={critical:"#ef4444",high:"#f97316",medium:"#eab308",low:"#22c55e"};
@@ -3233,29 +3233,17 @@ function ProductRoadmap({ programs, allSkus, onSelectProgram, isMobile }) {
 
 export default function PLMView() {
   const { isMobile } = useResponsive();
+  const { orgId } = useAuth();
   const [programs, setPrograms] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading]   = useState(true);
   const [view, setView]         = useState("pipeline");
   const [showNew, setShowNew]   = useState(false);
   const [search, setSearch]     = useState("");
-  const [orgId, setOrgId]       = useState(null);
   const [allSkus, setAllSkus]   = useState([]);
 
   useEffect(()=>{
     const load=async()=>{
-      const{data:{user}}=await supabase.auth.getUser();
-      if(user){
-        // Try org_memberships first
-        const{data:membership}=await supabase.from("org_memberships").select("org_id").eq("org_id", orgId).eq("user_id",user.id).maybeSingle();
-        if(membership?.org_id){
-          setOrgId(membership.org_id);
-        } else {
-          // Fall back to reading org_id from any existing plm_program
-          const{data:prog}=await supabase.from("plm_programs").select("org_id").eq("org_id", orgId).not("org_id","is",null).limit(1).maybeSingle();
-          if(prog?.org_id) setOrgId(prog.org_id);
-        }
-      }
       const{data}=await supabase.from("plm_programs").select("*").eq("org_id", orgId).is("deleted_at",null).order("created_at",{ascending:false});
       setPrograms(data||[]); setLoading(false);
       // Load all SKUs for roadmap view
