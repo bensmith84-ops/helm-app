@@ -564,6 +564,16 @@ function TransactionSearch({ isMobile }) {
   const totalIn = filtered.filter(t => t.direction === "in").reduce((s, t) => s + Number(t.total_amount), 0);
   const totalOut = filtered.filter(t => t.direction === "out").reduce((s, t) => s + Number(t.total_amount), 0);
 
+  // Category breakdowns
+  const categoryTotals = {};
+  filtered.forEach(t => {
+    const cfg = TYPE_CONFIG[t.txn_type];
+    const label = cfg?.label || t.txn_type;
+    if (!categoryTotals[label]) categoryTotals[label] = { total: 0, count: 0, color: cfg?.color || T.text3, direction: t.direction };
+    categoryTotals[label].total += Math.abs(Number(t.total_amount) || 0);
+    categoryTotals[label].count++;
+  });
+
   const toggleSort = (col) => {
     if (sortBy === col) setSortDir(d => d === "desc" ? "asc" : "desc");
     else { setSortBy(col); setSortDir("desc"); }
@@ -596,11 +606,20 @@ function TransactionSearch({ isMobile }) {
         <input value={maxAmt} onChange={e => setMaxAmt(e.target.value)} placeholder="Max $" type="number" style={{ width: 80, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11 }} />
       </div>
 
-      {/* Summary */}
-      <div style={{ display: "flex", gap: 16, fontSize: 11, color: T.text3 }}>
-        <span>{filtered.length.toLocaleString()} results</span>
-        {totalIn > 0 && <span>In: <strong style={{ color: T.green }}>{fmtK(totalIn)}</strong></span>}
-        {totalOut > 0 && <span>Out: <strong style={{ color: T.red }}>{fmtK(totalOut)}</strong></span>}
+      {/* Summary by category */}
+      <div style={{ display: "flex", gap: 10, fontSize: 11, color: T.text3, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontWeight: 600 }}>{filtered.length.toLocaleString()} results</span>
+        <span style={{ color: T.border }}>|</span>
+        {Object.entries(categoryTotals).map(([label, cat]) => (
+          <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 6, background: cat.color + "12", border: `1px solid ${cat.color}25` }}>
+            <span style={{ color: cat.color, fontWeight: 700 }}>{label}</span>
+            <span style={{ color: T.text2 }}>({cat.count})</span>
+            <strong style={{ color: cat.direction === "in" ? T.green : cat.direction === "out" ? T.red : T.text2 }}>{fmtK(cat.total)}</strong>
+          </span>
+        ))}
+        {(totalIn > 0 || totalOut > 0) && <span style={{ color: T.border }}>|</span>}
+        {totalIn > 0 && <span>Net In: <strong style={{ color: T.green }}>{fmtK(totalIn)}</strong></span>}
+        {totalOut > 0 && <span>Net Out: <strong style={{ color: T.red }}>{fmtK(totalOut)}</strong></span>}
       </div>
 
       {/* Results table */}
