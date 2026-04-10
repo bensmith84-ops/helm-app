@@ -291,6 +291,7 @@ function RevenueAnalytics({ isMobile }) {
   const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
+  const { orgId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [plYTD, setPLYTD] = useState([]);
   const [plMonthly, setPLMonthly] = useState([]);
@@ -478,6 +479,7 @@ function TransactionSearch({ isMobile }) {
   const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(n);
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
+  const { orgId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [allTxns, setAllTxns] = useState([]);
   const [search, setSearch] = useState("");
@@ -2001,6 +2003,7 @@ function VendorIntelligence({ isMobile }) {
   const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
+  const { orgId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [bills, setBills] = useState([]);
   const [purchases, setPurchases] = useState([]);
@@ -2295,6 +2298,7 @@ function CashFlowView({ isMobile }) {
   const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
+  const { orgId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [deposits, setDeposits] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -2518,6 +2522,7 @@ function PLExplorer({ isMobile }) {
   const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
+  const { orgId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [plMonthly, setPLMonthly] = useState([]);
   const [plYTD, setPLYTD] = useState([]);
@@ -2726,6 +2731,7 @@ function CFODashboard({ isMobile }) {
   const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
+  const { orgId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [pl, setPL] = useState([]);
   const [plMonthly, setPLMonthly] = useState([]);
@@ -3827,6 +3833,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 // BUDGETS VIEW — G&A category budgets with department allocations
 // ═══════════════════════════════════════════════════════════════════════════════
 function BudgetsView({ isMobile, glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user, modulePerms = {} }) {
+  const { orgId } = useAuth();
   const [myPerms, setMyPerms] = useState(null); // null = loading, {} = loaded
   useEffect(() => {
     (async () => {
@@ -4653,6 +4660,7 @@ function AuditLogView({ isMobile, auditLog }) {
 // VENDOR SPEND VIEW — January 2026 closed book detail
 // ═══════════════════════════════════════════════════════════════════════════════
 function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
+  const { orgId } = useAuth();
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
     ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",accentDim:"#6366f115" }
     : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",accentDim:"#6366f110" };

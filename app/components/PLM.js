@@ -226,6 +226,7 @@ function FormulaIngredientCell({ value, itemType, onPick, onChange, onBlur }) {
 }
 
 function FormulaItemRow({ item, onUpdate, onDelete }) {
+  const { orgId } = useAuth();
   const [vals, setVals] = useState(item);
   const changed = useRef(false);
   const handleChange = (f,v) => { changed.current=true; setVals(p=>({...p,[f]:v})); };
@@ -290,6 +291,7 @@ function FormulaItemRow({ item, onUpdate, onDelete }) {
 // ─── CLAIM ROW ────────────────────────────────────────────────────────────────
 
 function ClaimRow({ claim, onUpdate, onDelete }) {
+  const { orgId } = useAuth();
   const [editing, setEditing] = useState(false);
   const [vals, setVals] = useState(claim);
   const save = async () => { await supabase.from("plm_claims").update({claim_text:vals.claim_text,status:vals.status,claim_type:vals.claim_type}).eq("org_id", orgId).eq("id",claim.id); onUpdate(vals); setEditing(false); };
@@ -416,6 +418,7 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
 // ─── TAB: OVERVIEW ────────────────────────────────────────────────────────────
 
 function OverviewTab({ program, onUpdate, counts }) {
+  const { orgId } = useAuth();
   const [editing, setEditing] = useState({});
   const set=(f,v)=>setEditing(p=>({...p,[f]:v}));
   const fv=f=>f in editing?editing[f]:program[f];
@@ -479,6 +482,7 @@ function OverviewTab({ program, onUpdate, counts }) {
 // ─── TAB: CLAIMS & SUBSTANTIATION ─────────────────────────────────────────────
 
 function ClaimsSubstantiationTab({ program, onUpdate }) {
+  const { orgId } = useAuth();
   const [claims, setClaims]     = useState(program.desired_claims||[]);
   const [newClaim, setNewClaim] = useState("");
   const [docs, setDocs]         = useState([]);
@@ -1628,6 +1632,7 @@ function IngredientPickerModal({ onPick, onClose }) {
 // ─── TAB: FORMULATIONS ────────────────────────────────────────────────────────
 
 function FormulationsTab({ programId }) {
+  const { orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [formulas, setFormulas] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -1746,6 +1751,7 @@ function FormulationsTab({ programId }) {
 // ─── TAB: EXPERIMENTS ─────────────────────────────────────────────────────────
 
 function ExperimentsTab({ programId }) {
+  const { orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [experiments, setExperiments] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -2254,6 +2260,7 @@ function ExperimentsTab({ programId }) {
 // ─── TAB: TRIALS ──────────────────────────────────────────────────────────────
 
 function TrialsTab({ programId }) {
+  const { orgId } = useAuth();
   const [trials, setTrials] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2296,6 +2303,7 @@ function TrialsTab({ programId }) {
 // ─── TAB: REG CLAIMS ──────────────────────────────────────────────────────────
 
 function RegClaimsTab({ programId }) {
+  const { orgId } = useAuth();
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(()=>{ supabase.from("plm_claims").select("*").eq("org_id", orgId).eq("program_id",programId).order("priority").order("created_at").then(({data})=>{setClaims(data||[]);setLoading(false);}); },[programId]);
@@ -2316,6 +2324,7 @@ function RegClaimsTab({ programId }) {
 // ─── TAB: SKUs ────────────────────────────────────────────────────────────────
 
 function SKUsTab({ programId }) {
+  const { orgId } = useAuth();
   const [skus, setSkus] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2400,6 +2409,7 @@ function IssuesTab({ programId }) {
 // ─── TAB: TEST RESULTS ────────────────────────────────────────────────────────
 
 function TestResultsTab({ programId }) {
+  const { orgId } = useAuth();
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(()=>{ supabase.from("plm_test_results").select("*").eq("org_id", orgId).eq("program_id",programId).order("tested_date",{ascending:false}).then(({data})=>{setResults(data||[]);setLoading(false);}); },[programId]);
@@ -2434,6 +2444,7 @@ function TestResultsTab({ programId }) {
 // ─── TAB: GATE REVIEWS ────────────────────────────────────────────────────────
 
 function GateReviewsTab({ programId }) {
+  const { orgId } = useAuth();
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(()=>{ supabase.from("plm_gate_reviews").select("*").eq("org_id", orgId).eq("program_id",programId).order("review_date",{ascending:false}).then(({data})=>{setReviews(data||[]);setLoading(false);}); },[programId]);
@@ -2460,6 +2471,7 @@ function GateReviewsTab({ programId }) {
 
 // ── Share Dropdown for AI Conversations ─────────────────────────────────────
 function ShareDropdown({ conversationId, onClose }) {
+  const { orgId } = useAuth();
   const [users, setUsers] = useState([]);
   const [shares, setShares] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2929,6 +2941,7 @@ const DETAIL_TABS = [
 ];
 
 function ProgramDetail({ program, onBack, onUpdate, onDelete }) {
+  const { orgId } = useAuth();
   const [tab, setTab] = useState("overview");
   const [counts, setCounts] = useState({});
 

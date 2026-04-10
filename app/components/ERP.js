@@ -1565,6 +1565,7 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
 // PURCHASE ORDERS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoices, landedCosts, setLandedCosts, purchaseOrders, setPurchaseOrders, poItems, setPoItems, suppliers, facilities, variants, products, entities, currencies, exchangeRates, isMobile }) {
+  const { orgId } = useAuth();
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   useEffect(() => { if (pendingNav?.view === "purchase_orders" && pendingNav.selectId) { const p = purchaseOrders.find(x => x.id === pendingNav.selectId); if (p) setSelected(p); setPendingNav(null); } }, [pendingNav]);
@@ -4069,6 +4070,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
 // AP / AR VIEW — Accounts Payable, Accounts Receivable, Payments
 // ═══════════════════════════════════════════════════════════════════════════════
 function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile, qboBills = [], qboInvoices = [], user }) {
+  const { orgId } = useAuth();
   const [subView, setSubView] = useState("ap");
   const [selected, setSelected] = useState(null);
   const [showPayment, setShowPayment] = useState(false);
