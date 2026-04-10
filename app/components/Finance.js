@@ -561,18 +561,20 @@ function TransactionSearch({ isMobile }) {
     journal: { label: "Journal", color: T.text3, bg: T.text3 + "18" },
   };
 
-  const totalIn = filtered.filter(t => t.direction === "in").reduce((s, t) => s + Number(t.total_amount), 0);
-  const totalOut = filtered.filter(t => t.direction === "out").reduce((s, t) => s + Number(t.total_amount), 0);
-
   // Category breakdowns
   const categoryTotals = {};
   filtered.forEach(t => {
     const cfg = TYPE_CONFIG[t.txn_type];
     const label = cfg?.label || t.txn_type;
-    if (!categoryTotals[label]) categoryTotals[label] = { total: 0, count: 0, color: cfg?.color || T.text3, direction: t.direction };
+    if (!categoryTotals[label]) categoryTotals[label] = { total: 0, count: 0, color: cfg?.color || T.text3, direction: t.direction, txn_type: t.txn_type };
     categoryTotals[label].total += Math.abs(Number(t.total_amount) || 0);
     categoryTotals[label].count++;
   });
+
+  // Cash flow: only actual cash movements (not accrual entries like bills)
+  const cashOut = filtered.filter(t => t.txn_type === "pmt_made" || t.txn_type === "purchase").reduce((s, t) => s + Math.abs(Number(t.total_amount)), 0);
+  const cashIn = filtered.filter(t => t.txn_type === "deposit" || t.txn_type === "pmt_received").reduce((s, t) => s + Math.abs(Number(t.total_amount)), 0);
+  const netCash = cashIn - cashOut;
 
   const toggleSort = (col) => {
     if (sortBy === col) setSortDir(d => d === "desc" ? "asc" : "desc");
@@ -617,9 +619,12 @@ function TransactionSearch({ isMobile }) {
             <strong style={{ color: cat.direction === "in" ? T.green : cat.direction === "out" ? T.red : T.text2 }}>{fmtK(cat.total)}</strong>
           </span>
         ))}
-        {(totalIn > 0 || totalOut > 0) && <span style={{ color: T.border }}>|</span>}
-        {totalIn > 0 && <span>Net In: <strong style={{ color: T.green }}>{fmtK(totalIn)}</strong></span>}
-        {totalOut > 0 && <span>Net Out: <strong style={{ color: T.red }}>{fmtK(totalOut)}</strong></span>}
+        {(cashIn > 0 || cashOut > 0) && <>
+          <span style={{ color: T.border }}>|</span>
+          {cashIn > 0 && <span>Cash In: <strong style={{ color: T.green }}>{fmtK(cashIn)}</strong></span>}
+          {cashOut > 0 && <span>Cash Out: <strong style={{ color: T.red }}>{fmtK(cashOut)}</strong></span>}
+          <span>Net: <strong style={{ color: netCash >= 0 ? T.green : T.red }}>{netCash >= 0 ? "+" : ""}{fmtK(netCash)}</strong></span>
+        </>}
       </div>
 
       {/* Results table */}
