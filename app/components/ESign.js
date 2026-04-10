@@ -1,0 +1,531 @@
+"use client";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth";
+import { T } from "../tokens";
+import { useResponsive } from "../lib/responsive";
+
+const STATUS_COLORS = { draft:"#6b7280", sent:"#3b82f6", in_progress:"#f59e0b", completed:"#22c55e", declined:"#ef4444", voided:"#6b7280", expired:"#6b7280" };
+const STATUS_LABELS = { draft:"Draft", sent:"Sent", in_progress:"In Progress", completed:"Completed", declined:"Declined", voided:"Voided", expired:"Expired" };
+const SIGNER_STATUS = { pending:"⏳ Pending", sent:"📧 Sent", opened:"👁 Opened", signed:"✅ Signed", declined:"❌ Declined" };
+
+const fmt = d => d ? new Date(d).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "";
+const fmtTime = d => d ? new Date(d).toLocaleString("en-US", { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }) : "";
+
+// ══════════════════════════════════════════════════════════
+// SIGNATURE PAD — Draw, Type, or Upload signature
+// ══════════════════════════════════════════════════════════
+function SignaturePad({ onSave, onCancel, label = "Signature" }) {
+  const [mode, setMode] = useState("draw");
+  const [typedName, setTypedName] = useState("");
+  const [typedFont, setTypedFont] = useState("'Dancing Script', cursive");
+  const canvasRef = useRef(null);
+  const [drawing, setDrawing] = useState(false);
+  const [hasDrawn, setHasDrawn] = useState(false);
+
+  const FONTS = [
+    { name: "Script", value: "'Dancing Script', cursive" },
+    { name: "Elegant", value: "'Great Vibes', cursive" },
+    { name: "Casual", value: "'Caveat', cursive" },
+    { name: "Classic", value: "Georgia, serif" },
+  ];
+
+  const startDraw = (e) => { setDrawing(true); const ctx = canvasRef.current?.getContext("2d"); if (!ctx) return; const r = canvasRef.current.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - r.left, e.clientY - r.top); };
+  const draw = (e) => { if (!drawing) return; setHasDrawn(true); const ctx = canvasRef.current?.getContext("2d"); if (!ctx) return; const r = canvasRef.current.getBoundingClientRect(); ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.strokeStyle = T.text; ctx.lineTo(e.clientX - r.left, e.clientY - r.top); ctx.stroke(); };
+  const endDraw = () => setDrawing(false);
+  const clearCanvas = () => { const ctx = canvasRef.current?.getContext("2d"); if (ctx) { ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height); setHasDrawn(false); } };
+
+  const handleSave = () => {
+    if (mode === "draw") {
+      if (!hasDrawn) return;
+      onSave({ type: "draw", value: canvasRef.current.toDataURL("image/png") });
+    } else if (mode === "type") {
+      if (!typedName.trim()) return;
+      onSave({ type: "type", value: typedName.trim(), font: typedFont });
+    }
+  };
+
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, marginBottom: 12, textTransform: "uppercase" }}>{label}</div>
+      
+      {/* Mode tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+        {[{ id: "draw", label: "✏️ Draw" }, { id: "type", label: "⌨️ Type" }].map(m => (
+          <button key={m.id} onClick={() => setMode(m.id)} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${mode === m.id ? T.accent : T.border}`, background: mode === m.id ? T.accent + "15" : T.surface2, color: mode === m.id ? T.accent : T.text3, cursor: "pointer" }}>{m.label}</button>
+        ))}
+      </div>
+
+      {mode === "draw" && (
+        <div>
+          <canvas ref={canvasRef} width={400} height={120} onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+            style={{ width: "100%", height: 120, border: `2px dashed ${T.border}`, borderRadius: 8, cursor: "crosshair", background: T.surface2 }} />
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+            <button onClick={clearCanvas} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
+            <span style={{ fontSize: 10, color: T.text3 }}>Draw your signature above</span>
+          </div>
+        </div>
+      )}
+
+      {mode === "type" && (
+        <div>
+          <input value={typedName} onChange={e => setTypedName(e.target.value)} placeholder="Type your full name" style={{ width: "100%", padding: "12px 16px", fontSize: 22, fontFamily: typedFont, border: `2px dashed ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+          <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+            {FONTS.map(f => (
+              <button key={f.name} onClick={() => setTypedFont(f.value)} style={{ padding: "4px 12px", fontSize: 14, fontFamily: f.value, borderRadius: 6, border: `1px solid ${typedFont === f.value ? T.accent : T.border}`, background: typedFont === f.value ? T.accent + "15" : "transparent", color: T.text, cursor: "pointer" }}>{f.name}</button>
+            ))}
+          </div>
+          {typedName && (
+            <div style={{ marginTop: 12, padding: "16px 20px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>Preview</div>
+              <div style={{ fontSize: 28, fontFamily: typedFont, color: T.text }}>{typedName}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+        {onCancel && <button onClick={onCancel} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>}
+        <button onClick={handleSave} style={{ padding: "8px 24px", fontSize: 12, fontWeight: 700, borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: (mode === "draw" && !hasDrawn) || (mode === "type" && !typedName.trim()) ? 0.4 : 1 }}>
+          Adopt & Sign
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// ENVELOPE CREATOR — Create new signing request
+// ══════════════════════════════════════════════════════════
+function EnvelopeCreator({ onClose, onCreated }) {
+  const { user, orgId } = useAuth();
+  const [step, setStep] = useState(1); // 1: Upload, 2: Add Signers, 3: Place Fields, 4: Review
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [signingOrder, setSigningOrder] = useState("sequential");
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [documentUrl, setDocumentUrl] = useState("");
+  const [signers, setSigners] = useState([{ name: "", email: "", role: "signer", signing_order: 1 }]);
+  const [sending, setSending] = useState(false);
+
+  const addSigner = () => setSigners(p => [...p, { name: "", email: "", role: "signer", signing_order: p.length + 1 }]);
+  const removeSigner = (i) => setSigners(p => p.filter((_, j) => j !== i));
+  const updateSigner = (i, field, val) => setSigners(p => p.map((s, j) => j === i ? { ...s, [field]: val } : s));
+
+  const handleUpload = async () => {
+    if (!file) return;
+    setUploading(true);
+    const path = `${orgId}/${Date.now()}_${file.name}`;
+    const { error } = await supabase.storage.from("esign-documents").upload(path, file, { contentType: file.type });
+    if (!error) {
+      const url = `${supabase.supabaseUrl}/storage/v1/object/authenticated/esign-documents/${path}`;
+      setDocumentUrl(url);
+    }
+    setUploading(false);
+  };
+
+  const handleSend = async () => {
+    if (!title.trim() || !documentUrl || signers.some(s => !s.name.trim() || !s.email.trim())) return;
+    setSending(true);
+    try {
+      // Create envelope
+      const { data: envelope } = await supabase.from("esign_envelopes").insert({
+        org_id: orgId, title: title.trim(), message: message.trim(), document_url: documentUrl,
+        signing_order: signingOrder, created_by: user?.id, status: "draft",
+      }).select().single();
+      if (!envelope) throw new Error("Failed to create envelope");
+
+      // Create signers
+      for (const s of signers) {
+        const { data: signer } = await supabase.from("esign_signers").insert({
+          org_id: orgId, envelope_id: envelope.id,
+          name: s.name.trim(), email: s.email.trim(), role: s.role, signing_order: s.signing_order,
+        }).select().single();
+
+        // Add default signature + date fields for each signer
+        if (signer && s.role === "signer") {
+          await supabase.from("esign_fields").insert([
+            { org_id: orgId, envelope_id: envelope.id, signer_id: signer.id, field_type: "signature", label: "Signature", page_number: 1, x_pct: 10, y_pct: 80, width_pct: 30, height_pct: 8, required: true },
+            { org_id: orgId, envelope_id: envelope.id, signer_id: signer.id, field_type: "date_signed", label: "Date", page_number: 1, x_pct: 45, y_pct: 82, width_pct: 15, height_pct: 4, required: true },
+            { org_id: orgId, envelope_id: envelope.id, signer_id: signer.id, field_type: "name", label: "Printed Name", page_number: 1, x_pct: 10, y_pct: 88, width_pct: 30, height_pct: 4, required: true },
+          ]);
+        }
+      }
+
+      // Audit: created
+      await supabase.from("esign_audit_log").insert({
+        org_id: orgId, envelope_id: envelope.id,
+        action: "created", actor_name: user?.email,
+        details: `Envelope "${title}" created with ${signers.length} signer(s)`,
+      });
+
+      // Send the envelope
+      await fetch(supabase.supabaseUrl + "/functions/v1/esign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send", envelope_id: envelope.id, org_id: orgId }),
+      });
+
+      onCreated(envelope);
+    } catch (e) { alert("Error: " + (e.message || e)); }
+    setSending(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={onClose} />
+      <div onClick={e => e.stopPropagation()} style={{ position: "relative", width: 640, maxHeight: "85vh", overflow: "auto", background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 800 }}>New Signing Request</h2>
+          <button onClick={onClose} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", color: T.text3, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>×</button>
+        </div>
+
+        {/* Step indicator */}
+        <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+          {["Document", "Signers", "Send"].map((s, i) => (
+            <div key={s} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 6, fontSize: 11, fontWeight: 700, background: step >= i + 1 ? T.accent + "15" : T.surface2, color: step >= i + 1 ? T.accent : T.text3, border: `1px solid ${step === i + 1 ? T.accent + "40" : T.border}` }}>{i + 1}. {s}</div>
+          ))}
+        </div>
+
+        {/* Step 1: Document */}
+        {step === 1 && (
+          <div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Document Title</div>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. NDA — Acme Corp" style={{ width: "100%", padding: "10px 14px", fontSize: 14, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Message to Signers (optional)</div>
+              <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Please review and sign this document…" rows={3} style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 8, textTransform: "uppercase" }}>Upload Document</div>
+              {!documentUrl ? (
+                <div style={{ border: `2px dashed ${T.border}`, borderRadius: 12, padding: 32, textAlign: "center" }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
+                  <input type="file" accept=".pdf,.doc,.docx,.png,.jpg" onChange={e => { setFile(e.target.files?.[0]); }} style={{ marginBottom: 12 }} />
+                  {file && !uploading && <button onClick={handleUpload} style={{ padding: "8px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Upload</button>}
+                  {uploading && <div style={{ fontSize: 12, color: T.text3 }}>Uploading…</div>}
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: T.green + "15", border: `1px solid ${T.green}40`, borderRadius: 8 }}>
+                  <span style={{ fontSize: 16 }}>✅</span>
+                  <span style={{ fontSize: 13, color: T.text }}>Document uploaded</span>
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setStep(2)} disabled={!title.trim() || !documentUrl} style={{ padding: "10px 28px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: !title.trim() || !documentUrl ? 0.4 : 1 }}>Next: Add Signers →</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Signers */}
+        {step === 2 && (
+          <div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 8, textTransform: "uppercase" }}>Signing Order</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[{ id: "sequential", label: "Sequential — one at a time in order" }, { id: "parallel", label: "Parallel — everyone at once" }].map(o => (
+                  <button key={o.id} onClick={() => setSigningOrder(o.id)} style={{ flex: 1, padding: "10px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${signingOrder === o.id ? T.accent : T.border}`, background: signingOrder === o.id ? T.accent + "12" : T.surface2, color: signingOrder === o.id ? T.accent : T.text3, cursor: "pointer", textAlign: "left" }}>{o.label}</button>
+                ))}
+              </div>
+            </div>
+            
+            {signers.map((s, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+                <span style={{ width: 24, height: 24, borderRadius: "50%", background: T.accent + "20", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+                <input value={s.name} onChange={e => updateSigner(i, "name", e.target.value)} placeholder="Full name" style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
+                <input value={s.email} onChange={e => updateSigner(i, "email", e.target.value)} placeholder="Email" type="email" style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
+                <select value={s.role} onChange={e => updateSigner(i, "role", e.target.value)} style={{ padding: "8px 10px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }}>
+                  <option value="signer">Signer</option>
+                  <option value="cc">CC (copy)</option>
+                  <option value="approver">Approver</option>
+                  <option value="viewer">View only</option>
+                </select>
+                {signers.length > 1 && <button onClick={() => removeSigner(i)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>}
+              </div>
+            ))}
+            <button onClick={addSigner} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer", marginBottom: 20, width: "100%" }}>+ Add Signer</button>
+            
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button onClick={() => setStep(1)} style={{ padding: "10px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>← Back</button>
+              <button onClick={() => setStep(3)} disabled={signers.some(s => !s.name.trim() || !s.email.trim())} style={{ padding: "10px 28px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: signers.some(s => !s.name.trim() || !s.email.trim()) ? 0.4 : 1 }}>Next: Review & Send →</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Review & Send */}
+        {step === 3 && (
+          <div>
+            <div style={{ padding: 20, background: T.surface2, borderRadius: 10, marginBottom: 20 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>📄 {title}</div>
+              {message && <div style={{ fontSize: 12, color: T.text3, marginBottom: 12 }}>{message}</div>}
+              <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>Signers ({signingOrder})</div>
+              {signers.map((s, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: i < signers.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: T.accent + "20", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{i + 1}</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{s.name}</div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>{s.email} · {s.role}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Legal consent notice */}
+            <div style={{ padding: 16, background: T.accent + "08", border: `1px solid ${T.accent}20`, borderRadius: 8, marginBottom: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.accent, marginBottom: 4 }}>Legal Compliance</div>
+              <div style={{ fontSize: 11, color: T.text2, lineHeight: 1.6 }}>
+                Each signer will receive a unique secure link. They must consent to sign electronically before signing.
+                All actions are recorded in a tamper-evident audit trail with timestamps, IP addresses, and user agents.
+                The document is SHA-256 hashed to detect any modifications. A certificate of completion is generated
+                when all parties have signed. Compliant with ESIGN Act, UETA, and eIDAS regulations.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button onClick={() => setStep(2)} style={{ padding: "10px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>← Back</button>
+              <button onClick={handleSend} disabled={sending} style={{ padding: "12px 32px", fontSize: 14, fontWeight: 800, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>
+                {sending ? "Sending…" : "Send for Signature ✉️"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// ENVELOPE DETAIL — View envelope status, audit trail, signers
+// ══════════════════════════════════════════════════════════
+function EnvelopeDetail({ envelope: env, onBack, onRefresh }) {
+  const { user, orgId } = useAuth();
+  const [signers, setSigners] = useState([]);
+  const [auditLog, setAuditLog] = useState([]);
+  const [showAudit, setShowAudit] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: s }, { data: a }] = await Promise.all([
+        supabase.from("esign_signers").select("*").eq("envelope_id", env.id).order("signing_order"),
+        supabase.from("esign_audit_log").select("*").eq("envelope_id", env.id).order("timestamp"),
+      ]);
+      setSigners(s || []); setAuditLog(a || []); setLoading(false);
+    })();
+  }, [env.id]);
+
+  const handleVoid = async () => {
+    const reason = prompt("Reason for voiding this envelope:");
+    if (reason === null) return;
+    await fetch(supabase.supabaseUrl + "/functions/v1/esign", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "void", envelope_id: env.id, org_id: orgId, user_id: user?.id, reason }),
+    });
+    onRefresh();
+  };
+
+  const handleRemind = async () => {
+    await fetch(supabase.supabaseUrl + "/functions/v1/esign", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remind", envelope_id: env.id, org_id: orgId }),
+    });
+    alert("Reminders sent!");
+  };
+
+  const sc = STATUS_COLORS[env.status] || T.text3;
+
+  return (
+    <div>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, marginBottom: 16, display: "flex", alignItems: "center", gap: 4 }}>← Back to Documents</button>
+      
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 800 }}>{env.title}</h1>
+            <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: sc + "18", color: sc }}>{STATUS_LABELS[env.status]}</span>
+          </div>
+          {env.message && <div style={{ fontSize: 13, color: T.text3, marginTop: 4 }}>{env.message}</div>}
+          <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>Created {fmtTime(env.created_at)}{env.completed_at ? ` · Completed ${fmtTime(env.completed_at)}` : ""}</div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {["sent", "in_progress"].includes(env.status) && (
+            <>
+              <button onClick={handleRemind} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer" }}>🔔 Remind</button>
+              <button onClick={handleVoid} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.red, cursor: "pointer" }}>Void</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Signers */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 10 }}>Signers</div>
+        {signers.map((s, i) => (
+          <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 6 }}>
+            <span style={{ width: 28, height: 28, borderRadius: "50%", background: s.status === "signed" ? T.green + "20" : T.surface3, color: s.status === "signed" ? T.green : T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{s.status === "signed" ? "✓" : i + 1}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{s.name}</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>{s.email} · {s.role}</div>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: STATUS_COLORS[s.status === "signed" ? "completed" : s.status === "declined" ? "declined" : "sent"] || T.text3 }}>
+              {SIGNER_STATUS[s.status] || s.status}
+            </div>
+            {s.signed_at && <div style={{ fontSize: 10, color: T.text3 }}>{fmtTime(s.signed_at)}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Document hash */}
+      {env.document_hash && (
+        <div style={{ padding: "12px 16px", background: T.surface2, borderRadius: 8, marginBottom: 24 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Document Integrity (SHA-256)</div>
+          <div style={{ fontSize: 10, fontFamily: "monospace", color: T.text2, wordBreak: "break-all" }}>{env.document_hash}</div>
+        </div>
+      )}
+
+      {/* Audit Trail */}
+      <div>
+        <button onClick={() => setShowAudit(!showAudit)} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 12 }}>
+          📋 Audit Trail ({auditLog.length} events) {showAudit ? "▾" : "▸"}
+        </button>
+        {showAudit && (
+          <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+            {auditLog.map((log, i) => (
+              <div key={log.id} style={{ padding: "10px 16px", borderBottom: i < auditLog.length - 1 ? `1px solid ${T.border}` : "none", background: i % 2 === 0 ? T.surface : T.surface2 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{log.action.replace(/_/g, " ").toUpperCase()}</span>
+                  <span style={{ fontSize: 10, color: T.text3 }}>{fmtTime(log.timestamp)}</span>
+                </div>
+                <div style={{ fontSize: 11, color: T.text2 }}>{log.details}</div>
+                {log.ip_address && <div style={{ fontSize: 9, color: T.text3, fontFamily: "monospace", marginTop: 2 }}>IP: {log.ip_address} · UA: {(log.user_agent || "").substring(0, 60)}…</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// MAIN ESIGN VIEW
+// ══════════════════════════════════════════════════════════
+export default function ESignView() {
+  const { isMobile } = useResponsive();
+  const { user, orgId } = useAuth();
+  const [envelopes, setEnvelopes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [templates, setTemplates] = useState([]);
+
+  const loadData = async () => {
+    const [{ data: envs }, { data: tmpl }] = await Promise.all([
+      supabase.from("esign_envelopes").select("*, esign_signers(id, name, email, status, signed_at, role, signing_order)").eq("org_id", orgId).order("created_at", { ascending: false }),
+      supabase.from("esign_templates").select("*").eq("org_id", orgId).eq("is_active", true).order("name"),
+    ]);
+    setEnvelopes(envs || []); setTemplates(tmpl || []); setLoading(false);
+  };
+
+  useEffect(() => { if (orgId) loadData(); }, [orgId]);
+
+  if (selected) return <EnvelopeDetail envelope={selected} onBack={() => { setSelected(null); loadData(); }} onRefresh={() => { loadData(); setSelected(null); }} />;
+
+  const filtered = envelopes.filter(e => {
+    if (filter !== "all" && e.status !== filter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return e.title?.toLowerCase().includes(q) || e.esign_signers?.some(s => s.name?.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q));
+    }
+    return true;
+  });
+
+  const counts = { all: envelopes.length, draft: 0, sent: 0, in_progress: 0, completed: 0, declined: 0, voided: 0 };
+  envelopes.forEach(e => { if (counts[e.status] !== undefined) counts[e.status]++; });
+
+  return (
+    <div style={{ padding: isMobile ? 16 : 28, maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>Documents & Signatures</div>
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Legally compliant electronic signatures — ESIGN Act, UETA, eIDAS</div>
+        </div>
+        <button onClick={() => setShowCreate(true)} style={{ padding: "10px 24px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          ✉️ New Signing Request
+        </button>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(3, 1fr)" : "repeat(6, 1fr)", gap: 8, marginBottom: 20 }}>
+        {[
+          { key: "all", label: "All", icon: "📄" },
+          { key: "sent", label: "Sent", icon: "📧" },
+          { key: "in_progress", label: "In Progress", icon: "⏳" },
+          { key: "completed", label: "Completed", icon: "✅" },
+          { key: "declined", label: "Declined", icon: "❌" },
+          { key: "draft", label: "Drafts", icon: "📝" },
+        ].map(c => (
+          <div key={c.key} onClick={() => setFilter(c.key)} style={{ padding: "12px 10px", textAlign: "center", borderRadius: 10, cursor: "pointer", background: filter === c.key ? T.accent + "12" : T.surface, border: `1px solid ${filter === c.key ? T.accent + "40" : T.border}`, transition: "all 0.15s" }}>
+            <div style={{ fontSize: 18 }}>{c.icon}</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{counts[c.key]}</div>
+            <div style={{ fontSize: 10, color: T.text3 }}>{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", borderRadius: 10, background: T.surface, border: `1px solid ${T.border}`, marginBottom: 16 }}>
+        <span style={{ fontSize: 14 }}>🔍</span>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search documents, signers…" style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, width: "100%", flex: 1 }} />
+      </div>
+
+      {/* Envelope list */}
+      {loading ? <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading…</div> : filtered.length === 0 ? (
+        <div style={{ padding: 60, textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>✍️</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>No documents yet</div>
+          <div style={{ fontSize: 13, color: T.text3 }}>Create your first signing request to get started</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {filtered.map(env => {
+            const sc = STATUS_COLORS[env.status];
+            const signers = env.esign_signers || [];
+            const signed = signers.filter(s => s.status === "signed").length;
+            const total = signers.filter(s => s.role === "signer").length;
+            return (
+              <div key={env.id} onClick={() => setSelected(env)} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.15s" }} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent + "40"} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: sc + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
+                  {env.status === "completed" ? "✅" : env.status === "declined" ? "❌" : env.status === "draft" ? "📝" : "📄"}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{env.title}</div>
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                    {signers.map(s => s.name).join(", ")} · {fmt(env.created_at)}
+                  </div>
+                </div>
+                <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: sc + "18", color: sc, whiteSpace: "nowrap" }}>{STATUS_LABELS[env.status]}</span>
+                {total > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: 60, height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden" }}>
+                      <div style={{ width: `${(signed / total) * 100}%`, height: "100%", background: T.green, borderRadius: 3, transition: "width 0.3s" }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: T.text3, whiteSpace: "nowrap" }}>{signed}/{total}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showCreate && <EnvelopeCreator onClose={() => setShowCreate(false)} onCreated={(env) => { setShowCreate(false); loadData(); }} />}
+    </div>
+  );
+}

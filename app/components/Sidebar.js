@@ -12,6 +12,7 @@ export const NAV_GROUPS = [
     { key: "learning", icon: "📚", label: "Learning" },
     { key: "support", icon: "🎧", label: "Support" },
     { key: "docs", icon: "▤", label: "Docs" },
+    { key: "esign", icon: "✍️", label: "E-Sign" },
   ]},
   { label: "Connect", items: [
     { key: "messages", icon: "◬", label: "Messages" },
