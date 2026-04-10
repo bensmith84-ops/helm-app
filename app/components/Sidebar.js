@@ -47,16 +47,23 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
   const activeOrg = orgs?.find(o => o.id === orgId);
   
   // Use sidebar_config from profile if available, otherwise default NAV_GROUPS
+  // Auto-merge: any items in default NAV_GROUPS that aren't in the saved config get appended to their group
   const groups = profile?.sidebar_config?.groups
-    ? profile.sidebar_config.groups.map(g => ({
-        label: g.label,
-        items: g.items
-          .filter(i => i.visible !== false)
-          .map(i => {
-            const def = NAV_ITEMS.find(n => n.key === i.key);
-            return def ? { ...def, ...i } : i;
-          })
-      }))
+    ? profile.sidebar_config.groups.map((g, gi) => {
+        const savedKeys = new Set(g.items.map(i => i.key));
+        const defaultGroup = NAV_GROUPS[gi];
+        // Find new items that exist in default but not in saved config
+        const newItems = defaultGroup ? defaultGroup.items.filter(d => !savedKeys.has(d.key)).map(d => ({ ...d, visible: true })) : [];
+        return {
+          label: g.label,
+          items: [...g.items, ...newItems]
+            .filter(i => i.visible !== false)
+            .map(i => {
+              const def = NAV_ITEMS.find(n => n.key === i.key);
+              return def ? { ...def, ...i } : i;
+            })
+        };
+      })
     : NAV_GROUPS;
   
   const activeGroup = groups.find(g => g.items.some(i => i.key === active))?.label;
