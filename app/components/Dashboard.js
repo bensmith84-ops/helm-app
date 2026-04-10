@@ -831,7 +831,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
    MAIN DASHBOARD
    ═══════════════════════════════════════════════════════ */
 export default function DashboardView({ setActive }) {
-  const { profile } = useAuth();
+  const { profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
