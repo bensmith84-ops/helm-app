@@ -605,31 +605,100 @@ export default function ESignView() {
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Saved Templates</div>
-            <button onClick={() => setShowNewTemplate(true)} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer" }}>+ New Template</button>
+            <button onClick={() => setShowNewTemplate(true)} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>+ New Template</button>
           </div>
 
           {showNewTemplate && (
-            <div style={{ padding: 20, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 16 }}>
-              <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Template Name</div>
-                  <input value={newTmpl.name} onChange={e => setNewTmpl(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Standard NDA" style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+            <div style={{ padding: 24, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>Create Template</div>
+              
+              {/* Name & Description */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Template Name *</div>
+                  <input value={newTmpl.name} onChange={e => setNewTmpl(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Standard NDA" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, boxSizing: "border-box" }} />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Description</div>
-                  <input value={newTmpl.description} onChange={e => setNewTmpl(p => ({ ...p, description: e.target.value }))} placeholder="Brief description" style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Description</div>
+                  <input value={newTmpl.description} onChange={e => setNewTmpl(p => ({ ...p, description: e.target.value }))} placeholder="Brief description of this template" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, boxSizing: "border-box" }} />
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => { setShowNewTemplate(false); setNewTmpl({ name: "", description: "" }); }} style={{ padding: "6px 14px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+
+              {/* Document Upload */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 6, textTransform: "uppercase" }}>Template Document</div>
+                {!newTmpl.document_url ? (
+                  <div style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: 24, textAlign: "center" }}>
+                    <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+                    <div style={{ fontSize: 12, color: T.text3, marginBottom: 10 }}>Upload PDF, Word, or image file</div>
+                    <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setNewTmpl(p => ({ ...p, uploading: true }));
+                      const path = `templates/${orgId}/${Date.now()}_${file.name}`;
+                      const { error } = await supabase.storage.from("esign-documents").upload(path, file, { contentType: file.type, upsert: true });
+                      if (!error) {
+                        const url = `${supabase.supabaseUrl}/storage/v1/object/public/esign-documents/${path}`;
+                        setNewTmpl(p => ({ ...p, document_url: url, document_name: file.name, uploading: false }));
+                      } else {
+                        alert("Upload failed: " + error.message);
+                        setNewTmpl(p => ({ ...p, uploading: false }));
+                      }
+                      e.target.value = "";
+                    }} style={{ fontSize: 12 }} />
+                    {newTmpl.uploading && <div style={{ fontSize: 11, color: T.accent, marginTop: 8 }}>Uploading…</div>}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: T.green + "10", border: `1px solid ${T.green}30`, borderRadius: 8 }}>
+                    <span style={{ fontSize: 16 }}>✅</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{newTmpl.document_name}</div>
+                      <div style={{ fontSize: 10, color: T.text3 }}>Document uploaded</div>
+                    </div>
+                    <button onClick={() => setNewTmpl(p => ({ ...p, document_url: null, document_name: null }))} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Remove</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Signer Roles */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 6, textTransform: "uppercase" }}>Signer Roles</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>Define the roles that need to sign. When using this template, you'll assign real people to each role.</div>
+                {(newTmpl.signer_roles || [{ role_name: "", signing_order: 1 }]).map((r, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                    <span style={{ width: 22, height: 22, borderRadius: "50%", background: T.accent + "20", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+                    <input value={r.role_name} onChange={e => {
+                      const roles = [...(newTmpl.signer_roles || [{ role_name: "", signing_order: 1 }])];
+                      roles[i] = { ...roles[i], role_name: e.target.value };
+                      setNewTmpl(p => ({ ...p, signer_roles: roles }));
+                    }} placeholder={`e.g. ${i === 0 ? "Earth Breeze Signatory" : "Counterparty Signatory"}`} style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
+                    {(newTmpl.signer_roles || []).length > 1 && (
+                      <button onClick={() => {
+                        const roles = (newTmpl.signer_roles || []).filter((_, j) => j !== i);
+                        setNewTmpl(p => ({ ...p, signer_roles: roles }));
+                      }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>×</button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={() => {
+                  const roles = [...(newTmpl.signer_roles || []), { role_name: "", signing_order: (newTmpl.signer_roles || []).length + 1 }];
+                  setNewTmpl(p => ({ ...p, signer_roles: roles }));
+                }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer", width: "100%" }}>+ Add Role</button>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
+                <button onClick={() => { setShowNewTemplate(false); setNewTmpl({ name: "", description: "" }); }} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={async () => {
-                  if (!newTmpl.name.trim()) return;
+                  if (!newTmpl.name.trim()) { alert("Template name required"); return; }
+                  const roles = (newTmpl.signer_roles || [{ role_name: "Signer 1", signing_order: 1 }]).filter(r => r.role_name.trim()).map((r, i) => ({ ...r, signing_order: i + 1 }));
                   await supabase.from("esign_templates").insert({
-                    org_id: orgId, name: newTmpl.name.trim(), description: newTmpl.description.trim(),
-                    created_by: user?.id, signer_roles: [{ role_name: "Signer 1", signing_order: 1 }],
+                    org_id: orgId, name: newTmpl.name.trim(), description: newTmpl.description?.trim() || null,
+                    document_url: newTmpl.document_url || null,
+                    created_by: user?.id, signer_roles: roles.length ? roles : [{ role_name: "Signer 1", signing_order: 1 }],
                   });
                   setShowNewTemplate(false); setNewTmpl({ name: "", description: "" }); loadData();
-                }} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, border: "none", borderRadius: 6, background: T.accent, color: "#fff", cursor: "pointer" }}>Create Template</button>
+                }} disabled={!newTmpl.name.trim()} style={{ padding: "8px 24px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 8, background: T.accent, color: "#fff", cursor: "pointer", opacity: !newTmpl.name.trim() ? 0.4 : 1 }}>Save Template</button>
               </div>
             </div>
           )}
@@ -641,25 +710,40 @@ export default function ESignView() {
               <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>Create templates for documents you send frequently — NDAs, contracts, offer letters, etc.</div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {templates.map(tmpl => (
-                <div key={tmpl.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: T.accent + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>📋</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
-                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{tmpl.description || "No description"} · Used {tmpl.use_count || 0} times</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {templates.map(tmpl => {
+                const roles = tmpl.signer_roles || [];
+                return (
+                  <div key={tmpl.id} style={{ padding: "16px 20px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                      <div style={{ width: 42, height: 42, borderRadius: 10, background: T.accent + "12", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>📋</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{tmpl.name}</div>
+                        <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{tmpl.description || "No description"}</div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                          {tmpl.document_url && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: T.green + "15", color: T.green, fontWeight: 600 }}>📄 Document attached</span>}
+                          {roles.map((r, i) => (
+                            <span key={i} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: T.accent + "12", color: T.accent, fontWeight: 600 }}>#{i+1} {r.role_name}</span>
+                          ))}
+                          <span style={{ fontSize: 9, color: T.text3 }}>Used {tmpl.use_count || 0}×</span>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => {
+                          // Pre-fill envelope creator with template data
+                          setShowCreate(true);
+                          // Template data will be picked up by EnvelopeCreator
+                        }} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Send</button>
+                        <button onClick={async () => {
+                          if (!confirm(`Delete template "${tmpl.name}"?`)) return;
+                          await supabase.from("esign_templates").update({ is_active: false }).eq("id", tmpl.id);
+                          loadData();
+                        }} style={{ padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>🗑</button>
+                      </div>
+                    </div>
                   </div>
-                  <button onClick={async () => {
-                    // Use template to create new envelope
-                    setShowCreate(true);
-                  }} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, cursor: "pointer" }}>Use Template</button>
-                  <button onClick={async () => {
-                    if (!confirm("Delete this template?")) return;
-                    await supabase.from("esign_templates").update({ is_active: false }).eq("id", tmpl.id);
-                    loadData();
-                  }} style={{ padding: "4px 8px", fontSize: 11, borderRadius: 4, border: "none", background: "none", color: T.text3, cursor: "pointer" }}>🗑</button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
