@@ -103,7 +103,12 @@ function EmptyState({ icon, text }) {
   return <div style={{ padding:"32px 0", textAlign:"center", color:T.text3, fontSize:13 }}><div style={{ fontSize:28, marginBottom:8 }}>{icon}</div>{text}</div>;
 }
 function InlineField({ label, value, onChange, onBlur, type="text", placeholder, multiline, options, readOnly }) {
+  const [local, setLocal] = useState(value || "");
+  const [focused, setFocused] = useState(false);
+  // Sync external value when not focused (e.g. parent updates after save)
+  useEffect(() => { if (!focused) setLocal(value || ""); }, [value, focused]);
   const base = { width:"100%", fontSize:13, color:readOnly?T.text2:T.text, background:readOnly?T.surface3:T.surface2, border:"1px solid "+T.border, borderRadius:6, padding:"6px 10px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
+  const handleBlur = () => { setFocused(false); if (local !== (value || "")) onChange(local); if (onBlur) onBlur(); };
   return (
     <div style={{ marginBottom:12 }}>
       {label && <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>{label}</div>}
@@ -113,9 +118,9 @@ function InlineField({ label, value, onChange, onBlur, type="text", placeholder,
           {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
         </select>
       ) : multiline ? (
-        <textarea value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur} placeholder={placeholder} style={{ ...base, minHeight:72, resize:"vertical" }} readOnly={readOnly} />
+        <textarea value={local} onChange={e=>setLocal(e.target.value)} onFocus={()=>setFocused(true)} onBlur={handleBlur} placeholder={placeholder} style={{ ...base, minHeight:72, resize:"vertical" }} readOnly={readOnly} />
       ) : (
-        <input type={type} value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur} placeholder={placeholder} style={base} readOnly={readOnly} />
+        <input type={type} value={local} onChange={e=>setLocal(e.target.value)} onFocus={()=>setFocused(true)} onBlur={handleBlur} placeholder={placeholder} style={base} readOnly={readOnly} />
       )}
     </div>
   );
