@@ -387,6 +387,67 @@ function EnvelopeDetail({ envelope: env, onBack, onRefresh }) {
         </div>
       )}
 
+      {/* Signing Links (for manual sharing) */}
+      {["sent", "in_progress"].includes(env.status) && signers.filter(s => s.status !== "signed").length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 10 }}>Signing Links</div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>Copy and send these links directly to signers who haven't received the email.</div>
+          {signers.filter(s => s.status !== "signed").map(s => (
+            <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, marginBottom: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.text, flex: 1 }}>{s.name}</span>
+              <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/sign?token=${s.access_token}`); alert("Link copied!"); }} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>📋 Copy Link</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Certificate of Completion */}
+      {env.status === "completed" && (
+        <div style={{ padding: 20, background: T.green + "08", border: `1px solid ${T.green}30`, borderRadius: 12, marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 24 }}>🏆</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Certificate of Completion</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>All parties have signed. This document is legally binding.</div>
+            </div>
+          </div>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 2 }}>Certificate of Completion</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: T.text, marginTop: 6 }}>{env.title}</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Completed {fmtTime(env.completed_at)}</div>
+            </div>
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+              {signers.filter(s => s.role === "signer").map(s => (
+                <div key={s.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{s.name}</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{s.email}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>✅ Signed</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{fmtTime(s.signed_at)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {env.document_hash && (
+              <div style={{ marginTop: 12, fontSize: 9, color: T.text3, fontFamily: "monospace" }}>
+                Document Hash: {env.document_hash}
+              </div>
+            )}
+            <div style={{ marginTop: 12, fontSize: 9, color: T.text3 }}>
+              This certificate confirms that all parties signed the document electronically.
+              Signatures are legally binding under the ESIGN Act, UETA, and eIDAS.
+              Audit ID: {env.id}
+            </div>
+          </div>
+          {env.document_url && (
+            <a href={env.document_url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 12, padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>📥 Download Original Document</a>
+          )}
+        </div>
+      )}
+
       {/* Audit Trail */}
       <div>
         <button onClick={() => setShowAudit(!showAudit)} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 12 }}>
@@ -424,6 +485,9 @@ export default function ESignView() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [templates, setTemplates] = useState([]);
+  const [tab, setTab] = useState("envelopes"); // "envelopes" | "templates"
+  const [showNewTemplate, setShowNewTemplate] = useState(false);
+  const [newTmpl, setNewTmpl] = useState({ name: "", description: "" });
 
   const loadData = async () => {
     const [{ data: envs }, { data: tmpl }] = await Promise.all([
@@ -451,7 +515,7 @@ export default function ESignView() {
 
   return (
     <div style={{ padding: isMobile ? 16 : 28, maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>Documents & Signatures</div>
           <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Legally compliant electronic signatures — ESIGN Act, UETA, eIDAS</div>
@@ -461,7 +525,15 @@ export default function ESignView() {
         </button>
       </div>
 
+      {/* Tab switcher */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
+        {[{ id: "envelopes", label: `Documents (${envelopes.length})`, icon: "📄" }, { id: "templates", label: `Templates (${templates.length})`, icon: "📋" }].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: `1px solid ${tab === t.id ? T.accent + "40" : T.border}`, background: tab === t.id ? T.accent + "12" : T.surface, color: tab === t.id ? T.accent : T.text3, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>{t.icon} {t.label}</button>
+        ))}
+      </div>
+
       {/* Summary cards */}
+      {tab === "envelopes" && <>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(3, 1fr)" : "repeat(6, 1fr)", gap: 8, marginBottom: 20 }}>
         {[
           { key: "all", label: "All", icon: "📄" },
@@ -524,8 +596,74 @@ export default function ESignView() {
           })}
         </div>
       )}
+      </>}
 
       {showCreate && <EnvelopeCreator onClose={() => setShowCreate(false)} onCreated={(env) => { setShowCreate(false); loadData(); }} />}
+
+      {/* Templates tab */}
+      {tab === "templates" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Saved Templates</div>
+            <button onClick={() => setShowNewTemplate(true)} style={{ padding: "6px 16px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer" }}>+ New Template</button>
+          </div>
+
+          {showNewTemplate && (
+            <div style={{ padding: 20, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 16 }}>
+              <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Template Name</div>
+                  <input value={newTmpl.name} onChange={e => setNewTmpl(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Standard NDA" style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Description</div>
+                  <input value={newTmpl.description} onChange={e => setNewTmpl(p => ({ ...p, description: e.target.value }))} placeholder="Brief description" style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => { setShowNewTemplate(false); setNewTmpl({ name: "", description: "" }); }} style={{ padding: "6px 14px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={async () => {
+                  if (!newTmpl.name.trim()) return;
+                  await supabase.from("esign_templates").insert({
+                    org_id: orgId, name: newTmpl.name.trim(), description: newTmpl.description.trim(),
+                    created_by: user?.id, signer_roles: [{ role_name: "Signer 1", signing_order: 1 }],
+                  });
+                  setShowNewTemplate(false); setNewTmpl({ name: "", description: "" }); loadData();
+                }} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, border: "none", borderRadius: 6, background: T.accent, color: "#fff", cursor: "pointer" }}>Create Template</button>
+              </div>
+            </div>
+          )}
+
+          {templates.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>📋</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>No templates yet</div>
+              <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>Create templates for documents you send frequently — NDAs, contracts, offer letters, etc.</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {templates.map(tmpl => (
+                <div key={tmpl.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 8, background: T.accent + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>📋</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{tmpl.description || "No description"} · Used {tmpl.use_count || 0} times</div>
+                  </div>
+                  <button onClick={async () => {
+                    // Use template to create new envelope
+                    setShowCreate(true);
+                  }} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, cursor: "pointer" }}>Use Template</button>
+                  <button onClick={async () => {
+                    if (!confirm("Delete this template?")) return;
+                    await supabase.from("esign_templates").update({ is_active: false }).eq("id", tmpl.id);
+                    loadData();
+                  }} style={{ padding: "4px 8px", fontSize: 11, borderRadius: 4, border: "none", background: "none", color: T.text3, cursor: "pointer" }}>🗑</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
