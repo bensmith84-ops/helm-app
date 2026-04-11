@@ -78,8 +78,13 @@ function SigningPageContent() {
       title: fieldValues._title || "",
       phone: fieldValues._phone || "",
       company: fieldValues._company || "",
-      company_address: fieldValues._company_address || "",
       entity_type: fieldValues._entity_type || "",
+      address_street: fieldValues._address_street || "",
+      address_city: fieldValues._address_city || "",
+      address_state: fieldValues._address_state || "",
+      address_zip: fieldValues._address_zip || "",
+      address_country: fieldValues._address_country || "",
+      company_address: [fieldValues._address_street, fieldValues._address_city, fieldValues._address_state, fieldValues._address_zip, fieldValues._address_country].filter(Boolean).join(", "),
       jurisdiction: fieldValues._jurisdiction || "",
       date: fieldValues._date || new Date().toISOString().slice(0, 10),
       notices_email: fieldValues._notices_email || "",
@@ -268,8 +273,24 @@ function SigningPageContent() {
               </select>
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Company Address <span style={{ color: red }}>*</span></label>
-              <input value={fieldValues._company_address || ""} onChange={e => setFieldValues(p => ({ ...p, _company_address: e.target.value }))} placeholder="Full address including city, state, zip, country" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Street Address <span style={{ color: red }}>*</span></label>
+              <input value={fieldValues._address_street || ""} onChange={e => setFieldValues(p => ({ ...p, _address_street: e.target.value }))} placeholder="123 Main Street, Suite 100" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>City <span style={{ color: red }}>*</span></label>
+              <input value={fieldValues._address_city || ""} onChange={e => setFieldValues(p => ({ ...p, _address_city: e.target.value }))} placeholder="San Francisco" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>State / Province</label>
+              <input value={fieldValues._address_state || ""} onChange={e => setFieldValues(p => ({ ...p, _address_state: e.target.value }))} placeholder="California" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Zip / Postal Code</label>
+              <input value={fieldValues._address_zip || ""} onChange={e => setFieldValues(p => ({ ...p, _address_zip: e.target.value }))} placeholder="94105" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Country <span style={{ color: red }}>*</span></label>
+              <input value={fieldValues._address_country || ""} onChange={e => setFieldValues(p => ({ ...p, _address_country: e.target.value }))} placeholder="United States" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
             </div>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>State / Jurisdiction of Incorporation</label>

@@ -540,48 +540,167 @@ function EnvelopeDetail({ envelope: env, onBack, onRefresh }) {
 
       {/* Certificate of Completion */}
       {env.status === "completed" && (
-        <div style={{ padding: 20, background: T.green + "08", border: `1px solid ${T.green}30`, borderRadius: 12, marginBottom: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
             <span style={{ fontSize: 24 }}>🏆</span>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Certificate of Completion</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Document Completed</div>
               <div style={{ fontSize: 11, color: T.text3 }}>All parties have signed. This document is legally binding.</div>
             </div>
           </div>
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 20 }}>
-            <div style={{ textAlign: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 2 }}>Certificate of Completion</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: T.text, marginTop: 6 }}>{env.title}</div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Completed {fmtTime(env.completed_at)}</div>
+
+          {/* Completed Document Card */}
+          <div style={{ background: T.surface, border: `1px solid ${T.green}40`, borderRadius: 14, overflow: "hidden", marginBottom: 16 }}>
+            <div style={{ padding: "16px 20px", background: T.green + "08", borderBottom: `1px solid ${T.green}30` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: 2 }}>Certificate of Completion</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: T.text, marginTop: 4 }}>{env.title}</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Completed {fmtTime(env.completed_at)} · Audit ID: {env.id?.slice(0, 8)}</div>
             </div>
-            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
-              {signers.filter(s => s.role === "signer").map(s => (
-                <div key={s.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{s.name}</div>
-                    <div style={{ fontSize: 10, color: T.text3 }}>{s.email}</div>
+
+            {/* Signer details with signatures */}
+            <div style={{ padding: "16px 20px" }}>
+              {signers.filter(s => s.role === "signer").map((s, i) => {
+                const det = s.signer_details || {};
+                return (
+                  <div key={s.id} style={{ padding: "16px 0", borderBottom: i < signers.filter(x => x.role === "signer").length - 1 ? `1px solid ${T.border}` : "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{det.name || s.name}</div>
+                        <div style={{ fontSize: 11, color: T.text3 }}>{det.title || ""}{det.title && det.company ? " at " : ""}{det.company || ""}</div>
+                        <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{det.email || s.email}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 11, color: T.green, fontWeight: 700 }}>✅ Signed</div>
+                        <div style={{ fontSize: 10, color: T.text3 }}>{fmtTime(s.signed_at)}</div>
+                      </div>
+                    </div>
+
+                    {/* Captured Signature */}
+                    {s.signature_data && (
+                      <div style={{ padding: 12, background: "#fafafa", borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 8 }}>
+                        {s.signature_data.type === "draw" ? (
+                          <img src={s.signature_data.value} alt="Signature" style={{ maxHeight: 50, display: "block" }} />
+                        ) : (
+                          <div style={{ fontSize: 24, fontFamily: s.signature_data.font || "Georgia, serif", color: T.text }}>{s.signature_data.value}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Signer Details Grid */}
+                    {(det.company || det.company_address || det.entity_type || det.phone || det.jurisdiction) && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 10, color: T.text2, marginTop: 6 }}>
+                        {det.company && <div><span style={{ color: T.text3, fontWeight: 600 }}>Entity:</span> {det.company}</div>}
+                        {det.entity_type && <div><span style={{ color: T.text3, fontWeight: 600 }}>Type:</span> {det.entity_type}</div>}
+                        {det.company_address && <div style={{ gridColumn: "1 / -1" }}><span style={{ color: T.text3, fontWeight: 600 }}>Address:</span> {det.company_address}</div>}
+                        {det.jurisdiction && <div><span style={{ color: T.text3, fontWeight: 600 }}>Jurisdiction:</span> {det.jurisdiction}</div>}
+                        {det.phone && <div><span style={{ color: T.text3, fontWeight: 600 }}>Phone:</span> {det.phone}</div>}
+                        {det.notices_email && <div><span style={{ color: T.text3, fontWeight: 600 }}>Notices Email:</span> {det.notices_email}</div>}
+                      </div>
+                    )}
+
+                    {/* IP & consent */}
+                    <div style={{ fontSize: 9, color: T.text3, marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {s.consent_given && <span>✓ Consent given {fmtTime(s.consent_timestamp)}</span>}
+                      {s.ip_address && <span>IP: {s.ip_address}</span>}
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>✅ Signed</div>
-                    <div style={{ fontSize: 10, color: T.text3 }}>{fmtTime(s.signed_at)}</div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+
+            {/* Document hash */}
             {env.document_hash && (
-              <div style={{ marginTop: 12, fontSize: 9, color: T.text3, fontFamily: "monospace" }}>
-                Document Hash: {env.document_hash}
+              <div style={{ padding: "10px 20px", borderTop: `1px solid ${T.border}`, background: T.surface2 }}>
+                <div style={{ fontSize: 9, fontFamily: "monospace", color: T.text3 }}>SHA-256: {env.document_hash}</div>
               </div>
             )}
-            <div style={{ marginTop: 12, fontSize: 9, color: T.text3 }}>
-              This certificate confirms that all parties signed the document electronically.
-              Signatures are legally binding under the ESIGN Act, UETA, and eIDAS.
-              Audit ID: {env.id}
+
+            {/* Legal footer */}
+            <div style={{ padding: "10px 20px", borderTop: `1px solid ${T.border}`, background: T.surface2 }}>
+              <div style={{ fontSize: 9, color: T.text3, lineHeight: 1.5 }}>
+                This certificate confirms that all parties signed electronically. Signatures are legally binding under the ESIGN Act, UETA, and eIDAS.
+                All actions recorded in a tamper-evident audit trail.
+              </div>
             </div>
           </div>
-          {env.document_url && (
-            <a href={env.document_url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 12, padding: "8px 16px", borderRadius: 6, background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>📥 Download Original Document</a>
-          )}
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 8 }}>
+            {env.document_url && (
+              <a href={env.document_url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 20px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 12, fontWeight: 600, textDecoration: "none" }}>📄 Original Document</a>
+            )}
+            <button onClick={() => {
+              // Generate and download completion certificate as printable HTML
+              const certSigners = signers.filter(s => s.role === "signer");
+              const certHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Certificate - ${env.title}</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:800px;margin:0 auto;padding:40px;color:#1a1a2e}
+.header{text-align:center;border-bottom:3px solid #6366f1;padding-bottom:20px;margin-bottom:30px}
+.header h1{font-size:14px;text-transform:uppercase;letter-spacing:3px;color:#6366f1;margin:0}
+.header h2{font-size:24px;margin:10px 0 4px}
+.header p{font-size:12px;color:#666}
+.signer{border:1px solid #e2e3e8;border-radius:12px;padding:20px;margin-bottom:16px;page-break-inside:avoid}
+.signer-name{font-size:16px;font-weight:700}
+.signer-title{font-size:12px;color:#666;margin-top:2px}
+.sig-box{background:#fafafa;border:1px solid #e2e3e8;border-radius:8px;padding:16px;margin:12px 0;min-height:50px}
+.sig-box img{max-height:60px}
+.sig-box .typed{font-size:28px;color:#1a1a2e}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;font-size:11px;color:#444;margin-top:10px}
+.detail-grid .label{color:#888;font-weight:600}
+.meta{font-size:10px;color:#888;margin-top:8px}
+.hash{font-family:monospace;font-size:10px;color:#888;padding:10px;background:#f5f5f8;border-radius:6px;margin:20px 0;word-break:break-all}
+.legal{font-size:10px;color:#888;line-height:1.6;border-top:2px solid #e2e3e8;padding-top:16px;margin-top:24px}
+@media print{body{padding:20px}.signer{break-inside:avoid}}
+</style></head><body>
+<div class="header">
+  <h1>Certificate of Completion</h1>
+  <h2>${env.title}</h2>
+  <p>Completed ${new Date(env.completed_at).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"})}</p>
+  <p>Envelope ID: ${env.id}</p>
+</div>
+${certSigners.map((s,i) => {
+  const d = s.signer_details || {};
+  const sigHtml = s.signature_data?.type === "draw" 
+    ? `<img src="${s.signature_data.value}" alt="Signature"/>` 
+    : s.signature_data?.value 
+      ? `<div class="typed" style="font-family:${s.signature_data.font || 'Georgia,serif'}">${s.signature_data.value}</div>`
+      : '<div style="color:#888">Signature on file</div>';
+  return `<div class="signer">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div class="signer-name">${d.name || s.name}</div>
+        <div class="signer-title">${d.title||''}${d.title&&d.company?' at ':''}${d.company||''}</div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:#22c55e;font-weight:700">✅ Signed<br><span style="color:#888;font-weight:400">${new Date(s.signed_at).toLocaleString()}</span></div>
+    </div>
+    <div class="sig-box">${sigHtml}</div>
+    <div class="detail-grid">
+      ${d.email?`<div><span class="label">Email:</span> ${d.email}</div>`:''}
+      ${d.phone?`<div><span class="label">Phone:</span> ${d.phone}</div>`:''}
+      ${d.company?`<div><span class="label">Entity:</span> ${d.company}</div>`:''}
+      ${d.entity_type?`<div><span class="label">Type:</span> ${d.entity_type}</div>`:''}
+      ${d.company_address?`<div style="grid-column:1/-1"><span class="label">Address:</span> ${d.company_address}</div>`:''}
+      ${d.jurisdiction?`<div><span class="label">Jurisdiction:</span> ${d.jurisdiction}</div>`:''}
+      ${d.notices_email?`<div><span class="label">Notices:</span> ${d.notices_email}</div>`:''}
+    </div>
+    <div class="meta">Consent: ${s.consent_given?'Yes':'No'} · IP: ${s.ip_address||'N/A'}</div>
+  </div>`;
+}).join('')}
+${env.document_hash?`<div class="hash">Document Hash (SHA-256): ${env.document_hash}</div>`:''}
+<div class="legal">
+  This certificate confirms that all parties listed above signed the document "<strong>${env.title}</strong>" electronically.
+  Each signer provided consent to sign electronically in accordance with the Electronic Signatures in Global and National Commerce Act (ESIGN Act),
+  the Uniform Electronic Transactions Act (UETA), and the European Regulation on Electronic Identification and Trust Services (eIDAS).
+  All signing events were recorded in a tamper-evident audit trail with timestamps, IP addresses, and user agents.
+  The document integrity has been verified using SHA-256 cryptographic hashing.
+</div>
+</body></html>`;
+              const blob = new Blob([certHtml], { type: "text/html" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = `Certificate_${env.title.replace(/[^a-zA-Z0-9]/g, "_")}.html`; a.click();
+              URL.revokeObjectURL(url);
+            }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 20px", borderRadius: 8, background: T.accent, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📥 Download Certificate</button>
+          </div>
         </div>
       )}
 
