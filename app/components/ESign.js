@@ -148,10 +148,7 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
 
       // Increment template use_count
       if (templateId) {
-        await supabase.rpc('increment_template_use_count', { tmpl_id: templateId }).catch(() => {
-          // Fallback: direct update
-          supabase.from("esign_templates").update({ use_count: (template?.use_count || 0) + 1 }).eq("id", templateId);
-        });
+        supabase.from("esign_templates").update({ use_count: (template?.use_count || 0) + 1 }).eq("id", templateId);
       }
 
       // Create signers
