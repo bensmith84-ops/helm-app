@@ -71,11 +71,25 @@ function SigningPageContent() {
 
   const handleSign = async () => {
     if (!consent || !signatureData) return;
+    // Collect signer details from the form
+    const signerDetails = {
+      name: fieldValues._name || signer.name,
+      email: fieldValues._email || signer.email,
+      title: fieldValues._title || "",
+      phone: fieldValues._phone || "",
+      company: fieldValues._company || "",
+      company_address: fieldValues._company_address || "",
+      entity_type: fieldValues._entity_type || "",
+      jurisdiction: fieldValues._jurisdiction || "",
+      date: fieldValues._date || new Date().toISOString().slice(0, 10),
+      notices_email: fieldValues._notices_email || "",
+      send_copy_to: fieldValues._send_copy_to || "",
+    };
     setSigning(true);
     try {
       const res = await fetch(EDGE_BASE + "/esign", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "sign", token, signature_data: signatureData, initials_data: initialsData, field_values: fieldValues, consent: true }),
+        body: JSON.stringify({ action: "sign", token, signature_data: signatureData, initials_data: initialsData, field_values: fieldValues, signer_details: signerDetails, consent: true }),
       });
       const result = await res.json();
       if (result.success) setDone(true);
@@ -188,40 +202,129 @@ function SigningPageContent() {
 
         {/* Document preview */}
         {envelope.document_url && (
-          <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: 20, marginBottom: 24 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: text3, marginBottom: 12, textTransform: "uppercase" }}>Document Preview</div>
-            <div style={{ background: "#f0f0f5", borderRadius: 8, padding: 20, textAlign: "center", minHeight: 200, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
-              <span style={{ fontSize: 48 }}>📄</span>
-              <a href={envelope.document_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: accent, fontWeight: 600, textDecoration: "none" }}>View Full Document ↗</a>
+          <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, overflow: "hidden", marginBottom: 24 }}>
+            <div style={{ padding: "12px 20px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: text3, textTransform: "uppercase" }}>Document to Sign</div>
+              <a href={envelope.document_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: accent, fontWeight: 600, textDecoration: "none" }}>Open in new tab ↗</a>
             </div>
+            {envelope.document_url.toLowerCase().includes(".pdf") ? (
+              <iframe src={envelope.document_url + "#toolbar=1&navpanes=0"} style={{ width: "100%", height: 500, border: "none" }} title="Document" />
+            ) : (
+              <div style={{ padding: 40, textAlign: "center" }}>
+                <span style={{ fontSize: 48 }}>📄</span>
+                <div style={{ marginTop: 8 }}><a href={envelope.document_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: accent, fontWeight: 600, textDecoration: "none" }}>View Full Document ↗</a></div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Fill in fields */}
-        {otherFields.length > 0 && (
-          <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: 24, marginBottom: 24 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: text3, marginBottom: 16, textTransform: "uppercase" }}>Required Fields</div>
-            {otherFields.map(f => (
-              <div key={f.id} style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>
-                  {f.label || f.field_type.replace(/_/g, " ")} {f.required && <span style={{ color: red }}>*</span>}
-                </label>
-                {f.field_type === "checkbox" ? (
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                    <input type="checkbox" checked={!!fieldValues[f.id]} onChange={e => setFieldValues(p => ({ ...p, [f.id]: e.target.checked ? "yes" : "" }))} />
-                    <span style={{ fontSize: 13, color: text }}>{f.placeholder || "I agree"}</span>
-                  </label>
-                ) : f.field_type === "name" ? (
-                  <input value={fieldValues[f.id] ?? signer.name} onChange={e => setFieldValues(p => ({ ...p, [f.id]: e.target.value }))} style={{ width: "100%", padding: "10px 14px", fontSize: 14, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
-                ) : f.field_type === "email" ? (
-                  <input value={fieldValues[f.id] ?? signer.email} onChange={e => setFieldValues(p => ({ ...p, [f.id]: e.target.value }))} type="email" style={{ width: "100%", padding: "10px 14px", fontSize: 14, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
-                ) : (
-                  <input value={fieldValues[f.id] || ""} onChange={e => setFieldValues(p => ({ ...p, [f.id]: e.target.value }))} placeholder={f.placeholder} style={{ width: "100%", padding: "10px 14px", fontSize: 14, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
-                )}
-              </div>
-            ))}
+        {/* Signer Details Form */}
+        <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: 24, marginBottom: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: text, marginBottom: 4 }}>Your Details</div>
+          <div style={{ fontSize: 11, color: text3, marginBottom: 20, lineHeight: 1.5 }}>Please fill in your information below. Fields marked with * are required.</div>
+          
+          {/* Personal Information */}
+          <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${border}` }}>Personal Information</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Full Legal Name <span style={{ color: red }}>*</span></label>
+              <input value={fieldValues._name ?? signer.name} onChange={e => setFieldValues(p => ({ ...p, _name: e.target.value }))} placeholder="Enter your full legal name" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Email Address <span style={{ color: red }}>*</span></label>
+              <input value={fieldValues._email ?? signer.email} onChange={e => setFieldValues(p => ({ ...p, _email: e.target.value }))} type="email" placeholder="your@email.com" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Title / Role <span style={{ color: red }}>*</span></label>
+              <input value={fieldValues._title || ""} onChange={e => setFieldValues(p => ({ ...p, _title: e.target.value }))} placeholder="e.g. CEO, Director, Authorized Signatory" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Phone Number</label>
+              <input value={fieldValues._phone || ""} onChange={e => setFieldValues(p => ({ ...p, _phone: e.target.value }))} type="tel" placeholder="+1 (555) 123-4567" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
           </div>
-        )}
+
+          {/* Company Information */}
+          <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${border}` }}>Company Information</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Company / Entity Name <span style={{ color: red }}>*</span></label>
+              <input value={fieldValues._company || ""} onChange={e => setFieldValues(p => ({ ...p, _company: e.target.value }))} placeholder="Full legal entity name" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Entity Type</label>
+              <select value={fieldValues._entity_type || ""} onChange={e => setFieldValues(p => ({ ...p, _entity_type: e.target.value }))} style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }}>
+                <option value="">Select…</option>
+                <option value="Corporation">Corporation</option>
+                <option value="LLC">LLC</option>
+                <option value="LP">Limited Partnership (LP)</option>
+                <option value="LLP">Limited Liability Partnership (LLP)</option>
+                <option value="Sole Proprietorship">Sole Proprietorship</option>
+                <option value="Partnership">Partnership</option>
+                <option value="Non-profit">Non-profit</option>
+                <option value="Trust">Trust</option>
+                <option value="Individual">Individual</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Company Address <span style={{ color: red }}>*</span></label>
+              <input value={fieldValues._company_address || ""} onChange={e => setFieldValues(p => ({ ...p, _company_address: e.target.value }))} placeholder="Full address including city, state, zip, country" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>State / Jurisdiction of Incorporation</label>
+              <input value={fieldValues._jurisdiction || ""} onChange={e => setFieldValues(p => ({ ...p, _jurisdiction: e.target.value }))} placeholder="e.g. Delaware, California, NSW" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Date</label>
+              <input value={fieldValues._date || new Date().toISOString().slice(0, 10)} onChange={e => setFieldValues(p => ({ ...p, _date: e.target.value }))} type="date" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+            </div>
+          </div>
+
+          {/* Notices & Copies */}
+          <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${border}` }}>Notices & Copies</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Email Address for Notices</label>
+              <input value={fieldValues._notices_email || ""} onChange={e => setFieldValues(p => ({ ...p, _notices_email: e.target.value }))} type="email" placeholder="If different from signer email" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+              <div style={{ fontSize: 9, color: text3, marginTop: 3 }}>Leave blank if same as your email above</div>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>Send Copy To</label>
+              <input value={fieldValues._send_copy_to || ""} onChange={e => setFieldValues(p => ({ ...p, _send_copy_to: e.target.value }))} type="email" placeholder="colleague@company.com" style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+              <div style={{ fontSize: 9, color: text3, marginTop: 3 }}>Optional: send a signed copy to another person</div>
+            </div>
+          </div>
+
+          {/* Additional document-specific fields from the envelope */}
+          {otherFields.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${border}` }}>Additional Information</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                {otherFields.map(f => (
+                  <div key={f.id} style={{ gridColumn: f.field_type === "text" ? "1 / -1" : undefined }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: text3, display: "block", marginBottom: 4 }}>
+                      {f.label || f.field_type.replace(/_/g, " ")} {f.required && <span style={{ color: red }}>*</span>}
+                    </label>
+                    {f.field_type === "checkbox" ? (
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!fieldValues[f.id]} onChange={e => setFieldValues(p => ({ ...p, [f.id]: e.target.checked ? "yes" : "" }))} style={{ width: 16, height: 16, accentColor: accent }} />
+                        <span style={{ fontSize: 13, color: text }}>{f.placeholder || "I agree"}</span>
+                      </label>
+                    ) : f.field_type === "dropdown" ? (
+                      <select value={fieldValues[f.id] || ""} onChange={e => setFieldValues(p => ({ ...p, [f.id]: e.target.value }))} style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }}>
+                        <option value="">Select…</option>
+                        {(f.dropdown_options || []).map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input value={fieldValues[f.id] || ""} onChange={e => setFieldValues(p => ({ ...p, [f.id]: e.target.value }))} placeholder={f.placeholder} type={f.field_type === "email" ? "email" : f.field_type === "phone" ? "tel" : f.field_type === "date_signed" ? "date" : "text"} style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: "#fff", color: text, boxSizing: "border-box" }} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Signature section */}
         <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: 24, marginBottom: 24 }}>
