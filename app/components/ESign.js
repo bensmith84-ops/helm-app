@@ -98,17 +98,25 @@ function SignaturePad({ onSave, onCancel, label = "Signature" }) {
 // ══════════════════════════════════════════════════════════
 // ENVELOPE CREATOR — Create new signing request
 // ══════════════════════════════════════════════════════════
-function EnvelopeCreator({ onClose, onCreated }) {
+function EnvelopeCreator({ onClose, onCreated, template }) {
   const { user, orgId } = useAuth();
-  const [step, setStep] = useState(1); // 1: Upload, 2: Add Signers, 3: Place Fields, 4: Review
-  const [title, setTitle] = useState("");
+  // If template has a document, skip to step 2 (signers)
+  const hasTemplateDoc = !!(template?.document_url);
+  const [step, setStep] = useState(hasTemplateDoc ? 2 : 1);
+  const [title, setTitle] = useState(template?.name ? `${template.name}` : "");
   const [message, setMessage] = useState("");
   const [signingOrder, setSigningOrder] = useState("sequential");
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [documentUrl, setDocumentUrl] = useState("");
-  const [signers, setSigners] = useState([{ name: "", email: "", role: "signer", signing_order: 1 }]);
+  const [documentUrl, setDocumentUrl] = useState(template?.document_url || "");
+  const [supportingDocs, setSupportingDocs] = useState([]); // Additional supporting documents
+  // Pre-fill signers from template roles (leave name/email blank for user to fill)
+  const templateSigners = (template?.signer_roles || []).map((r, i) => ({ 
+    name: "", email: "", role: "signer", signing_order: r.signing_order || i + 1, role_name: r.role_name 
+  }));
+  const [signers, setSigners] = useState(templateSigners.length > 0 ? templateSigners : [{ name: "", email: "", role: "signer", signing_order: 1 }]);
   const [sending, setSending] = useState(false);
+  const templateId = template?.id || null;
 
   const addSigner = () => setSigners(p => [...p, { name: "", email: "", role: "signer", signing_order: p.length + 1 }]);
   const removeSigner = (i) => setSigners(p => p.filter((_, j) => j !== i));
@@ -127,15 +135,24 @@ function EnvelopeCreator({ onClose, onCreated }) {
   };
 
   const handleSend = async () => {
-    if (!title.trim() || !documentUrl || signers.some(s => !s.name.trim() || !s.email.trim())) return;
+    if (!title.trim() || signers.some(s => !s.name.trim() || !s.email.trim())) return;
     setSending(true);
     try {
       // Create envelope
       const { data: envelope } = await supabase.from("esign_envelopes").insert({
-        org_id: orgId, title: title.trim(), message: message.trim(), document_url: documentUrl,
+        org_id: orgId, title: title.trim(), message: message.trim(), 
+        document_url: documentUrl || null, template_id: templateId,
         signing_order: signingOrder, created_by: user?.id, status: "draft",
       }).select().single();
       if (!envelope) throw new Error("Failed to create envelope");
+
+      // Increment template use_count
+      if (templateId) {
+        await supabase.rpc('increment_template_use_count', { tmpl_id: templateId }).catch(() => {
+          // Fallback: direct update
+          supabase.from("esign_templates").update({ use_count: (template?.use_count || 0) + 1 }).eq("id", templateId);
+        });
+      }
 
       // Create signers
       for (const s of signers) {
@@ -200,10 +217,11 @@ function EnvelopeCreator({ onClose, onCreated }) {
               <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Please review and sign this document…" rows={3} style={{ width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
             </div>
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 8, textTransform: "uppercase" }}>Upload Document</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 8, textTransform: "uppercase" }}>Document (optional — attach if signers need to review a file)</div>
               {!documentUrl ? (
                 <div style={{ border: `2px dashed ${T.border}`, borderRadius: 12, padding: 32, textAlign: "center" }}>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
+                  <div style={{ fontSize: 12, color: T.text3, marginBottom: 10 }}>Upload a PDF, Word doc, or image — or skip if not needed</div>
                   <input type="file" accept=".pdf,.doc,.docx,.png,.jpg" onChange={e => { setFile(e.target.files?.[0]); }} style={{ marginBottom: 12 }} />
                   {file && !uploading && <button onClick={handleUpload} style={{ padding: "8px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Upload</button>}
                   {uploading && <div style={{ fontSize: 12, color: T.text3 }}>Uploading…</div>}
@@ -211,12 +229,13 @@ function EnvelopeCreator({ onClose, onCreated }) {
               ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: T.green + "15", border: `1px solid ${T.green}40`, borderRadius: 8 }}>
                   <span style={{ fontSize: 16 }}>✅</span>
-                  <span style={{ fontSize: 13, color: T.text }}>Document uploaded</span>
+                  <span style={{ fontSize: 13, color: T.text, flex: 1 }}>Document attached</span>
+                  <button onClick={() => setDocumentUrl("")} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Remove</button>
                 </div>
               )}
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={() => setStep(2)} disabled={!title.trim() || !documentUrl} style={{ padding: "10px 28px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: !title.trim() || !documentUrl ? 0.4 : 1 }}>Next: Add Signers →</button>
+              <button onClick={() => setStep(2)} disabled={!title.trim()} style={{ padding: "10px 28px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: !title.trim() ? 0.4 : 1 }}>Next: Add Signers →</button>
             </div>
           </div>
         )}
@@ -224,6 +243,17 @@ function EnvelopeCreator({ onClose, onCreated }) {
         {/* Step 2: Signers */}
         {step === 2 && (
           <div>
+            {/* Template info banner */}
+            {template && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.accent + "08", border: `1px solid ${T.accent}20`, borderRadius: 8, marginBottom: 16 }}>
+                <span style={{ fontSize: 16 }}>📋</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.accent }}>Using template: {template.name}</div>
+                  {documentUrl && <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>✅ Template document attached</div>}
+                </div>
+                <button onClick={() => setStep(1)} style={{ fontSize: 10, color: T.text3, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer" }}>Edit Details</button>
+              </div>
+            )}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 8, textTransform: "uppercase" }}>Signing Order</div>
               <div style={{ display: "flex", gap: 8 }}>
@@ -236,7 +266,8 @@ function EnvelopeCreator({ onClose, onCreated }) {
             {signers.map((s, i) => (
               <div key={i} style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
                 <span style={{ width: 24, height: 24, borderRadius: "50%", background: T.accent + "20", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
-                <input value={s.name} onChange={e => updateSigner(i, "name", e.target.value)} placeholder="Full name" style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
+                {s.role_name && <span style={{ fontSize: 10, fontWeight: 600, color: T.accent, background: T.accent + "12", padding: "3px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>{s.role_name}</span>}
+                <input value={s.name} onChange={e => updateSigner(i, "name", e.target.value)} placeholder={s.role_name ? `${s.role_name} — Full name` : "Full name"} style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
                 <input value={s.email} onChange={e => updateSigner(i, "email", e.target.value)} placeholder="Email" type="email" style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
                 <select value={s.role} onChange={e => updateSigner(i, "role", e.target.value)} style={{ padding: "8px 10px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }}>
                   <option value="signer">Signer</option>
@@ -488,6 +519,7 @@ export default function ESignView() {
   const [tab, setTab] = useState("envelopes"); // "envelopes" | "templates"
   const [showNewTemplate, setShowNewTemplate] = useState(false);
   const [newTmpl, setNewTmpl] = useState({ name: "", description: "" });
+  const [activeTemplate, setActiveTemplate] = useState(null);
 
   const loadData = async () => {
     const [{ data: envs }, { data: tmpl }] = await Promise.all([
@@ -598,7 +630,7 @@ export default function ESignView() {
       )}
       </>}
 
-      {showCreate && <EnvelopeCreator onClose={() => setShowCreate(false)} onCreated={(env) => { setShowCreate(false); loadData(); }} />}
+      {showCreate && <EnvelopeCreator template={activeTemplate} onClose={() => { setShowCreate(false); setActiveTemplate(null); }} onCreated={(env) => { setShowCreate(false); setActiveTemplate(null); loadData(); }} />}
 
       {/* Templates tab */}
       {tab === "templates" && (
@@ -730,9 +762,8 @@ export default function ESignView() {
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button onClick={() => {
-                          // Pre-fill envelope creator with template data
+                          setActiveTemplate(tmpl);
                           setShowCreate(true);
-                          // Template data will be picked up by EnvelopeCreator
                         }} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Send</button>
                         <button onClick={async () => {
                           if (!confirm(`Delete template "${tmpl.name}"?`)) return;
