@@ -128,7 +128,7 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
     const path = `${orgId}/${Date.now()}_${file.name}`;
     const { error } = await supabase.storage.from("esign-documents").upload(path, file, { contentType: file.type });
     if (!error) {
-      const url = `${supabase.supabaseUrl}/storage/v1/object/authenticated/esign-documents/${path}`;
+      const url = `${supabase.supabaseUrl}/storage/v1/object/public/esign-documents/${path}`;
       setDocumentUrl(url);
     }
     setUploading(false);
