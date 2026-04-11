@@ -629,6 +629,7 @@ export default function ESignView() {
   const [showNewTemplate, setShowNewTemplate] = useState(false);
   const [newTmpl, setNewTmpl] = useState({ name: "", description: "" });
   const [activeTemplate, setActiveTemplate] = useState(null);
+  const [editingTemplate, setEditingTemplate] = useState(null);
 
   const loadData = async () => {
     const [{ data: envs }, { data: tmpl }] = await Promise.all([
@@ -854,33 +855,115 @@ export default function ESignView() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {templates.map(tmpl => {
                 const roles = tmpl.signer_roles || [];
+                const isEditing = editingTemplate?.id === tmpl.id;
                 return (
-                  <div key={tmpl.id} style={{ padding: "16px 20px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                      <div style={{ width: 42, height: 42, borderRadius: 10, background: T.accent + "12", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>📋</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{tmpl.name}</div>
-                        <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{tmpl.description || "No description"}</div>
-                        <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-                          {tmpl.document_url && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: T.green + "15", color: T.green, fontWeight: 600 }}>📄 Document attached</span>}
-                          {roles.map((r, i) => (
-                            <span key={i} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: T.accent + "12", color: T.accent, fontWeight: 600 }}>#{i+1} {r.role_name}</span>
-                          ))}
-                          <span style={{ fontSize: 9, color: T.text3 }}>Used {tmpl.use_count || 0}×</span>
+                  <div key={tmpl.id} style={{ background: T.surface, border: `1px solid ${isEditing ? T.accent + "50" : T.border}`, borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ padding: "16px 20px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                        <div style={{ width: 42, height: 42, borderRadius: 10, background: T.accent + "12", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>📋</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{tmpl.name}</div>
+                          <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{tmpl.description || "No description"}</div>
+                          <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                            {tmpl.document_url && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: T.green + "15", color: T.green, fontWeight: 600 }}>📄 Document attached</span>}
+                            {!tmpl.document_url && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: T.yellow + "15", color: T.yellow, fontWeight: 600 }}>⚠ No document</span>}
+                            {roles.map((r, i) => (
+                              <span key={i} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: T.accent + "12", color: T.accent, fontWeight: 600 }}>#{i+1} {r.role_name}</span>
+                            ))}
+                            <span style={{ fontSize: 9, color: T.text3 }}>Used {tmpl.use_count || 0}×</span>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => { setActiveTemplate(tmpl); setShowCreate(true); }}
+                            style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Send</button>
+                          <button onClick={() => setEditingTemplate(isEditing ? null : { ...tmpl, signer_roles: [...(tmpl.signer_roles || [])] })}
+                            style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${isEditing ? T.accent : T.border}`, background: isEditing ? T.accent + "10" : T.surface2, color: isEditing ? T.accent : T.text3, cursor: "pointer" }}>{isEditing ? "Close" : "✏️ Edit"}</button>
+                          <button onClick={async () => { if (!confirm(`Delete "${tmpl.name}"?`)) return; await supabase.from("esign_templates").update({ is_active: false }).eq("id", tmpl.id); loadData(); }}
+                            style={{ padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>🗑</button>
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => {
-                          setActiveTemplate(tmpl);
-                          setShowCreate(true);
-                        }} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>Send</button>
-                        <button onClick={async () => {
-                          if (!confirm(`Delete template "${tmpl.name}"?`)) return;
-                          await supabase.from("esign_templates").update({ is_active: false }).eq("id", tmpl.id);
-                          loadData();
-                        }} style={{ padding: "6px 10px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>🗑</button>
-                      </div>
                     </div>
+                    
+                    {/* Inline edit panel */}
+                    {isEditing && (
+                      <div style={{ padding: "0 20px 20px", borderTop: `1px solid ${T.border}` }}>
+                        <div style={{ paddingTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Template Name</div>
+                            <input value={editingTemplate.name} onChange={e => setEditingTemplate(p => ({ ...p, name: e.target.value }))}
+                              style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4, textTransform: "uppercase" }}>Description</div>
+                            <input value={editingTemplate.description || ""} onChange={e => setEditingTemplate(p => ({ ...p, description: e.target.value }))}
+                              style={{ width: "100%", padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box" }} />
+                          </div>
+                        </div>
+
+                        {/* Document upload */}
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 6, textTransform: "uppercase" }}>Template Document</div>
+                          {editingTemplate.document_url ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.green + "10", border: `1px solid ${T.green}30`, borderRadius: 8 }}>
+                              <span style={{ fontSize: 14 }}>✅</span>
+                              <span style={{ fontSize: 12, color: T.text, flex: 1 }}>Document attached</span>
+                              <a href={editingTemplate.document_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: T.accent, textDecoration: "none", fontWeight: 600 }}>View ↗</a>
+                              <button onClick={() => setEditingTemplate(p => ({ ...p, document_url: null }))} style={{ fontSize: 10, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Remove</button>
+                            </div>
+                          ) : (
+                            <div style={{ border: `2px dashed ${T.border}`, borderRadius: 8, padding: 16, textAlign: "center" }}>
+                              <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>Upload PDF, Word, or image</div>
+                              <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const path = `templates/${orgId}/${Date.now()}_${file.name}`;
+                                const { error } = await supabase.storage.from("esign-documents").upload(path, file, { contentType: file.type, upsert: true });
+                                if (!error) {
+                                  const url = `${supabase.supabaseUrl}/storage/v1/object/public/esign-documents/${path}`;
+                                  setEditingTemplate(p => ({ ...p, document_url: url }));
+                                } else { alert("Upload failed: " + error.message); }
+                                e.target.value = "";
+                              }} style={{ fontSize: 11 }} />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Signer roles */}
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 6, textTransform: "uppercase" }}>Signer Roles</div>
+                          {(editingTemplate.signer_roles || []).map((r, i) => (
+                            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                              <span style={{ width: 20, height: 20, borderRadius: "50%", background: T.accent + "20", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{i+1}</span>
+                              <input value={r.role_name} onChange={e => {
+                                const roles = [...editingTemplate.signer_roles];
+                                roles[i] = { ...roles[i], role_name: e.target.value };
+                                setEditingTemplate(p => ({ ...p, signer_roles: roles }));
+                              }} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text }} />
+                              {editingTemplate.signer_roles.length > 1 && (
+                                <button onClick={() => setEditingTemplate(p => ({ ...p, signer_roles: p.signer_roles.filter((_, j) => j !== i) }))}
+                                  style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11 }}>×</button>
+                              )}
+                            </div>
+                          ))}
+                          <button onClick={() => setEditingTemplate(p => ({ ...p, signer_roles: [...(p.signer_roles || []), { role_name: "", signing_order: (p.signer_roles || []).length + 1 }] }))}
+                            style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 4, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer", width: "100%" }}>+ Add Role</button>
+                        </div>
+
+                        {/* Save / Cancel */}
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                          <button onClick={() => setEditingTemplate(null)}
+                            style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                          <button onClick={async () => {
+                            const roles = (editingTemplate.signer_roles || []).filter(r => r.role_name?.trim()).map((r, i) => ({ ...r, signing_order: i + 1 }));
+                            await supabase.from("esign_templates").update({
+                              name: editingTemplate.name?.trim(), description: editingTemplate.description?.trim() || null,
+                              document_url: editingTemplate.document_url || null, signer_roles: roles.length ? roles : [{ role_name: "Signer 1", signing_order: 1 }],
+                            }).eq("id", tmpl.id);
+                            setEditingTemplate(null); loadData();
+                          }} style={{ padding: "6px 20px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 6, background: T.accent, color: "#fff", cursor: "pointer" }}>Save Changes</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
