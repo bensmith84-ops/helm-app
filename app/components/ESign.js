@@ -444,6 +444,7 @@ function EnvelopeDetail({ envelope: env, onBack, onRefresh }) {
   const [auditLog, setAuditLog] = useState([]);
   const [showAudit, setShowAudit] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -625,7 +626,29 @@ function EnvelopeDetail({ envelope: env, onBack, onRefresh }) {
           </div>
 
           {/* Action buttons */}
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {/* Completed Document PDF — the main deliverable */}
+            {env.completed_document_url ? (
+              <a href={env.completed_document_url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 24px", borderRadius: 8, background: T.accent, border: "none", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>📥 Download Signed Document</a>
+            ) : (
+              <button disabled={generatingPdf} onClick={async () => {
+                setGeneratingPdf(true);
+                try {
+                  const res = await fetch(supabase.supabaseUrl + "/functions/v1/esign-pdf", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ envelope_id: env.id }),
+                  });
+                  const result = await res.json();
+                  if (result.success && result.url) {
+                    window.open(result.url, "_blank");
+                    onRefresh(); // Reload to show the download link
+                  } else { alert("PDF generation failed: " + (result.error || "Unknown error")); }
+                } catch (e) { alert("Error: " + e.message); }
+                setGeneratingPdf(false);
+              }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 24px", borderRadius: 8, background: T.accent, border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: generatingPdf ? "wait" : "pointer", opacity: generatingPdf ? 0.6 : 1 }}>
+                {generatingPdf ? "⏳ Generating PDF…" : "📄 Generate Signed Document"}
+              </button>
+            )}
             {env.document_url && (
               <a href={env.document_url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 20px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 12, fontWeight: 600, textDecoration: "none" }}>📄 Original Document</a>
             )}
