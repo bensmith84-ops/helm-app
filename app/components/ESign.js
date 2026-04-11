@@ -306,6 +306,32 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
               </div>
             </div>
 
+            {/* Full document preview */}
+            {documentUrl && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 16 }}>📄</span> Document Preview
+                </div>
+                <div style={{ border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", background: "#f5f5f5" }}>
+                  {documentUrl.toLowerCase().endsWith(".pdf") || documentUrl.includes("/pdf") ? (
+                    <iframe src={documentUrl + "#toolbar=1&navpanes=0"} style={{ width: "100%", height: 500, border: "none" }} title="Document Preview" />
+                  ) : documentUrl.match(/\.(png|jpg|jpeg|gif|webp)/i) ? (
+                    <img src={documentUrl} alt="Document" style={{ width: "100%", maxHeight: 600, objectFit: "contain" }} />
+                  ) : (
+                    <div style={{ padding: 40, textAlign: "center" }}>
+                      <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
+                      <div style={{ fontSize: 13, color: T.text2, marginBottom: 12 }}>Preview not available for this file type</div>
+                      <a href={documentUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open Document ↗</a>
+                    </div>
+                  )}
+                  <div style={{ padding: "8px 16px", background: T.surface, borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: T.text3 }}>Review the document above before sending</span>
+                    <a href={documentUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open in new tab ↗</a>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Who signs what — detailed breakdown */}
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
