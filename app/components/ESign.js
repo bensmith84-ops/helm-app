@@ -290,35 +290,118 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
         {/* Step 3: Review & Send */}
         {step === 3 && (
           <div>
-            <div style={{ padding: 20, background: T.surface2, borderRadius: 10, marginBottom: 20 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>📄 {title}</div>
-              {message && <div style={{ fontSize: 12, color: T.text3, marginBottom: 12 }}>{message}</div>}
-              <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>Signers ({signingOrder})</div>
-              {signers.map((s, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: i < signers.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: T.accent + "20", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{i + 1}</span>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{s.name}</div>
-                    <div style={{ fontSize: 11, color: T.text3 }}>{s.email} · {s.role}</div>
+            {/* Document summary */}
+            <div style={{ padding: 20, background: T.surface2, borderRadius: 12, marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 10, background: T.accent + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>📄</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{title}</div>
+                  {message && <div style={{ fontSize: 12, color: T.text3, marginTop: 4, lineHeight: 1.5 }}>{message}</div>}
+                  <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: T.text3 }}>
+                    {documentUrl && <span style={{ display: "flex", alignItems: "center", gap: 4 }}>📎 Document attached</span>}
+                    {template && <span style={{ display: "flex", alignItems: "center", gap: 4 }}>📋 From template: {template.name}</span>}
+                    <span>⇄ {signingOrder === "sequential" ? "Sequential signing" : "Parallel signing"}</span>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
 
-            {/* Legal consent notice */}
-            <div style={{ padding: 16, background: T.accent + "08", border: `1px solid ${T.accent}20`, borderRadius: 8, marginBottom: 20 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.accent, marginBottom: 4 }}>Legal Compliance</div>
+            {/* Who signs what — detailed breakdown */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 16 }}>👥</span> Signing Workflow
+              </div>
+              
+              {signers.map((s, i) => {
+                const isLast = i === signers.length - 1;
+                const roleName = s.role_name || `Signer ${i + 1}`;
+                // Determine what fields this signer will fill
+                const signerFields = s.role === "signer" 
+                  ? [{ icon: "✍️", label: "Signature", desc: "Draw or type their legal signature" }, { icon: "📝", label: "Printed Name", desc: "Full legal name" }, { icon: "📅", label: "Date Signed", desc: "Auto-filled on signing" }]
+                  : s.role === "approver" ? [{ icon: "✅", label: "Approval", desc: "Review and approve the document" }]
+                  : s.role === "cc" ? [{ icon: "👁", label: "View Only", desc: "Receives a copy when complete" }]
+                  : [{ icon: "👁", label: "View Only", desc: "Can view but not modify" }];
+
+                return (
+                  <div key={i} style={{ position: "relative", paddingLeft: 28 }}>
+                    {/* Timeline line */}
+                    {!isLast && <div style={{ position: "absolute", left: 13, top: 32, bottom: -8, width: 2, background: T.border }} />}
+                    
+                    {/* Step circle */}
+                    <div style={{ position: "absolute", left: 4, top: 4, width: 20, height: 20, borderRadius: "50%", background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff" }}>{i + 1}</div>
+                    
+                    <div style={{ padding: "12px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 12 }}>
+                      {/* Signer header */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{s.name}</span>
+                            {s.role_name && <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: T.accent + "12", color: T.accent }}>{roleName}</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{s.email}</div>
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: s.role === "signer" ? T.accent + "12" : s.role === "cc" ? T.text3 + "12" : T.green + "12", color: s.role === "signer" ? T.accent : s.role === "cc" ? T.text3 : T.green }}>
+                          {s.role === "signer" ? "✍️ Signer" : s.role === "cc" ? "📧 CC" : s.role === "approver" ? "✅ Approver" : "👁 Viewer"}
+                        </span>
+                      </div>
+                      
+                      {/* What they fill in */}
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, textTransform: "uppercase", marginBottom: 6, letterSpacing: 0.5 }}>Will complete:</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {signerFields.map((f, fi) => (
+                          <div key={fi} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", background: T.surface2, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                            <span style={{ fontSize: 12 }}>{f.icon}</span>
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{f.label}</div>
+                              <div style={{ fontSize: 9, color: T.text3 }}>{f.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Signing order note */}
+                      {signingOrder === "sequential" && (
+                        <div style={{ fontSize: 10, color: T.text3, marginTop: 8, fontStyle: "italic" }}>
+                          {i === 0 ? "📧 Will receive signing link immediately" : `⏳ Will receive signing link after ${signers[i-1]?.name || "previous signer"} signs`}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Delivery summary */}
+            <div style={{ padding: 16, background: T.surface2, borderRadius: 10, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>📬 Delivery Summary</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.accent }}>{signers.filter(s => s.role === "signer").length}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>Signers</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{signers.filter(s => s.role === "cc").length}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>CC Recipients</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{signingOrder === "sequential" ? "Sequential" : "Parallel"}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>Signing Order</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Legal compliance notice */}
+            <div style={{ padding: 14, background: T.accent + "06", border: `1px solid ${T.accent}15`, borderRadius: 8, marginBottom: 20 }}>
               <div style={{ fontSize: 11, color: T.text2, lineHeight: 1.6 }}>
-                Each signer will receive a unique secure link. They must consent to sign electronically before signing.
-                All actions are recorded in a tamper-evident audit trail with timestamps, IP addresses, and user agents.
-                The document is SHA-256 hashed to detect any modifications. A certificate of completion is generated
-                when all parties have signed. Compliant with ESIGN Act, UETA, and eIDAS regulations.
+                <strong style={{ color: T.accent }}>🔒 Legal Compliance:</strong> Each signer receives a unique secure link and must consent to sign electronically.
+                All actions are recorded in a tamper-evident audit trail. The document is SHA-256 hashed for integrity verification.
+                Compliant with ESIGN Act, UETA, and eIDAS.
               </div>
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <button onClick={() => setStep(2)} style={{ padding: "10px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>← Back</button>
-              <button onClick={handleSend} disabled={sending} style={{ padding: "12px 32px", fontSize: 14, fontWeight: 800, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>
+              <button onClick={handleSend} disabled={sending} style={{ padding: "14px 40px", fontSize: 15, fontWeight: 800, borderRadius: 10, border: "none", background: T.accent, color: "#fff", cursor: "pointer", boxShadow: `0 4px 20px ${T.accent}40`, transition: "all 0.2s" }}>
                 {sending ? "Sending…" : "Send for Signature ✉️"}
               </button>
             </div>
