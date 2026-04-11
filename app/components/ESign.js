@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
+import FieldPlacer from "./FieldPlacer";
 import { useResponsive } from "../lib/responsive";
 
 const STATUS_COLORS = { draft:"#6b7280", sent:"#3b82f6", in_progress:"#f59e0b", completed:"#22c55e", declined:"#ef4444", voided:"#6b7280", expired:"#6b7280" };
@@ -117,6 +118,8 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
   const [signers, setSigners] = useState(templateSigners.length > 0 ? templateSigners : [{ name: "", email: "", role: "signer", signing_order: 1 }]);
   const [sending, setSending] = useState(false);
   const templateId = template?.id || null;
+  const [fieldPlacements, setFieldPlacements] = useState(template?.field_placements || []);
+  const [showFieldPlacer, setShowFieldPlacer] = useState(false);
 
   const addSigner = () => setSigners(p => [...p, { name: "", email: "", role: "signer", signing_order: p.length + 1 }]);
   const removeSigner = (i) => setSigners(p => p.filter((_, j) => j !== i));
@@ -152,19 +155,38 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
       }
 
       // Create signers
+      const signerMap = {}; // signing_order -> signer.id
       for (const s of signers) {
         const { data: signer } = await supabase.from("esign_signers").insert({
           org_id: orgId, envelope_id: envelope.id,
           name: s.name.trim(), email: s.email.trim(), role: s.role, signing_order: s.signing_order,
         }).select().single();
+        if (signer) signerMap[s.signing_order] = signer.id;
+      }
 
-        // Add default signature + date fields for each signer
-        if (signer && s.role === "signer") {
-          await supabase.from("esign_fields").insert([
-            { org_id: orgId, envelope_id: envelope.id, signer_id: signer.id, field_type: "signature", label: "Signature", page_number: 1, x_pct: 10, y_pct: 80, width_pct: 30, height_pct: 8, required: true },
-            { org_id: orgId, envelope_id: envelope.id, signer_id: signer.id, field_type: "date_signed", label: "Date", page_number: 1, x_pct: 45, y_pct: 82, width_pct: 15, height_pct: 4, required: true },
-            { org_id: orgId, envelope_id: envelope.id, signer_id: signer.id, field_type: "name", label: "Printed Name", page_number: 1, x_pct: 10, y_pct: 88, width_pct: 30, height_pct: 4, required: true },
-          ]);
+      // Create field placements
+      if (fieldPlacements.length > 0) {
+        // Use user-placed fields
+        for (const fp of fieldPlacements) {
+          const signerId = signerMap[fp.signer_order];
+          if (!signerId) continue;
+          await supabase.from("esign_fields").insert({
+            org_id: orgId, envelope_id: envelope.id, signer_id: signerId,
+            field_type: fp.field_type, label: fp.label || fp.field_type,
+            page_number: fp.page_number, x_pct: fp.x_pct, y_pct: fp.y_pct,
+            width_pct: fp.width_pct, height_pct: fp.height_pct, required: fp.required !== false,
+          });
+        }
+      } else {
+        // Fallback: add default signature + date for each signer
+        for (const s of signers) {
+          const signerId = signerMap[s.signing_order];
+          if (signerId && s.role === "signer") {
+            await supabase.from("esign_fields").insert([
+              { org_id: orgId, envelope_id: envelope.id, signer_id: signerId, field_type: "signature", label: "Signature", page_number: 1, x_pct: 10, y_pct: 80, width_pct: 30, height_pct: 8, required: true },
+              { org_id: orgId, envelope_id: envelope.id, signer_id: signerId, field_type: "date_signed", label: "Date", page_number: 1, x_pct: 45, y_pct: 82, width_pct: 15, height_pct: 4, required: true },
+            ]);
+          }
         }
       }
 
@@ -279,13 +301,30 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
             
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <button onClick={() => setStep(1)} style={{ padding: "10px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>← Back</button>
-              <button onClick={() => setStep(3)} disabled={signers.some(s => !s.name.trim() || !s.email.trim())} style={{ padding: "10px 28px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: signers.some(s => !s.name.trim() || !s.email.trim()) ? 0.4 : 1 }}>Next: Review & Send →</button>
+              <button onClick={() => { if (documentUrl) { setShowFieldPlacer(true); } else { setStep(4); } }} disabled={signers.some(s => !s.name.trim() || !s.email.trim())} style={{ padding: "10px 28px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer", opacity: signers.some(s => !s.name.trim() || !s.email.trim()) ? 0.4 : 1 }}>{documentUrl ? "Next: Place Fields →" : "Next: Review & Send →"}</button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Review & Send */}
-        {step === 3 && (
+        {/* Field Placer (full-screen overlay) */}
+        {showFieldPlacer && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, background: T.bg }}>
+            <FieldPlacer
+              documentUrl={documentUrl}
+              signers={signers}
+              initialFields={fieldPlacements}
+              onCancel={() => setShowFieldPlacer(false)}
+              onSave={(placements) => {
+                setFieldPlacements(placements);
+                setShowFieldPlacer(false);
+                setStep(4);
+              }}
+            />
+          </div>
+        )}
+
+        {/* Step 4: Review & Send */}
+        {step === 4 && (
           <div>
             {/* Document summary */}
             <div style={{ padding: 20, background: T.surface2, borderRadius: 12, marginBottom: 20 }}>
@@ -397,7 +436,7 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
             {/* Delivery summary */}
             <div style={{ padding: 16, background: T.surface2, borderRadius: 10, marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>📬 Delivery Summary</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 800, color: T.accent }}>{signers.filter(s => s.role === "signer").length}</div>
                   <div style={{ fontSize: 10, color: T.text3 }}>Signers</div>
@@ -407,10 +446,19 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
                   <div style={{ fontSize: 10, color: T.text3 }}>CC Recipients</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{signingOrder === "sequential" ? "Sequential" : "Parallel"}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{fieldPlacements.length}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>Fields Placed</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{signingOrder === "sequential" ? "Seq" : "Par"}</div>
                   <div style={{ fontSize: 10, color: T.text3 }}>Signing Order</div>
                 </div>
               </div>
+              {fieldPlacements.length > 0 && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                  <button onClick={() => { setShowFieldPlacer(true); setStep(2); }} style={{ fontSize: 10, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>✏️ Edit field placements</button>
+                </div>
+              )}
             </div>
 
             {/* Legal compliance notice */}
@@ -423,7 +471,7 @@ function EnvelopeCreator({ onClose, onCreated, template }) {
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <button onClick={() => setStep(2)} style={{ padding: "10px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>← Back</button>
+              <button onClick={() => { if (documentUrl) { setShowFieldPlacer(true); setStep(2); } else { setStep(2); } }} style={{ padding: "10px 20px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>← Back</button>
               <button onClick={handleSend} disabled={sending} style={{ padding: "14px 40px", fontSize: 15, fontWeight: 800, borderRadius: 10, border: "none", background: T.accent, color: "#fff", cursor: "pointer", boxShadow: `0 4px 20px ${T.accent}40`, transition: "all 0.2s" }}>
                 {sending ? "Sending…" : "Send for Signature ✉️"}
               </button>
