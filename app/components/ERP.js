@@ -566,34 +566,34 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
         { data: mvmts },
         { data: cars }, { data: carSvcs }, { data: fIntg }, { data: rmaData }, { data: rmaItemsData }, { data: apInv }, { data: arInv }, { data: pmts }, { data: glAccts }, { data: jeData }, { data: bins }, { data: shipRules }, { data: lcData }, { data: jlData }, { data: cmData },
       ] = await Promise.all([
-        supabase.from("erp_products").select("*").order("name"),
-        supabase.from("erp_product_variants").select("*").order("sku"),
+        supabase.from("erp_products").select("*").eq("org_id", orgId).order("name"),
+        supabase.from("erp_product_variants").select("*").eq("org_id", orgId).order("sku"),
         supabase.from("erp_bom").select("*").order("created_at"),
         supabase.from("erp_bom_items").select("*").order("sort_order"),
-        supabase.from("erp_suppliers").select("*").order("name"),
-        supabase.from("erp_facilities").select("*").order("name"),
-        supabase.from("erp_inventory").select("*"),
+        supabase.from("erp_suppliers").select("*").eq("org_id", orgId).order("name"),
+        supabase.from("erp_facilities").select("*").eq("org_id", orgId).order("name"),
+        supabase.from("erp_inventory").select("*").eq("org_id", orgId),
         supabase.from("erp_inventory_lots").select("*").order("created_at", { ascending: false }),
         supabase.from("erp_purchase_orders").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
         supabase.from("erp_po_items").select("*"),
-        supabase.from("erp_orders").select("*").order("order_date", { ascending: false }),
+        supabase.from("erp_orders").select("*").eq("org_id", orgId).order("order_date", { ascending: false }),
         supabase.from("erp_order_items").select("*"),
-        supabase.from("erp_customers").select("*").order("name"),
+        supabase.from("erp_customers").select("*").eq("org_id", orgId).order("name"),
         supabase.from("erp_work_orders").select("*").order("created_at", { ascending: false }),
-        supabase.from("erp_entities").select("*").order("code"),
+        supabase.from("erp_entities").select("*").eq("org_id", orgId).order("code"),
         supabase.from("erp_currencies").select("*").eq("is_active", true).order("code"),
         supabase.from("erp_exchange_rates").select("*").order("effective_date", { ascending: false }),
-        supabase.from("erp_supplier_items").select("*").order("item_name"),
+        supabase.from("erp_supplier_items").select("*").eq("org_id", orgId).order("item_name"),
         supabase.from("erp_inventory_movements").select("*").order("created_at", { ascending: false }).limit(200),
-        supabase.from("erp_carriers").select("*").order("name"),
+        supabase.from("erp_carriers").select("*").eq("org_id", orgId).order("name"),
         supabase.from("erp_carrier_services").select("*").order("carrier_id, name"),
         supabase.from("erp_fulfillment_integrations").select("*").order("name"),
         supabase.from("erp_rma").select("*").order("created_at", { ascending: false }),
         supabase.from("erp_rma_items").select("*"),
-        supabase.from("erp_ap_invoices").select("*").order("created_at", { ascending: false }),
-        supabase.from("erp_ar_invoices").select("*").order("created_at", { ascending: false }),
-        supabase.from("erp_payments").select("*").order("created_at", { ascending: false }),
-        supabase.from("erp_gl_accounts").select("*").order("account_number"),
+        supabase.from("erp_ap_invoices").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+        supabase.from("erp_ar_invoices").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+        supabase.from("erp_payments").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+        supabase.from("erp_gl_accounts").select("*").eq("org_id", orgId).order("account_number"),
         supabase.from("erp_journal_entries").select("*").order("entry_date", { ascending: false }).limit(100),
         supabase.from("erp_bin_locations").select("*").order("code"),
         supabase.from("erp_shipping_rules").select("*").order("priority"),
@@ -626,7 +626,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
       setLoading(false);
     };
     if (user) load();
-  }, [user]);
+  }, [user, orgId]);
 
   // Derived
   const finishedGoods = products.filter(p => p.product_type === "finished_good");
@@ -687,7 +687,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
           {view === "suppliers" && <SuppliersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} suppliers={suppliers} setSuppliers={setSuppliers} entities={entities} purchaseOrders={purchaseOrders} supplierItems={supplierItems} setSupplierItems={setSupplierItems} products={products} isMobile={isMobile} qboVendors={qboVendors} />}
           {view === "purchase_orders" && <PurchaseOrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} setApInvoices={setApInvoices} landedCosts={landedCosts} setLandedCosts={setLandedCosts} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} poItems={poItems} setPoItems={setPoItems} suppliers={suppliers} facilities={facilities} variants={variants} products={products} entities={entities} currencies={currencies} exchangeRates={exchangeRates} isMobile={isMobile} />}
           {view === "inventory" && <InventoryView navigateTo={navigateTo} inventory={inventory} setInventory={setInventory} lots={lots} setLots={setLots} variants={variants} products={products} facilities={facilities} suppliers={suppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} movements={movements} setMovements={setMovements} binLocations={binLocations} isMobile={isMobile} />}
-          {view === "demand_planning" && <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading...</div>}><DemandPlanningView isMobile={isMobile} orgId={profile?.org_id} /></Suspense>}
+          {view === "demand_planning" && <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading...</div>}><DemandPlanningView isMobile={isMobile} orgId={orgId} /></Suspense>}
           {view === "orders" && <OrdersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} orders={orders} setOrders={setOrders} orderItems={orderItems} setOrderItems={setOrderItems} customers={customers} variants={variants} carriers={carriers} carrierServices={carrierServices} facilities={facilities} shippingRules={shippingRules} setArInvoices={setArInvoices} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
           {view === "customers" && <CustomersView navigateTo={navigateTo} pendingNav={pendingNav} setPendingNav={setPendingNav} customers={customers} setCustomers={setCustomers} orders={orders} isMobile={isMobile} />}
           {view === "manufacturing" && <ManufacturingView navigateTo={navigateTo} workOrders={workOrders} setWorkOrders={setWorkOrders} variants={variants} products={products} facilities={facilities} boms={boms} bomItems={bomItems} lots={lots} setLots={setLots} inventory={inventory} setInventory={setInventory} isMobile={isMobile} />}
@@ -875,7 +875,7 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
       const { data } = await supabase.from("erp_products").update(form).eq("id", selected.id).select().single();
       if (data) { setProducts(p => p.map(x => x.id === data.id ? data : x)); setSelected(data); }
     } else {
-      const { data } = await supabase.from("erp_products").insert(form).select().single();
+      const { data } = await supabase.from("erp_products").insert({ ...form, org_id: orgId }).select().single();
       if (data) { setProducts(p => [...p, data]); setSelected(data); }
     }
     setShowNew(false);
@@ -906,7 +906,7 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
 
   const saveVariant = async () => {
     if (!varForm.sku.trim() || !selected) return;
-    const payload = { ...varForm, product_id: selected.id, cost: parseFloat(varForm.cost) || 0, wholesale_price: parseFloat(varForm.wholesale_price) || 0, msrp: parseFloat(varForm.msrp) || 0, case_pack: parseInt(varForm.case_pack) || 24, shelf_life_days: parseInt(varForm.shelf_life_days) || 730 };
+    const payload = { ...varForm, product_id: selected.id, org_id: orgId, cost: parseFloat(varForm.cost) || 0, wholesale_price: parseFloat(varForm.wholesale_price) || 0, msrp: parseFloat(varForm.msrp) || 0, case_pack: parseInt(varForm.case_pack) || 24, shelf_life_days: parseInt(varForm.shelf_life_days) || 730 };
     const { data } = await supabase.from("erp_product_variants").insert(payload).select().single();
     if (data) setVariants(p => [...p, data]);
     setShowVariantForm(false);
@@ -2147,7 +2147,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
     if (!lot) return;
 
     // Create or update inventory record
-    const { data: existing } = await supabase.from("erp_inventory").select("*").eq("variant_id", rcvForm.variant_id).eq("facility_id", rcvForm.facility_id).eq("lot_id", lot.id).maybeSingle();
+    const { data: existing } = await supabase.from("erp_inventory").select("*").eq("org_id", orgId).eq("variant_id", rcvForm.variant_id).eq("facility_id", rcvForm.facility_id).eq("lot_id", lot.id).maybeSingle();
     let invRecord;
     if (existing) {
       const { data } = await supabase.from("erp_inventory").update({ quantity: existing.quantity + qty, bin_location: rcvForm.bin_location || existing.bin_location }).eq("id", existing.id).select().single();
@@ -2183,7 +2183,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
   const submitAdjust = async () => {
     if (!adjForm.variant_id || !adjForm.facility_id || !adjForm.quantity) return;
     const adjQty = parseFloat(adjForm.quantity); // positive or negative
-    const { data: existing } = await supabase.from("erp_inventory").select("*").eq("variant_id", adjForm.variant_id).eq("facility_id", adjForm.facility_id).maybeSingle();
+    const { data: existing } = await supabase.from("erp_inventory").select("*").eq("org_id", orgId).eq("variant_id", adjForm.variant_id).eq("facility_id", adjForm.facility_id).maybeSingle();
     if (existing) {
       const newQty = Math.max(0, existing.quantity + adjQty);
       const { data } = await supabase.from("erp_inventory").update({ quantity: newQty }).eq("id", existing.id).select().single();
@@ -2218,13 +2218,13 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
     const qty = parseFloat(xferForm.quantity);
 
     // Decrease from source
-    const { data: fromInv } = await supabase.from("erp_inventory").select("*").eq("variant_id", xferForm.variant_id).eq("facility_id", xferForm.from_facility_id).maybeSingle();
+    const { data: fromInv } = await supabase.from("erp_inventory").select("*").eq("org_id", orgId).eq("variant_id", xferForm.variant_id).eq("facility_id", xferForm.from_facility_id).maybeSingle();
     if (!fromInv || fromInv.quantity < qty) { alert("Insufficient stock at source facility"); return; }
     const { data: updFrom } = await supabase.from("erp_inventory").update({ quantity: fromInv.quantity - qty }).eq("id", fromInv.id).select().single();
     if (updFrom) setInventory(p => p.map(x => x.id === updFrom.id ? updFrom : x));
 
     // Increase at destination
-    const { data: toInv } = await supabase.from("erp_inventory").select("*").eq("variant_id", xferForm.variant_id).eq("facility_id", xferForm.to_facility_id).maybeSingle();
+    const { data: toInv } = await supabase.from("erp_inventory").select("*").eq("org_id", orgId).eq("variant_id", xferForm.variant_id).eq("facility_id", xferForm.to_facility_id).maybeSingle();
     if (toInv) {
       const { data: updTo } = await supabase.from("erp_inventory").update({ quantity: toInv.quantity + qty }).eq("id", toInv.id).select().single();
       if (updTo) setInventory(p => p.map(x => x.id === updTo.id ? updTo : x));
@@ -2991,7 +2991,7 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                     if (item.variant_id) {
                       const fac = facilities?.[0];
                       if (fac) {
-                        const { data: inv } = await supabase.from("erp_inventory").select("*").eq("variant_id", item.variant_id).eq("facility_id", fac.id).maybeSingle();
+                        const { data: inv } = await supabase.from("erp_inventory").select("*").eq("org_id", orgId).eq("variant_id", item.variant_id).eq("facility_id", fac.id).maybeSingle();
                         if (inv) {
                           const newQty = Math.max(0, inv.quantity - (item.quantity || 0));
                           await supabase.from("erp_inventory").update({ quantity: newQty }).eq("id", inv.id);
@@ -3406,7 +3406,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
     if (newStatus === "completed" && wo.variant_id && wo.facility_id) {
       const qty = wo.planned_quantity || 0;
       // Add finished goods to inventory
-      const { data: existing } = await supabase.from("erp_inventory").select("*").eq("variant_id", wo.variant_id).eq("facility_id", wo.facility_id).maybeSingle();
+      const { data: existing } = await supabase.from("erp_inventory").select("*").eq("org_id", orgId).eq("variant_id", wo.variant_id).eq("facility_id", wo.facility_id).maybeSingle();
       if (existing) {
         const { data: inv } = await supabase.from("erp_inventory").update({ quantity: existing.quantity + qty }).eq("id", existing.id).select().single();
         if (inv) setInventory(p => p.map(x => x.id === inv.id ? inv : x));
@@ -3556,7 +3556,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
                         await supabase.from("erp_wo_issues").insert({ work_order_id: selected.id, bom_item_id: item.id, item_name: item.item_name, planned_quantity: reqQty, issued_quantity: reqQty, facility_id: selected.facility_id, issue_type: "backflush" });
                         // Deduct from inventory if variant linked
                         if (item.variant_id && selected.facility_id) {
-                          const { data: inv } = await supabase.from("erp_inventory").select("*").eq("variant_id", item.variant_id).eq("facility_id", selected.facility_id).maybeSingle();
+                          const { data: inv } = await supabase.from("erp_inventory").select("*").eq("org_id", orgId).eq("variant_id", item.variant_id).eq("facility_id", selected.facility_id).maybeSingle();
                           if (inv) {
                             const newQty = Math.max(0, inv.quantity - reqQty);
                             await supabase.from("erp_inventory").update({ quantity: newQty }).eq("id", inv.id);
@@ -4607,7 +4607,7 @@ function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems,
     if (disp === "restock" && item.variant_id) {
       const fac = facilities[0];
       if (fac) {
-        const { data: existing } = await supabase.from("erp_inventory").select("*").eq("variant_id", item.variant_id).eq("facility_id", fac.id).maybeSingle();
+        const { data: existing } = await supabase.from("erp_inventory").select("*").eq("org_id", orgId).eq("variant_id", item.variant_id).eq("facility_id", fac.id).maybeSingle();
         if (existing) { await supabase.from("erp_inventory").update({ quantity: existing.quantity + item.quantity }).eq("id", existing.id); setInventory(p => p.map(x => x.id === existing.id ? { ...x, quantity: x.quantity + item.quantity } : x)); }
         else { const { data: inv } = await supabase.from("erp_inventory").insert({ variant_id: item.variant_id, facility_id: fac.id, quantity: item.quantity }).select().single(); if (inv) setInventory(p => [...p, inv]); }
         const { data: mvmt } = await supabase.from("erp_inventory_movements").insert({ variant_id: item.variant_id, facility_id: fac.id, movement_type: "return", quantity: item.quantity, reference_type: "rma", reference_id: selected.id, notes: `RMA ${selected.rma_number}: Restocked ${item.quantity} × ${item.sku}` }).select().single();
