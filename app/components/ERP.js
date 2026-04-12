@@ -846,11 +846,22 @@ function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrder
 // PRODUCTS VIEW — SKU master, variants, BOMs
 // ═══════════════════════════════════════════════════════════════════════════════
 function ProductsView({ navigateTo, inventory, facilities, products, setProducts, variants, setVariants, boms, setBoms, bomItems, setBomItems, isMobile }) {
+  const { orgId, orgs } = useAuth();
+  const activeOrg = orgs?.find(o => o.id === orgId);
+  const defaultBrand = activeOrg?.name || "";
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
-  const [form, setForm] = useState({ name: "", description: "", category: "laundry", product_type: "finished_good", brand: "Earth Breeze", status: "active" });
+  const [form, setForm] = useState({ name: "", description: "", category: "", product_type: "finished_good", brand: defaultBrand, status: "active" });
+  const [customCategories, setCustomCategories] = useState([]);
+  const [newCategoryInput, setNewCategoryInput] = useState("");
+
+  // Load existing categories from products on mount
+  useEffect(() => {
+    const existingCats = [...new Set(products.map(p => p.category).filter(Boolean))];
+    setCustomCategories(existingCats);
+  }, [products]);
 
   const filtered = products.filter(p => {
     if (typeFilter !== "all" && p.product_type !== typeFilter) return false;
@@ -914,7 +925,7 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
         <div><div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Products</div><div style={{ fontSize: 12, color: T.text3 }}>{products.length} products · {variants.length} SKUs</div></div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ padding: "6px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, width: isMobile ? 120 : 180, outline: "none" }} />
-          <button onClick={() => { setForm({ name: "", description: "", category: "laundry", product_type: "finished_good", brand: "Earth Breeze", status: "active" }); setSelected(null); setShowNew(true); }}
+          <button onClick={() => { setForm({ name: "", description: "", category: "", product_type: "finished_good", brand: defaultBrand, status: "active" }); setSelected(null); setShowNew(true); }}
             style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Product</button>
         </div>
       </div>
@@ -1187,7 +1198,26 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
               <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Name *</div><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Type</div><Select value={form.product_type} onChange={v => setForm(f => ({ ...f, product_type: v }))} options={[{ value: "finished_good", label: "Finished Good", icon: "📦" }, { value: "raw_material", label: "Raw Material", icon: "🧪" }, { value: "packaging", label: "Packaging", icon: "📋" }, { value: "component", label: "Component", icon: "🔧" }, { value: "service", label: "Service", icon: "🛠" }]} /></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Category</div><Select value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))} options={["laundry","dish","floor","fabric_care","component","raw_material","packaging"].map(c => ({ value: c, label: c.replace(/_/g, " ") }))} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Category</div>
+                  <div style={{ position: "relative" }}>
+                    <select value={form.category} onChange={e => {
+                      if (e.target.value === "__add_new__") {
+                        const newCat = prompt("Enter new category name:");
+                        if (newCat?.trim()) {
+                          const slug = newCat.trim().toLowerCase().replace(/\s+/g, "_");
+                          setCustomCategories(prev => [...new Set([...prev, slug])]);
+                          setForm(f => ({ ...f, category: slug }));
+                        }
+                      } else {
+                        setForm(f => ({ ...f, category: e.target.value }));
+                      }
+                    }} style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box", appearance: "auto" }}>
+                      <option value="">Select category…</option>
+                      {customCategories.map(c => <option key={c} value={c}>{c.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</option>)}
+                      <option value="__add_new__">➕ Add New Category…</option>
+                    </select>
+                  </div>
+                </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Brand</div><input value={form.brand || ""} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
