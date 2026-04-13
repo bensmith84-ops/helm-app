@@ -77,7 +77,20 @@ function MiniBar({ data, maxH = 40, barW = 6, gap = 2, color = T.accent }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUPPLY CHAIN VIEW — Inventory planning, PO recommendations, stockout risk
 // ═══════════════════════════════════════════════════════════════════════════════
-function SupplyChainView({ isMobile }) {
+function SupplyChainView({ isMobile, orgId }) {
+  const EB_ORG = "a0000000-0000-0000-0000-000000000001";
+  const isEB = orgId === EB_ORG;
+  
+  // Only show mock data for Earth Breeze; other orgs get empty state until data sources are connected
+  if (!isEB) {
+    return (
+      <div style={{ padding: 60, textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>📦</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>No Supply Chain Data Yet</div>
+        <div style={{ fontSize: 12, color: T.text3, marginTop: 6, maxWidth: 400, margin: "6px auto 0", lineHeight: 1.6 }}>Connect your data sources in the Data Sources tab to start tracking inventory health, demand forecasts, and PO recommendations for this workspace.</div>
+      </div>
+    );
+  }
   const sortedInv = [...MOCK_INVENTORY].sort((a, b) => {
     const aWos = a.on_hand / Math.max(a.weekly_demand, 1);
     const bWos = b.on_hand / Math.max(b.weekly_demand, 1);
@@ -223,7 +236,19 @@ function SupplyChainView({ isMobile }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // GROWTH PLANNER VIEW — Scenario planning, growth headroom, marketing scaling
 // ═══════════════════════════════════════════════════════════════════════════════
-function GrowthPlannerView({ isMobile }) {
+function GrowthPlannerView({ isMobile, orgId }) {
+  const EB_ORG = "a0000000-0000-0000-0000-000000000001";
+  const isEB = orgId === EB_ORG;
+  
+  if (!isEB) {
+    return (
+      <div style={{ padding: 60, textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>📈</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>No Growth Data Yet</div>
+        <div style={{ fontSize: 12, color: T.text3, marginTop: 6, maxWidth: 400, margin: "6px auto 0", lineHeight: 1.6 }}>Connect your data sources to start modeling growth scenarios, subscription cohorts, and regional demand for this workspace.</div>
+      </div>
+    );
+  }
   const [monthlyNewSubs, setMonthlyNewSubs] = useState(10000);
   const [churnRate, setChurnRate] = useState(15);
   const [avgPackSize, setAvgPackSize] = useState(2.4);
@@ -542,8 +567,8 @@ export default function DemandPlanningView({ isMobile, orgId }) {
       </div>
 
       {/* Tab content */}
-      {tab === "supply" && <SupplyChainView isMobile={isMobile} />}
-      {tab === "growth" && <GrowthPlannerView isMobile={isMobile} />}
+      {tab === "supply" && <SupplyChainView isMobile={isMobile} orgId={orgId} />}
+      {tab === "growth" && <GrowthPlannerView isMobile={isMobile} orgId={orgId} />}
       {tab === "sources" && <DataSourcesView isMobile={isMobile} orgId={orgId} />}
     </div>
   );
