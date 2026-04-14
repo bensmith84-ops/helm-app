@@ -3841,6 +3841,8 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [orgProfiles, setOrgProfiles] = useState([]);
   const [showNewBudget, setShowNewBudget] = useState(false);
   const [showShare, setShowShare] = useState(null);
+  const [editingBudget, setEditingBudget] = useState(null); // budget object being edited
+  const [editBudgetForm, setEditBudgetForm] = useState({ name: "", description: "", fiscal_year: "", status: "" });
   const [newBudgetForm, setNewBudgetForm] = useState({ name: "", description: "", fiscal_year: new Date().getFullYear(), status: "draft" });
 
   useEffect(() => {
@@ -4069,6 +4071,21 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     setBudgetMembers(p => p.filter(m => m.id !== memberId));
   };
 
+  const updateBudget = async () => {
+    if (!editingBudget || !editBudgetForm.name.trim()) return;
+    const updates = {
+      name: editBudgetForm.name.trim(),
+      description: editBudgetForm.description || null,
+      fiscal_year: parseInt(editBudgetForm.fiscal_year) || new Date().getFullYear(),
+      status: editBudgetForm.status || "draft",
+      updated_at: new Date().toISOString(),
+    };
+    await supabase.from("fin_budgets").update(updates).eq("id", editingBudget.id);
+    setFinBudgets(p => p.map(b => b.id === editingBudget.id ? { ...b, ...updates } : b));
+    if (activeBudgetName === editingBudget.name) setActiveBudgetName(updates.name);
+    setEditingBudget(null);
+  };
+
   const deleteBudget = async (budgetId) => {
     if (!window.confirm("Delete this budget? This cannot be undone.")) return;
     await supabase.from("fin_budgets").delete().eq("id", budgetId);
@@ -4122,11 +4139,10 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
             const bMembers = budgetMembers.filter(m => m.budget_id === b.id);
             const isActive = activeBudgetName === b.name;
             return (
-              <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: `1px solid ${isActive ? T.accent : T.border}`, background: isActive ? T.accent + "12" : T.surface2, cursor: "pointer" }}
-                onClick={() => { setActiveBudgetName(b.name); /* load budget data if version exists */ const bv = budgetVersions.find(v => v.name === b.name); if (bv) { setBudgetData(bv.data || []); setActiveBudget(bv.data); } }}>
+              <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: `1px solid ${isActive ? T.accent : T.border}`, background: isActive ? T.accent + "12" : T.surface2, cursor: "pointer", position: "relative" }}
+                onClick={() => { setActiveBudgetName(b.name); const bv = budgetVersions.find(v => v.name === b.name); if (bv) { setBudgetData(bv.data || []); setActiveBudget(bv.data); } }}>
                 <span style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : T.text }}>{b.name}</span>
                 <span style={{ fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 4 }}>{b.status}</span>
-                {/* Member avatars */}
                 <div style={{ display: "flex", marginLeft: 4 }}>
                   {bMembers.slice(0, 3).map((m, i) => (
                     <div key={m.id} style={{ width: 18, height: 18, borderRadius: "50%", background: T.accent + "30", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, marginLeft: i > 0 ? -4 : 0, border: `1px solid ${T.surface}`, zIndex: 3 - i }} title={uname(m.user_id)}>{ini(m.user_id)}</div>
@@ -4134,6 +4150,8 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                   {bMembers.length > 3 && <div style={{ width: 18, height: 18, borderRadius: "50%", background: T.surface3, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, marginLeft: -4, border: `1px solid ${T.surface}` }}>+{bMembers.length - 3}</div>}
                 </div>
                 <button onClick={(e) => { e.stopPropagation(); setShowShare(b.id); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: T.text3, padding: 0 }} title="Share">👥</button>
+                {canEdit && <button onClick={(e) => { e.stopPropagation(); setEditingBudget(b); setEditBudgetForm({ name: b.name, description: b.description || "", fiscal_year: b.fiscal_year || new Date().getFullYear(), status: b.status || "draft" }); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: T.text3, padding: 0 }} title="Edit">✎</button>}
+                {canEdit && <button onClick={(e) => { e.stopPropagation(); deleteBudget(b.id); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: T.text3, padding: 0 }} title="Delete">🗑</button>}
               </div>
             );
           })}
@@ -4480,6 +4498,50 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setShowNewBudget(false)} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
               <button onClick={createBudget} disabled={!newBudgetForm.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#22c55e", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: newBudgetForm.name.trim() ? 1 : 0.4 }}>Create Budget</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Budget modal */}
+      {editingBudget && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setEditingBudget(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: 24, width: "min(440px, 90vw)" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 14 }}>✎ Edit Budget</div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Budget Name *</div>
+              <input autoFocus value={editBudgetForm.name} onChange={e => setEditBudgetForm(f => ({ ...f, name: e.target.value }))}
+                onKeyDown={e => { if (e.key === "Enter") updateBudget(); }}
+                style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Description</div>
+              <input value={editBudgetForm.description} onChange={e => setEditBudgetForm(f => ({ ...f, description: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Fiscal Year</div>
+                <input type="number" value={editBudgetForm.fiscal_year} onChange={e => setEditBudgetForm(f => ({ ...f, fiscal_year: e.target.value }))}
+                  style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Status</div>
+                <select value={editBudgetForm.status} onChange={e => setEditBudgetForm(f => ({ ...f, status: e.target.value }))}
+                  style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }}>
+                  <option value="draft">Draft</option>
+                  <option value="active">Active</option>
+                  <option value="approved">Approved</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+              <button onClick={() => { deleteBudget(editingBudget.id); setEditingBudget(null); }} style={{ padding: "8px 14px", fontSize: 12, background: "#ef444415", border: `1px solid #ef444440`, borderRadius: 8, color: "#ef4444", cursor: "pointer", fontWeight: 600 }}>Delete Budget</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setEditingBudget(null)} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={updateBudget} disabled={!editBudgetForm.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: editBudgetForm.name.trim() ? 1 : 0.4 }}>Save Changes</button>
+              </div>
             </div>
           </div>
         </div>
