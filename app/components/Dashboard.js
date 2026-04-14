@@ -878,7 +878,7 @@ export default function DashboardView({ setActive }) {
         supabase.from("okr_financial_metrics").select("*").eq("year", yr).order("sort_order"),
         supabase.from("plm_programs").select("*").is("deleted_at", null).order("created_at", { ascending: false }).limit(10),
         supabase.from("activity_log").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(20),
-        supabase.from("dashboard_focus_items").select("*").eq("focus_date", todayStr).eq("user_id", user.id).order("sort_order"),
+        supabase.from("dashboard_focus_items").select("*").eq("focus_date", todayStr).eq("user_id", profile.id).order("sort_order"),
         supabase.from("scoreboard_daily").select("date,metric_key,value").eq("org_id", orgId).in("metric_key", ["revenue", "amazon_revenue", "net_dollars"]).gte("date", `${yr}-01-01`).order("date"),
       ]);
 
