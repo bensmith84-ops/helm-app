@@ -967,8 +967,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
   };
 
   // ── Period management (time-phased spend/CPA for paid channels) ──
-  const addPeriod = async (channelId, index) => {
-    const periodType = channels.find(c => c.id === channelId)?.period_type || "weekly";
+  const addPeriod = async (channelId, index, typeOverride) => {
+    const periodType = typeOverride || channels.find(c => c.id === channelId)?.period_type || "weekly";
     const label = periodType === "monthly" ? `Month ${index + 1}` : `Week ${index + 1}`;
     const { data } = await supabase.from("dp_launch_periods").insert({
       channel_id: channelId, period_label: label, period_index: index,
@@ -992,9 +992,9 @@ function LaunchPlannerView({ isMobile, orgId }) {
     const existing = periods.filter(p => p.channel_id === channelId);
     for (const pr of existing) await supabase.from("dp_launch_periods").delete().eq("id", pr.id);
     setPeriods(p => p.filter(pr => pr.channel_id !== channelId));
-    // Create new periods
+    // Create new periods with the correct type
     for (let i = 0; i < count; i++) {
-      await addPeriod(channelId, i);
+      await addPeriod(channelId, i, type);
     }
   };
 
