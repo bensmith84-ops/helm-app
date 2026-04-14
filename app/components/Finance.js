@@ -3837,24 +3837,27 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [myPerms, setMyPerms] = useState(null);
   const [finBudgets, setFinBudgets] = useState([]);
   const [budgetMembers, setBudgetMembers] = useState([]);
+  const [budgetLines, setBudgetLines] = useState([]);
   const [orgProfiles, setOrgProfiles] = useState([]);
   const [showNewBudget, setShowNewBudget] = useState(false);
-  const [showShare, setShowShare] = useState(null); // budget id or null
+  const [showShare, setShowShare] = useState(null);
   const [newBudgetForm, setNewBudgetForm] = useState({ name: "", description: "", fiscal_year: new Date().getFullYear(), status: "draft" });
 
   useEffect(() => {
     (async () => {
       if (!user?.id) { setMyPerms({}); return; }
-      const [{ data: membership }, { data: budgets }, { data: members }, { data: profs }] = await Promise.all([
+      const [{ data: membership }, { data: budgets }, { data: members }, { data: profs }, { data: lines }] = await Promise.all([
         supabase.from("org_memberships").select("role, module_permissions").eq("org_id", orgId).eq("user_id", user.id).maybeSingle(),
         supabase.from("fin_budgets").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
         supabase.from("fin_budget_members").select("*").eq("org_id", orgId),
         supabase.from("profiles").select("id, display_name, email, avatar_url"),
+        supabase.from("fin_budget_lines").select("*").eq("org_id", orgId),
       ]);
       if (membership?.role === "owner" || membership?.role === "admin") { setMyPerms({ _admin: true }); }
       else { setMyPerms(membership?.module_permissions || {}); }
       setFinBudgets(budgets || []);
       setBudgetMembers(members || []);
+      setBudgetLines(lines || []);
       setOrgProfiles(profs || []);
     })();
   }, [user?.id, orgId]);
@@ -4073,6 +4076,34 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     setBudgetMembers(p => p.filter(m => m.budget_id !== budgetId));
   };
 
+  // Get the active fin_budget id (first budget matching activeBudgetName, or first budget)
+  const activeFinBudget = finBudgets.find(b => b.name === activeBudgetName) || finBudgets[0];
+  const activeFinBudgetId = activeFinBudget?.id;
+
+  // Get budget amount for a GL account in the active budget
+  const getLineBudget = (glAccountName) => {
+    if (!activeFinBudgetId) return null;
+    const line = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
+    return line?.allocated_amount ?? null;
+  };
+
+  // Upsert a budget line for a GL account
+  const upsertBudgetLine = async (glAccountName, amount, categoryName) => {
+    if (!activeFinBudgetId) return;
+    const existing = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
+    if (existing) {
+      await supabase.from("fin_budget_lines").update({ allocated_amount: amount, category_name: categoryName }).eq("id", existing.id);
+      setBudgetLines(p => p.map(l => l.id === existing.id ? { ...l, allocated_amount: amount, category_name: categoryName } : l));
+    } else {
+      const { data } = await supabase.from("fin_budget_lines").insert({
+        budget_id: activeFinBudgetId, gl_account_name: glAccountName,
+        allocated_amount: amount, category_name: categoryName,
+        description: glAccountName,
+      }).select().single();
+      if (data) setBudgetLines(p => [...p, data]);
+    }
+  };
+
   const ini = (uid) => { const p = orgProfiles.find(pr => pr.id === uid); return p?.display_name ? p.display_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const uname = (uid) => orgProfiles.find(p => p.id === uid)?.display_name || "Unknown";
 
@@ -4287,21 +4318,60 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
 
                 {detailMode === "accounts" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {/* Header row */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.border}30` }}>
+                      <div style={{ flex: 1, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>GL Account</div>
+                      {canEdit && activeFinBudgetId && <div style={{ width: 90, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right" }}>Budget</div>}
+                      <div style={{ width: 70, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right" }}>Actual</div>
+                      {canEdit && activeFinBudgetId && <div style={{ width: 60, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right" }}>Variance</div>}
+                      <div style={{ width: 32, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right" }}>%</div>
+                    </div>
                     {catAccounts.map(r => {
                       const acctPct = qboSpend > 0 ? (Math.abs(Number(r.amount)) / qboSpend) * 100 : 0;
+                      const lineBudget = getLineBudget(r.account_name);
+                      const actual = Math.abs(Number(r.amount));
+                      const variance = lineBudget != null ? lineBudget - actual : null;
                       return (
                         <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.border}10` }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
                           </div>
-                          <div style={{ width: 60, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
-                            <div style={{ width: `${Math.min(acctPct, 100)}%`, height: "100%", background: cat.color || T.accent, borderRadius: 2 }} />
-                          </div>
-                          {canViewAmounts && <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{fmt(Number(r.amount))}</span>}
+                          {canEdit && activeFinBudgetId && (
+                            <div style={{ width: 90, flexShrink: 0 }}>
+                              <input type="number" defaultValue={lineBudget ?? ""} placeholder="—"
+                                onBlur={e => {
+                                  const val = e.target.value === "" ? 0 : Number(e.target.value);
+                                  if (val !== (lineBudget ?? 0)) upsertBudgetLine(r.account_name, val, cat.name);
+                                }}
+                                onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+                                style={{ width: "100%", padding: "2px 6px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: lineBudget != null ? T.text : T.text3, boxSizing: "border-box" }} />
+                            </div>
+                          )}
+                          {canViewAmounts && <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{fmt(actual)}</span>}
+                          {canEdit && activeFinBudgetId && (
+                            <span style={{ fontSize: 10, fontWeight: 600, minWidth: 60, textAlign: "right", flexShrink: 0, color: variance == null ? T.text3 : variance >= 0 ? "#22c55e" : "#ef4444" }}>
+                              {variance == null ? "—" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
+                            </span>
+                          )}
                           <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right", flexShrink: 0 }}>{acctPct.toFixed(0)}%</span>
                         </div>
                       );
                     })}
+                    {/* Category totals for budget lines */}
+                    {canEdit && activeFinBudgetId && (() => {
+                      const catBudgetTotal = catAccounts.reduce((s, r) => s + (getLineBudget(r.account_name) || 0), 0);
+                      const catActualTotal = catAccounts.reduce((s, r) => s + Math.abs(Number(r.amount)), 0);
+                      const catVariance = catBudgetTotal - catActualTotal;
+                      return catBudgetTotal > 0 ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: `2px solid ${T.border}`, marginTop: 4 }}>
+                          <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: T.text }}>Category Total</div>
+                          <span style={{ width: 90, textAlign: "right", fontSize: 11, fontWeight: 700, color: T.text }}>{fmt(catBudgetTotal)}</span>
+                          <span style={{ width: 70, textAlign: "right", fontSize: 11, fontWeight: 700, color: T.text }}>{fmt(catActualTotal)}</span>
+                          <span style={{ width: 60, textAlign: "right", fontSize: 10, fontWeight: 700, color: catVariance >= 0 ? "#22c55e" : "#ef4444" }}>{catVariance >= 0 ? "+" : ""}{fmtK(catVariance)}</span>
+                          <span style={{ width: 32 }}></span>
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                 )}
 
