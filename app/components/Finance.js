@@ -3833,16 +3833,31 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 // BUDGETS VIEW — G&A category budgets with department allocations
 // ═══════════════════════════════════════════════════════════════════════════════
 function BudgetsView({ isMobile, glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user, modulePerms = {} }) {
-  const { orgId } = useAuth();
-  const [myPerms, setMyPerms] = useState(null); // null = loading, {} = loaded
+  const { orgId, orgs } = useAuth();
+  const [myPerms, setMyPerms] = useState(null);
+  const [finBudgets, setFinBudgets] = useState([]);
+  const [budgetMembers, setBudgetMembers] = useState([]);
+  const [orgProfiles, setOrgProfiles] = useState([]);
+  const [showNewBudget, setShowNewBudget] = useState(false);
+  const [showShare, setShowShare] = useState(null); // budget id or null
+  const [newBudgetForm, setNewBudgetForm] = useState({ name: "", description: "", fiscal_year: new Date().getFullYear(), status: "draft" });
+
   useEffect(() => {
     (async () => {
       if (!user?.id) { setMyPerms({}); return; }
-      const { data } = await supabase.from("org_memberships").select("role, module_permissions").eq("org_id", orgId).eq("user_id", user.id).maybeSingle();
-      if (data?.role === "owner" || data?.role === "admin") { setMyPerms({ _admin: true }); }
-      else { setMyPerms(data?.module_permissions || {}); }
+      const [{ data: membership }, { data: budgets }, { data: members }, { data: profs }] = await Promise.all([
+        supabase.from("org_memberships").select("role, module_permissions").eq("org_id", orgId).eq("user_id", user.id).maybeSingle(),
+        supabase.from("fin_budgets").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+        supabase.from("fin_budget_members").select("*").eq("org_id", orgId),
+        supabase.from("profiles").select("id, display_name, email, avatar_url"),
+      ]);
+      if (membership?.role === "owner" || membership?.role === "admin") { setMyPerms({ _admin: true }); }
+      else { setMyPerms(membership?.module_permissions || {}); }
+      setFinBudgets(budgets || []);
+      setBudgetMembers(members || []);
+      setOrgProfiles(profs || []);
     })();
-  }, [user?.id]);
+  }, [user?.id, orgId]);
   const isAdmin = myPerms?._admin === true;
   const canViewAmounts = isAdmin || myPerms?.["erp.fin_budgets.view_amounts"] !== false;
   const canViewActuals = isAdmin || myPerms?.["erp.fin_budgets.view_actuals"] !== false;
@@ -3996,6 +4011,71 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     setShowLoad(false);
   };
 
+  const createBudget = async () => {
+    if (!newBudgetForm.name.trim()) return;
+    const { data } = await supabase.from("fin_budgets").insert({
+      name: newBudgetForm.name.trim(),
+      description: newBudgetForm.description || null,
+      fiscal_year: parseInt(newBudgetForm.fiscal_year) || new Date().getFullYear(),
+      status: newBudgetForm.status || "draft",
+      owner_id: user?.id,
+      created_by: user?.id,
+    }).select().single();
+    if (data) {
+      setFinBudgets(p => [data, ...p]);
+      // Auto-add creator as owner member
+      const { data: mem } = await supabase.from("fin_budget_members").insert({
+        budget_id: data.id, user_id: user?.id, role: "owner", added_by: user?.id,
+      }).select().single();
+      if (mem) setBudgetMembers(p => [...p, mem]);
+      setActiveBudgetName(data.name);
+    }
+    setShowNewBudget(false);
+    setNewBudgetForm({ name: "", description: "", fiscal_year: new Date().getFullYear(), status: "draft" });
+  };
+
+  const shareBudget = async (budgetId, userId, role = "viewer") => {
+    const exists = budgetMembers.find(m => m.budget_id === budgetId && m.user_id === userId);
+    if (exists) return;
+    const { data } = await supabase.from("fin_budget_members").insert({
+      budget_id: budgetId, user_id: userId, role, added_by: user?.id,
+    }).select().single();
+    if (data) setBudgetMembers(p => [...p, data]);
+    // Send notification
+    if (userId !== user?.id) {
+      const budget = finBudgets.find(b => b.id === budgetId);
+      const actorName = orgProfiles.find(p => p.id === user?.id)?.display_name || "Someone";
+      await supabase.from("notifications").insert({
+        org_id: orgId, user_id: userId, type: "budget_shared",
+        title: `${actorName} shared a budget with you`,
+        body: budget?.name || "Untitled Budget",
+        entity_type: "budget", entity_id: budgetId,
+        actor_id: user?.id, is_read: false, category: "assignment",
+        metadata: { budget_name: budget?.name, role },
+      });
+    }
+  };
+
+  const updateBudgetMemberRole = async (memberId, role) => {
+    await supabase.from("fin_budget_members").update({ role }).eq("id", memberId);
+    setBudgetMembers(p => p.map(m => m.id === memberId ? { ...m, role } : m));
+  };
+
+  const removeBudgetMember = async (memberId) => {
+    await supabase.from("fin_budget_members").delete().eq("id", memberId);
+    setBudgetMembers(p => p.filter(m => m.id !== memberId));
+  };
+
+  const deleteBudget = async (budgetId) => {
+    if (!window.confirm("Delete this budget? This cannot be undone.")) return;
+    await supabase.from("fin_budgets").delete().eq("id", budgetId);
+    setFinBudgets(p => p.filter(b => b.id !== budgetId));
+    setBudgetMembers(p => p.filter(m => m.budget_id !== budgetId));
+  };
+
+  const ini = (uid) => { const p = orgProfiles.find(pr => pr.id === uid); return p?.display_name ? p.display_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "?"; };
+  const uname = (uid) => orgProfiles.find(p => p.id === uid)?.display_name || "Unknown";
+
   const saveCompanyBudget = () => {
     const cleaned = Number(String(companyAmt).replace(/[$,\s]/g, ""));
     setBudgetData(prev => prev.map(b => b.id === editingCat.id ? { ...b, companyBudget: cleaned } : b));
@@ -4004,12 +4084,38 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Budget list / selector */}
+      {finBudgets.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: -8 }}>
+          {finBudgets.map(b => {
+            const bMembers = budgetMembers.filter(m => m.budget_id === b.id);
+            const isActive = activeBudgetName === b.name;
+            return (
+              <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: `1px solid ${isActive ? T.accent : T.border}`, background: isActive ? T.accent + "12" : T.surface2, cursor: "pointer" }}
+                onClick={() => { setActiveBudgetName(b.name); /* load budget data if version exists */ const bv = budgetVersions.find(v => v.name === b.name); if (bv) { setBudgetData(bv.data || []); setActiveBudget(bv.data); } }}>
+                <span style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : T.text }}>{b.name}</span>
+                <span style={{ fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 4 }}>{b.status}</span>
+                {/* Member avatars */}
+                <div style={{ display: "flex", marginLeft: 4 }}>
+                  {bMembers.slice(0, 3).map((m, i) => (
+                    <div key={m.id} style={{ width: 18, height: 18, borderRadius: "50%", background: T.accent + "30", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, marginLeft: i > 0 ? -4 : 0, border: `1px solid ${T.surface}`, zIndex: 3 - i }} title={uname(m.user_id)}>{ini(m.user_id)}</div>
+                  ))}
+                  {bMembers.length > 3 && <div style={{ width: 18, height: 18, borderRadius: "50%", background: T.surface3, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, marginLeft: -4, border: `1px solid ${T.surface}` }}>+{bMembers.length - 3}</div>}
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); setShowShare(b.id); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: T.text3, padding: 0 }} title="Share">👥</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>G&A Budgets</div>
           <div style={{ fontSize: 12, color: T.text3 }}>{activeBudgetName ? `Active: ${activeBudgetName}` : "Unsaved budget"} · {glCategories.length} categories</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          {canEdit && <button onClick={() => setShowNewBudget(true)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: "#22c55e", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Budget</button>}
           {canEdit && <button onClick={() => setShowLoad(true)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>↓ Load</button>}
           {canEdit && <button onClick={() => { setSaveName(activeBudgetName || ""); setShowSave(true); }} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>💾 Save</button>}
         </div>
@@ -4268,6 +4374,106 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
           </div>
         </div>
       )}
+
+      {/* New Budget modal */}
+      {showNewBudget && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNewBudget(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: 24, width: "min(440px, 90vw)" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 14 }}>✨ New Budget</div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Budget Name *</div>
+              <input autoFocus value={newBudgetForm.name} onChange={e => setNewBudgetForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Q3 2026 Operating Budget"
+                style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Description</div>
+              <input value={newBudgetForm.description} onChange={e => setNewBudgetForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description"
+                style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Fiscal Year</div>
+                <input type="number" value={newBudgetForm.fiscal_year} onChange={e => setNewBudgetForm(f => ({ ...f, fiscal_year: e.target.value }))}
+                  style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Status</div>
+                <select value={newBudgetForm.status} onChange={e => setNewBudgetForm(f => ({ ...f, status: e.target.value }))}
+                  style={{ width: "100%", padding: "9px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }}>
+                  <option value="draft">Draft</option>
+                  <option value="active">Active</option>
+                  <option value="approved">Approved</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowNewBudget(false)} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+              <button onClick={createBudget} disabled={!newBudgetForm.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#22c55e", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: newBudgetForm.name.trim() ? 1 : 0.4 }}>Create Budget</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share / Members modal */}
+      {showShare && (() => {
+        const budget = finBudgets.find(b => b.id === showShare);
+        const bMembers = budgetMembers.filter(m => m.budget_id === showShare);
+        const memberIds = new Set(bMembers.map(m => m.user_id));
+        const available = orgProfiles.filter(p => !memberIds.has(p.id));
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowShare(null)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: 24, width: "min(460px, 90vw)", maxHeight: "70vh", overflow: "auto" }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>👥 Share Budget</div>
+              <div style={{ fontSize: 12, color: T.text3, marginBottom: 14 }}>{budget?.name}</div>
+
+              {/* Current members */}
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 6 }}>Members ({bMembers.length})</div>
+              {bMembers.map(m => (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}08` }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: T.accent + "20", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{ini(m.user_id)}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{uname(m.user_id)}</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{orgProfiles.find(p => p.id === m.user_id)?.email}</div>
+                  </div>
+                  <select value={m.role} onChange={e => updateBudgetMemberRole(m.id, e.target.value)}
+                    style={{ fontSize: 10, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2 }}>
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                    <option value="owner">Owner</option>
+                  </select>
+                  {m.user_id !== user?.id && <button onClick={() => removeBudgetMember(m.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12 }}>✕</button>}
+                </div>
+              ))}
+
+              {/* Add members */}
+              {available.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 6 }}>Add People</div>
+                  <div style={{ maxHeight: 180, overflow: "auto" }}>
+                    {available.map(p => (
+                      <div key={p.id} onClick={() => shareBudget(showShare, p.id, "viewer")}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 8px", borderRadius: 6, cursor: "pointer" }}
+                        onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", background: T.surface3, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(p.id)}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{p.display_name || p.email}</div>
+                          {p.display_name && <div style={{ fontSize: 10, color: T.text3 }}>{p.email}</div>}
+                        </div>
+                        <span style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>+ Add</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+                <button onClick={() => setShowShare(null)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text2, cursor: "pointer" }}>Done</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
