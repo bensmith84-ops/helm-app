@@ -1176,6 +1176,175 @@ function LaunchPlannerView({ isMobile, orgId }) {
           )}
         </div>
 
+        {/* Subscription Economics + Reorder Curve */}
+        {totalUnits > 0 && (() => {
+          const s = selected;
+          const subRate = (s.sub_take_rate ?? 70) / 100;
+          const otpRate = 1 - subRate;
+          const upo = 1; // simplify — units_per_order is on channels
+          const forecastMonths = s.forecast_months || 6;
+          const reorderWeeks = s.reorder_frequency_weeks || 8;
+          const unitsPerReorder = s.units_per_reorder || 1;
+          const otpReorderRate = (s.otp_reorder_rate ?? 10) / 100;
+          const otpReorderWeeks = s.otp_reorder_frequency_weeks || 12;
+
+          // Churn curve: monthly retention rates
+          const churnRates = [
+            (s.churn_m1 ?? 15) / 100,
+            (s.churn_m2 ?? 8) / 100,
+            (s.churn_m3 ?? 6) / 100,
+          ];
+          const steadyChurn = (s.churn_m4_plus ?? 4) / 100;
+
+          // Calculate total customers from first-order demand
+          // totalUnits / avg_units_per_order — use 1 as default
+          const totalCustomers = totalUnits; // simplification: 1 unit per customer for first order
+          const subCustomers = Math.round(totalCustomers * subRate);
+          const otpCustomers = totalCustomers - subCustomers;
+
+          // Build month-by-month projection
+          const months = [];
+          let activeSubs = subCustomers;
+          let cumulativeUnits = totalUnits; // month 0 = launch orders already counted
+
+          for (let m = 0; m < forecastMonths; m++) {
+            // How many reorders this month from active subs?
+            // If reorder every N weeks, that's ~4.33/N reorders per month
+            const reordersPerMonth = 4.33 / reorderWeeks;
+            const subReorderUnits = Math.round(activeSubs * reordersPerMonth * unitsPerReorder);
+
+            // OTP reorders (one-time buyers who come back)
+            const otpReordersPerMonth = 4.33 / otpReorderWeeks;
+            const otpReorderUnits = Math.round(otpCustomers * otpReorderRate * otpReordersPerMonth * unitsPerReorder);
+
+            const monthTotal = subReorderUnits + otpReorderUnits;
+            cumulativeUnits += monthTotal;
+
+            months.push({
+              label: `Month ${m + 1}`,
+              activeSubs: Math.round(activeSubs),
+              subReorderUnits,
+              otpReorderUnits,
+              total: monthTotal,
+              cumulative: cumulativeUnits,
+              retention: subCustomers > 0 ? ((activeSubs / subCustomers) * 100).toFixed(1) : 0,
+            });
+
+            // Apply churn for next month
+            const churnRate = m < churnRates.length ? churnRates[m] : steadyChurn;
+            activeSubs = activeSubs * (1 - churnRate);
+          }
+
+          const totalReorderUnits = months.reduce((s, m) => s + m.total, 0);
+          const grandTotal = totalUnits + totalReorderUnits;
+          // Bar chart max for scaling
+          const maxMonthUnits = Math.max(...months.map(m => m.total), 1);
+
+          return (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 4 }}>🔄 Subscription & Reorder Economics</div>
+              <div style={{ fontSize: 10, color: T.text3, marginBottom: 14, lineHeight: 1.5 }}>
+                Model recurring demand from subscribers and one-time buyers who reorder. First-order units come from the channels above; this section projects reorder demand over {forecastMonths} months.
+              </div>
+
+              {/* Inputs — two columns */}
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div style={{ background: T.surface2, borderRadius: 8, padding: 12, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>📊 Subscription</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                    <I label="Sub Take Rate" value={s.sub_take_rate} onChange={v => updateLaunch(s.id, "sub_take_rate", v)} type="number" suffix="%" small />
+                    <I label="Reorder Every" value={s.reorder_frequency_weeks} onChange={v => updateLaunch(s.id, "reorder_frequency_weeks", v)} type="number" suffix="wks" small />
+                    <I label="Units / Reorder" value={s.units_per_reorder} onChange={v => updateLaunch(s.id, "units_per_reorder", v)} type="number" small />
+                    <I label="Forecast Months" value={s.forecast_months} onChange={v => updateLaunch(s.id, "forecast_months", v)} type="number" small />
+                  </div>
+                </div>
+                <div style={{ background: T.surface2, borderRadius: 8, padding: 12, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>📉 Churn Curve</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                    <I label="Month 1 Churn" value={s.churn_m1} onChange={v => updateLaunch(s.id, "churn_m1", v)} type="number" suffix="%" small />
+                    <I label="Month 2 Churn" value={s.churn_m2} onChange={v => updateLaunch(s.id, "churn_m2", v)} type="number" suffix="%" small />
+                    <I label="Month 3 Churn" value={s.churn_m3} onChange={v => updateLaunch(s.id, "churn_m3", v)} type="number" suffix="%" small />
+                    <I label="Month 4+ Churn" value={s.churn_m4_plus} onChange={v => updateLaunch(s.id, "churn_m4_plus", v)} type="number" suffix="%" small />
+                  </div>
+                  <div style={{ marginTop: 6, borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>One-Time Buyers</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                      <I label="OTP Reorder Rate" value={s.otp_reorder_rate} onChange={v => updateLaunch(s.id, "otp_reorder_rate", v)} type="number" suffix="%" small />
+                      <I label="OTP Reorder Every" value={s.otp_reorder_frequency_weeks} onChange={v => updateLaunch(s.id, "otp_reorder_frequency_weeks", v)} type="number" suffix="wks" small />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary KPIs */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 14 }}>
+                {[
+                  { label: "Subscribers", value: fmt(subCustomers), sub: `${(subRate * 100).toFixed(0)}% of ${fmt(totalCustomers)}`, color: "#8b5cf6" },
+                  { label: "OTP Buyers", value: fmt(otpCustomers), sub: `${(otpRate * 100).toFixed(0)}% one-time`, color: "#f59e0b" },
+                  { label: "Reorder Units", value: fmt(totalReorderUnits), sub: `${forecastMonths}mo total`, color: "#0ea5e9" },
+                  { label: "Grand Total", value: fmt(grandTotal), sub: `launch + reorders`, color: "#22c55e" },
+                ].map(k => (
+                  <div key={k.label} style={{ padding: "8px 10px", background: k.color + "08", borderRadius: 8, border: `1px solid ${k.color}20` }}>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: T.text3, textTransform: "uppercase" }}>{k.label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: k.color }}>{k.value}</div>
+                    <div style={{ fontSize: 9, color: T.text3 }}>{k.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Reorder Curve Table */}
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>📈 Reorder Curve — Monthly Projection</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    <th style={{ textAlign: "left", padding: "5px 8px", color: T.text3, fontWeight: 700 }}>Period</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px", color: T.text3, fontWeight: 700 }}>Active Subs</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px", color: T.text3, fontWeight: 700 }}>Retention</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px", color: T.text3, fontWeight: 700 }}>Sub Units</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px", color: T.text3, fontWeight: 700 }}>OTP Units</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px", color: T.text3, fontWeight: 700 }}>Month Total</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px", color: T.text3, fontWeight: 700 }}>Cumulative</th>
+                    <th style={{ width: 80, padding: "5px 4px" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style={{ borderBottom: `1px solid ${T.border}`, background: T.accent + "06" }}>
+                    <td style={{ padding: "5px 8px", fontWeight: 700, color: T.accent }}>Launch</td>
+                    <td style={{ padding: "5px 8px", textAlign: "right", color: T.text3 }}>—</td>
+                    <td style={{ padding: "5px 8px", textAlign: "right", color: T.text3 }}>—</td>
+                    <td style={{ padding: "5px 8px", textAlign: "right", color: T.text3 }}>—</td>
+                    <td style={{ padding: "5px 8px", textAlign: "right", color: T.text3 }}>—</td>
+                    <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.accent }}>{fmt(totalUnits)}</td>
+                    <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text }}>{fmt(totalUnits)}</td>
+                    <td style={{ padding: "5px 4px" }}><div style={{ height: 10, borderRadius: 3, background: T.accent, width: `${Math.min(100, (totalUnits / Math.max(maxMonthUnits, totalUnits)) * 100)}%` }} /></td>
+                  </tr>
+                  {months.map((m, i) => (
+                    <tr key={i} style={{ borderBottom: `1px solid ${T.border}08` }}>
+                      <td style={{ padding: "5px 8px", fontWeight: 600, color: T.text2 }}>{m.label}</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", color: T.text2 }}>{fmt(m.activeSubs)}</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", color: parseFloat(m.retention) > 60 ? "#22c55e" : parseFloat(m.retention) > 40 ? "#f59e0b" : "#ef4444", fontWeight: 600 }}>{m.retention}%</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", color: "#8b5cf6", fontWeight: 600 }}>{fmt(m.subReorderUnits)}</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", color: "#f59e0b" }}>{fmt(m.otpReorderUnits)}</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text }}>{fmt(m.total)}</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 600, color: T.text2 }}>{fmt(m.cumulative)}</td>
+                      <td style={{ padding: "5px 4px" }}><div style={{ height: 10, borderRadius: 3, background: "#8b5cf6", opacity: 0.6, width: `${Math.min(100, (m.total / maxMonthUnits) * 100)}%` }} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                    <td style={{ padding: "6px 8px", fontWeight: 800, color: T.text }}>Total</td>
+                    <td colSpan={4}></td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 800, fontSize: 12, color: "#22c55e" }}>{fmt(totalReorderUnits)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 800, fontSize: 12, color: "#22c55e" }}>{fmt(grandTotal)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          );
+        })()}
+
         {/* Purchase Orders */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
