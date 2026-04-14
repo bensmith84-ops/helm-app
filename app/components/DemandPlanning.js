@@ -540,16 +540,16 @@ function DataSourcesView({ isMobile, orgId }) {
 // NEW PRODUCT LAUNCH PLANNER
 // ═══════════════════════════════════════════════════════════════════════════════
 const CHANNEL_DEFS = [
-  { key: "hero_gwp", label: "New Hero GWP", icon: "🎁", desc: "Gift-with-purchase for new customer acquisition" },
-  { key: "upsell", label: "Upsell", icon: "⬆️", desc: "Upsell to existing customers at checkout" },
-  { key: "amazon", label: "Amazon", icon: "📦", desc: "Amazon marketplace launch" },
-  { key: "email", label: "Email", icon: "📧", desc: "Email campaign to existing list" },
-  { key: "free_gift", label: "Free Gift", icon: "🎀", desc: "Free gift at spend tier threshold" },
-  { key: "retail", label: "Retail", icon: "🏬", desc: "Brick & mortar retail distribution" },
-  { key: "dtc_paid", label: "DTC Paid", icon: "📱", desc: "Direct paid media (Meta, Google, TikTok)" },
-  { key: "organic", label: "Organic / PR", icon: "🌿", desc: "Organic traffic, PR, influencers" },
-  { key: "wholesale", label: "Wholesale", icon: "🏢", desc: "Wholesale / B2B distribution" },
-  { key: "other", label: "Other", icon: "➕", desc: "Other channel" },
+  { key: "hero_gwp", label: "Hero GWP", icon: "🎁", group: "primary", desc: "Primary new customer acquisition — ad spend drives this product as the hero GWP offer" },
+  { key: "upsell", label: "Upsell", icon: "⬆️", group: "dtc", desc: "Upsell at checkout to existing + new customers. Can be halo from hero ad spend." },
+  { key: "email", label: "Email", icon: "📧", group: "dtc", desc: "Email campaign to existing subscriber list" },
+  { key: "free_gift", label: "Free Gift", icon: "🎀", group: "dtc", desc: "Free gift at spend tier threshold (e.g. free with $50+ order)" },
+  { key: "amazon", label: "Amazon", icon: "📦", group: "marketplace", desc: "Amazon sales — can be direct PPC or halo from DTC brand awareness" },
+  { key: "retail", label: "Retail", icon: "🏬", group: "offline", desc: "Brick & mortar retail distribution" },
+  { key: "dtc_paid", label: "DTC Paid (Non-Hero)", icon: "📱", group: "dtc", desc: "Paid media driving this product directly (not as GWP)" },
+  { key: "organic", label: "Organic / PR", icon: "🌿", group: "dtc", desc: "Organic traffic, PR, influencer seeding" },
+  { key: "wholesale", label: "Wholesale", icon: "🏢", group: "offline", desc: "Wholesale / B2B distribution" },
+  { key: "other", label: "Other", icon: "➕", group: "other", desc: "Other channel" },
 ];
 
 const STATUS_OPTS = [
@@ -560,9 +560,28 @@ const STATUS_OPTS = [
   { value: "cancelled", label: "Cancelled", color: "#ef4444" },
 ];
 
-function calcChannelUnits(ch) {
+function calcChannelUnits(ch, allChannels) {
   const c = ch.channel;
   const upo = ch.units_per_order || 1;
+
+  // Halo mode: this channel's demand is a % of a source channel's customers
+  if (ch.demand_source === "halo" && ch.halo_pct && allChannels) {
+    const source = allChannels.find(s => s.id === ch.halo_source_channel_id);
+    if (source) {
+      const sourceUnits = calcChannelUnits(source, null); // prevent recursion
+      const sourceOrders = (source.units_per_order || 1) > 0 ? sourceUnits / (source.units_per_order || 1) : sourceUnits;
+      return Math.round(sourceOrders * (ch.halo_pct / 100) * upo);
+    }
+    // No specific source — use total hero/dtc_paid orders as base
+    const heroChannels = (allChannels || []).filter(s => s.id !== ch.id && (s.channel === "hero_gwp" || s.channel === "dtc_paid"));
+    const totalHeroOrders = heroChannels.reduce((sum, s) => {
+      const u = calcChannelUnits(s, null);
+      return sum + ((s.units_per_order || 1) > 0 ? u / (s.units_per_order || 1) : u);
+    }, 0);
+    return Math.round(totalHeroOrders * (ch.halo_pct / 100) * upo);
+  }
+
+  // Direct mode — each channel has its own demand model
   if (c === "hero_gwp" || c === "dtc_paid") {
     if (ch.ad_spend && ch.cpa && ch.cpa > 0) return Math.round((ch.ad_spend / ch.cpa) * upo);
     if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
@@ -582,11 +601,12 @@ function calcChannelUnits(ch) {
     return Math.round((ch.free_gift_eligible_orders || 0) * ((ch.free_gift_take_rate || 100) / 100) * (ch.free_gift_qty_per_order || 1));
   }
   if (c === "amazon") {
+    const weeks = ch.forecast_weeks || ch.retail_weeks || 12;
     const dailyOrders = (ch.amz_daily_sessions || 0) * ((ch.amz_conversion_rate || 12) / 100);
-    return Math.round(dailyOrders * 7 * (ch.retail_weeks || 12) * upo); // weeks
+    return Math.round(dailyOrders * 7 * weeks * upo);
   }
   if (c === "retail") {
-    return Math.round((ch.retail_store_count || 0) * (ch.retail_units_per_store_per_week || 0) * (ch.retail_weeks || 12));
+    return Math.round((ch.retail_store_count || 0) * (ch.retail_units_per_store_per_week || 0) * (ch.forecast_weeks || ch.retail_weeks || 12));
   }
   if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
   return ch.estimated_units || 0;
@@ -627,64 +647,117 @@ function DebouncedInput({ label, value, onChange, type = "text", placeholder, su
 }
 
 // ── Channel Input Fields (top-level to avoid re-creation) ──
-function ChannelInputs({ ch, onUpdateChannel }) {
+function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
   const up = (field, val) => onUpdateChannel(ch.id, { [field]: val });
   const c = ch.channel;
-  const units = calcChannelUnits(ch);
+  const units = calcChannelUnits(ch, allChannels);
   const I = DebouncedInput;
+  const isHalo = ch.demand_source === "halo";
+  const isPrimary = c === "hero_gwp";
+  // Channels that can be halo sources (hero GWP, DTC Paid)
+  const haloSources = (allChannels || []).filter(s => s.id !== ch.id && (s.channel === "hero_gwp" || s.channel === "dtc_paid"));
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
-        
-        {(c === "hero_gwp" || c === "dtc_paid") && <>
-          <I label="Ad Spend" value={ch.ad_spend} onChange={v => up("ad_spend", v)} type="number" prefix="$" />
-          <I label="CPA" value={ch.cpa} onChange={v => up("cpa", v)} type="number" prefix="$" />
-          <I label="Est. New Customers" value={ch.estimated_new_customers || (ch.ad_spend && ch.cpa ? Math.round(ch.ad_spend / ch.cpa) : "")} onChange={v => up("estimated_new_customers", v)} type="number" />
-        </>}
+      {/* Demand source toggle — not shown for hero_gwp (always direct) */}
+      {!isPrimary && haloSources.length > 0 && (
+        <div style={{ marginBottom: 10, padding: "8px 12px", background: T.surface3, borderRadius: 6, border: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Demand Source</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[{ v: "direct", l: "Direct", d: "Own demand model" }, { v: "halo", l: "Halo", d: "% of paid media orders" }].map(opt => (
+              <button key={opt.v} onClick={() => up("demand_source", opt.v)}
+                style={{ flex: 1, padding: "6px 10px", fontSize: 11, fontWeight: 600, borderRadius: 5, border: `1px solid ${(ch.demand_source || "direct") === opt.v ? T.accent : T.border}`, background: (ch.demand_source || "direct") === opt.v ? T.accent + "15" : "transparent", color: (ch.demand_source || "direct") === opt.v ? T.accent : T.text3, cursor: "pointer" }}>
+                {opt.l}
+                <div style={{ fontSize: 9, fontWeight: 400, marginTop: 1 }}>{opt.d}</div>
+              </button>
+            ))}
+          </div>
+          {isHalo && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>This channel's demand = X% of orders driven by paid media channels</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <I label="Halo % of Paid Orders" value={ch.halo_pct} onChange={v => up("halo_pct", v)} type="number" suffix="%" placeholder="e.g. 15" />
+                <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
+              </div>
+              {haloSources.length > 0 && (
+                <div style={{ fontSize: 10, color: T.text3, marginTop: 4, lineHeight: 1.4 }}>
+                  📊 Based on {haloSources.map(s => {
+                    const def = CHANNEL_DEFS.find(d => d.key === s.channel);
+                    const sUnits = calcChannelUnits(s, null);
+                    const sOrders = (s.units_per_order || 1) > 0 ? Math.round(sUnits / (s.units_per_order || 1)) : sUnits;
+                    return `${def?.label || s.channel}: ${fmt(sOrders)} orders`;
+                  }).join(" + ")}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
-        {c === "email" && <>
-          <I label="Email List Size" value={ch.email_list_size} onChange={v => up("email_list_size", v)} type="number" />
-          <I label="Send % of List" value={ch.email_send_pct} onChange={v => up("email_send_pct", v)} type="number" suffix="%" />
-          <I label="Open Rate" value={ch.email_open_rate} onChange={v => up("email_open_rate", v)} type="number" suffix="%" />
-          <I label="Click Rate" value={ch.email_click_rate} onChange={v => up("email_click_rate", v)} type="number" suffix="%" />
-          <I label="Conversion Rate" value={ch.email_conversion_rate} onChange={v => up("email_conversion_rate", v)} type="number" suffix="%" />
-        </>}
+      {/* Direct mode inputs (or always for hero_gwp) */}
+      {(!isHalo || isPrimary) && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
+          
+          {/* Hero GWP / DTC Paid — primary driver */}
+          {(c === "hero_gwp" || c === "dtc_paid") && <>
+            <I label="Ad Spend" value={ch.ad_spend} onChange={v => up("ad_spend", v)} type="number" prefix="$" />
+            <I label="CPA" value={ch.cpa} onChange={v => up("cpa", v)} type="number" prefix="$" />
+            <I label="Est. New Customers" value={ch.estimated_new_customers || (ch.ad_spend && ch.cpa ? Math.round(ch.ad_spend / ch.cpa) : "")} onChange={v => up("estimated_new_customers", v)} type="number" />
+          </>}
 
-        {c === "upsell" && <>
-          <I label="Eligible Orders (period)" value={ch.upsell_eligible_orders} onChange={v => up("upsell_eligible_orders", v)} type="number" />
-          <I label="Take Rate" value={ch.upsell_take_rate} onChange={v => up("upsell_take_rate", v)} type="number" suffix="%" />
-        </>}
+          {/* Email */}
+          {c === "email" && <>
+            <I label="Email List Size" value={ch.email_list_size} onChange={v => up("email_list_size", v)} type="number" />
+            <I label="Send % of List" value={ch.email_send_pct} onChange={v => up("email_send_pct", v)} type="number" suffix="%" />
+            <I label="Open Rate" value={ch.email_open_rate} onChange={v => up("email_open_rate", v)} type="number" suffix="%" />
+            <I label="Click Rate" value={ch.email_click_rate} onChange={v => up("email_click_rate", v)} type="number" suffix="%" />
+            <I label="Conversion Rate" value={ch.email_conversion_rate} onChange={v => up("email_conversion_rate", v)} type="number" suffix="%" />
+          </>}
 
-        {c === "free_gift" && <>
-          <I label="Tier Spend Threshold" value={ch.free_gift_tier_spend} onChange={v => up("free_gift_tier_spend", v)} type="number" prefix="$" placeholder="e.g. 50" />
-          <I label="Eligible Orders" value={ch.free_gift_eligible_orders} onChange={v => up("free_gift_eligible_orders", v)} type="number" />
-          <I label="Take Rate" value={ch.free_gift_take_rate} onChange={v => up("free_gift_take_rate", v)} type="number" suffix="%" />
-          <I label="Qty per Order" value={ch.free_gift_qty_per_order} onChange={v => up("free_gift_qty_per_order", v)} type="number" />
-        </>}
+          {/* Upsell */}
+          {c === "upsell" && <>
+            <I label="Eligible Orders (period)" value={ch.upsell_eligible_orders} onChange={v => up("upsell_eligible_orders", v)} type="number" />
+            <I label="Take Rate" value={ch.upsell_take_rate} onChange={v => up("upsell_take_rate", v)} type="number" suffix="%" />
+          </>}
 
-        {c === "amazon" && <>
-          <I label="Daily Sessions" value={ch.amz_daily_sessions} onChange={v => up("amz_daily_sessions", v)} type="number" />
-          <I label="Conversion Rate" value={ch.amz_conversion_rate} onChange={v => up("amz_conversion_rate", v)} type="number" suffix="%" />
-          <I label="PPC Daily Budget" value={ch.amz_ppc_budget} onChange={v => up("amz_ppc_budget", v)} type="number" prefix="$" />
-          <I label="ACOS Target" value={ch.amz_acos_target} onChange={v => up("amz_acos_target", v)} type="number" suffix="%" />
-          <I label="Forecast Weeks" value={ch.retail_weeks} onChange={v => up("retail_weeks", v)} type="number" />
-        </>}
+          {/* Free Gift */}
+          {c === "free_gift" && <>
+            <I label="Tier Spend Threshold" value={ch.free_gift_tier_spend} onChange={v => up("free_gift_tier_spend", v)} type="number" prefix="$" placeholder="e.g. 50" />
+            <I label="Eligible Orders" value={ch.free_gift_eligible_orders} onChange={v => up("free_gift_eligible_orders", v)} type="number" />
+            <I label="Take Rate" value={ch.free_gift_take_rate} onChange={v => up("free_gift_take_rate", v)} type="number" suffix="%" />
+            <I label="Qty per Order" value={ch.free_gift_qty_per_order} onChange={v => up("free_gift_qty_per_order", v)} type="number" />
+          </>}
 
-        {c === "retail" && <>
-          <I label="Store Count" value={ch.retail_store_count} onChange={v => up("retail_store_count", v)} type="number" />
-          <I label="Units/Store/Week" value={ch.retail_units_per_store_per_week} onChange={v => up("retail_units_per_store_per_week", v)} type="number" />
-          <I label="Weeks" value={ch.retail_weeks} onChange={v => up("retail_weeks", v)} type="number" />
-        </>}
+          {/* Amazon */}
+          {c === "amazon" && <>
+            <I label="Daily Sessions" value={ch.amz_daily_sessions} onChange={v => up("amz_daily_sessions", v)} type="number" />
+            <I label="Conversion Rate" value={ch.amz_conversion_rate} onChange={v => up("amz_conversion_rate", v)} type="number" suffix="%" />
+            <I label="PPC Daily Budget" value={ch.amz_ppc_budget} onChange={v => up("amz_ppc_budget", v)} type="number" prefix="$" />
+            <I label="ACOS Target" value={ch.amz_acos_target} onChange={v => up("amz_acos_target", v)} type="number" suffix="%" />
+            <I label="Forecast Weeks" value={ch.forecast_weeks || ch.retail_weeks} onChange={v => up("forecast_weeks", v)} type="number" />
+          </>}
 
-        {(c === "organic" || c === "wholesale" || c === "other") && <>
-          <I label="Est. New Customers" value={ch.estimated_new_customers} onChange={v => up("estimated_new_customers", v)} type="number" />
-        </>}
-      </div>
+          {/* Retail */}
+          {c === "retail" && <>
+            <I label="Store Count" value={ch.retail_store_count} onChange={v => up("retail_store_count", v)} type="number" />
+            <I label="Units/Store/Week" value={ch.retail_units_per_store_per_week} onChange={v => up("retail_units_per_store_per_week", v)} type="number" />
+            <I label="Weeks" value={ch.forecast_weeks || ch.retail_weeks} onChange={v => up("forecast_weeks", v)} type="number" />
+          </>}
 
+          {/* Organic / Wholesale / Other */}
+          {(c === "organic" || c === "wholesale" || c === "other") && <>
+            <I label="Est. New Customers" value={ch.estimated_new_customers} onChange={v => up("estimated_new_customers", v)} type="number" />
+          </>}
+        </div>
+      )}
+
+      {/* Result */}
       <div style={{ marginTop: 8, padding: "8px 12px", background: T.accent + "10", borderRadius: 6, border: `1px solid ${T.accent}20`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Units</span>
+        <div>
+          <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Units</span>
+          {isHalo && <span style={{ fontSize: 9, color: T.text3, marginLeft: 6 }}>({ch.halo_pct || 0}% halo)</span>}
+        </div>
         <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(units)}</span>
       </div>
     </div>
@@ -744,7 +817,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const updateChannel = async (id, updates) => {
     const ch = channels.find(c => c.id === id);
     const merged = { ...ch, ...updates };
-    const units = calcChannelUnits(merged);
+    const units = calcChannelUnits(merged, channels);
     const price = selected?.retail_price || 0;
     await supabase.from("dp_launch_channels").update({ ...updates, estimated_units: units, estimated_revenue: units * price, updated_at: new Date().toISOString() }).eq("id", id);
     setChannels(p => p.map(c => c.id === id ? { ...c, ...updates, estimated_units: units, estimated_revenue: units * price } : c));
@@ -756,7 +829,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
   };
 
   const addPo = async (launchId) => {
-    const totalUnits = channels.filter(c => c.launch_id === launchId).reduce((s, c) => s + calcChannelUnits(c), 0);
+    const totalUnits = channels.filter(c => c.launch_id === launchId).reduce((s, c) => s + calcChannelUnits(c, channels.filter(x => x.launch_id === launchId)), 0);
     const moq = selected?.moq || 5000;
     const qty = Math.max(moq, Math.ceil(totalUnits / moq) * moq);
     const lt = selected?.lead_time_days || 45;
@@ -777,7 +850,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
 
   const launchChannels = selected ? channels.filter(c => c.launch_id === selected.id) : [];
   const launchPos = selected ? pos.filter(p => p.launch_id === selected.id) : [];
-  const totalUnits = launchChannels.reduce((s, c) => s + calcChannelUnits(c), 0);
+  const totalUnits = launchChannels.reduce((s, c) => s + calcChannelUnits(c, launchChannels), 0);
   const totalRevenue = totalUnits * (selected?.retail_price || 0);
   const totalCost = totalUnits * (selected?.unit_cost || 0);
 
@@ -852,20 +925,35 @@ function LaunchPlannerView({ isMobile, orgId }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📣 Promotion Channels — Demand Drivers</div>
           </div>
-          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, lineHeight: 1.5 }}>Add channels where this product will be promoted. Each channel has its own demand model to estimate units.</div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, lineHeight: 1.5 }}>The Hero GWP is your primary driver — ad spend and CPA determine new customer orders. Other channels can model demand directly or as <strong>halo sales</strong> (a % of orders driven by paid media that flow to that channel).</div>
 
-          {/* Add channel buttons */}
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16 }}>
-            {CHANNEL_DEFS.map(cd => {
-              const exists = launchChannels.some(c => c.channel === cd.key);
-              return (
-                <button key={cd.key} onClick={() => !exists && addChannel(selected.id, cd.key)} disabled={exists}
-                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${exists ? T.border : T.accent + "40"}`, background: exists ? T.surface2 : T.accent + "08", color: exists ? T.text3 : T.accent, cursor: exists ? "default" : "pointer", opacity: exists ? 0.5 : 1, display: "flex", alignItems: "center", gap: 4 }}>
-                  <span>{cd.icon}</span> {cd.label} {exists && "✓"}
-                </button>
-              );
-            })}
-          </div>
+          {/* Add channel buttons — grouped */}
+          {[
+            { group: "primary", label: "Primary Driver" },
+            { group: "dtc", label: "DTC Channels" },
+            { group: "marketplace", label: "Marketplace" },
+            { group: "offline", label: "Offline / Wholesale" },
+            { group: "other", label: "Other" },
+          ].map(g => {
+            const groupDefs = CHANNEL_DEFS.filter(cd => cd.group === g.group);
+            if (!groupDefs.length) return null;
+            return (
+              <div key={g.group} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{g.label}</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {groupDefs.map(cd => {
+                    const exists = launchChannels.some(c => c.channel === cd.key);
+                    return (
+                      <button key={cd.key} onClick={() => !exists && addChannel(selected.id, cd.key)} disabled={exists}
+                        style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${exists ? T.border : (g.group === "primary" ? "#8b5cf6" : T.accent) + "40"}`, background: exists ? T.surface2 : (g.group === "primary" ? "#8b5cf6" : T.accent) + "08", color: exists ? T.text3 : (g.group === "primary" ? "#8b5cf6" : T.accent), cursor: exists ? "default" : "pointer", opacity: exists ? 0.5 : 1, display: "flex", alignItems: "center", gap: 4 }}>
+                        <span>{cd.icon}</span> {cd.label} {exists && "✓"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
 
           {/* Channel cards */}
           {launchChannels.length === 0 ? (
@@ -874,7 +962,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {launchChannels.map(ch => {
                 const def = CHANNEL_DEFS.find(d => d.key === ch.channel);
-                const units = calcChannelUnits(ch);
+                const units = calcChannelUnits(ch, launchChannels);
                 const pct = totalUnits > 0 ? ((units / totalUnits) * 100).toFixed(1) : 0;
                 return (
                   <div key={ch.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
@@ -895,7 +983,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                       </div>
                     </div>
                     <div style={{ padding: "10px 14px" }}>
-                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} />
+                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} />
                     </div>
                   </div>
                 );
@@ -990,7 +1078,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {launches.map(l => {
             const lc = channels.filter(c => c.launch_id === l.id);
-            const tu = lc.reduce((s, c) => s + calcChannelUnits(c), 0);
+            const tu = lc.reduce((s, c) => s + calcChannelUnits(c, lc), 0);
             const st = STATUS_OPTS.find(s => s.value === l.status);
             return (
               <div key={l.id} onClick={() => setSelected(l)} style={{ padding: "14px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.1s" }}
