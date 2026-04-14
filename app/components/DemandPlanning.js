@@ -537,12 +537,475 @@ function DataSourcesView({ isMobile, orgId }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// NEW PRODUCT LAUNCH PLANNER
+// ═══════════════════════════════════════════════════════════════════════════════
+const CHANNEL_DEFS = [
+  { key: "hero_gwp", label: "New Hero GWP", icon: "🎁", desc: "Gift-with-purchase for new customer acquisition" },
+  { key: "upsell", label: "Upsell", icon: "⬆️", desc: "Upsell to existing customers at checkout" },
+  { key: "amazon", label: "Amazon", icon: "📦", desc: "Amazon marketplace launch" },
+  { key: "email", label: "Email", icon: "📧", desc: "Email campaign to existing list" },
+  { key: "free_gift", label: "Free Gift", icon: "🎀", desc: "Free gift at spend tier threshold" },
+  { key: "retail", label: "Retail", icon: "🏬", desc: "Brick & mortar retail distribution" },
+  { key: "dtc_paid", label: "DTC Paid", icon: "📱", desc: "Direct paid media (Meta, Google, TikTok)" },
+  { key: "organic", label: "Organic / PR", icon: "🌿", desc: "Organic traffic, PR, influencers" },
+  { key: "wholesale", label: "Wholesale", icon: "🏢", desc: "Wholesale / B2B distribution" },
+  { key: "other", label: "Other", icon: "➕", desc: "Other channel" },
+];
+
+const STATUS_OPTS = [
+  { value: "planning", label: "Planning", color: "#6366f1" },
+  { value: "approved", label: "Approved", color: "#22c55e" },
+  { value: "active", label: "Active", color: "#0ea5e9" },
+  { value: "completed", label: "Completed", color: "#10b981" },
+  { value: "cancelled", label: "Cancelled", color: "#ef4444" },
+];
+
+function calcChannelUnits(ch) {
+  const c = ch.channel;
+  const upo = ch.units_per_order || 1;
+  if (c === "hero_gwp" || c === "dtc_paid") {
+    if (ch.ad_spend && ch.cpa && ch.cpa > 0) return Math.round((ch.ad_spend / ch.cpa) * upo);
+    if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
+    return 0;
+  }
+  if (c === "email") {
+    const sent = (ch.email_list_size || 0) * ((ch.email_send_pct || 100) / 100);
+    const opened = sent * ((ch.email_open_rate || 25) / 100);
+    const clicked = opened * ((ch.email_click_rate || 3) / 100);
+    const converted = clicked * ((ch.email_conversion_rate || 5) / 100);
+    return Math.round(converted * upo);
+  }
+  if (c === "upsell") {
+    return Math.round((ch.upsell_eligible_orders || 0) * ((ch.upsell_take_rate || 15) / 100) * upo);
+  }
+  if (c === "free_gift") {
+    return Math.round((ch.free_gift_eligible_orders || 0) * ((ch.free_gift_take_rate || 100) / 100) * (ch.free_gift_qty_per_order || 1));
+  }
+  if (c === "amazon") {
+    const dailyOrders = (ch.amz_daily_sessions || 0) * ((ch.amz_conversion_rate || 12) / 100);
+    return Math.round(dailyOrders * 7 * (ch.retail_weeks || 12) * upo); // weeks
+  }
+  if (c === "retail") {
+    return Math.round((ch.retail_store_count || 0) * (ch.retail_units_per_store_per_week || 0) * (ch.retail_weeks || 12));
+  }
+  if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
+  return ch.estimated_units || 0;
+}
+
+function LaunchPlannerView({ isMobile, orgId }) {
+  const { user } = useAuth();
+  const [launches, setLaunches] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [channels, setChannels] = useState([]);
+  const [pos, setPos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showNew, setShowNew] = useState(false);
+  const [form, setForm] = useState({ name: "", product_name: "", launch_date: "", moq: 5000, lead_time_days: 45, unit_cost: "", retail_price: "", target_margin_pct: 65, forecast_period_weeks: 12, supplier: "" });
+
+  const load = async () => {
+    const [{ data: l }, { data: c }, { data: p }] = await Promise.all([
+      supabase.from("dp_launches").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+      supabase.from("dp_launch_channels").select("*").eq("org_id", orgId),
+      supabase.from("dp_launch_pos").select("*").eq("org_id", orgId),
+    ]);
+    setLaunches(l || []); setChannels(c || []); setPos(p || []); setLoading(false);
+  };
+  useEffect(() => { if (orgId) load(); }, [orgId]);
+
+  const createLaunch = async () => {
+    if (!form.product_name.trim()) return;
+    const { data } = await supabase.from("dp_launches").insert({
+      name: form.name || form.product_name, product_name: form.product_name,
+      launch_date: form.launch_date || null, moq: parseInt(form.moq) || 5000,
+      lead_time_days: parseInt(form.lead_time_days) || 45,
+      unit_cost: parseFloat(form.unit_cost) || null, retail_price: parseFloat(form.retail_price) || null,
+      target_margin_pct: parseFloat(form.target_margin_pct) || null,
+      forecast_period_weeks: parseInt(form.forecast_period_weeks) || 12,
+      supplier: form.supplier || null, created_by: user?.id,
+    }).select().single();
+    if (data) { setLaunches(p => [data, ...p]); setSelected(data); setShowNew(false); }
+  };
+
+  const updateLaunch = async (id, field, value) => {
+    await supabase.from("dp_launches").update({ [field]: value, updated_at: new Date().toISOString() }).eq("id", id);
+    setLaunches(p => p.map(l => l.id === id ? { ...l, [field]: value } : l));
+    if (selected?.id === id) setSelected(s => ({ ...s, [field]: value }));
+  };
+
+  const addChannel = async (launchId, channelKey) => {
+    const def = CHANNEL_DEFS.find(d => d.key === channelKey);
+    const { data } = await supabase.from("dp_launch_channels").insert({
+      launch_id: launchId, channel: channelKey, label: def?.label || channelKey,
+      units_per_order: 1,
+    }).select().single();
+    if (data) setChannels(p => [...p, data]);
+  };
+
+  const updateChannel = async (id, updates) => {
+    const ch = channels.find(c => c.id === id);
+    const merged = { ...ch, ...updates };
+    const units = calcChannelUnits(merged);
+    const price = selected?.retail_price || 0;
+    await supabase.from("dp_launch_channels").update({ ...updates, estimated_units: units, estimated_revenue: units * price, updated_at: new Date().toISOString() }).eq("id", id);
+    setChannels(p => p.map(c => c.id === id ? { ...c, ...updates, estimated_units: units, estimated_revenue: units * price } : c));
+  };
+
+  const removeChannel = async (id) => {
+    await supabase.from("dp_launch_channels").delete().eq("id", id);
+    setChannels(p => p.filter(c => c.id !== id));
+  };
+
+  const addPo = async (launchId) => {
+    const totalUnits = channels.filter(c => c.launch_id === launchId).reduce((s, c) => s + calcChannelUnits(c), 0);
+    const moq = selected?.moq || 5000;
+    const qty = Math.max(moq, Math.ceil(totalUnits / moq) * moq);
+    const lt = selected?.lead_time_days || 45;
+    const ld = selected?.launch_date;
+    const orderBy = ld ? new Date(new Date(ld).getTime() - lt * 86400000).toISOString().slice(0, 10) : null;
+    const { data } = await supabase.from("dp_launch_pos").insert({
+      launch_id: launchId, quantity: qty, unit_cost: selected?.unit_cost || null,
+      total_cost: qty * (selected?.unit_cost || 0), order_by_date: orderBy,
+      expected_arrival: ld || null,
+    }).select().single();
+    if (data) setPos(p => [...p, data]);
+  };
+
+  const removePo = async (id) => {
+    await supabase.from("dp_launch_pos").delete().eq("id", id);
+    setPos(p => p.filter(po => po.id !== id));
+  };
+
+  const launchChannels = selected ? channels.filter(c => c.launch_id === selected.id) : [];
+  const launchPos = selected ? pos.filter(p => p.launch_id === selected.id) : [];
+  const totalUnits = launchChannels.reduce((s, c) => s + calcChannelUnits(c), 0);
+  const totalRevenue = totalUnits * (selected?.retail_price || 0);
+  const totalCost = totalUnits * (selected?.unit_cost || 0);
+
+  const I = ({ label, value, onChange, type = "text", placeholder, suffix, prefix, small }) => (
+    <div style={{ marginBottom: small ? 6 : 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        {prefix && <span style={{ fontSize: 11, color: T.text3 }}>{prefix}</span>}
+        <input value={value ?? ""} onChange={e => onChange(type === "number" ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value)} type={type} placeholder={placeholder}
+          style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" }} />
+        {suffix && <span style={{ fontSize: 10, color: T.text3 }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+
+  // ── Channel-specific input fields ──
+  const ChannelInputs = ({ ch }) => {
+    const up = (field, val) => updateChannel(ch.id, { [field]: val });
+    const c = ch.channel;
+    const units = calcChannelUnits(ch);
+
+    return (
+      <div>
+        {/* Common: units per order */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
+          
+          {/* Paid / GWP channels */}
+          {(c === "hero_gwp" || c === "dtc_paid") && <>
+            <I label="Ad Spend" value={ch.ad_spend} onChange={v => up("ad_spend", v)} type="number" prefix="$" />
+            <I label="CPA" value={ch.cpa} onChange={v => up("cpa", v)} type="number" prefix="$" />
+            <I label="Est. New Customers" value={ch.estimated_new_customers || (ch.ad_spend && ch.cpa ? Math.round(ch.ad_spend / ch.cpa) : "")} onChange={v => up("estimated_new_customers", v)} type="number" />
+          </>}
+
+          {/* Email channel */}
+          {c === "email" && <>
+            <I label="Email List Size" value={ch.email_list_size} onChange={v => up("email_list_size", v)} type="number" />
+            <I label="Send % of List" value={ch.email_send_pct} onChange={v => up("email_send_pct", v)} type="number" suffix="%" />
+            <I label="Open Rate" value={ch.email_open_rate} onChange={v => up("email_open_rate", v)} type="number" suffix="%" />
+            <I label="Click Rate" value={ch.email_click_rate} onChange={v => up("email_click_rate", v)} type="number" suffix="%" />
+            <I label="Conversion Rate" value={ch.email_conversion_rate} onChange={v => up("email_conversion_rate", v)} type="number" suffix="%" />
+          </>}
+
+          {/* Upsell channel */}
+          {c === "upsell" && <>
+            <I label="Eligible Orders (period)" value={ch.upsell_eligible_orders} onChange={v => up("upsell_eligible_orders", v)} type="number" />
+            <I label="Take Rate" value={ch.upsell_take_rate} onChange={v => up("upsell_take_rate", v)} type="number" suffix="%" />
+          </>}
+
+          {/* Free gift channel */}
+          {c === "free_gift" && <>
+            <I label="Tier Spend Threshold" value={ch.free_gift_tier_spend} onChange={v => up("free_gift_tier_spend", v)} type="number" prefix="$" placeholder="e.g. 50" />
+            <I label="Eligible Orders" value={ch.free_gift_eligible_orders} onChange={v => up("free_gift_eligible_orders", v)} type="number" />
+            <I label="Take Rate" value={ch.free_gift_take_rate} onChange={v => up("free_gift_take_rate", v)} type="number" suffix="%" />
+            <I label="Qty per Order" value={ch.free_gift_qty_per_order} onChange={v => up("free_gift_qty_per_order", v)} type="number" />
+          </>}
+
+          {/* Amazon */}
+          {c === "amazon" && <>
+            <I label="Daily Sessions" value={ch.amz_daily_sessions} onChange={v => up("amz_daily_sessions", v)} type="number" />
+            <I label="Conversion Rate" value={ch.amz_conversion_rate} onChange={v => up("amz_conversion_rate", v)} type="number" suffix="%" />
+            <I label="PPC Daily Budget" value={ch.amz_ppc_budget} onChange={v => up("amz_ppc_budget", v)} type="number" prefix="$" />
+            <I label="ACOS Target" value={ch.amz_acos_target} onChange={v => up("amz_acos_target", v)} type="number" suffix="%" />
+            <I label="Forecast Weeks" value={ch.retail_weeks} onChange={v => up("retail_weeks", v)} type="number" />
+          </>}
+
+          {/* Retail */}
+          {c === "retail" && <>
+            <I label="Store Count" value={ch.retail_store_count} onChange={v => up("retail_store_count", v)} type="number" />
+            <I label="Units/Store/Week" value={ch.retail_units_per_store_per_week} onChange={v => up("retail_units_per_store_per_week", v)} type="number" />
+            <I label="Weeks" value={ch.retail_weeks} onChange={v => up("retail_weeks", v)} type="number" />
+          </>}
+
+          {/* Organic / Wholesale / Other */}
+          {(c === "organic" || c === "wholesale" || c === "other") && <>
+            <I label="Est. New Customers" value={ch.estimated_new_customers} onChange={v => up("estimated_new_customers", v)} type="number" />
+          </>}
+        </div>
+
+        {/* Result */}
+        <div style={{ marginTop: 8, padding: "8px 12px", background: T.accent + "10", borderRadius: 6, border: `1px solid ${T.accent}20`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Units</span>
+          <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(units)}</span>
+        </div>
+      </div>
+    );
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading…</div>;
+
+  // ── Detail view ──
+  if (selected) {
+    const st = STATUS_OPTS.find(s => s.value === selected.status);
+    return (
+      <div>
+        <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12, marginBottom: 12 }}>← Back to Launches</button>
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{selected.product_name}</div>
+            {selected.name !== selected.product_name && <div style={{ fontSize: 12, color: T.text3 }}>{selected.name}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <select value={selected.status} onChange={e => updateLaunch(selected.id, "status", e.target.value)} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, border: `1px solid ${st?.color || T.border}`, borderRadius: 6, background: (st?.color || T.accent) + "15", color: st?.color || T.accent, cursor: "pointer" }}>
+              {STATUS_OPTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* KPI Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(5,1fr)", gap: 8, marginBottom: 20 }}>
+          {[
+            { label: "Total Forecast", value: fmt(totalUnits), sub: "units", color: T.accent },
+            { label: "Revenue", value: "$" + fmt(Math.round(totalRevenue)), sub: "at retail", color: "#22c55e" },
+            { label: "COGS", value: "$" + fmt(Math.round(totalCost)), sub: "total", color: "#f59e0b" },
+            { label: "Margin", value: totalRevenue > 0 ? ((1 - totalCost / totalRevenue) * 100).toFixed(1) + "%" : "—", sub: "gross", color: "#10b981" },
+            { label: "Channels", value: launchChannels.length, sub: "active", color: "#8b5cf6" },
+          ].map(k => (
+            <div key={k.label} style={{ padding: "12px 14px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>{k.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: k.color }}>{k.value}</div>
+              <div style={{ fontSize: 9, color: T.text3 }}>{k.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Two column: Product Details + Supply */}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 20 }}>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>📋 Product Details</div>
+            <I label="Product Name" value={selected.product_name} onChange={v => updateLaunch(selected.id, "product_name", v)} />
+            <I label="SKU" value={selected.sku} onChange={v => updateLaunch(selected.id, "sku", v)} placeholder="e.g. LS-60-LEMON" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <I label="Retail Price" value={selected.retail_price} onChange={v => updateLaunch(selected.id, "retail_price", v)} type="number" prefix="$" />
+              <I label="Unit Cost" value={selected.unit_cost} onChange={v => updateLaunch(selected.id, "unit_cost", v)} type="number" prefix="$" />
+              <I label="Target Margin %" value={selected.target_margin_pct} onChange={v => updateLaunch(selected.id, "target_margin_pct", v)} type="number" suffix="%" />
+              <I label="Launch Date" value={selected.launch_date} onChange={v => updateLaunch(selected.id, "launch_date", v)} type="date" />
+            </div>
+          </div>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>🏭 Supply & Manufacturing</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <I label="MOQ" value={selected.moq} onChange={v => updateLaunch(selected.id, "moq", v)} type="number" suffix="units" />
+              <I label="Lead Time" value={selected.lead_time_days} onChange={v => updateLaunch(selected.id, "lead_time_days", v)} type="number" suffix="days" />
+              <I label="Units per Case" value={selected.units_per_case} onChange={v => updateLaunch(selected.id, "units_per_case", v)} type="number" />
+              <I label="Forecast Period" value={selected.forecast_period_weeks} onChange={v => updateLaunch(selected.id, "forecast_period_weeks", v)} type="number" suffix="weeks" />
+            </div>
+            <I label="Supplier" value={selected.supplier} onChange={v => updateLaunch(selected.id, "supplier", v)} />
+          </div>
+        </div>
+
+        {/* Promotion Channels — Demand Drivers */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📣 Promotion Channels — Demand Drivers</div>
+          </div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, lineHeight: 1.5 }}>Add channels where this product will be promoted. Each channel has its own demand model to estimate units.</div>
+
+          {/* Add channel buttons */}
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16 }}>
+            {CHANNEL_DEFS.map(cd => {
+              const exists = launchChannels.some(c => c.channel === cd.key);
+              return (
+                <button key={cd.key} onClick={() => !exists && addChannel(selected.id, cd.key)} disabled={exists}
+                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${exists ? T.border : T.accent + "40"}`, background: exists ? T.surface2 : T.accent + "08", color: exists ? T.text3 : T.accent, cursor: exists ? "default" : "pointer", opacity: exists ? 0.5 : 1, display: "flex", alignItems: "center", gap: 4 }}>
+                  <span>{cd.icon}</span> {cd.label} {exists && "✓"}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Channel cards */}
+          {launchChannels.length === 0 ? (
+            <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 12 }}>No channels added yet. Click a channel above to add it.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {launchChannels.map(ch => {
+                const def = CHANNEL_DEFS.find(d => d.key === ch.channel);
+                const units = calcChannelUnits(ch);
+                const pct = totalUnits > 0 ? ((units / totalUnits) * 100).toFixed(1) : 0;
+                return (
+                  <div key={ch.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                    <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.border}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>{def?.icon}</span>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{def?.label || ch.channel}</div>
+                          <div style={{ fontSize: 10, color: T.text3 }}>{def?.desc}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: T.accent }}>{fmt(units)}</div>
+                          <div style={{ fontSize: 9, color: T.text3 }}>{pct}% of total</div>
+                        </div>
+                        <button onClick={() => removeChannel(ch.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>
+                      </div>
+                    </div>
+                    <div style={{ padding: "10px 14px" }}>
+                      <ChannelInputs ch={ch} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Total bar */}
+          {launchChannels.length > 0 && (
+            <div style={{ marginTop: 12, padding: "12px 16px", background: T.accent + "12", borderRadius: 8, border: `1px solid ${T.accent}30`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>Total Forecast Demand</span>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: T.accent }}>{fmt(totalUnits)} units</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>${fmt(Math.round(totalRevenue))} revenue · ${fmt(Math.round(totalCost))} COGS</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Purchase Orders */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📋 Purchase Orders</div>
+            <button onClick={() => addPo(selected.id)} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, cursor: "pointer" }}>+ Generate PO</button>
+          </div>
+          {launchPos.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: T.text3, fontSize: 12 }}>No POs yet. Click "Generate PO" to auto-calculate based on forecast + MOQ + lead time.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {launchPos.map(po => (
+                <div key={po.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{fmt(po.quantity)} units</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>
+                      ${fmt(Math.round(po.total_cost || 0))} · Order by {po.order_by_date || "—"} · Arrival {po.expected_arrival || "—"}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: po.status === "ordered" ? "#0ea5e915" : po.status === "received" ? "#22c55e15" : "#6366f115", color: po.status === "ordered" ? "#0ea5e9" : po.status === "received" ? "#22c55e" : "#6366f1" }}>{po.status}</span>
+                  <button onClick={() => removePo(po.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>🗑</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {totalUnits > 0 && selected.moq && (
+            <div style={{ marginTop: 10, fontSize: 10, color: T.text3, lineHeight: 1.5 }}>
+              💡 MOQ: {fmt(selected.moq)} · Lead time: {selected.lead_time_days}d · Forecast: {fmt(totalUnits)} units → Recommended PO: {fmt(Math.max(selected.moq, Math.ceil(totalUnits / selected.moq) * selected.moq))} units
+              {selected.launch_date && ` · Order by: ${new Date(new Date(selected.launch_date).getTime() - (selected.lead_time_days || 45) * 86400000).toISOString().slice(0, 10)}`}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── List view ──
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Product Launches</div>
+        <button onClick={() => setShowNew(true)} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" }}>+ New Launch</button>
+      </div>
+
+      {/* New launch form */}
+      {showNew && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>New Product Launch</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+            <I label="Product Name *" value={form.product_name} onChange={v => setForm(f => ({ ...f, product_name: v }))} placeholder="e.g. Laundry Sheets - Lemon" />
+            <I label="Launch Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Q3 Lemon Launch" />
+            <I label="Launch Date" value={form.launch_date} onChange={v => setForm(f => ({ ...f, launch_date: v }))} type="date" />
+            <I label="Unit Cost" value={form.unit_cost} onChange={v => setForm(f => ({ ...f, unit_cost: v }))} type="number" prefix="$" />
+            <I label="Retail Price" value={form.retail_price} onChange={v => setForm(f => ({ ...f, retail_price: v }))} type="number" prefix="$" />
+            <I label="MOQ" value={form.moq} onChange={v => setForm(f => ({ ...f, moq: v }))} type="number" suffix="units" />
+            <I label="Lead Time" value={form.lead_time_days} onChange={v => setForm(f => ({ ...f, lead_time_days: v }))} type="number" suffix="days" />
+            <I label="Supplier" value={form.supplier} onChange={v => setForm(f => ({ ...f, supplier: v }))} />
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+            <button onClick={() => setShowNew(false)} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+            <button onClick={createLaunch} disabled={!form.product_name.trim()} style={{ padding: "6px 20px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 6, background: T.accent, color: "#fff", cursor: "pointer", opacity: form.product_name.trim() ? 1 : 0.4 }}>Create Launch</button>
+          </div>
+        </div>
+      )}
+
+      {/* Launch list */}
+      {launches.length === 0 && !showNew ? (
+        <div style={{ padding: 60, textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🚀</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>No Product Launches Yet</div>
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 6, maxWidth: 420, margin: "6px auto 0", lineHeight: 1.6 }}>Plan demand for new product launches by estimating demand across promotion channels — GWP, upsell, Amazon, email, retail, and more.</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {launches.map(l => {
+            const lc = channels.filter(c => c.launch_id === l.id);
+            const tu = lc.reduce((s, c) => s + calcChannelUnits(c), 0);
+            const st = STATUS_OPTS.find(s => s.value === l.status);
+            return (
+              <div key={l.id} onClick={() => setSelected(l)} style={{ padding: "14px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.1s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "40"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ fontSize: 24 }}>🚀</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{l.product_name}</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                      {l.launch_date || "No date"} · {lc.length} channels · {fmt(tu)} units forecast
+                      {l.supplier && ` · ${l.supplier}`}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: (st?.color || T.text3) + "15", color: st?.color || T.text3 }}>{st?.label || l.status}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN DEMAND PLANNING VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function DemandPlanningView({ isMobile, orgId }) {
   const [tab, setTab] = useState("supply");
   const tabs = [
     { id: "supply", label: "Supply Chain", icon: "📦" },
+    { id: "launches", label: "New Product Launch", icon: "🚀" },
     { id: "growth", label: "Growth Planner", icon: "📈" },
     { id: "sources", label: "Data Sources", icon: "🔌" },
   ];
@@ -568,6 +1031,7 @@ export default function DemandPlanningView({ isMobile, orgId }) {
 
       {/* Tab content */}
       {tab === "supply" && <SupplyChainView isMobile={isMobile} orgId={orgId} />}
+      {tab === "launches" && <LaunchPlannerView isMobile={isMobile} orgId={orgId} />}
       {tab === "growth" && <GrowthPlannerView isMobile={isMobile} orgId={orgId} />}
       {tab === "sources" && <DataSourcesView isMobile={isMobile} orgId={orgId} />}
     </div>
