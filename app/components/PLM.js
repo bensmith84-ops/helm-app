@@ -12,16 +12,16 @@ const PrintAIChat = lazy(() => import("./PrintAIChat"));
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 const STAGES = [
-  { key: "ideation",     label: "Ideation",     color: "#8b5cf6" },
-  { key: "concept",      label: "Concept",      color: "#6366f1" },
-  { key: "feasibility",  label: "Feasibility",  color: "#3b82f6" },
-  { key: "development",  label: "Development",  color: "#0ea5e9" },
-  { key: "optimization", label: "Optimization", color: "#06b6d4" },
-  { key: "validation",   label: "Validation",   color: "#10b981" },
-  { key: "scale_up",     label: "Scale-Up",     color: "#84cc16" },
-  { key: "regulatory",   label: "Regulatory",   color: "#eab308" },
-  { key: "launch_ready", label: "Launch Ready", color: "#f97316" },
-  { key: "launched",     label: "Launched",     color: "#22c55e" },
+  { key: "ideation",     label: "Ideation",     color: "#8b5cf6", desc: "Capturing new product ideas from market trends, customer feedback, internal brainstorms, and competitive analysis. Open exploration — no commitment yet, just building the idea backlog." },
+  { key: "concept",      label: "Concept",      color: "#6366f1", desc: "Defining the product opportunity. Formalizing the idea into a product brief with target consumer, positioning, high-level requirements, and initial business case. Answering: 'Should we pursue this?'" },
+  { key: "feasibility",  label: "Feasibility",  color: "#3b82f6", desc: "Evaluating technical and commercial viability. Preliminary formulations, rough cost estimates, initial supplier research, and regulatory screening. Answering: 'Can we make this within our constraints?'" },
+  { key: "development",  label: "Development",  color: "#0ea5e9", desc: "Active formulation and product development. Lab-scale work, iterative testing, packaging development, and initial stability studies. Building and refining the actual product." },
+  { key: "optimization", label: "Optimization", color: "#06b6d4", desc: "Refining for manufacturing. Scaling from lab to pilot to production, optimizing formula for cost/performance/manufacturability, manufacturing trials, finalizing packaging, completing stability studies, and substantiating claims." },
+  { key: "validation",   label: "Validation",   color: "#10b981", desc: "Final confirmation before launch. Production-scale validation runs, final quality testing, regulatory compliance sign-off, claims substantiation complete, packaging artwork approved, supply chain readiness confirmed." },
+  { key: "scale_up",     label: "Scale-Up",     color: "#84cc16", desc: "Transitioning from validated product to full production volume. Setting up production lines, qualifying contract manufacturers, establishing quality control procedures, and building initial inventory for launch." },
+  { key: "regulatory",   label: "Regulatory",   color: "#eab308", desc: "Securing all regulatory approvals and compliance certifications. Filing with relevant agencies, completing labeling requirements, obtaining market-specific certifications, and ensuring full legal compliance for all target markets." },
+  { key: "launch_ready", label: "Launch Ready", color: "#f97316", desc: "All gates passed — product is ready to ship. Final go/no-go review, marketing materials finalized, sales channels activated, inventory positioned, distribution confirmed. Awaiting launch date." },
+  { key: "launched",     label: "Launched",     color: "#22c55e", desc: "Product is live in market. Monitoring initial sales performance, collecting customer feedback, tracking quality metrics, managing post-launch optimizations, and feeding learnings back into the pipeline." },
 ];
 const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]));
 
@@ -442,7 +442,7 @@ function OverviewTab({ program, onUpdate, counts }) {
           <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
             {STAGES.map((s,i)=>{
               const cur=STAGES.findIndex(x=>x.key===program.current_stage),done=i<cur,active=i===cur;
-              return <div key={s.key} onClick={()=>advanceStage(s.key)} style={{ flex:1,minWidth:58,textAlign:"center",padding:"8px 4px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",background:active?s.color+"30":done?s.color+"15":T.surface2,border:"1px solid "+(active?s.color:done?s.color+"60":T.border),color:active?s.color:done?s.color+"99":T.text3,transition:"all 0.15s" }}>{s.label}</div>;
+              return <div key={s.key} onClick={()=>advanceStage(s.key)} title={s.desc} style={{ flex:1,minWidth:58,textAlign:"center",padding:"8px 4px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",background:active?s.color+"30":done?s.color+"15":T.surface2,border:"1px solid "+(active?s.color:done?s.color+"60":T.border),color:active?s.color:done?s.color+"99":T.text3,transition:"all 0.15s" }}>{s.label}</div>;
             })}
           </div>
         </Section>
@@ -3072,7 +3072,7 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
             <InlineField label="Brand" value={form.brand} onChange={v=>set("brand",v)} placeholder="Brand name" />
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
               <InlineField label="Priority" value={form.priority} onChange={v=>set("priority",v)} options={["critical","high","medium","low"].map(x=>({value:x,label:x}))} />
-              <InlineField label="Starting Stage" value={form.current_stage} onChange={v=>set("current_stage",v)} options={STAGES.map(s=>({value:s.key,label:s.label}))} />
+              <InlineField label="Starting Stage" value={form.current_stage} onChange={v=>set("current_stage",v)} options={STAGES.map(s=>({value:s.key,label:`${s.label} — ${s.desc.split('.')[0]}`}))} />
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
               <InlineField label="GM% Target" value={form.target_gross_margin_pct} onChange={v=>set("target_gross_margin_pct",v)} type="number" placeholder="e.g. 65" />
@@ -3325,7 +3325,7 @@ export default function PLMView() {
               const sp=filtered.filter(p=>p.current_stage===stage.key);
               return (
                 <div key={stage.key} style={{ minWidth:200,flexShrink:0 }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10 }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10 }} title={stage.desc}>
                     <div style={{ width:8,height:8,borderRadius:"50%",background:stage.color }} />
                     <div style={{ fontSize:11,fontWeight:700,color:T.text2,textTransform:"uppercase",letterSpacing:0.5 }}>{stage.label}</div>
                     <div style={{ marginLeft:"auto",fontSize:11,color:T.text3,background:T.surface2,borderRadius:4,padding:"1px 6px" }}>{sp.length}</div>
