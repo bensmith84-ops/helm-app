@@ -3995,6 +3995,22 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const getSpend = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "approved").reduce((s, r) => s + annualiseAmount(r), 0);
   const getPending = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "pending").reduce((s, r) => s + annualiseAmount(r), 0);
 
+  // Sync category budgets from line items when budget lines or active budget changes
+  useEffect(() => {
+    if (!activeFinBudgetId || budgetLines.length === 0) return;
+    const activeLines = budgetLines.filter(l => l.budget_id === activeFinBudgetId);
+    if (activeLines.length === 0) return;
+    // Build category totals from lines
+    const catTotals = {};
+    activeLines.forEach(l => {
+      if (l.category_name) catTotals[l.category_name] = (catTotals[l.category_name] || 0) + (Number(l.allocated_amount) || 0);
+    });
+    // Only update if there are line-item budgets
+    if (Object.keys(catTotals).length > 0) {
+      setBudgetData(prev => prev.map(b => catTotals[b.name] !== undefined ? { ...b, companyBudget: catTotals[b.name] } : b));
+    }
+  }, [activeFinBudgetId, budgetLines.length]);
+
   const totalBudget = budgetData.reduce((s, b) => s + (b.companyBudget || 0), 0);
   const totalSpent = budgetData.reduce((s, b) => s + getSpend(b.id), 0);
   const totalPending = budgetData.reduce((s, b) => s + getPending(b.id), 0);
@@ -4104,21 +4120,37 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     return line?.allocated_amount ?? null;
   };
 
-  // Upsert a budget line for a GL account
+  // Get total budget for a category by summing its line items
+  const getCatBudgetFromLines = (catName) => {
+    if (!activeFinBudgetId) return 0;
+    return budgetLines
+      .filter(l => l.budget_id === activeFinBudgetId && l.category_name === catName)
+      .reduce((s, l) => s + (Number(l.allocated_amount) || 0), 0);
+  };
+
+  // Upsert a budget line for a GL account, then sync category total
   const upsertBudgetLine = async (glAccountName, amount, categoryName) => {
     if (!activeFinBudgetId) return;
     const existing = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
+    let newLines;
     if (existing) {
       await supabase.from("fin_budget_lines").update({ allocated_amount: amount, category_name: categoryName }).eq("id", existing.id);
-      setBudgetLines(p => p.map(l => l.id === existing.id ? { ...l, allocated_amount: amount, category_name: categoryName } : l));
+      newLines = budgetLines.map(l => l.id === existing.id ? { ...l, allocated_amount: amount, category_name: categoryName } : l);
     } else {
       const { data } = await supabase.from("fin_budget_lines").insert({
         budget_id: activeFinBudgetId, gl_account_name: glAccountName,
         allocated_amount: amount, category_name: categoryName,
         description: glAccountName,
       }).select().single();
-      if (data) setBudgetLines(p => [...p, data]);
+      if (data) newLines = [...budgetLines, data];
+      else newLines = budgetLines;
     }
+    setBudgetLines(newLines);
+    // Auto-update the category's companyBudget to sum of its lines
+    const catTotal = newLines
+      .filter(l => l.budget_id === activeFinBudgetId && l.category_name === categoryName)
+      .reduce((s, l) => s + (Number(l.allocated_amount) || 0), 0);
+    setBudgetData(prev => prev.map(b => b.name === categoryName ? { ...b, companyBudget: catTotal } : b));
   };
 
   const ini = (uid) => { const p = orgProfiles.find(pr => pr.id === uid); return p?.display_name ? p.display_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "?"; };
