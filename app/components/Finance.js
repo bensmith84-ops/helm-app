@@ -3995,6 +3995,10 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const getSpend = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "approved").reduce((s, r) => s + annualiseAmount(r), 0);
   const getPending = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "pending").reduce((s, r) => s + annualiseAmount(r), 0);
 
+  // Get the active fin_budget id (first budget matching activeBudgetName, or first budget)
+  const activeFinBudget = finBudgets.find(b => b.name === activeBudgetName) || finBudgets[0];
+  const activeFinBudgetId = activeFinBudget?.id;
+
   // Sync category budgets from line items when budget lines or active budget changes
   useEffect(() => {
     if (!activeFinBudgetId || budgetLines.length === 0) return;
@@ -4108,10 +4112,6 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     setFinBudgets(p => p.filter(b => b.id !== budgetId));
     setBudgetMembers(p => p.filter(m => m.budget_id !== budgetId));
   };
-
-  // Get the active fin_budget id (first budget matching activeBudgetName, or first budget)
-  const activeFinBudget = finBudgets.find(b => b.name === activeBudgetName) || finBudgets[0];
-  const activeFinBudgetId = activeFinBudget?.id;
 
   // Get budget amount for a GL account in the active budget
   const getLineBudget = (glAccountName) => {
