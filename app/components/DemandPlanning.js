@@ -596,16 +596,21 @@ function calcChannelUnits(ch) {
 function DebouncedInput({ label, value, onChange, type = "text", placeholder, suffix, prefix, small }) {
   const [local, setLocal] = useState(value ?? "");
   const timerRef = useRef(null);
+  const dirtyRef = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  useEffect(() => { setLocal(value ?? ""); }, [value]);
+  // Only sync from parent when NOT actively editing
+  useEffect(() => { if (!dirtyRef.current) setLocal(value ?? ""); }, [value]);
   const handleChange = (e) => {
     const v = type === "number" ? (e.target.value === "" ? "" : e.target.value) : e.target.value;
     setLocal(v);
+    dirtyRef.current = true;
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       const parsed = type === "number" ? (v === "" ? null : Number(v)) : v;
       onChangeRef.current(parsed);
+      // Allow parent sync again after save completes
+      setTimeout(() => { dirtyRef.current = false; }, 100);
     }, 600);
   };
   return (
@@ -613,7 +618,7 @@ function DebouncedInput({ label, value, onChange, type = "text", placeholder, su
       <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>{label}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {prefix && <span style={{ fontSize: 11, color: T.text3 }}>{prefix}</span>}
-        <input value={local} onChange={handleChange} type={type} placeholder={placeholder}
+        <input value={local} onChange={handleChange} onBlur={() => { dirtyRef.current = false; }} type={type} placeholder={placeholder}
           style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" }} />
         {suffix && <span style={{ fontSize: 10, color: T.text3 }}>{suffix}</span>}
       </div>
