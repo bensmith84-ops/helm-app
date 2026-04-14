@@ -592,7 +592,102 @@ function calcChannelUnits(ch) {
   return ch.estimated_units || 0;
 }
 
+// ── Debounced Input (top-level to avoid re-creation on parent render) ──
+function DebouncedInput({ label, value, onChange, type = "text", placeholder, suffix, prefix, small }) {
+  const [local, setLocal] = useState(value ?? "");
+  const timerRef = useRef(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => { setLocal(value ?? ""); }, [value]);
+  const handleChange = (e) => {
+    const v = type === "number" ? (e.target.value === "" ? "" : e.target.value) : e.target.value;
+    setLocal(v);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      const parsed = type === "number" ? (v === "" ? null : Number(v)) : v;
+      onChangeRef.current(parsed);
+    }, 600);
+  };
+  return (
+    <div style={{ marginBottom: small ? 6 : 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        {prefix && <span style={{ fontSize: 11, color: T.text3 }}>{prefix}</span>}
+        <input value={local} onChange={handleChange} type={type} placeholder={placeholder}
+          style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" }} />
+        {suffix && <span style={{ fontSize: 10, color: T.text3 }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── Channel Input Fields (top-level to avoid re-creation) ──
+function ChannelInputs({ ch, onUpdateChannel }) {
+  const up = (field, val) => onUpdateChannel(ch.id, { [field]: val });
+  const c = ch.channel;
+  const units = calcChannelUnits(ch);
+  const I = DebouncedInput;
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
+        
+        {(c === "hero_gwp" || c === "dtc_paid") && <>
+          <I label="Ad Spend" value={ch.ad_spend} onChange={v => up("ad_spend", v)} type="number" prefix="$" />
+          <I label="CPA" value={ch.cpa} onChange={v => up("cpa", v)} type="number" prefix="$" />
+          <I label="Est. New Customers" value={ch.estimated_new_customers || (ch.ad_spend && ch.cpa ? Math.round(ch.ad_spend / ch.cpa) : "")} onChange={v => up("estimated_new_customers", v)} type="number" />
+        </>}
+
+        {c === "email" && <>
+          <I label="Email List Size" value={ch.email_list_size} onChange={v => up("email_list_size", v)} type="number" />
+          <I label="Send % of List" value={ch.email_send_pct} onChange={v => up("email_send_pct", v)} type="number" suffix="%" />
+          <I label="Open Rate" value={ch.email_open_rate} onChange={v => up("email_open_rate", v)} type="number" suffix="%" />
+          <I label="Click Rate" value={ch.email_click_rate} onChange={v => up("email_click_rate", v)} type="number" suffix="%" />
+          <I label="Conversion Rate" value={ch.email_conversion_rate} onChange={v => up("email_conversion_rate", v)} type="number" suffix="%" />
+        </>}
+
+        {c === "upsell" && <>
+          <I label="Eligible Orders (period)" value={ch.upsell_eligible_orders} onChange={v => up("upsell_eligible_orders", v)} type="number" />
+          <I label="Take Rate" value={ch.upsell_take_rate} onChange={v => up("upsell_take_rate", v)} type="number" suffix="%" />
+        </>}
+
+        {c === "free_gift" && <>
+          <I label="Tier Spend Threshold" value={ch.free_gift_tier_spend} onChange={v => up("free_gift_tier_spend", v)} type="number" prefix="$" placeholder="e.g. 50" />
+          <I label="Eligible Orders" value={ch.free_gift_eligible_orders} onChange={v => up("free_gift_eligible_orders", v)} type="number" />
+          <I label="Take Rate" value={ch.free_gift_take_rate} onChange={v => up("free_gift_take_rate", v)} type="number" suffix="%" />
+          <I label="Qty per Order" value={ch.free_gift_qty_per_order} onChange={v => up("free_gift_qty_per_order", v)} type="number" />
+        </>}
+
+        {c === "amazon" && <>
+          <I label="Daily Sessions" value={ch.amz_daily_sessions} onChange={v => up("amz_daily_sessions", v)} type="number" />
+          <I label="Conversion Rate" value={ch.amz_conversion_rate} onChange={v => up("amz_conversion_rate", v)} type="number" suffix="%" />
+          <I label="PPC Daily Budget" value={ch.amz_ppc_budget} onChange={v => up("amz_ppc_budget", v)} type="number" prefix="$" />
+          <I label="ACOS Target" value={ch.amz_acos_target} onChange={v => up("amz_acos_target", v)} type="number" suffix="%" />
+          <I label="Forecast Weeks" value={ch.retail_weeks} onChange={v => up("retail_weeks", v)} type="number" />
+        </>}
+
+        {c === "retail" && <>
+          <I label="Store Count" value={ch.retail_store_count} onChange={v => up("retail_store_count", v)} type="number" />
+          <I label="Units/Store/Week" value={ch.retail_units_per_store_per_week} onChange={v => up("retail_units_per_store_per_week", v)} type="number" />
+          <I label="Weeks" value={ch.retail_weeks} onChange={v => up("retail_weeks", v)} type="number" />
+        </>}
+
+        {(c === "organic" || c === "wholesale" || c === "other") && <>
+          <I label="Est. New Customers" value={ch.estimated_new_customers} onChange={v => up("estimated_new_customers", v)} type="number" />
+        </>}
+      </div>
+
+      <div style={{ marginTop: 8, padding: "8px 12px", background: T.accent + "10", borderRadius: 6, border: `1px solid ${T.accent}20`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Units</span>
+        <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(units)}</span>
+      </div>
+    </div>
+  );
+}
+
 function LaunchPlannerView({ isMobile, orgId }) {
+  const I = DebouncedInput;
   const { user } = useAuth();
   const [launches, setLaunches] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -681,104 +776,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const totalRevenue = totalUnits * (selected?.retail_price || 0);
   const totalCost = totalUnits * (selected?.unit_cost || 0);
 
-  const I = ({ label, value, onChange, type = "text", placeholder, suffix, prefix, small }) => {
-    const [local, setLocal] = useState(value ?? "");
-    const timerRef = useRef(null);
-    useEffect(() => { setLocal(value ?? ""); }, [value]);
-    const handleChange = (e) => {
-      const v = type === "number" ? (e.target.value === "" ? "" : e.target.value) : e.target.value;
-      setLocal(v);
-      clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        const parsed = type === "number" ? (v === "" ? null : Number(v)) : v;
-        onChange(parsed);
-      }, 500);
-    };
-    return (
-      <div style={{ marginBottom: small ? 6 : 10 }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>{label}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {prefix && <span style={{ fontSize: 11, color: T.text3 }}>{prefix}</span>}
-          <input value={local} onChange={handleChange} type={type} placeholder={placeholder}
-            style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" }} />
-          {suffix && <span style={{ fontSize: 10, color: T.text3 }}>{suffix}</span>}
-        </div>
-      </div>
-    );
-  };
-
-  // ── Channel-specific input fields ──
-  const ChannelInputs = ({ ch }) => {
-    const up = (field, val) => updateChannel(ch.id, { [field]: val });
-    const c = ch.channel;
-    const units = calcChannelUnits(ch);
-
-    return (
-      <div>
-        {/* Common: units per order */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
-          
-          {/* Paid / GWP channels */}
-          {(c === "hero_gwp" || c === "dtc_paid") && <>
-            <I label="Ad Spend" value={ch.ad_spend} onChange={v => up("ad_spend", v)} type="number" prefix="$" />
-            <I label="CPA" value={ch.cpa} onChange={v => up("cpa", v)} type="number" prefix="$" />
-            <I label="Est. New Customers" value={ch.estimated_new_customers || (ch.ad_spend && ch.cpa ? Math.round(ch.ad_spend / ch.cpa) : "")} onChange={v => up("estimated_new_customers", v)} type="number" />
-          </>}
-
-          {/* Email channel */}
-          {c === "email" && <>
-            <I label="Email List Size" value={ch.email_list_size} onChange={v => up("email_list_size", v)} type="number" />
-            <I label="Send % of List" value={ch.email_send_pct} onChange={v => up("email_send_pct", v)} type="number" suffix="%" />
-            <I label="Open Rate" value={ch.email_open_rate} onChange={v => up("email_open_rate", v)} type="number" suffix="%" />
-            <I label="Click Rate" value={ch.email_click_rate} onChange={v => up("email_click_rate", v)} type="number" suffix="%" />
-            <I label="Conversion Rate" value={ch.email_conversion_rate} onChange={v => up("email_conversion_rate", v)} type="number" suffix="%" />
-          </>}
-
-          {/* Upsell channel */}
-          {c === "upsell" && <>
-            <I label="Eligible Orders (period)" value={ch.upsell_eligible_orders} onChange={v => up("upsell_eligible_orders", v)} type="number" />
-            <I label="Take Rate" value={ch.upsell_take_rate} onChange={v => up("upsell_take_rate", v)} type="number" suffix="%" />
-          </>}
-
-          {/* Free gift channel */}
-          {c === "free_gift" && <>
-            <I label="Tier Spend Threshold" value={ch.free_gift_tier_spend} onChange={v => up("free_gift_tier_spend", v)} type="number" prefix="$" placeholder="e.g. 50" />
-            <I label="Eligible Orders" value={ch.free_gift_eligible_orders} onChange={v => up("free_gift_eligible_orders", v)} type="number" />
-            <I label="Take Rate" value={ch.free_gift_take_rate} onChange={v => up("free_gift_take_rate", v)} type="number" suffix="%" />
-            <I label="Qty per Order" value={ch.free_gift_qty_per_order} onChange={v => up("free_gift_qty_per_order", v)} type="number" />
-          </>}
-
-          {/* Amazon */}
-          {c === "amazon" && <>
-            <I label="Daily Sessions" value={ch.amz_daily_sessions} onChange={v => up("amz_daily_sessions", v)} type="number" />
-            <I label="Conversion Rate" value={ch.amz_conversion_rate} onChange={v => up("amz_conversion_rate", v)} type="number" suffix="%" />
-            <I label="PPC Daily Budget" value={ch.amz_ppc_budget} onChange={v => up("amz_ppc_budget", v)} type="number" prefix="$" />
-            <I label="ACOS Target" value={ch.amz_acos_target} onChange={v => up("amz_acos_target", v)} type="number" suffix="%" />
-            <I label="Forecast Weeks" value={ch.retail_weeks} onChange={v => up("retail_weeks", v)} type="number" />
-          </>}
-
-          {/* Retail */}
-          {c === "retail" && <>
-            <I label="Store Count" value={ch.retail_store_count} onChange={v => up("retail_store_count", v)} type="number" />
-            <I label="Units/Store/Week" value={ch.retail_units_per_store_per_week} onChange={v => up("retail_units_per_store_per_week", v)} type="number" />
-            <I label="Weeks" value={ch.retail_weeks} onChange={v => up("retail_weeks", v)} type="number" />
-          </>}
-
-          {/* Organic / Wholesale / Other */}
-          {(c === "organic" || c === "wholesale" || c === "other") && <>
-            <I label="Est. New Customers" value={ch.estimated_new_customers} onChange={v => up("estimated_new_customers", v)} type="number" />
-          </>}
-        </div>
-
-        {/* Result */}
-        <div style={{ marginTop: 8, padding: "8px 12px", background: T.accent + "10", borderRadius: 6, border: `1px solid ${T.accent}20`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Units</span>
-          <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(units)}</span>
-        </div>
-      </div>
-    );
-  };
+  // I and ChannelInputs are defined outside this function (above) to avoid re-creation on render
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading…</div>;
 
@@ -892,7 +890,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                       </div>
                     </div>
                     <div style={{ padding: "10px 14px" }}>
-                      <ChannelInputs ch={ch} />
+                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} />
                     </div>
                   </div>
                 );
