@@ -3882,6 +3882,8 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [expandedCat, setExpandedCat] = useState(null);
   const [detailMode, setDetailMode] = useState("accounts");
   const [budgetTab, setBudgetTab] = useState("cards");
+  const [addingGLToCat, setAddingGLToCat] = useState(null); // category name being added to
+  const [glSearch, setGlSearch] = useState("");
 
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
@@ -4153,6 +4155,31 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     setBudgetData(prev => prev.map(b => b.name === categoryName ? { ...b, companyBudget: catTotal } : b));
   };
 
+  // Add a GL account to a budget category (creates/updates mapping)
+  const addGLToCategory = async (accountName, categoryName) => {
+    // Upsert into qbo_category_mappings
+    const existing = Object.entries(customMappings).find(([k]) => k === accountName);
+    if (existing) {
+      // Update existing mapping
+      await supabase.from("qbo_category_mappings").update({ ga_category: categoryName }).eq("org_id", orgId).eq("account_name", accountName);
+    } else {
+      await supabase.from("qbo_category_mappings").insert({ org_id: orgId, account_name: accountName, ga_category: categoryName });
+    }
+    setCustomMappings(prev => ({ ...prev, [accountName]: categoryName }));
+    setAddingGLToCat(null);
+    setGlSearch("");
+  };
+
+  // Remove a GL account from a budget category
+  const removeGLFromCategory = async (accountName) => {
+    await supabase.from("qbo_category_mappings").delete().eq("org_id", orgId).eq("account_name", accountName);
+    setCustomMappings(prev => { const n = { ...prev }; delete n[accountName]; return n; });
+  };
+
+  // Get all unmapped GL accounts (from QBO P&L)
+  const allPLAccounts = [...new Set(qboPL.map(r => r.account_name))].sort();
+  const unmappedAccounts = allPLAccounts.filter(a => !customMappings[a]);
+
   const ini = (uid) => { const p = orgProfiles.find(pr => pr.id === uid); return p?.display_name ? p.display_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const uname = (uid) => orgProfiles.find(p => p.id === uid)?.display_name || "Unknown";
 
@@ -4375,6 +4402,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                       <div style={{ width: 70, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right" }}>Actual</div>
                       {canEdit && activeFinBudgetId && <div style={{ width: 60, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right" }}>Variance</div>}
                       <div style={{ width: 32, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: "right" }}>%</div>
+                      {canEdit && <div style={{ width: 20 }}></div>}
                     </div>
                     {catAccounts.map(r => {
                       const acctPct = qboSpend > 0 ? (Math.abs(Number(r.amount)) / qboSpend) * 100 : 0;
@@ -4404,6 +4432,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                             </span>
                           )}
                           <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right", flexShrink: 0 }}>{acctPct.toFixed(0)}%</span>
+                          {canEdit && <button onClick={() => { if (window.confirm(`Remove "${r.account_name}" from ${cat.name}?`)) removeGLFromCategory(r.account_name); }} style={{ width: 20, background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 10, padding: 0, opacity: 0.5 }} title="Remove from category">✕</button>}
                         </div>
                       );
                     })}
@@ -4419,9 +4448,70 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                           <span style={{ width: 70, textAlign: "right", fontSize: 11, fontWeight: 700, color: T.text }}>{fmt(catActualTotal)}</span>
                           <span style={{ width: 60, textAlign: "right", fontSize: 10, fontWeight: 700, color: catVariance >= 0 ? "#22c55e" : "#ef4444" }}>{catVariance >= 0 ? "+" : ""}{fmtK(catVariance)}</span>
                           <span style={{ width: 32 }}></span>
+                          {canEdit && <span style={{ width: 20 }}></span>}
                         </div>
                       ) : null;
                     })()}
+
+                    {/* Add GL Account button + picker */}
+                    {canEdit && (
+                      <div style={{ marginTop: 6 }}>
+                        {addingGLToCat === cat.name ? (
+                          <div style={{ background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}`, padding: 10 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Add GL Account to {cat.name}</div>
+                              <button onClick={() => { setAddingGLToCat(null); setGlSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 12 }}>✕</button>
+                            </div>
+                            <input autoFocus value={glSearch} onChange={e => setGlSearch(e.target.value)} placeholder="Search GL accounts…"
+                              style={{ width: "100%", padding: "6px 10px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, boxSizing: "border-box", marginBottom: 6 }} />
+                            <div style={{ maxHeight: 180, overflow: "auto" }}>
+                              {/* Show unmapped accounts first, then accounts mapped to other categories */}
+                              {allPLAccounts
+                                .filter(a => {
+                                  // Don't show accounts already in this category
+                                  const mapped = customMappings[a];
+                                  if (mapped === cat.name) return false;
+                                  // Filter by search
+                                  if (glSearch && !a.toLowerCase().includes(glSearch.toLowerCase())) return false;
+                                  return true;
+                                })
+                                .sort((a, b) => {
+                                  // Unmapped first, then alphabetical
+                                  const aUnmapped = !customMappings[a];
+                                  const bUnmapped = !customMappings[b];
+                                  if (aUnmapped !== bUnmapped) return aUnmapped ? -1 : 1;
+                                  return a.localeCompare(b);
+                                })
+                                .slice(0, 30)
+                                .map(acctName => {
+                                  const currentCat = customMappings[acctName];
+                                  const acctData = qboPL.find(r => r.account_name === acctName);
+                                  const amount = acctData ? Math.abs(Number(acctData.amount)) : 0;
+                                  return (
+                                    <div key={acctName} onClick={() => addGLToCategory(acctName, cat.name)}
+                                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 4, cursor: "pointer" }}
+                                      onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 11, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acctName}</div>
+                                        {currentCat && <div style={{ fontSize: 9, color: "#f59e0b" }}>Currently in: {currentCat}</div>}
+                                      </div>
+                                      {amount > 0 && <span style={{ fontSize: 10, color: T.text3, flexShrink: 0 }}>{fmtK(amount)}</span>}
+                                      <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, flexShrink: 0 }}>+ Add</span>
+                                    </div>
+                                  );
+                                })}
+                              {allPLAccounts.filter(a => customMappings[a] !== cat.name && (!glSearch || a.toLowerCase().includes(glSearch.toLowerCase()))).length === 0 && (
+                                <div style={{ fontSize: 11, color: T.text3, padding: 8, textAlign: "center" }}>No matching accounts found</div>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <button onClick={() => setAddingGLToCat(cat.name)} style={{ padding: "4px 12px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px dashed ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer", width: "100%" }}>
+                            + Add GL Account
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
