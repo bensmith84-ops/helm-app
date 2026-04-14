@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
@@ -681,17 +681,31 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const totalRevenue = totalUnits * (selected?.retail_price || 0);
   const totalCost = totalUnits * (selected?.unit_cost || 0);
 
-  const I = ({ label, value, onChange, type = "text", placeholder, suffix, prefix, small }) => (
-    <div style={{ marginBottom: small ? 6 : 10 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>{label}</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        {prefix && <span style={{ fontSize: 11, color: T.text3 }}>{prefix}</span>}
-        <input value={value ?? ""} onChange={e => onChange(type === "number" ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value)} type={type} placeholder={placeholder}
-          style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" }} />
-        {suffix && <span style={{ fontSize: 10, color: T.text3 }}>{suffix}</span>}
+  const I = ({ label, value, onChange, type = "text", placeholder, suffix, prefix, small }) => {
+    const [local, setLocal] = useState(value ?? "");
+    const timerRef = useRef(null);
+    useEffect(() => { setLocal(value ?? ""); }, [value]);
+    const handleChange = (e) => {
+      const v = type === "number" ? (e.target.value === "" ? "" : e.target.value) : e.target.value;
+      setLocal(v);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        const parsed = type === "number" ? (v === "" ? null : Number(v)) : v;
+        onChange(parsed);
+      }, 500);
+    };
+    return (
+      <div style={{ marginBottom: small ? 6 : 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>{label}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {prefix && <span style={{ fontSize: 11, color: T.text3 }}>{prefix}</span>}
+          <input value={local} onChange={handleChange} type={type} placeholder={placeholder}
+            style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" }} />
+          {suffix && <span style={{ fontSize: 10, color: T.text3 }}>{suffix}</span>}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ── Channel-specific input fields ──
   const ChannelInputs = ({ ch }) => {
