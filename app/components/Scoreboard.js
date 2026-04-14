@@ -651,7 +651,7 @@ export default function ScoreboardView() {
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [orgId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior:"smooth" });
@@ -867,7 +867,7 @@ export default function ScoreboardView() {
     </div>
   );
 
-  const hasData = Object.keys(monthly).length > 0;
+  const hasData = Object.keys(monthly).length > 0 || Object.keys(daily).length > 0;
 
   return (
     <div style={{ display:"flex", height:"100%", overflow:"hidden", flexDirection:"column" }}>
