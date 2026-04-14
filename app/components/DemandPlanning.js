@@ -564,52 +564,59 @@ function calcChannelUnits(ch, allChannels) {
   const c = ch.channel;
   const upo = ch.units_per_order || 1;
 
-  // Halo mode: this channel's demand is a % of a source channel's customers
-  if (ch.demand_source === "halo" && ch.halo_pct && allChannels) {
-    const source = allChannels.find(s => s.id === ch.halo_source_channel_id);
-    if (source) {
-      const sourceUnits = calcChannelUnits(source, null); // prevent recursion
-      const sourceOrders = (source.units_per_order || 1) > 0 ? sourceUnits / (source.units_per_order || 1) : sourceUnits;
-      return Math.round(sourceOrders * (ch.halo_pct / 100) * upo);
-    }
-    // No specific source — use total hero/dtc_paid orders as base
-    const heroChannels = (allChannels || []).filter(s => s.id !== ch.id && (s.channel === "hero_gwp" || s.channel === "dtc_paid"));
-    const totalHeroOrders = heroChannels.reduce((sum, s) => {
+  // Helper: get total orders from paid media channels (hero + dtc_paid)
+  const getPaidOrders = () => {
+    if (!allChannels) return 0;
+    const heroChannels = allChannels.filter(s => s.id !== ch.id && (s.channel === "hero_gwp" || s.channel === "dtc_paid"));
+    return heroChannels.reduce((sum, s) => {
       const u = calcChannelUnits(s, null);
       return sum + ((s.units_per_order || 1) > 0 ? u / (s.units_per_order || 1) : u);
     }, 0);
-    return Math.round(totalHeroOrders * (ch.halo_pct / 100) * upo);
-  }
+  };
 
-  // Direct mode — each channel has its own demand model
-  if (c === "hero_gwp" || c === "dtc_paid") {
-    if (ch.ad_spend && ch.cpa && ch.cpa > 0) return Math.round((ch.ad_spend / ch.cpa) * upo);
+  // Helper: calc halo units from paid media orders
+  const getHaloUnits = () => {
+    if (!ch.halo_pct) return 0;
+    const paidOrders = getPaidOrders();
+    return Math.round(paidOrders * (ch.halo_pct / 100) * upo);
+  };
+
+  // Helper: calc direct units based on channel type
+  const getDirectUnits = () => {
+    if (c === "hero_gwp" || c === "dtc_paid") {
+      if (ch.ad_spend && ch.cpa && ch.cpa > 0) return Math.round((ch.ad_spend / ch.cpa) * upo);
+      if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
+      return 0;
+    }
+    if (c === "email") {
+      const sent = (ch.email_list_size || 0) * ((ch.email_send_pct || 100) / 100);
+      const opened = sent * ((ch.email_open_rate || 25) / 100);
+      const clicked = opened * ((ch.email_click_rate || 3) / 100);
+      const converted = clicked * ((ch.email_conversion_rate || 5) / 100);
+      return Math.round(converted * upo);
+    }
+    if (c === "upsell") {
+      return Math.round((ch.upsell_eligible_orders || 0) * ((ch.upsell_take_rate || 15) / 100) * upo);
+    }
+    if (c === "free_gift") {
+      return Math.round((ch.free_gift_eligible_orders || 0) * ((ch.free_gift_take_rate || 100) / 100) * (ch.free_gift_qty_per_order || 1));
+    }
+    if (c === "amazon") {
+      const weeks = ch.forecast_weeks || ch.retail_weeks || 12;
+      const dailyOrders = (ch.amz_daily_sessions || 0) * ((ch.amz_conversion_rate || 12) / 100);
+      return Math.round(dailyOrders * 7 * weeks * upo);
+    }
+    if (c === "retail") {
+      return Math.round((ch.retail_store_count || 0) * (ch.retail_units_per_store_per_week || 0) * (ch.forecast_weeks || ch.retail_weeks || 12));
+    }
     if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
-    return 0;
-  }
-  if (c === "email") {
-    const sent = (ch.email_list_size || 0) * ((ch.email_send_pct || 100) / 100);
-    const opened = sent * ((ch.email_open_rate || 25) / 100);
-    const clicked = opened * ((ch.email_click_rate || 3) / 100);
-    const converted = clicked * ((ch.email_conversion_rate || 5) / 100);
-    return Math.round(converted * upo);
-  }
-  if (c === "upsell") {
-    return Math.round((ch.upsell_eligible_orders || 0) * ((ch.upsell_take_rate || 15) / 100) * upo);
-  }
-  if (c === "free_gift") {
-    return Math.round((ch.free_gift_eligible_orders || 0) * ((ch.free_gift_take_rate || 100) / 100) * (ch.free_gift_qty_per_order || 1));
-  }
-  if (c === "amazon") {
-    const weeks = ch.forecast_weeks || ch.retail_weeks || 12;
-    const dailyOrders = (ch.amz_daily_sessions || 0) * ((ch.amz_conversion_rate || 12) / 100);
-    return Math.round(dailyOrders * 7 * weeks * upo);
-  }
-  if (c === "retail") {
-    return Math.round((ch.retail_store_count || 0) * (ch.retail_units_per_store_per_week || 0) * (ch.forecast_weeks || ch.retail_weeks || 12));
-  }
-  if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
-  return ch.estimated_units || 0;
+    return ch.estimated_units || 0;
+  };
+
+  const source = ch.demand_source || "direct";
+  if (source === "halo") return getHaloUnits();
+  if (source === "both") return getDirectUnits() + getHaloUnits();
+  return getDirectUnits();
 }
 
 // ── Debounced Input (top-level to avoid re-creation on parent render) ──
@@ -653,9 +660,19 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
   const units = calcChannelUnits(ch, allChannels);
   const I = DebouncedInput;
   const isHalo = ch.demand_source === "halo";
+  const isBoth = ch.demand_source === "both";
   const isPrimary = c === "hero_gwp";
   // Channels that can be halo sources (hero GWP, DTC Paid)
   const haloSources = (allChannels || []).filter(s => s.id !== ch.id && (s.channel === "hero_gwp" || s.channel === "dtc_paid"));
+
+  // Calculate halo units for display
+  const getPaidOrders = () => {
+    return haloSources.reduce((sum, s) => {
+      const u = calcChannelUnits(s, null);
+      return sum + ((s.units_per_order || 1) > 0 ? u / (s.units_per_order || 1) : u);
+    }, 0);
+  };
+  const haloUnits = ch.halo_pct ? Math.round(getPaidOrders() * (ch.halo_pct / 100) * (ch.units_per_order || 1)) : 0;
 
   return (
     <div>
@@ -664,29 +681,39 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
         <div style={{ marginBottom: 10, padding: "8px 12px", background: T.surface3, borderRadius: 6, border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Demand Source</div>
           <div style={{ display: "flex", gap: 4 }}>
-            {[{ v: "direct", l: "Direct", d: "Own demand model" }, { v: "halo", l: "Halo", d: "% of paid media orders" }].map(opt => (
+            {[{ v: "direct", l: "Direct", d: "Own demand model" }, { v: "halo", l: "Halo Only", d: "% of paid media orders" }, { v: "both", l: "Direct + Halo", d: "Own model + paid media spillover" }].map(opt => (
               <button key={opt.v} onClick={() => up("demand_source", opt.v)}
-                style={{ flex: 1, padding: "6px 10px", fontSize: 11, fontWeight: 600, borderRadius: 5, border: `1px solid ${(ch.demand_source || "direct") === opt.v ? T.accent : T.border}`, background: (ch.demand_source || "direct") === opt.v ? T.accent + "15" : "transparent", color: (ch.demand_source || "direct") === opt.v ? T.accent : T.text3, cursor: "pointer" }}>
+                style={{ flex: 1, padding: "6px 8px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${(ch.demand_source || "direct") === opt.v ? T.accent : T.border}`, background: (ch.demand_source || "direct") === opt.v ? T.accent + "15" : "transparent", color: (ch.demand_source || "direct") === opt.v ? T.accent : T.text3, cursor: "pointer" }}>
                 {opt.l}
-                <div style={{ fontSize: 9, fontWeight: 400, marginTop: 1 }}>{opt.d}</div>
+                <div style={{ fontSize: 8, fontWeight: 400, marginTop: 1 }}>{opt.d}</div>
               </button>
             ))}
           </div>
-          {isHalo && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>This channel's demand = X% of orders driven by paid media channels</div>
+
+          {/* Halo inputs — shown for 'halo' and 'both' modes */}
+          {(isHalo || isBoth) && (
+            <div style={{ marginTop: 8, padding: "8px 10px", background: "#8b5cf610", borderRadius: 6, border: "1px solid #8b5cf620" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#8b5cf6", marginBottom: 4 }}>🌊 Halo Effect — spillover demand from paid media</div>
+              <div style={{ fontSize: 9, color: T.text3, marginBottom: 6, lineHeight: 1.4, fontStyle: "italic" }}>{
+                c === "amazon" ? "DTC ad spend (Meta, Google, TV) drives brand awareness → organic Amazon searches + higher conversion. What % of DTC orders do you expect to also generate Amazon orders?" :
+                c === "upsell" ? "New customers acquired through Hero GWP will see this product as an upsell at checkout. What % of those new orders will take the upsell?" :
+                c === "free_gift" ? "Paid acquisition drives order volume → more orders qualifying for the free gift tier. What % of paid orders will qualify?" :
+                c === "retail" ? "DTC brand awareness lifts retail sell-through. What % of DTC orders translate to incremental retail sales?" :
+                c === "organic" ? "Paid media investment lifts organic search, direct traffic, and PR pickup. What % of paid orders do you expect as organic halo?" :
+                "What % of paid media orders will generate additional demand in this channel?"
+              }</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <I label="Halo % of Paid Orders" value={ch.halo_pct} onChange={v => up("halo_pct", v)} type="number" suffix="%" placeholder="e.g. 15" />
-                <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
+                <I label="Halo % of Paid Orders" value={ch.halo_pct} onChange={v => up("halo_pct", v)} type="number" suffix="%" placeholder="e.g. 8" />
+                {!isBoth && <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />}
               </div>
               {haloSources.length > 0 && (
                 <div style={{ fontSize: 10, color: T.text3, marginTop: 4, lineHeight: 1.4 }}>
-                  📊 Based on {haloSources.map(s => {
+                  📊 Base: {haloSources.map(s => {
                     const def = CHANNEL_DEFS.find(d => d.key === s.channel);
                     const sUnits = calcChannelUnits(s, null);
                     const sOrders = (s.units_per_order || 1) > 0 ? Math.round(sUnits / (s.units_per_order || 1)) : sUnits;
                     return `${def?.label || s.channel}: ${fmt(sOrders)} orders`;
-                  }).join(" + ")}
+                  }).join(" + ")} → Halo: {fmt(haloUnits)} units
                 </div>
               )}
             </div>
@@ -694,7 +721,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
         </div>
       )}
 
-      {/* Direct mode inputs (or always for hero_gwp) */}
+      {/* Direct mode inputs (shown for 'direct', 'both', or always for hero_gwp) */}
       {(!isHalo || isPrimary) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
@@ -753,12 +780,22 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
       )}
 
       {/* Result */}
-      <div style={{ marginTop: 8, padding: "8px 12px", background: T.accent + "10", borderRadius: 6, border: `1px solid ${T.accent}20`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Units</span>
-          {isHalo && <span style={{ fontSize: 9, color: T.text3, marginLeft: 6 }}>({ch.halo_pct || 0}% halo)</span>}
+      <div style={{ marginTop: 8, padding: "8px 12px", background: T.accent + "10", borderRadius: 6, border: `1px solid ${T.accent}20` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Units</span>
+            {(isHalo || isBoth) && <span style={{ fontSize: 9, color: T.text3, marginLeft: 6 }}>
+              {isHalo ? `(${ch.halo_pct || 0}% halo)` : `(direct + ${ch.halo_pct || 0}% halo)`}
+            </span>}
+          </div>
+          <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(units)}</span>
         </div>
-        <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(units)}</span>
+        {isBoth && haloUnits > 0 && (
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 4, display: "flex", gap: 12 }}>
+            <span>📱 Direct: {fmt(units - haloUnits)}</span>
+            <span>🌊 Halo: {fmt(haloUnits)}</span>
+          </div>
+        )}
       </div>
     </div>
   );
