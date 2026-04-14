@@ -1425,7 +1425,8 @@ export default function DashboardView({ setActive }) {
             const done = pt.filter(t => t.status === "done").length;
             const overdue = pt.filter(t => t.status !== "done" && t.due_date && t.due_date < todayStr).length;
             const pct = pt.length ? Math.round((done / pt.length) * 100) : 0;
-            const health = overdue > pt.length * 0.2 ? "off_track" : overdue > 0 ? "at_risk" : "on_track";
+            const autoHealth = overdue > pt.length * 0.2 ? "off_track" : overdue > 0 ? "at_risk" : "on_track";
+            const health = p.health || autoHealth; // Persisted health takes priority
             return { ...p, pct, overdue, taskCount: pt.length, health };
           });
           const atRiskProjs = activeProjs.filter(p => p.health !== "on_track");

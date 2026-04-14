@@ -438,12 +438,21 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const sortedTasks = (list) => { if (sortCol === "sort_order") return list; return [...list].sort((a, b) => { let va = a[sortCol] || "", vb = b[sortCol] || ""; if (sortCol === "due_date") { va = va ? new Date(va).getTime() : 9e15; vb = vb ? new Date(vb).getTime() : 9e15; } const c = va < vb ? -1 : va > vb ? 1 : 0; return sortDir === "asc" ? c : -c; }); };
   const doneCount = projTasks.filter(t => t.status === "done").length;
   const progress = projTasks.length ? Math.round((doneCount / projTasks.length) * 100) : 0;
-  // Auto-compute project health from tasks
+  // Project health: use persisted value from DB, fallback to auto-compute from tasks
   const today = new Date().toISOString().split("T")[0];
   const projOverdue = projTasks.filter(t => t.status !== "done" && t.due_date && t.due_date < today);
-  const projHealth = projOverdue.length > projTasks.length * 0.2 ? "off_track" : projOverdue.length > 0 ? "at_risk" : "on_track";
+  const autoHealth = projOverdue.length > projTasks.length * 0.2 ? "off_track" : projOverdue.length > 0 ? "at_risk" : "on_track";
+  const projHealth = proj?.health || autoHealth;
   const healthColors = { on_track: "#22c55e", at_risk: "#eab308", off_track: "#ef4444" };
   const healthLabels = { on_track: "On Track", at_risk: "At Risk", off_track: "Off Track" };
+  const healthIcons = { on_track: "✅", at_risk: "⚠️", off_track: "🔴" };
+
+  const cycleHealth = async () => {
+    const order = ["on_track", "at_risk", "off_track"];
+    const next = order[(order.indexOf(projHealth) + 1) % order.length];
+    await supabase.from("projects").update({ health: next }).eq("org_id", orgId).eq("id", activeProject);
+    setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, health: next } : pr));
+  };
 
   // Sync progress to DB whenever it changes meaningfully
   const syncProjectProgress = useCallback(async (pid, taskList) => {
@@ -610,8 +619,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     }).select().single();
     if (error) return showToast("Failed to save update");
     setStatusUpdates(p => [data, ...p]);
-    // Update project health based on status
-    await supabase.from("projects").update({ status: statusForm.health === "off_track" ? "on_hold" : "active" }).eq("org_id", orgId).eq("id", activeProject);
+    // Persist health to the project itself
+    await supabase.from("projects").update({ health: statusForm.health }).eq("org_id", orgId).eq("id", activeProject);
+    setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, health: statusForm.health } : pr));
     setShowStatusForm(false);
     setStatusForm({ health: "on_track", summary: "", highlights: "", blockers: "" });
     showToast("Status update posted", "success");
@@ -1089,6 +1099,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           </div>
           <div style={{ fontSize: 11, color: T.text3 }}>{doneCount}/{projTasks.length} done</div>
         </div>
+        <button onClick={cycleHealth} title={`Click to change — currently ${healthLabels[projHealth]}`} style={{ ...S.pill, background: healthColors[projHealth] + "18", color: healthColors[projHealth], fontSize: 11, fontWeight: 700, gap: 4, border: `1px solid ${healthColors[projHealth]}40`, cursor: "pointer" }}>
+          {healthIcons[projHealth]} {healthLabels[projHealth]}
+        </button>
         <button onClick={() => { setStatusForm({ health: projHealth, summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }} style={{ ...S.pill, background: T.surface2, color: T.text3, fontSize: 11, gap: 4 }} title="Post status update">
           📋 Update
         </button>
