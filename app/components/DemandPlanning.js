@@ -560,7 +560,7 @@ const STATUS_OPTS = [
   { value: "cancelled", label: "Cancelled", color: "#ef4444" },
 ];
 
-function calcChannelUnits(ch, allChannels) {
+function calcChannelUnits(ch, allChannels, allPeriods) {
   const c = ch.channel;
   const upo = ch.units_per_order || 1;
 
@@ -569,7 +569,7 @@ function calcChannelUnits(ch, allChannels) {
     if (!allChannels) return 0;
     const heroChannels = allChannels.filter(s => s.id !== ch.id && (s.channel === "hero_gwp" || s.channel === "dtc_paid"));
     return heroChannels.reduce((sum, s) => {
-      const u = calcChannelUnits(s, null);
+      const u = calcChannelUnits(s, null, allPeriods);
       return sum + ((s.units_per_order || 1) > 0 ? u / (s.units_per_order || 1) : u);
     }, 0);
   };
@@ -584,6 +584,17 @@ function calcChannelUnits(ch, allChannels) {
   // Helper: calc direct units based on channel type
   const getDirectUnits = () => {
     if (c === "hero_gwp" || c === "dtc_paid") {
+      // Check for time-phased periods first
+      const chPeriods = (allPeriods || []).filter(p => p.channel_id === ch.id);
+      if (chPeriods.length > 0) {
+        const totalCustomers = chPeriods.reduce((sum, p) => {
+          const spend = parseFloat(p.ad_spend) || 0;
+          const cpa = parseFloat(p.cpa) || 0;
+          return sum + (cpa > 0 ? Math.round(spend / cpa) : 0);
+        }, 0);
+        return Math.round(totalCustomers * upo);
+      }
+      // Fallback: single ad_spend / cpa on the channel itself
       if (ch.ad_spend && ch.cpa && ch.cpa > 0) return Math.round((ch.ad_spend / ch.cpa) * upo);
       if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
       return 0;
@@ -654,10 +665,10 @@ function DebouncedInput({ label, value, onChange, type = "text", placeholder, su
 }
 
 // ── Channel Input Fields (top-level to avoid re-creation) ──
-function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
+function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods }) {
   const up = (field, val) => onUpdateChannel(ch.id, { [field]: val });
   const c = ch.channel;
-  const units = calcChannelUnits(ch, allChannels);
+  const units = calcChannelUnits(ch, allChannels, allPeriods);
   const I = DebouncedInput;
   const isHalo = ch.demand_source === "halo";
   const isBoth = ch.demand_source === "both";
@@ -668,7 +679,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
   // Calculate halo units for display
   const getPaidOrders = () => {
     return haloSources.reduce((sum, s) => {
-      const u = calcChannelUnits(s, null);
+      const u = calcChannelUnits(s, null, allPeriods);
       return sum + ((s.units_per_order || 1) > 0 ? u / (s.units_per_order || 1) : u);
     }, 0);
   };
@@ -710,7 +721,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
                 <div style={{ fontSize: 10, color: T.text3, marginTop: 4, lineHeight: 1.4 }}>
                   📊 Base: {haloSources.map(s => {
                     const def = CHANNEL_DEFS.find(d => d.key === s.channel);
-                    const sUnits = calcChannelUnits(s, null);
+                    const sUnits = calcChannelUnits(s, null, allPeriods);
                     const sOrders = (s.units_per_order || 1) > 0 ? Math.round(sUnits / (s.units_per_order || 1)) : sUnits;
                     return `${def?.label || s.channel}: ${fmt(sOrders)} orders`;
                   }).join(" + ")} → Halo: {fmt(haloUnits)} units
@@ -726,12 +737,99 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
           
-          {/* Hero GWP / DTC Paid — primary driver */}
-          {(c === "hero_gwp" || c === "dtc_paid") && <>
-            <I label="Ad Spend" value={ch.ad_spend} onChange={v => up("ad_spend", v)} type="number" prefix="$" />
-            <I label="CPA" value={ch.cpa} onChange={v => up("cpa", v)} type="number" prefix="$" />
-            <I label="Est. New Customers" value={ch.estimated_new_customers || (ch.ad_spend && ch.cpa ? Math.round(ch.ad_spend / ch.cpa) : "")} onChange={v => up("estimated_new_customers", v)} type="number" />
-          </>}
+          {/* Hero GWP / DTC Paid — primary driver with optional time-phased spend */}
+          {(c === "hero_gwp" || c === "dtc_paid") && (() => {
+            const chPeriods = (allPeriods || []).filter(p => p.channel_id === ch.id).sort((a,b) => a.period_index - b.period_index);
+            const hasPeriods = chPeriods.length > 0;
+            const periodTotalSpend = chPeriods.reduce((s, p) => s + (parseFloat(p.ad_spend) || 0), 0);
+            const periodTotalCustomers = chPeriods.reduce((s, p) => {
+              const spend = parseFloat(p.ad_spend) || 0;
+              const cpa = parseFloat(p.cpa) || 0;
+              return s + (cpa > 0 ? Math.round(spend / cpa) : 0);
+            }, 0);
+            const avgCpa = periodTotalCustomers > 0 ? (periodTotalSpend / periodTotalCustomers) : 0;
+
+            return <>
+              {/* Mode toggle: Total vs Time-Phased */}
+              <div style={{ gridColumn: "1 / -1", marginBottom: 4 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Spend Planning</div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[{ v: "total", l: "Total (Single)", d: "One spend + CPA" }, { v: "weekly", l: "Weekly", d: "Spend/CPA per week" }, { v: "monthly", l: "Monthly", d: "Spend/CPA per month" }].map(opt => (
+                    <button key={opt.v} onClick={() => {
+                      if (opt.v === "total") {
+                        // Remove periods, go back to single
+                        up("period_type", "total");
+                        chPeriods.forEach(p => onRemovePeriod(p.id));
+                      } else {
+                        const count = opt.v === "weekly" ? (ch.forecast_weeks || 12) : Math.ceil((ch.forecast_weeks || 12) / 4.33);
+                        onInitPeriods(ch.id, Math.min(count, 26), opt.v);
+                      }
+                    }}
+                      style={{ flex: 1, padding: "5px 8px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${(ch.period_type || "total") === opt.v ? T.accent : T.border}`, background: (ch.period_type || "total") === opt.v ? T.accent + "15" : "transparent", color: (ch.period_type || "total") === opt.v ? T.accent : T.text3, cursor: "pointer" }}>
+                      {opt.l}
+                      <div style={{ fontSize: 8, fontWeight: 400, marginTop: 1 }}>{opt.d}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Single spend mode */}
+              {!hasPeriods && <>
+                <I label="Total Ad Spend" value={ch.ad_spend} onChange={v => up("ad_spend", v)} type="number" prefix="$" />
+                <I label="Avg CPA" value={ch.cpa} onChange={v => up("cpa", v)} type="number" prefix="$" />
+                <I label="Est. New Customers" value={ch.estimated_new_customers || (ch.ad_spend && ch.cpa ? Math.round(ch.ad_spend / ch.cpa) : "")} onChange={v => up("estimated_new_customers", v)} type="number" />
+              </>}
+
+              {/* Time-phased spend table */}
+              {hasPeriods && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <th style={{ textAlign: "left", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Period</th>
+                        <th style={{ textAlign: "right", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Ad Spend</th>
+                        <th style={{ textAlign: "right", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>CPA</th>
+                        <th style={{ textAlign: "right", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Customers</th>
+                        <th style={{ width: 20 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {chPeriods.map(p => {
+                        const pSpend = parseFloat(p.ad_spend) || 0;
+                        const pCpa = parseFloat(p.cpa) || 0;
+                        const pCust = pCpa > 0 ? Math.round(pSpend / pCpa) : 0;
+                        return (
+                          <tr key={p.id} style={{ borderBottom: `1px solid ${T.border}08` }}>
+                            <td style={{ padding: "3px 6px", color: T.text2, fontWeight: 600, fontSize: 10 }}>{p.period_label}</td>
+                            <td style={{ padding: "3px 2px" }}>
+                              <input type="number" defaultValue={p.ad_spend ?? ""} onBlur={e => onUpdatePeriod(p.id, { ad_spend: e.target.value === "" ? null : Number(e.target.value) })}
+                                style={{ width: "100%", padding: "3px 6px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" }} />
+                            </td>
+                            <td style={{ padding: "3px 2px" }}>
+                              <input type="number" defaultValue={p.cpa ?? ""} onBlur={e => onUpdatePeriod(p.id, { cpa: e.target.value === "" ? null : Number(e.target.value) })}
+                                style={{ width: "100%", padding: "3px 6px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" }} />
+                            </td>
+                            <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 700, color: T.accent, fontSize: 11 }}>{fmt(pCust)}</td>
+                            <td><button onClick={() => onRemovePeriod(p.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                        <td style={{ padding: "5px 6px", fontWeight: 700, fontSize: 10, color: T.text }}>Total</td>
+                        <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 700, fontSize: 11, color: T.text }}>${fmt(Math.round(periodTotalSpend))}</td>
+                        <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text3 }}>${avgCpa.toFixed(0)} avg</td>
+                        <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>{fmt(periodTotalCustomers)}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                  <button onClick={() => onAddPeriod(ch.id, chPeriods.length)} style={{ marginTop: 4, padding: "3px 10px", fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 4, background: "transparent", color: T.text3, cursor: "pointer" }}>+ Add Period</button>
+                </div>
+              )}
+            </>;
+          })()}
 
           {/* Email */}
           {c === "email" && <>
@@ -807,18 +905,20 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const [launches, setLaunches] = useState([]);
   const [selected, setSelected] = useState(null);
   const [channels, setChannels] = useState([]);
+  const [periods, setPeriods] = useState([]);
   const [pos, setPos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: "", product_name: "", launch_date: "", moq: 5000, lead_time_days: 45, unit_cost: "", retail_price: "", target_margin_pct: 65, forecast_period_weeks: 12, supplier: "" });
 
   const load = async () => {
-    const [{ data: l }, { data: c }, { data: p }] = await Promise.all([
+    const [{ data: l }, { data: c }, { data: p }, { data: pr }] = await Promise.all([
       supabase.from("dp_launches").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
       supabase.from("dp_launch_channels").select("*").eq("org_id", orgId),
       supabase.from("dp_launch_pos").select("*").eq("org_id", orgId),
+      supabase.from("dp_launch_periods").select("*").eq("org_id", orgId).order("period_index"),
     ]);
-    setLaunches(l || []); setChannels(c || []); setPos(p || []); setLoading(false);
+    setLaunches(l || []); setChannels(c || []); setPos(p || []); setPeriods(pr || []); setLoading(false);
   };
   useEffect(() => { if (orgId) load(); }, [orgId]);
 
@@ -854,7 +954,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const updateChannel = async (id, updates) => {
     const ch = channels.find(c => c.id === id);
     const merged = { ...ch, ...updates };
-    const units = calcChannelUnits(merged, channels);
+    const units = calcChannelUnits(merged, channels, periods);
     const price = selected?.retail_price || 0;
     await supabase.from("dp_launch_channels").update({ ...updates, estimated_units: units, estimated_revenue: units * price, updated_at: new Date().toISOString() }).eq("id", id);
     setChannels(p => p.map(c => c.id === id ? { ...c, ...updates, estimated_units: units, estimated_revenue: units * price } : c));
@@ -863,10 +963,45 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const removeChannel = async (id) => {
     await supabase.from("dp_launch_channels").delete().eq("id", id);
     setChannels(p => p.filter(c => c.id !== id));
+    setPeriods(p => p.filter(pr => pr.channel_id !== id));
+  };
+
+  // ── Period management (time-phased spend/CPA for paid channels) ──
+  const addPeriod = async (channelId, index) => {
+    const periodType = channels.find(c => c.id === channelId)?.period_type || "weekly";
+    const label = periodType === "monthly" ? `Month ${index + 1}` : `Week ${index + 1}`;
+    const { data } = await supabase.from("dp_launch_periods").insert({
+      channel_id: channelId, period_label: label, period_index: index,
+    }).select().single();
+    if (data) setPeriods(p => [...p, data]);
+  };
+
+  const updatePeriod = async (id, updates) => {
+    await supabase.from("dp_launch_periods").update(updates).eq("id", id);
+    setPeriods(p => p.map(pr => pr.id === id ? { ...pr, ...updates } : pr));
+  };
+
+  const removePeriod = async (id) => {
+    await supabase.from("dp_launch_periods").delete().eq("id", id);
+    setPeriods(p => p.filter(pr => pr.id !== id));
+  };
+
+  const initPeriods = async (channelId, count, type) => {
+    await updateChannel(channelId, { period_type: type });
+    // Remove existing periods for this channel
+    const existing = periods.filter(p => p.channel_id === channelId);
+    for (const pr of existing) await supabase.from("dp_launch_periods").delete().eq("id", pr.id);
+    setPeriods(p => p.filter(pr => pr.channel_id !== channelId));
+    // Create new periods
+    for (let i = 0; i < count; i++) {
+      await addPeriod(channelId, i);
+    }
   };
 
   const addPo = async (launchId) => {
-    const totalUnits = channels.filter(c => c.launch_id === launchId).reduce((s, c) => s + calcChannelUnits(c, channels.filter(x => x.launch_id === launchId)), 0);
+    const lc = channels.filter(c => c.launch_id === launchId);
+    const lp = periods.filter(p => lc.some(c => c.id === p.channel_id));
+    const totalUnits = lc.reduce((s, c) => s + calcChannelUnits(c, lc, periods), 0);
     const moq = selected?.moq || 5000;
     const qty = Math.max(moq, Math.ceil(totalUnits / moq) * moq);
     const lt = selected?.lead_time_days || 45;
@@ -886,8 +1021,9 @@ function LaunchPlannerView({ isMobile, orgId }) {
   };
 
   const launchChannels = selected ? channels.filter(c => c.launch_id === selected.id) : [];
+  const launchPeriods = periods.filter(p => launchChannels.some(c => c.id === p.channel_id));
   const launchPos = selected ? pos.filter(p => p.launch_id === selected.id) : [];
-  const totalUnits = launchChannels.reduce((s, c) => s + calcChannelUnits(c, launchChannels), 0);
+  const totalUnits = launchChannels.reduce((s, c) => s + calcChannelUnits(c, launchChannels, launchPeriods), 0);
   const totalRevenue = totalUnits * (selected?.retail_price || 0);
   const totalCost = totalUnits * (selected?.unit_cost || 0);
 
@@ -999,7 +1135,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {launchChannels.map(ch => {
                 const def = CHANNEL_DEFS.find(d => d.key === ch.channel);
-                const units = calcChannelUnits(ch, launchChannels);
+                const units = calcChannelUnits(ch, launchChannels, launchPeriods);
                 const pct = totalUnits > 0 ? ((units / totalUnits) * 100).toFixed(1) : 0;
                 return (
                   <div key={ch.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
@@ -1020,7 +1156,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                       </div>
                     </div>
                     <div style={{ padding: "10px 14px" }}>
-                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} />
+                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} allPeriods={launchPeriods} onAddPeriod={addPeriod} onUpdatePeriod={updatePeriod} onRemovePeriod={removePeriod} onInitPeriods={initPeriods} />
                     </div>
                   </div>
                 );
@@ -1115,7 +1251,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {launches.map(l => {
             const lc = channels.filter(c => c.launch_id === l.id);
-            const tu = lc.reduce((s, c) => s + calcChannelUnits(c, lc), 0);
+            const tu = lc.reduce((s, c) => s + calcChannelUnits(c, lc, periods.filter(p => lc.some(ch => ch.id === p.channel_id))), 0);
             const st = STATUS_OPTS.find(s => s.value === l.status);
             return (
               <div key={l.id} onClick={() => setSelected(l)} style={{ padding: "14px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.1s" }}
