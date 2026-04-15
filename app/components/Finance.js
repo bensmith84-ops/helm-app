@@ -3882,6 +3882,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [expandedCat, setExpandedCat] = useState(null);
   const [detailMode, setDetailMode] = useState("accounts");
   const [budgetTab, setBudgetTab] = useState("cards");
+  const [budgetYear, setBudgetYear] = useState(new Date().getFullYear());
   const [addingGLToCat, setAddingGLToCat] = useState(null); // category name being added to
   const [glSearch, setGlSearch] = useState("");
 
@@ -4001,21 +4002,29 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const activeFinBudget = finBudgets.find(b => b.name === activeBudgetName) || finBudgets[0];
   const activeFinBudgetId = activeFinBudget?.id;
 
-  // Sync category budgets from line items when budget lines or active budget changes
+  // Sync category budgets from line items when budget lines, active budget, or year changes
   useEffect(() => {
     if (!activeFinBudgetId || budgetLines.length === 0) return;
     const activeLines = budgetLines.filter(l => l.budget_id === activeFinBudgetId);
     if (activeLines.length === 0) return;
-    // Build category totals from lines
+    const yearPrefix = `${budgetYear}-`;
     const catTotals = {};
     activeLines.forEach(l => {
-      if (l.category_name) catTotals[l.category_name] = (catTotals[l.category_name] || 0) + (Number(l.allocated_amount) || 0);
+      if (!l.category_name) return;
+      let amount = 0;
+      if (l.monthly_amounts && Object.keys(l.monthly_amounts).length > 0) {
+        amount = Object.entries(l.monthly_amounts)
+          .filter(([k]) => k.startsWith(yearPrefix))
+          .reduce((s, [, v]) => s + (Number(v) || 0), 0);
+      } else {
+        amount = Number(l.allocated_amount) || 0;
+      }
+      catTotals[l.category_name] = (catTotals[l.category_name] || 0) + amount;
     });
-    // Only update if there are line-item budgets
     if (Object.keys(catTotals).length > 0) {
       setBudgetData(prev => prev.map(b => catTotals[b.name] !== undefined ? { ...b, companyBudget: catTotals[b.name] } : b));
     }
-  }, [activeFinBudgetId, budgetLines.length]);
+  }, [activeFinBudgetId, budgetLines.length, budgetYear]);
 
   const totalBudget = budgetData.reduce((s, b) => s + (b.companyBudget || 0), 0);
   const totalSpent = budgetData.reduce((s, b) => s + getSpend(b.id), 0);
@@ -4115,20 +4124,61 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     setBudgetMembers(p => p.filter(m => m.budget_id !== budgetId));
   };
 
-  // Get budget amount for a GL account in the active budget
+  // Get annual budget for a GL account from monthly_amounts for the selected year
   const getLineBudget = (glAccountName) => {
     if (!activeFinBudgetId) return null;
     const line = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
-    return line?.allocated_amount ?? null;
+    if (!line) return null;
+    // If monthly_amounts exists, sum the selected year
+    if (line.monthly_amounts && Object.keys(line.monthly_amounts).length > 0) {
+      const yearPrefix = `${budgetYear}-`;
+      return Object.entries(line.monthly_amounts)
+        .filter(([k]) => k.startsWith(yearPrefix))
+        .reduce((s, [, v]) => s + (Number(v) || 0), 0);
+    }
+    return line.allocated_amount ?? null;
   };
 
-  // Get total budget for a category by summing its line items
+  // Get monthly budget for a GL account for a specific month (e.g. "2026-03")
+  const getLineMonthBudget = (glAccountName, monthKey) => {
+    if (!activeFinBudgetId) return null;
+    const line = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
+    if (!line?.monthly_amounts) return null;
+    return line.monthly_amounts[monthKey] ?? null;
+  };
+
+  // Get total annual budget for a category by summing its line items for the selected year
   const getCatBudgetFromLines = (catName) => {
+    if (!activeFinBudgetId) return 0;
+    const catLines = budgetLines.filter(l => l.budget_id === activeFinBudgetId && l.category_name === catName);
+    const yearPrefix = `${budgetYear}-`;
+    return catLines.reduce((s, l) => {
+      if (l.monthly_amounts && Object.keys(l.monthly_amounts).length > 0) {
+        return s + Object.entries(l.monthly_amounts)
+          .filter(([k]) => k.startsWith(yearPrefix))
+          .reduce((sum, [, v]) => sum + (Number(v) || 0), 0);
+      }
+      return s + (Number(l.allocated_amount) || 0);
+    }, 0);
+  };
+
+  // Get monthly budget for a category for a specific month
+  const getCatMonthBudget = (catName, monthKey) => {
     if (!activeFinBudgetId) return 0;
     return budgetLines
       .filter(l => l.budget_id === activeFinBudgetId && l.category_name === catName)
-      .reduce((s, l) => s + (Number(l.allocated_amount) || 0), 0);
+      .reduce((s, l) => s + (Number(l.monthly_amounts?.[monthKey]) || 0), 0);
   };
+
+  // Get available years from the budget lines
+  const availableYears = (() => {
+    if (!activeFinBudgetId) return [new Date().getFullYear()];
+    const years = new Set();
+    budgetLines.filter(l => l.budget_id === activeFinBudgetId).forEach(l => {
+      if (l.monthly_amounts) Object.keys(l.monthly_amounts).forEach(k => years.add(parseInt(k.split("-")[0])));
+    });
+    return years.size > 0 ? [...years].sort() : [new Date().getFullYear()];
+  })();
 
   // Upsert a budget line for a GL account, then sync category total
   const upsertBudgetLine = async (glAccountName, amount, categoryName) => {
@@ -4245,19 +4295,36 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         ))}
       </div>
 
-      {/* View toggle */}
-      <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, alignSelf: "flex-start" }}>
-        <button onClick={() => setBudgetTab("cards")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "cards" ? T.accent : T.surface2, color: budgetTab === "cards" ? "#fff" : T.text3 }}>Category Cards</button>
-        {canMonthly && <button onClick={() => setBudgetTab("monthly")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "monthly" ? T.accent : T.surface2, color: budgetTab === "monthly" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>Monthly View</button>}
+      {/* View toggle + Year selector */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
+          <button onClick={() => setBudgetTab("cards")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "cards" ? T.accent : T.surface2, color: budgetTab === "cards" ? "#fff" : T.text3 }}>Category Cards</button>
+          {canMonthly && <button onClick={() => setBudgetTab("monthly")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "monthly" ? T.accent : T.surface2, color: budgetTab === "monthly" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>Monthly View</button>}
+        </div>
+        {availableYears.length > 1 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: T.text3 }}>Budget Year:</span>
+            <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${T.border}` }}>
+              {availableYears.map(y => (
+                <button key={y} onClick={() => setBudgetYear(y)}
+                  style={{ padding: "4px 12px", fontSize: 11, fontWeight: budgetYear === y ? 700 : 500, border: "none", cursor: "pointer", background: budgetYear === y ? "#8b5cf6" : T.surface2, color: budgetYear === y ? "#fff" : T.text3 }}>
+                  {y}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* MONTHLY BUDGET vs ACTUAL TABLE */}
       {budgetTab === "monthly" && (() => {
         const curMo = new Date().toISOString().slice(0, 7);
-        const months = [...new Set(qboPLMonthly.map(r => r.period_month))].sort();
-        const isOpen = (m) => m >= curMo;
+        // Generate all 12 months for the selected budget year
+        const months = Array.from({ length: 12 }, (_, i) => `${budgetYear}-${String(i + 1).padStart(2, "0")}`);
         const monthLabels = months.map(m => new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }));
-        // Build monthly spend by budget category
+        const isOpen = (m) => m >= curMo;
+        const isFuture = (m) => m > curMo;
+        // Build monthly spend by budget category (from QBO actuals)
         const getMonthCatSpend = (catName, month) => {
           const reverseMap = {}; Object.entries(QBO_TO_BUDGET_MAP).forEach(([q, b]) => { reverseMap[b] = q; });
           const qboName = reverseMap[catName] || catName;
@@ -4267,38 +4334,58 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
             return mapped === catName || mapped === qboName || (mapped && normalizeCat(mapped) === norm);
           }).reduce((s, r) => s + Number(r.amount), 0);
         };
-        const monthlyTotals = months.map(m => budgetData.reduce((s, cat) => s + getMonthCatSpend(cat.name, m), 0));
+        const monthlyActualTotals = months.map(m => budgetData.reduce((s, cat) => s + getMonthCatSpend(cat.name, m), 0));
+        const monthlyBudgetTotals = months.map(m => budgetData.reduce((s, cat) => s + getCatMonthBudget(cat.name, m), 0));
         return (
           <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${T.border}` }}>
                   <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", position: "sticky", left: 0, background: T.surface, zIndex: 1, minWidth: 160 }}>Category</th>
-                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Budget</th>
-                  {months.map((m, i) => <th key={m} style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{monthLabels[i]}{isOpen(m) ? <span style={{ display: "block", fontSize: 7, color: "#F59E0B", fontWeight: 700 }}>OPEN</span> : ""}</th>)}
-                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text, textTransform: "uppercase" }}>YTD</th>
+                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Annual Budget</th>
+                  {months.map((m, i) => (
+                    <th key={m} style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", minWidth: 80 }}>
+                      {monthLabels[i]}
+                      {isOpen(m) && <span style={{ display: "block", fontSize: 7, color: "#F59E0B", fontWeight: 700 }}>OPEN</span>}
+                    </th>
+                  ))}
+                  <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text, textTransform: "uppercase" }}>YTD Actual</th>
                   <th style={{ padding: "8px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Variance</th>
                 </tr>
               </thead>
               <tbody>
                 {budgetData.map(cat => {
-                  const qboYTD = getQBOSpend(cat.name);
-                  const monthVals = months.map(m => getMonthCatSpend(cat.name, m));
-                  const variance = cat.companyBudget - qboYTD;
+                  const qboYTD = months.reduce((s, m) => s + getMonthCatSpend(cat.name, m), 0);
+                  const budgetYTD = cat.companyBudget || 0;
+                  const variance = budgetYTD - qboYTD;
                   return (
                     <tr key={cat.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                       <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>
                         <span style={{ marginRight: 6 }}>{cat.icon}</span>{cat.name}
                       </td>
-                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: cat.companyBudget ? T.text : T.text3 }}>{cat.companyBudget ? fmtK(cat.companyBudget) : "—"}</td>
-                      {monthVals.map((v, i) => (
-                        <td key={i} style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, color: v === 0 ? T.text3 + "60" : (cat.companyBudget > 0 && v > cat.companyBudget / 12 * 1.1) ? T.red : T.text2 }}>
-                          {v === 0 ? "—" : fmtK(v)}
-                        </td>
-                      ))}
+                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: budgetYTD ? T.text : T.text3 }}>{budgetYTD ? fmtK(budgetYTD) : "—"}</td>
+                      {months.map(m => {
+                        const actual = getMonthCatSpend(cat.name, m);
+                        const budget = getCatMonthBudget(cat.name, m);
+                        const hasBudget = budget > 0;
+                        const overBudget = hasBudget && actual > budget * 1.05;
+                        return (
+                          <td key={m} style={{ padding: "4px 6px", textAlign: "right", fontSize: 10, verticalAlign: "top" }}>
+                            {hasBudget && <div style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 600 }}>{fmtK(budget)}</div>}
+                            <div style={{ fontWeight: actual > 0 ? 600 : 400, color: actual === 0 ? T.text3 + "40" : overBudget ? "#ef4444" : isFuture(m) ? T.text3 : T.text2 }}>
+                              {actual === 0 ? "—" : fmtK(actual)}
+                            </div>
+                            {hasBudget && actual > 0 && (
+                              <div style={{ fontSize: 8, color: actual <= budget ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+                                {actual <= budget ? "✓" : `+${fmtK(actual - budget)}`}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
                       <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: T.accent }}>{qboYTD > 0 ? fmtK(qboYTD) : "—"}</td>
-                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: cat.companyBudget === 0 ? T.text3 : variance >= 0 ? T.green : T.red }}>
-                        {cat.companyBudget === 0 ? "—" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
+                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: budgetYTD === 0 ? T.text3 : variance >= 0 ? T.green : T.red }}>
+                        {budgetYTD === 0 ? "—" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
                       </td>
                     </tr>
                   );
@@ -4307,9 +4394,14 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                 <tr style={{ borderTop: `3px solid ${T.border}`, background: T.surface2 }}>
                   <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 900, color: T.text, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>TOTAL</td>
                   <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.text }}>{fmtK(totalBudget)}</td>
-                  {months.map((m, i) => <td key={m} style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.text }}>{fmtK(monthlyTotals[i])}</td>)}
-                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.accent }}>{fmtK(totalQBO)}</td>
-                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: totalBudget - totalQBO >= 0 ? T.green : T.red }}>{totalBudget > 0 ? `${totalBudget - totalQBO >= 0 ? "+" : ""}${fmtK(totalBudget - totalQBO)}` : "—"}</td>
+                  {months.map((m, i) => (
+                    <td key={m} style={{ padding: "4px 6px", textAlign: "right", verticalAlign: "top" }}>
+                      {monthlyBudgetTotals[i] > 0 && <div style={{ fontSize: 9, fontWeight: 700, color: "#8b5cf6" }}>{fmtK(monthlyBudgetTotals[i])}</div>}
+                      <div style={{ fontSize: 11, fontWeight: 900, color: T.text }}>{monthlyActualTotals[i] > 0 ? fmtK(monthlyActualTotals[i]) : "—"}</div>
+                    </td>
+                  ))}
+                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.accent }}>{fmtK(monthlyActualTotals.reduce((s, v) => s + v, 0))}</td>
+                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0) >= 0 ? T.green : T.red }}>{totalBudget > 0 ? `${totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0) >= 0 ? "+" : ""}${fmtK(totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0))}` : "—"}</td>
                 </tr>
               </tbody>
             </table>
