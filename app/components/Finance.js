@@ -4036,7 +4036,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     if (Object.keys(catTotals).length > 0) {
       setBudgetData(prev => prev.map(b => catTotals[b.name] !== undefined ? { ...b, companyBudget: catTotals[b.name] } : b));
     }
-  }, [activeFinBudgetId, budgetLines.length, budgetYear]);
+  }, [activeFinBudgetId, budgetLines, budgetYear]);
 
   const isLineChecked = (glName) => !uncheckedLines.has(glName);
   const isCatChecked = (catName) => !uncheckedCats.has(catName);
@@ -4532,7 +4532,14 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                   const catLines = activeFinBudgetId
                     ? budgetLines.filter(l => l.budget_id === activeFinBudgetId && l.category_name === cat.name)
                     : [];
-                  const budgetYTD = cat.companyBudget || 0;
+                  // Compute annual budget directly from line items for the selected year
+                  const yearPrefix = `${budgetYear}-`;
+                  const budgetYTD = catLines.reduce((s, l) => {
+                    if (l.monthly_amounts && Object.keys(l.monthly_amounts).length > 0) {
+                      return s + Object.entries(l.monthly_amounts).filter(([k]) => k.startsWith(yearPrefix)).reduce((sum, [, v]) => sum + (Number(v) || 0), 0);
+                    }
+                    return s + (Number(l.allocated_amount) || 0);
+                  }, 0);
                   const qboYTD = months.reduce((s, m) => s + getMonthCatActual(cat.name, m), 0);
                   const variance = budgetYTD - qboYTD;
                   const isMonthExpanded = expandedMonthCats.has(cat.name);
