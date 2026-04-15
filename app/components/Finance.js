@@ -3981,6 +3981,10 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   };
 
   const getQBOSpend = (catName) => {
+    // For 2025, actuals ARE the budget data
+    if (budgetYear === 2025 && activeFinBudgetId) {
+      return getCatBudgetFromLines(catName);
+    }
     // Direct match first
     if (qboByCategory[catName]) return qboByCategory[catName];
     // Check reverse map (budget name → qbo name)
@@ -4029,7 +4033,9 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const totalBudget = budgetData.reduce((s, b) => s + (b.companyBudget || 0), 0);
   const totalSpent = budgetData.reduce((s, b) => s + getSpend(b.id), 0);
   const totalPending = budgetData.reduce((s, b) => s + getPending(b.id), 0);
-  const totalQBO = Object.values(qboByCategory).reduce((s, v) => s + v, 0);
+  const totalQBO = budgetYear === 2025 && activeFinBudgetId
+    ? totalBudget  // For 2025, actual = budget (100% consumed)
+    : Object.values(qboByCategory).reduce((s, v) => s + v, 0);
 
   const saveVersion = async () => {
     if (!saveName.trim()) return;
@@ -4282,8 +4288,8 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       {/* Summary bar */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : `repeat(${[canViewAmounts, canViewActuals, true, true, canViewAmounts && canViewActuals].filter(Boolean).length}, 1fr)`, gap: 8 }}>
         {[
-          canViewAmounts && { l: "Total Budget", v: fmt(totalBudget), c: T.text },
-          canViewActuals && { l: "QBO Actuals", v: fmt(totalQBO), c: "#6366f1" },
+          canViewAmounts && { l: `Total Budget${budgetYear ? ` (${budgetYear})` : ""}`, v: fmt(totalBudget), c: T.text },
+          canViewActuals && { l: budgetYear === 2025 ? `${budgetYear} Actuals` : "QBO Actuals", v: fmt(totalQBO), c: "#6366f1" },
           { l: "Requests Spent", v: fmt(totalSpent), c: "#10B981" },
           { l: "Pending", v: fmt(totalPending), c: "#F59E0B" },
           canViewAmounts && canViewActuals && { l: "Remaining", v: fmt(totalBudget - totalQBO), c: totalQBO > totalBudget && totalBudget > 0 ? "#EF4444" : T.text },
@@ -4324,8 +4330,15 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         const monthLabels = months.map(m => new Date(m + "-15").toLocaleDateString("en-US", { month: "short" }));
         const isOpen = (m) => m >= curMo;
         const isFuture = (m) => m > curMo;
-        // Build monthly spend by budget category (from QBO actuals)
-        const getMonthCatSpend = (catName, month) => {
+        // Build monthly spend by budget category
+        // For 2025: actuals ARE the budget data (historical actuals loaded as budget)
+        // For 2026+: actuals come from QBO
+        const getMonthCatActual = (catName, month) => {
+          if (budgetYear === 2025) {
+            // 2025 budget data IS the actuals — return budget line amounts
+            return getCatMonthBudget(catName, month);
+          }
+          // For other years, pull from QBO
           const reverseMap = {}; Object.entries(QBO_TO_BUDGET_MAP).forEach(([q, b]) => { reverseMap[b] = q; });
           const qboName = reverseMap[catName] || catName;
           const norm = normalizeCat(catName);
@@ -4334,7 +4347,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
             return mapped === catName || mapped === qboName || (mapped && normalizeCat(mapped) === norm);
           }).reduce((s, r) => s + Number(r.amount), 0);
         };
-        const monthlyActualTotals = months.map(m => budgetData.reduce((s, cat) => s + getMonthCatSpend(cat.name, m), 0));
+        const monthlyActualTotals = months.map(m => budgetData.reduce((s, cat) => s + getMonthCatActual(cat.name, m), 0));
         const monthlyBudgetTotals = months.map(m => budgetData.reduce((s, cat) => s + getCatMonthBudget(cat.name, m), 0));
         return (
           <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
@@ -4355,7 +4368,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
               </thead>
               <tbody>
                 {budgetData.map(cat => {
-                  const qboYTD = months.reduce((s, m) => s + getMonthCatSpend(cat.name, m), 0);
+                  const qboYTD = months.reduce((s, m) => s + getMonthCatActual(cat.name, m), 0);
                   const budgetYTD = cat.companyBudget || 0;
                   const variance = budgetYTD - qboYTD;
                   return (
@@ -4365,7 +4378,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                       </td>
                       <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: budgetYTD ? T.text : T.text3 }}>{budgetYTD ? fmtK(budgetYTD) : "—"}</td>
                       {months.map(m => {
-                        const actual = getMonthCatSpend(cat.name, m);
+                        const actual = getMonthCatActual(cat.name, m);
                         const budget = getCatMonthBudget(cat.name, m);
                         const hasBudget = budget > 0;
                         const overBudget = hasBudget && actual > budget * 1.05;
