@@ -4438,7 +4438,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                     ? budgetLines.filter(l => l.budget_id === activeFinBudgetId && l.category_name === cat.name)
                     : [];
                   return (
-                    <React.Fragment key={cat.id}>
+                    <Fragment key={cat.id}>
                       {/* Category summary row */}
                       <tr style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => toggleMonthCat(cat.name)}>
                         <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>
@@ -4511,7 +4511,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                           </tr>
                         );
                       })}
-                    </React.Fragment>
+                    </Fragment>
                   );
                 })}
                 {/* Total row */}
