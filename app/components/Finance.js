@@ -3910,9 +3910,12 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     })();
   }, []);
 
-  // Map QBO accounts to GA categories
+  // Map QBO accounts to GA categories — filtered by selected budget year
   const qboByCategory = {};
+  const qboPLYear = String(budgetYear);
   qboPL.forEach(r => {
+    // Only include QBO data for the selected year
+    if (r.period_start && !r.period_start.startsWith(qboPLYear)) return;
     const cat = customMappings[r.account_name] || null;
     if (cat) {
       if (!qboByCategory[cat]) qboByCategory[cat] = 0;
