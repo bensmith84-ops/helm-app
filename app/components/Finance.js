@@ -3886,6 +3886,9 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [addingGLToCat, setAddingGLToCat] = useState(null);
   const [glSearch, setGlSearch] = useState("");
   const [expandedMonthCats, setExpandedMonthCats] = useState(new Set());
+  const [checkedLines, setCheckedLines] = useState(new Set()); // "all" by default = empty means all checked
+  const [uncheckedLines, setUncheckedLines] = useState(new Set()); // track unchecked lines
+  const [uncheckedCats, setUncheckedCats] = useState(new Set()); // track unchecked categories
 
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
@@ -4333,6 +4336,35 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     return next;
   });
 
+  const isLineChecked = (glName) => !uncheckedLines.has(glName);
+  const isCatChecked = (catName) => !uncheckedCats.has(catName);
+
+  const toggleLine = (glName) => {
+    setUncheckedLines(prev => {
+      const next = new Set(prev);
+      next.has(glName) ? next.delete(glName) : next.add(glName);
+      return next;
+    });
+  };
+
+  const toggleCat = (catName, catLines) => {
+    const allChecked = isCatChecked(catName) && catLines.every(l => isLineChecked(l.gl_account_name));
+    setUncheckedCats(prev => {
+      const next = new Set(prev);
+      allChecked ? next.add(catName) : next.delete(catName);
+      return next;
+    });
+    setUncheckedLines(prev => {
+      const next = new Set(prev);
+      if (allChecked) {
+        catLines.forEach(l => next.add(l.gl_account_name));
+      } else {
+        catLines.forEach(l => next.delete(l.gl_account_name));
+      }
+      return next;
+    });
+  };
+
   const ini = (uid) => { const p = orgProfiles.find(pr => pr.id === uid); return p?.display_name ? p.display_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const uname = (uid) => orgProfiles.find(p => p.id === uid)?.display_name || "Unknown";
 
@@ -4446,6 +4478,22 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         };
         const monthlyActualTotals = months.map(m => budgetData.reduce((s, cat) => s + getMonthCatActual(cat.name, m), 0));
         const monthlyBudgetTotals = months.map(m => budgetData.reduce((s, cat) => s + getCatMonthBudget(cat.name, m), 0));
+        // Filtered totals - only checked lines
+        const getFilteredMonthBudget = (m) => {
+          if (!activeFinBudgetId) return 0;
+          return budgetLines
+            .filter(l => l.budget_id === activeFinBudgetId && isCatChecked(l.category_name) && isLineChecked(l.gl_account_name))
+            .reduce((s, l) => s + (Number(l.monthly_amounts?.[m]) || 0), 0);
+        };
+        const getFilteredMonthActual = (m) => {
+          if (budgetYear === 2025 && activeFinBudgetId) return getFilteredMonthBudget(m);
+          return budgetData.filter(c => isCatChecked(c.name)).reduce((s, cat) => s + getMonthCatActual(cat.name, m), 0);
+        };
+        const filteredBudgetTotals = months.map(m => getFilteredMonthBudget(m));
+        const filteredActualTotals = months.map(m => getFilteredMonthActual(m));
+        const filteredBudgetAnnual = filteredBudgetTotals.reduce((s, v) => s + v, 0);
+        const filteredActualAnnual = filteredActualTotals.reduce((s, v) => s + v, 0);
+        const hasFilters = uncheckedLines.size > 0 || uncheckedCats.size > 0;
         return (
           <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
@@ -4465,22 +4513,35 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
               </thead>
               <tbody>
                 {budgetData.map(cat => {
-                  const qboYTD = months.reduce((s, m) => s + getMonthCatActual(cat.name, m), 0);
-                  const budgetYTD = cat.companyBudget || 0;
-                  const variance = budgetYTD - qboYTD;
-                  const isMonthExpanded = expandedMonthCats.has(cat.name);
-                  // Get GL lines for this category
                   const catLines = activeFinBudgetId
                     ? budgetLines.filter(l => l.budget_id === activeFinBudgetId && l.category_name === cat.name)
                     : [];
+                  const catChecked = isCatChecked(cat.name);
+                  const catLinesAllChecked = catLines.every(l => isLineChecked(l.gl_account_name));
+                  const catSomeChecked = catLines.some(l => isLineChecked(l.gl_account_name));
+                  // Compute values only for checked lines
+                  const checkedCatLines = catLines.filter(l => isLineChecked(l.gl_account_name));
+                  const budgetYTD = catChecked ? checkedCatLines.reduce((s, l) => {
+                    const yearPrefix = `${budgetYear}-`;
+                    return s + Object.entries(l.monthly_amounts || {}).filter(([k]) => k.startsWith(yearPrefix)).reduce((sum, [, v]) => sum + (Number(v) || 0), 0);
+                  }, 0) : 0;
+                  const qboYTD = catChecked ? months.reduce((s, m) => s + getMonthCatActual(cat.name, m), 0) : 0;
+                  const variance = budgetYTD - qboYTD;
+                  const isMonthExpanded = expandedMonthCats.has(cat.name);
+                  const dimmed = !catChecked || !catSomeChecked;
                   return (
                     <Fragment key={cat.id}>
                       {/* Category summary row */}
-                      <tr style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => toggleMonthCat(cat.name)}>
-                        <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>
-                          <span style={{ fontSize: 9, color: T.text3, marginRight: 4 }}>{isMonthExpanded ? "▼" : "▶"}</span>
-                          <span style={{ marginRight: 6 }}>{cat.icon}</span>{cat.name}
-                          {catLines.length > 0 && <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>({catLines.length})</span>}
+                      <tr style={{ borderBottom: `1px solid ${T.border}`, opacity: dimmed ? 0.35 : 1 }}>
+                        <td style={{ padding: "8px 6px 8px 4px", fontSize: 12, fontWeight: 600, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                          <input type="checkbox" checked={catChecked && catLinesAllChecked} ref={el => { if (el) el.indeterminate = catChecked && catSomeChecked && !catLinesAllChecked; }}
+                            onChange={() => toggleCat(cat.name, catLines)}
+                            style={{ width: 14, height: 14, cursor: "pointer", flexShrink: 0, accentColor: T.accent }} />
+                          <span style={{ fontSize: 9, color: T.text3, cursor: "pointer" }} onClick={() => toggleMonthCat(cat.name)}>{isMonthExpanded ? "▼" : "▶"}</span>
+                          <span style={{ cursor: "pointer" }} onClick={() => toggleMonthCat(cat.name)}>
+                            <span style={{ marginRight: 4 }}>{cat.icon}</span>{cat.name}
+                            {catLines.length > 0 && <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>({checkedCatLines.length}/{catLines.length})</span>}
+                          </span>
                         </td>
                         <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: budgetYTD ? T.text : T.text3 }}>{budgetYTD ? fmtK(budgetYTD) : "—"}</td>
                         {months.map(m => {
@@ -4509,12 +4570,15 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                       </tr>
                       {/* Expanded GL line rows */}
                       {isMonthExpanded && catLines.map(line => {
+                        const lineChecked = isLineChecked(line.gl_account_name);
                         const lineAnnual = Object.entries(line.monthly_amounts || {})
                           .filter(([k]) => k.startsWith(`${budgetYear}-`))
                           .reduce((s, [, v]) => s + (Number(v) || 0), 0);
                         return (
-                          <tr key={line.id} style={{ background: T.surface2 + "60", borderBottom: `1px solid ${T.border}08` }}>
-                            <td style={{ padding: "4px 12px 4px 32px", fontSize: 10, color: T.text2, position: "sticky", left: 0, background: T.surface2 + "60", zIndex: 1 }}>
+                          <tr key={line.id} style={{ background: T.surface2 + "60", borderBottom: `1px solid ${T.border}08`, opacity: lineChecked ? 1 : 0.35 }}>
+                            <td style={{ padding: "4px 6px 4px 24px", fontSize: 10, color: T.text2, position: "sticky", left: 0, background: T.surface2 + "60", zIndex: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                              <input type="checkbox" checked={lineChecked} onChange={() => toggleLine(line.gl_account_name)}
+                                style={{ width: 12, height: 12, cursor: "pointer", flexShrink: 0, accentColor: T.accent }} />
                               {line.gl_account_name}
                             </td>
                             <td style={{ padding: "4px 10px", textAlign: "right", fontSize: 10, fontWeight: 500, color: lineAnnual > 0 ? T.text2 : T.text3 }}>
@@ -4550,9 +4614,28 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                     </Fragment>
                   );
                 })}
+                {/* Filtered subtotal row - only shows when some items are unchecked */}
+                {hasFilters && (
+                  <tr style={{ borderTop: `2px solid #8b5cf6`, background: "#8b5cf6" + "10" }}>
+                    <td style={{ padding: "8px 12px", fontSize: 11, fontWeight: 800, color: "#8b5cf6", position: "sticky", left: 0, background: "#8b5cf6" + "10", zIndex: 1 }}>
+                      ✓ SELECTED TOTAL
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: "#8b5cf6" }}>{fmtK(filteredBudgetAnnual)}</td>
+                    {months.map((m, i) => (
+                      <td key={m} style={{ padding: "4px 6px", textAlign: "right", verticalAlign: "top" }}>
+                        {filteredBudgetTotals[i] > 0 && <div style={{ fontSize: 9, fontWeight: 700, color: "#8b5cf6" }}>{fmtK(filteredBudgetTotals[i])}</div>}
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#8b5cf6" }}>{filteredActualTotals[i] > 0 ? fmtK(filteredActualTotals[i]) : "—"}</div>
+                      </td>
+                    ))}
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: "#8b5cf6" }}>{fmtK(filteredActualAnnual)}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: filteredBudgetAnnual - filteredActualAnnual >= 0 ? T.green : T.red }}>
+                      {filteredBudgetAnnual > 0 ? `${filteredBudgetAnnual - filteredActualAnnual >= 0 ? "+" : ""}${fmtK(filteredBudgetAnnual - filteredActualAnnual)}` : "—"}
+                    </td>
+                  </tr>
+                )}
                 {/* Total row */}
                 <tr style={{ borderTop: `3px solid ${T.border}`, background: T.surface2 }}>
-                  <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 900, color: T.text, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>TOTAL</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 900, color: T.text, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>TOTAL (ALL)</td>
                   <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.text }}>{fmtK(totalBudget)}</td>
                   {months.map((m, i) => (
                     <td key={m} style={{ padding: "4px 6px", textAlign: "right", verticalAlign: "top" }}>
