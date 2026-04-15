@@ -4260,25 +4260,49 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     }
   };
 
-  // Handle paste from spreadsheet — expects tab-separated values for 12 months
+  // Handle paste from spreadsheet — accepts tab or newline separated values
   const handleMonthlyPaste = async (e, glAccountName, categoryName, months) => {
     const text = e.clipboardData?.getData("text");
-    if (!text || !text.includes("\t")) return;
+    if (!text) return;
+    // Split by tabs first (row paste), or newlines (column paste), or both
+    // Spreadsheets typically use \t between cells and \n between rows
+    const rawText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+    // If it has tabs, split by tabs (row paste). Otherwise split by newlines (column paste).
+    // Also handle mixed: take first row if multi-row paste
+    let rawValues;
+    if (rawText.includes("\t")) {
+      // Row paste — take first line, split by tab
+      rawValues = rawText.split("\n")[0].split("\t");
+    } else if (rawText.includes("\n")) {
+      // Column paste
+      rawValues = rawText.split("\n");
+    } else {
+      // Single value — just let normal input handling take it
+      return;
+    }
     e.preventDefault();
-    const values = text.split("\t").map(v => {
-      const cleaned = v.replace(/[$,\s"]/g, "").trim();
-      return cleaned === "" || cleaned === "-" || cleaned === "—" ? 0 : Number(cleaned) || 0;
+    const values = rawValues.map(v => {
+      // Clean: remove $, commas, quotes, spaces, parentheses (negative), trim
+      let cleaned = v.replace(/[$,"'\s]/g, "").trim();
+      // Handle accounting negative format: (5266) → -5266
+      if (cleaned.startsWith("(") && cleaned.endsWith(")")) {
+        cleaned = "-" + cleaned.slice(1, -1);
+      }
+      // Handle "$ -" or "-" or "—" as zero
+      if (cleaned === "" || cleaned === "-" || cleaned === "—" || cleaned === "0") return 0;
+      return Number(cleaned) || 0;
     });
     if (values.length === 0) return;
-    // Map pasted values to months starting from the focused cell
-    const existing = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
-    const newMonthly = { ...(existing?.monthly_amounts || {}) };
     // Figure out which month the paste started from
     const input = e.target;
-    const monthIdx = parseInt(input.dataset?.monthIdx || "0");
+    const monthIdx = parseInt(input.dataset?.monthIdx ?? "0") || 0;
+    // Build updated monthly amounts
+    const existing = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
+    const newMonthly = { ...(existing?.monthly_amounts || {}) };
     for (let i = 0; i < values.length && (monthIdx + i) < months.length; i++) {
       newMonthly[months[monthIdx + i]] = values[i];
     }
+    // Save
     if (existing) {
       await supabase.from("fin_budget_lines").update({ monthly_amounts: newMonthly, category_name: categoryName }).eq("id", existing.id);
       setBudgetLines(p => p.map(l => l.id === existing.id ? { ...l, monthly_amounts: newMonthly, category_name: categoryName } : l));
@@ -4288,6 +4312,18 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         monthly_amounts: newMonthly, category_name: categoryName, description: glAccountName,
       }).select().single();
       if (data) setBudgetLines(p => [...p, data]);
+    }
+    // Update the visible inputs to reflect pasted values
+    const row = input.closest("tr");
+    if (row) {
+      const inputs = row.querySelectorAll("input[data-month-idx]");
+      inputs.forEach(inp => {
+        const mi = parseInt(inp.dataset.monthIdx);
+        const offset = mi - monthIdx;
+        if (offset >= 0 && offset < values.length) {
+          inp.value = values[offset] === 0 ? "" : values[offset].toLocaleString();
+        }
+      });
     }
   };
 
