@@ -4233,7 +4233,11 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   };
 
   // Get all unmapped GL accounts (from QBO P&L)
-  const allPLAccounts = [...new Set(qboPL.map(r => r.account_name))].sort();
+  // Merge GL accounts from QBO P&L AND budget lines (some GL accounts only exist in budget data)
+  const allPLAccounts = [...new Set([
+    ...qboPL.map(r => r.account_name),
+    ...budgetLines.filter(l => l.budget_id === activeFinBudgetId && l.gl_account_name).map(l => l.gl_account_name),
+  ])].sort();
   const unmappedAccounts = allPLAccounts.filter(a => !customMappings[a]);
 
   const ini = (uid) => { const p = orgProfiles.find(pr => pr.id === uid); return p?.display_name ? p.display_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "?"; };
@@ -4431,7 +4435,15 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         const utilPct = cat.companyBudget > 0 ? pct(primarySpend, cat.companyBudget) : 0;
         const isOver = cat.companyBudget > 0 && primarySpend > cat.companyBudget;
         const isExpanded = expandedCat === cat.id;
-        const catAccounts = isExpanded && canDrillDown ? getAccountsForCat(cat.name) : [];
+        const qboAccounts = isExpanded && canDrillDown ? getAccountsForCat(cat.name) : [];
+        // Also include budget-line-only accounts (no QBO data but have budget amounts)
+        const qboAccountNames = new Set(qboAccounts.map(r => r.account_name));
+        const budgetOnlyAccounts = isExpanded && canDrillDown && activeFinBudgetId
+          ? budgetLines
+              .filter(l => l.budget_id === activeFinBudgetId && l.category_name === cat.name && !qboAccountNames.has(l.gl_account_name))
+              .map(l => ({ account_name: l.gl_account_name, amount: 0 }))
+          : [];
+        const catAccounts = [...qboAccounts, ...budgetOnlyAccounts];
         const catVendors = isExpanded && canDrillDown && detailMode === "vendors" ? getVendorsForCat(cat.name) : [];
         return (
           <Card key={cat.id} style={{ borderLeft: `4px solid ${cat.color || T.accent}` }}>
@@ -4486,7 +4498,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
             )}
 
             {/* Expanded detail */}
-            {isExpanded && qboSpend > 0 && (
+            {isExpanded && (qboSpend > 0 || catAccounts.length > 0) && (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>
