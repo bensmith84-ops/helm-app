@@ -72,6 +72,7 @@ export default function LearningView({ modulePerms = {} }) {
   const [courseStarted, setCourseStarted] = useState(false);
   const [editingLesson, setEditingLesson] = useState(null); // lesson id being edited
   const [editLessonForm, setEditLessonForm] = useState({ title: "", content_type: "text", content: "", estimated_minutes: "" });
+  const [permSearch, setPermSearch] = useState("");
   const isAdmin = profile?.email?.includes("ben.smith@earthbreeze") || false;
   // Check org membership role
   const [myRole, setMyRole] = useState(null);
@@ -815,11 +816,22 @@ export default function LearningView({ modulePerms = {} }) {
           { key: "learning.assign_courses", label: "Assign Courses", desc: "Assign courses to individual users or teams." },
           { key: "learning.view_analytics", label: "View Analytics", desc: "View completion rates, quiz scores, and progress reports." },
         ];
+        const filteredMembers = members.filter(m => m.id !== user?.id).filter(m => {
+          if (!permSearch) return true;
+          const q = permSearch.toLowerCase();
+          return (m.display_name || "").toLowerCase().includes(q) || (m.email || "").toLowerCase().includes(q);
+        });
         return (
-          <div style={{ maxWidth: 700, margin: "0 auto", padding: isMobile ? "20px 16px" : "32px 24px" }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: G.text, marginBottom: 4 }}>Learning Permissions</div>
-            <div style={{ fontSize: 12, color: G.text3, marginBottom: 20 }}>Control who can manage courses, edit content, assign training, and view analytics. Org admins and owners always have full access.</div>
-            {members.filter(m => m.id !== user?.id).map(m => {
+          <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ padding: isMobile ? "20px 16px 12px" : "32px 24px 12px", flexShrink: 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: G.text, marginBottom: 4 }}>Learning Permissions</div>
+              <div style={{ fontSize: 12, color: G.text3, marginBottom: 12 }}>Control who can manage courses, edit content, assign training, and view analytics. Org admins and owners always have full access.</div>
+              <input value={permSearch} onChange={e => setPermSearch(e.target.value)} placeholder="Search by name or email…"
+                style={{ width: "100%", maxWidth: 400, padding: "8px 12px", fontSize: 12, border: `1px solid ${G.border}`, borderRadius: 8, background: G.surface2, color: G.text, boxSizing: "border-box" }} />
+              <div style={{ fontSize: 10, color: G.text3, marginTop: 6 }}>{filteredMembers.length} member{filteredMembers.length !== 1 ? "s" : ""}</div>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "0 16px 20px" : "0 24px 32px" }}>
+              {filteredMembers.map(m => {
               const membership = allMemberships?.find(om => om.user_id === m.id);
               const isUserAdmin = membership?.role === "owner" || membership?.role === "admin";
               const userPerms = membership?.module_permissions || {};
@@ -852,6 +864,7 @@ export default function LearningView({ modulePerms = {} }) {
                 </div>
               );
             })}
+            </div>
           </div>
         );
       })()}
