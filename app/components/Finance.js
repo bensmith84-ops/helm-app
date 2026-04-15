@@ -3933,10 +3933,15 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     "T&E": "Travel & Entertainment",
     "Non-Fixed and Other": "Non-Fixed & Other",
   };
-  // Populate budget-name aliases so lookups by either name work
+  // Merge budget-name aliases — both names should have the combined total
   Object.entries(QBO_TO_BUDGET_MAP).forEach(([qboName, budgetName]) => {
-    if (qboByCategory[qboName] && !qboByCategory[budgetName]) qboByCategory[budgetName] = qboByCategory[qboName];
-    if (qboByCategory[budgetName] && !qboByCategory[qboName]) qboByCategory[qboName] = qboByCategory[budgetName];
+    const qboVal = qboByCategory[qboName] || 0;
+    const budgetVal = qboByCategory[budgetName] || 0;
+    if (qboVal || budgetVal) {
+      const combined = qboVal + budgetVal;
+      qboByCategory[qboName] = combined;
+      qboByCategory[budgetName] = combined;
+    }
   });
   // Get P&L accounts mapped to a given budget category name
   const getAccountsForCat = (catName) => {
