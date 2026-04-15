@@ -4292,6 +4292,35 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     }
   };
 
+  // Fill a value forward from a month through the remaining months of the year
+  const fillForward = async (glAccountName, fromMonthIdx, amount, categoryName, months) => {
+    if (!activeFinBudgetId) return;
+    const existing = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
+    const newMonthly = { ...(existing?.monthly_amounts || {}) };
+    for (let i = fromMonthIdx; i < months.length; i++) {
+      newMonthly[months[i]] = amount;
+    }
+    if (existing) {
+      await supabase.from("fin_budget_lines").update({ monthly_amounts: newMonthly, category_name: categoryName }).eq("id", existing.id);
+      setBudgetLines(p => p.map(l => l.id === existing.id ? { ...l, monthly_amounts: newMonthly, category_name: categoryName } : l));
+    } else {
+      const { data } = await supabase.from("fin_budget_lines").insert({
+        budget_id: activeFinBudgetId, gl_account_name: glAccountName,
+        monthly_amounts: newMonthly, category_name: categoryName, description: glAccountName,
+      }).select().single();
+      if (data) setBudgetLines(p => [...p, data]);
+    }
+    // Update visible inputs
+    const table = document.querySelector("table");
+    if (table) {
+      const inputs = table.querySelectorAll(`input[data-gl="${CSS.escape(glAccountName)}"]`);
+      inputs.forEach(inp => {
+        const mi = parseInt(inp.dataset.monthIdx);
+        if (mi >= fromMonthIdx) inp.value = amount === 0 ? "" : amount.toLocaleString();
+      });
+    }
+  };
+
   // Handle paste from spreadsheet — accepts tab or newline separated values
   const handleMonthlyPaste = async (e, glAccountName, categoryName, months) => {
     const text = e.clipboardData?.getData("text");
@@ -4557,20 +4586,36 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                             {months.map((m, mi) => {
                               const val = line.monthly_amounts?.[m] ?? "";
                               return (
-                                <td key={m} style={{ padding: "2px 3px" }}>
-                                  <input
-                                    type="text"
-                                    defaultValue={val === 0 ? "" : (typeof val === "number" ? val.toLocaleString() : val)}
-                                    placeholder="—"
-                                    data-month-idx={mi}
-                                    onPaste={e => handleMonthlyPaste(e, line.gl_account_name, cat.name, months)}
-                                    onBlur={e => {
-                                      const cleaned = Number(String(e.target.value).replace(/[$,\s]/g, "")) || 0;
-                                      if (cleaned !== (Number(val) || 0)) saveMonthBudget(line.gl_account_name, m, cleaned, cat.name);
-                                    }}
-                                    onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Tab") { /* allow default tab */ } }}
-                                    style={{ width: "100%", padding: "2px 4px", fontSize: 9, textAlign: "right", border: `1px solid ${T.border}40`, borderRadius: 3, background: "transparent", color: T.text2, boxSizing: "border-box", minWidth: 55 }}
-                                  />
+                                <td key={m} style={{ padding: "1px 2px", position: "relative" }}>
+                                  <div style={{ display: "flex", alignItems: "center" }}>
+                                    <input
+                                      type="text"
+                                      defaultValue={val === 0 ? "" : (typeof val === "number" ? val.toLocaleString() : val)}
+                                      placeholder="—"
+                                      data-month-idx={mi}
+                                      data-gl={line.gl_account_name}
+                                      onPaste={e => handleMonthlyPaste(e, line.gl_account_name, cat.name, months)}
+                                      onBlur={e => {
+                                        const cleaned = Number(String(e.target.value).replace(/[$,\s]/g, "")) || 0;
+                                        if (cleaned !== (Number(val) || 0)) saveMonthBudget(line.gl_account_name, m, cleaned, cat.name);
+                                      }}
+                                      onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+                                      style={{ width: "100%", padding: "2px 2px", fontSize: 9, textAlign: "right", border: `1px solid ${T.border}40`, borderRadius: 3, background: "transparent", color: T.text2, boxSizing: "border-box", minWidth: 48 }}
+                                    />
+                                    {mi < months.length - 1 && (
+                                      <button
+                                        title="Fill forward →"
+                                        onClick={() => {
+                                          const inp = document.querySelector(`input[data-gl="${CSS.escape(line.gl_account_name)}"][data-month-idx="${mi}"]`);
+                                          const currentVal = inp ? (Number(String(inp.value).replace(/[$,\s]/g, "")) || 0) : (Number(val) || 0);
+                                          if (currentVal > 0) fillForward(line.gl_account_name, mi, currentVal, cat.name, months);
+                                        }}
+                                        style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 8, padding: "0 1px", opacity: 0.4, flexShrink: 0, lineHeight: 1 }}
+                                        onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                                        onMouseLeave={e => e.currentTarget.style.opacity = 0.4}
+                                      >→</button>
+                                    )}
+                                  </div>
                                 </td>
                               );
                             })}
