@@ -51,6 +51,7 @@ export default function LearningView({ modulePerms = {} }) {
   const [members, setMembers] = useState([]);
   const [teams, setTeams] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [allMemberships, setAllMemberships] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [activeLessonIdx, setActiveLessonIdx] = useState(0);
@@ -72,10 +73,22 @@ export default function LearningView({ modulePerms = {} }) {
   const [editingLesson, setEditingLesson] = useState(null); // lesson id being edited
   const [editLessonForm, setEditLessonForm] = useState({ title: "", content_type: "text", content: "", estimated_minutes: "" });
   const isAdmin = profile?.email?.includes("ben.smith@earthbreeze") || false;
-  // LMS Admin: full admin OR has learning.manage_courses permission
-  const isLmsAdmin = isAdmin || modulePerms["learning.manage_courses"] !== false;
-  const canAssign = isLmsAdmin || modulePerms["learning.assign_courses"] !== false;
-  const canViewAnalytics = isLmsAdmin || modulePerms["learning.view_analytics"] !== false;
+  // Check org membership role
+  const [myRole, setMyRole] = useState(null);
+  useEffect(() => {
+    if (!user?.id || !orgId) return;
+    (async () => {
+      const { data } = await supabase.from("org_memberships").select("role, module_permissions").eq("org_id", orgId).eq("user_id", user.id).maybeSingle();
+      setMyRole(data);
+    })();
+  }, [user?.id, orgId]);
+  const isOrgAdmin = isAdmin || myRole?.role === "owner" || myRole?.role === "admin";
+  const mp = myRole?.module_permissions || {};
+  // LMS Admin: org admin OR explicitly granted learning.manage_courses
+  const isLmsAdmin = isOrgAdmin || mp["learning.manage_courses"] === true;
+  const canAssign = isLmsAdmin || mp["learning.assign_courses"] === true;
+  const canViewAnalytics = isLmsAdmin || mp["learning.view_analytics"] === true;
+  const canEditContent = isLmsAdmin || mp["learning.edit_content"] === true;
 
   // Scroll to top when changing lessons
   useEffect(() => {
@@ -86,7 +99,7 @@ export default function LearningView({ modulePerms = {} }) {
   useEffect(() => {
     if (!user?.id) return;
     (async () => {
-      const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10] = await Promise.all([
+      const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11] = await Promise.all([
         supabase.from("lms_courses").select("*").eq("org_id", orgId).is("deleted_at", null).order("title"),
         supabase.from("lms_lessons").select("*").order("sort_order"),
         supabase.from("lms_quizzes").select("*"),
@@ -97,11 +110,12 @@ export default function LearningView({ modulePerms = {} }) {
         supabase.from("teams").select("*").is("deleted_at", null),
         supabase.from("team_members").select("*"),
         supabase.from("lms_progress").select("*").eq("org_id", orgId),
+        supabase.from("org_memberships").select("user_id, role, module_permissions").eq("org_id", orgId),
       ]);
       setCourses(r1.data||[]); setLessons(r2.data||[]); setQuizzes(r3.data||[]);
       setAssignments(r4.data||[]); setProgress(r5.data||[]); setQuizAttempts(r6.data||[]);
       setMembers(r7.data||[]); setTeams(r8.data||[]); setTeamMembers(r9.data||[]);
-      setAllProgress(r10.data||[]); setLoading(false);
+      setAllProgress(r10.data||[]); setAllMemberships(r11.data||[]); setLoading(false);
     })();
   }, [user?.id]);
 
@@ -414,7 +428,7 @@ export default function LearningView({ modulePerms = {} }) {
                   <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:6, background:cat.color+"15", color:cat.color }}>Lesson {activeLessonIdx+1} of {cL.length}</span>
                   {lessonDone && <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:6, background:G.greenDim, color:G.green }}>✓ Complete</span>}
                   {active.estimated_minutes && <span style={{ fontSize:11, color:G.text3 }}>~{active.estimated_minutes} min read</span>}
-                  {isLmsAdmin && editingLesson !== active.id && (
+                  {(isLmsAdmin || canEditContent) && editingLesson !== active.id && (
                     <button onClick={() => { setEditingLesson(active.id); setEditLessonForm({ title: active.title, content_type: active.content_type || "text", content: active.content || "", estimated_minutes: active.estimated_minutes || "" }); }}
                       style={{ fontSize:10, fontWeight:600, padding:"3px 10px", borderRadius:6, background:G.surface2, border:`1px solid ${G.border}`, color:G.text3, cursor:"pointer", marginLeft:"auto" }}>✎ Edit</button>
                   )}
@@ -565,7 +579,7 @@ export default function LearningView({ modulePerms = {} }) {
   const tabs = [
     { id:"my_learning", label:"My Learning", icon:"📖" },
     { id:"catalog", label:"Catalog", icon:"📚" },
-    ...(isLmsAdmin ? [{ id:"course_builder", label:"Builder", icon:"🏗️" }, { id:"manage", label:"Analytics", icon:"📊" }] : []),
+    ...(isLmsAdmin ? [{ id:"course_builder", label:"Builder", icon:"🏗️" }, { id:"manage", label:"Analytics", icon:"📊" }, { id:"permissions", label:"Permissions", icon:"🔑" }] : []),
   ];
 
   const filteredCatalog = publishedCourses.filter(c => {
@@ -792,6 +806,55 @@ export default function LearningView({ modulePerms = {} }) {
           </div>
         )}
       </div>
+
+      {/* ═══ PERMISSIONS ═══ */}
+      {view === "permissions" && isLmsAdmin && (() => {
+        const LEARNING_PERMS = [
+          { key: "learning.manage_courses", label: "Manage Courses", desc: "Create, edit, delete courses and lessons. Full admin access." },
+          { key: "learning.edit_content", label: "Edit Content", desc: "Edit lesson content and quiz questions within existing courses." },
+          { key: "learning.assign_courses", label: "Assign Courses", desc: "Assign courses to individual users or teams." },
+          { key: "learning.view_analytics", label: "View Analytics", desc: "View completion rates, quiz scores, and progress reports." },
+        ];
+        return (
+          <div style={{ maxWidth: 700, margin: "0 auto", padding: isMobile ? "20px 16px" : "32px 24px" }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: G.text, marginBottom: 4 }}>Learning Permissions</div>
+            <div style={{ fontSize: 12, color: G.text3, marginBottom: 20 }}>Control who can manage courses, edit content, assign training, and view analytics. Org admins and owners always have full access.</div>
+            {members.filter(m => m.id !== user?.id).map(m => {
+              const membership = allMemberships?.find(om => om.user_id === m.id);
+              const isUserAdmin = membership?.role === "owner" || membership?.role === "admin";
+              const userPerms = membership?.module_permissions || {};
+              return (
+                <div key={m.id} style={{ background: G.surface2, borderRadius: 12, padding: 14, marginBottom: 8, border: `1px solid ${G.border}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isUserAdmin ? 0 : 8 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: G.text }}>{m.display_name || m.email}</div>
+                      <div style={{ fontSize: 10, color: G.text3 }}>{m.email}{isUserAdmin ? ` · ${membership?.role} (full access)` : ""}</div>
+                    </div>
+                  </div>
+                  {!isUserAdmin && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                      {LEARNING_PERMS.map(p => {
+                        const enabled = userPerms[p.key] === true;
+                        return (
+                          <button key={p.key} title={p.desc}
+                            onClick={async () => {
+                              const newPerms = { ...userPerms, [p.key]: !enabled };
+                              await supabase.from("org_memberships").update({ module_permissions: newPerms }).eq("org_id", orgId).eq("user_id", m.id);
+                              setAllMemberships(prev => prev?.map(om => om.user_id === m.id ? { ...om, module_permissions: newPerms } : om));
+                            }}
+                            style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${enabled ? G.accent + "50" : G.border}`, background: enabled ? G.accent + "15" : "transparent", color: enabled ? G.accent : G.text3, cursor: "pointer" }}>
+                            <span style={{ fontSize: 12 }}>{enabled ? "✓" : "○"}</span> {p.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* ═══ MODALS ═══ */}
       {showNewCourse && (
