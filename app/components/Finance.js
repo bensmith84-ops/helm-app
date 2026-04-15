@@ -3895,9 +3895,10 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
 
   // Load QBO P&L + custom mappings + bills + purchases + monthly
   useEffect(() => {
+    if (!orgId) return;
     (async () => {
       const [{ data: pl }, { data: maps }, { data: bills }, { data: purchases }, { data: plm }] = await Promise.all([
-        supabase.from("qbo_pl").select("*").eq("classification", "Expense"),
+        supabase.from("qbo_pl").select("*").eq("org_id", orgId).eq("classification", "Expense"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
         supabase.from("qbo_bills").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }),
         supabase.from("qbo_purchases").select("*").eq("org_id", orgId).limit(5000).order("txn_date", { ascending: false }),
@@ -3909,7 +3910,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       setQboBills(allTxns);
       if (maps) { const m = {}; maps.forEach(r => { m[r.account_name] = r.ga_category; }); setCustomMappings(m); }
     })();
-  }, []);
+  }, [orgId]);
 
   // Map QBO accounts to GA categories — filtered by selected budget year
   const qboByCategory = {};
