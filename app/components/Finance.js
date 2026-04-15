@@ -3932,6 +3932,11 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     "T&E": "Travel & Entertainment",
     "Non-Fixed and Other": "Non-Fixed & Other",
   };
+  // Populate budget-name aliases so lookups by either name work
+  Object.entries(QBO_TO_BUDGET_MAP).forEach(([qboName, budgetName]) => {
+    if (qboByCategory[qboName] && !qboByCategory[budgetName]) qboByCategory[budgetName] = qboByCategory[qboName];
+    if (qboByCategory[budgetName] && !qboByCategory[qboName]) qboByCategory[qboName] = qboByCategory[budgetName];
+  });
   // Get P&L accounts mapped to a given budget category name
   const getAccountsForCat = (catName) => {
     const reverseMap = {};
