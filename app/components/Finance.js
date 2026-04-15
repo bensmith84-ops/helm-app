@@ -3883,8 +3883,9 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [detailMode, setDetailMode] = useState("accounts");
   const [budgetTab, setBudgetTab] = useState("cards");
   const [budgetYear, setBudgetYear] = useState(new Date().getFullYear());
-  const [addingGLToCat, setAddingGLToCat] = useState(null); // category name being added to
+  const [addingGLToCat, setAddingGLToCat] = useState(null);
   const [glSearch, setGlSearch] = useState("");
+  const [expandedMonthCats, setExpandedMonthCats] = useState(new Set());
 
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
@@ -4240,6 +4241,62 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   ])].sort();
   const unmappedAccounts = allPLAccounts.filter(a => !customMappings[a]);
 
+  // Save a single month budget amount for a GL line
+  const saveMonthBudget = async (glAccountName, monthKey, amount, categoryName) => {
+    if (!activeFinBudgetId) return;
+    const existing = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
+    if (existing) {
+      const newMonthly = { ...(existing.monthly_amounts || {}), [monthKey]: amount };
+      await supabase.from("fin_budget_lines").update({ monthly_amounts: newMonthly, category_name: categoryName }).eq("id", existing.id);
+      const newLines = budgetLines.map(l => l.id === existing.id ? { ...l, monthly_amounts: newMonthly, category_name: categoryName } : l);
+      setBudgetLines(newLines);
+    } else {
+      const { data } = await supabase.from("fin_budget_lines").insert({
+        budget_id: activeFinBudgetId, gl_account_name: glAccountName,
+        monthly_amounts: { [monthKey]: amount }, category_name: categoryName,
+        description: glAccountName,
+      }).select().single();
+      if (data) setBudgetLines(p => [...p, data]);
+    }
+  };
+
+  // Handle paste from spreadsheet — expects tab-separated values for 12 months
+  const handleMonthlyPaste = async (e, glAccountName, categoryName, months) => {
+    const text = e.clipboardData?.getData("text");
+    if (!text || !text.includes("\t")) return;
+    e.preventDefault();
+    const values = text.split("\t").map(v => {
+      const cleaned = v.replace(/[$,\s"]/g, "").trim();
+      return cleaned === "" || cleaned === "-" || cleaned === "—" ? 0 : Number(cleaned) || 0;
+    });
+    if (values.length === 0) return;
+    // Map pasted values to months starting from the focused cell
+    const existing = budgetLines.find(l => l.budget_id === activeFinBudgetId && l.gl_account_name === glAccountName);
+    const newMonthly = { ...(existing?.monthly_amounts || {}) };
+    // Figure out which month the paste started from
+    const input = e.target;
+    const monthIdx = parseInt(input.dataset?.monthIdx || "0");
+    for (let i = 0; i < values.length && (monthIdx + i) < months.length; i++) {
+      newMonthly[months[monthIdx + i]] = values[i];
+    }
+    if (existing) {
+      await supabase.from("fin_budget_lines").update({ monthly_amounts: newMonthly, category_name: categoryName }).eq("id", existing.id);
+      setBudgetLines(p => p.map(l => l.id === existing.id ? { ...l, monthly_amounts: newMonthly, category_name: categoryName } : l));
+    } else {
+      const { data } = await supabase.from("fin_budget_lines").insert({
+        budget_id: activeFinBudgetId, gl_account_name: glAccountName,
+        monthly_amounts: newMonthly, category_name: categoryName, description: glAccountName,
+      }).select().single();
+      if (data) setBudgetLines(p => [...p, data]);
+    }
+  };
+
+  const toggleMonthCat = (catName) => setExpandedMonthCats(prev => {
+    const next = new Set(prev);
+    next.has(catName) ? next.delete(catName) : next.add(catName);
+    return next;
+  });
+
   const ini = (uid) => { const p = orgProfiles.find(pr => pr.id === uid); return p?.display_name ? p.display_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const uname = (uid) => orgProfiles.find(p => p.id === uid)?.display_name || "Unknown";
 
@@ -4375,36 +4432,86 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                   const qboYTD = months.reduce((s, m) => s + getMonthCatActual(cat.name, m), 0);
                   const budgetYTD = cat.companyBudget || 0;
                   const variance = budgetYTD - qboYTD;
+                  const isMonthExpanded = expandedMonthCats.has(cat.name);
+                  // Get GL lines for this category
+                  const catLines = activeFinBudgetId
+                    ? budgetLines.filter(l => l.budget_id === activeFinBudgetId && l.category_name === cat.name)
+                    : [];
                   return (
-                    <tr key={cat.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>
-                        <span style={{ marginRight: 6 }}>{cat.icon}</span>{cat.name}
-                      </td>
-                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: budgetYTD ? T.text : T.text3 }}>{budgetYTD ? fmtK(budgetYTD) : "—"}</td>
-                      {months.map(m => {
-                        const actual = getMonthCatActual(cat.name, m);
-                        const budget = getCatMonthBudget(cat.name, m);
-                        const hasBudget = budget > 0;
-                        const overBudget = hasBudget && actual > budget * 1.05;
-                        return (
-                          <td key={m} style={{ padding: "4px 6px", textAlign: "right", fontSize: 10, verticalAlign: "top" }}>
-                            {hasBudget && <div style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 600 }}>{fmtK(budget)}</div>}
-                            <div style={{ fontWeight: actual > 0 ? 600 : 400, color: actual === 0 ? T.text3 + "40" : overBudget ? "#ef4444" : isFuture(m) ? T.text3 : T.text2 }}>
-                              {actual === 0 ? "—" : fmtK(actual)}
-                            </div>
-                            {hasBudget && actual > 0 && (
-                              <div style={{ fontSize: 8, color: actual <= budget ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
-                                {actual <= budget ? "✓" : `+${fmtK(actual - budget)}`}
+                    <React.Fragment key={cat.id}>
+                      {/* Category summary row */}
+                      <tr style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => toggleMonthCat(cat.name)}>
+                        <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>
+                          <span style={{ fontSize: 9, color: T.text3, marginRight: 4 }}>{isMonthExpanded ? "▼" : "▶"}</span>
+                          <span style={{ marginRight: 6 }}>{cat.icon}</span>{cat.name}
+                          {catLines.length > 0 && <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>({catLines.length})</span>}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: budgetYTD ? T.text : T.text3 }}>{budgetYTD ? fmtK(budgetYTD) : "—"}</td>
+                        {months.map(m => {
+                          const actual = getMonthCatActual(cat.name, m);
+                          const budget = getCatMonthBudget(cat.name, m);
+                          const hasBudget = budget > 0;
+                          const overBudget = hasBudget && actual > budget * 1.05;
+                          return (
+                            <td key={m} style={{ padding: "4px 6px", textAlign: "right", fontSize: 10, verticalAlign: "top" }}>
+                              {hasBudget && <div style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 600 }}>{fmtK(budget)}</div>}
+                              <div style={{ fontWeight: actual > 0 ? 600 : 400, color: actual === 0 ? T.text3 + "40" : overBudget ? "#ef4444" : isFuture(m) ? T.text3 : T.text2 }}>
+                                {actual === 0 ? "—" : fmtK(actual)}
                               </div>
-                            )}
-                          </td>
+                              {hasBudget && actual > 0 && (
+                                <div style={{ fontSize: 8, color: actual <= budget ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+                                  {actual <= budget ? "✓" : `+${fmtK(actual - budget)}`}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: T.accent }}>{qboYTD > 0 ? fmtK(qboYTD) : "—"}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: budgetYTD === 0 ? T.text3 : variance >= 0 ? T.green : T.red }}>
+                          {budgetYTD === 0 ? "—" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
+                        </td>
+                      </tr>
+                      {/* Expanded GL line rows */}
+                      {isMonthExpanded && catLines.map(line => {
+                        const lineAnnual = Object.entries(line.monthly_amounts || {})
+                          .filter(([k]) => k.startsWith(`${budgetYear}-`))
+                          .reduce((s, [, v]) => s + (Number(v) || 0), 0);
+                        return (
+                          <tr key={line.id} style={{ background: T.surface2 + "60", borderBottom: `1px solid ${T.border}08` }}>
+                            <td style={{ padding: "4px 12px 4px 32px", fontSize: 10, color: T.text2, position: "sticky", left: 0, background: T.surface2 + "60", zIndex: 1 }}>
+                              {line.gl_account_name}
+                            </td>
+                            <td style={{ padding: "4px 10px", textAlign: "right", fontSize: 10, fontWeight: 500, color: lineAnnual > 0 ? T.text2 : T.text3 }}>
+                              {lineAnnual > 0 ? fmtK(lineAnnual) : "—"}
+                            </td>
+                            {months.map((m, mi) => {
+                              const val = line.monthly_amounts?.[m] ?? "";
+                              return (
+                                <td key={m} style={{ padding: "2px 3px" }}>
+                                  <input
+                                    type="text"
+                                    defaultValue={val === 0 ? "" : (typeof val === "number" ? val.toLocaleString() : val)}
+                                    placeholder="—"
+                                    data-month-idx={mi}
+                                    onPaste={e => handleMonthlyPaste(e, line.gl_account_name, cat.name, months)}
+                                    onBlur={e => {
+                                      const cleaned = Number(String(e.target.value).replace(/[$,\s]/g, "")) || 0;
+                                      if (cleaned !== (Number(val) || 0)) saveMonthBudget(line.gl_account_name, m, cleaned, cat.name);
+                                    }}
+                                    onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Tab") { /* allow default tab */ } }}
+                                    style={{ width: "100%", padding: "2px 4px", fontSize: 9, textAlign: "right", border: `1px solid ${T.border}40`, borderRadius: 3, background: "transparent", color: T.text2, boxSizing: "border-box", minWidth: 55 }}
+                                  />
+                                </td>
+                              );
+                            })}
+                            <td style={{ padding: "4px 10px", textAlign: "right", fontSize: 10, color: T.text3 }}>
+                              {lineAnnual > 0 ? fmtK(lineAnnual) : "—"}
+                            </td>
+                            <td style={{ padding: "4px 10px" }}></td>
+                          </tr>
                         );
                       })}
-                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: T.accent }}>{qboYTD > 0 ? fmtK(qboYTD) : "—"}</td>
-                      <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: budgetYTD === 0 ? T.text3 : variance >= 0 ? T.green : T.red }}>
-                        {budgetYTD === 0 ? "—" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
-                      </td>
-                    </tr>
+                    </React.Fragment>
                   );
                 })}
                 {/* Total row */}
