@@ -3889,6 +3889,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const [checkedLines, setCheckedLines] = useState(new Set()); // "all" by default = empty means all checked
   const [uncheckedLines, setUncheckedLines] = useState(new Set()); // track unchecked lines
   const [uncheckedCats, setUncheckedCats] = useState(new Set()); // track unchecked categories
+  const [mapSearch, setMapSearch] = useState("");
 
   const fmtK = n => Math.abs(n) >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(0)}K` : fmt(n);
 
@@ -4436,6 +4437,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
           <button onClick={() => setBudgetTab("cards")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "cards" ? T.accent : T.surface2, color: budgetTab === "cards" ? "#fff" : T.text3 }}>Category Cards</button>
           {canMonthly && <button onClick={() => setBudgetTab("monthly")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "monthly" ? T.accent : T.surface2, color: budgetTab === "monthly" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>Monthly View</button>}
+          <button onClick={() => setBudgetTab("mapping")} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: budgetTab === "mapping" ? T.accent : T.surface2, color: budgetTab === "mapping" ? "#fff" : T.text3, borderLeft: `1px solid ${T.border}` }}>GL Mapping</button>
         </div>
         {availableYears.length > 1 && (
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -4853,6 +4855,89 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
           </Card>
         );
       })}
+
+      {/* GL Mapping tab */}
+      {budgetTab === "mapping" && (() => {
+        // Get all unique budget category names from budgetData + budget lines
+        const budgetCategoryNames = [...new Set([
+          ...budgetData.map(c => c.name),
+          ...budgetLines.filter(l => l.budget_id === activeFinBudgetId && l.category_name).map(l => l.category_name),
+        ])].sort();
+        // Build full list: all QBO P&L accounts + budget-only accounts
+        const allAccounts = [...new Set([
+          ...qboPL.map(r => r.account_name),
+          ...budgetLines.filter(l => l.budget_id === activeFinBudgetId && l.gl_account_name).map(l => l.gl_account_name),
+        ])].sort();
+        const filtered = mapSearch ? allAccounts.filter(a => a.toLowerCase().includes(mapSearch.toLowerCase())) : allAccounts;
+        // Group by current mapping
+        const grouped = {};
+        budgetCategoryNames.forEach(c => { grouped[c] = []; });
+        grouped["Unmapped"] = [];
+        filtered.forEach(a => {
+          const cat = customMappings[a];
+          if (cat && grouped[cat]) { grouped[cat].push(a); }
+          else if (cat) { if (!grouped[cat]) grouped[cat] = []; grouped[cat].push(a); }
+          else { grouped["Unmapped"].push(a); }
+        });
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>GL Account → Category Mapping</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>{allAccounts.length} GL accounts · {Object.keys(customMappings).length} mapped · {allAccounts.length - Object.keys(customMappings).length} unmapped</div>
+              </div>
+              <input value={mapSearch} onChange={e => setMapSearch(e.target.value)} placeholder="Search GL accounts…"
+                style={{ padding: "7px 12px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text, width: 220, boxSizing: "border-box" }} />
+            </div>
+            {/* Unmapped first if any */}
+            {grouped["Unmapped"]?.length > 0 && (
+              <div style={{ background: "#fef3c7", border: "1px solid #f59e0b40", borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", marginBottom: 8 }}>⚠️ Unmapped ({grouped["Unmapped"].length})</div>
+                {grouped["Unmapped"].map(acctName => {
+                  const amount = qboPL.find(r => r.account_name === acctName);
+                  return (
+                    <div key={acctName} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px solid #f59e0b20" }}>
+                      <div style={{ flex: 1, fontSize: 11, color: "#78350f" }}>{acctName}</div>
+                      {amount && <span style={{ fontSize: 10, color: "#92400e", minWidth: 60, textAlign: "right" }}>{fmtK(Math.abs(Number(amount.amount)))}</span>}
+                      <select value="" onChange={e => { if (e.target.value) addGLToCategory(acctName, e.target.value); }}
+                        style={{ padding: "3px 6px", fontSize: 10, border: "1px solid #f59e0b60", borderRadius: 4, background: "#fffbeb", color: "#78350f", minWidth: 140 }}>
+                        <option value="">Assign to…</option>
+                        {budgetCategoryNames.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* Mapped categories */}
+            {budgetCategoryNames.filter(c => (grouped[c]?.length || 0) > 0).map(catName => {
+              const catIcon = budgetData.find(b => b.name === catName)?.icon || "📁";
+              return (
+                <div key={catName} style={{ background: T.surface2, borderRadius: 10, padding: 12, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>{catIcon} {catName} <span style={{ fontSize: 10, fontWeight: 500, color: T.text3 }}>({grouped[catName].length})</span></div>
+                  {grouped[catName].map(acctName => {
+                    const amount = qboPL.find(r => r.account_name === acctName);
+                    return (
+                      <div key={acctName} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0", borderBottom: `1px solid ${T.border}10` }}>
+                        <div style={{ flex: 1, fontSize: 11, color: T.text2 }}>{acctName}</div>
+                        {amount && <span style={{ fontSize: 10, color: T.text3, minWidth: 60, textAlign: "right" }}>{fmtK(Math.abs(Number(amount.amount)))}</span>}
+                        <select value={catName} onChange={e => {
+                          if (e.target.value === "__remove__") { removeGLFromCategory(acctName); }
+                          else if (e.target.value !== catName) { addGLToCategory(acctName, e.target.value); }
+                        }}
+                          style={{ padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text2, minWidth: 140 }}>
+                          {budgetCategoryNames.map(c => <option key={c} value={c}>{c}</option>)}
+                          <option value="__remove__">— Remove mapping —</option>
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Save modal */}
       {showSave && (
