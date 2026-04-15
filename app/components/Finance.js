@@ -4034,6 +4034,17 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     }
   }, [activeFinBudgetId, budgetLines.length, budgetYear]);
 
+  const isLineChecked = (glName) => !uncheckedLines.has(glName);
+  const isCatChecked = (catName) => !uncheckedCats.has(catName);
+  const toggleLine = (glName) => {
+    setUncheckedLines(prev => { const next = new Set(prev); next.has(glName) ? next.delete(glName) : next.add(glName); return next; });
+  };
+  const toggleCat = (catName, catLines) => {
+    const allChecked = isCatChecked(catName) && catLines.every(l => isLineChecked(l.gl_account_name));
+    setUncheckedCats(prev => { const next = new Set(prev); allChecked ? next.add(catName) : next.delete(catName); return next; });
+    setUncheckedLines(prev => { const next = new Set(prev); if (allChecked) { catLines.forEach(l => next.add(l.gl_account_name)); } else { catLines.forEach(l => next.delete(l.gl_account_name)); } return next; });
+  };
+
   const hasFilters = uncheckedLines.size > 0 || uncheckedCats.size > 0;
   // Compute filtered budget total from checked lines only
   const getFilteredBudgetTotal = () => {
@@ -4350,34 +4361,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     return next;
   });
 
-  const isLineChecked = (glName) => !uncheckedLines.has(glName);
-  const isCatChecked = (catName) => !uncheckedCats.has(catName);
 
-  const toggleLine = (glName) => {
-    setUncheckedLines(prev => {
-      const next = new Set(prev);
-      next.has(glName) ? next.delete(glName) : next.add(glName);
-      return next;
-    });
-  };
-
-  const toggleCat = (catName, catLines) => {
-    const allChecked = isCatChecked(catName) && catLines.every(l => isLineChecked(l.gl_account_name));
-    setUncheckedCats(prev => {
-      const next = new Set(prev);
-      allChecked ? next.add(catName) : next.delete(catName);
-      return next;
-    });
-    setUncheckedLines(prev => {
-      const next = new Set(prev);
-      if (allChecked) {
-        catLines.forEach(l => next.add(l.gl_account_name));
-      } else {
-        catLines.forEach(l => next.delete(l.gl_account_name));
-      }
-      return next;
-    });
-  };
 
   const ini = (uid) => { const p = orgProfiles.find(pr => pr.id === uid); return p?.display_name ? p.display_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "?"; };
   const uname = (uid) => orgProfiles.find(p => p.id === uid)?.display_name || "Unknown";
@@ -4492,22 +4476,6 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         };
         const monthlyActualTotals = months.map(m => budgetData.reduce((s, cat) => s + getMonthCatActual(cat.name, m), 0));
         const monthlyBudgetTotals = months.map(m => budgetData.reduce((s, cat) => s + getCatMonthBudget(cat.name, m), 0));
-        // Filtered totals - only checked lines
-        const getFilteredMonthBudget = (m) => {
-          if (!activeFinBudgetId) return 0;
-          return budgetLines
-            .filter(l => l.budget_id === activeFinBudgetId && isCatChecked(l.category_name) && isLineChecked(l.gl_account_name))
-            .reduce((s, l) => s + (Number(l.monthly_amounts?.[m]) || 0), 0);
-        };
-        const getFilteredMonthActual = (m) => {
-          if (budgetYear === 2025 && activeFinBudgetId) return getFilteredMonthBudget(m);
-          return budgetData.filter(c => isCatChecked(c.name)).reduce((s, cat) => s + getMonthCatActual(cat.name, m), 0);
-        };
-        const filteredBudgetTotals = months.map(m => getFilteredMonthBudget(m));
-        const filteredActualTotals = months.map(m => getFilteredMonthActual(m));
-        const filteredBudgetAnnual = filteredBudgetTotals.reduce((s, v) => s + v, 0);
-        const filteredActualAnnual = filteredActualTotals.reduce((s, v) => s + v, 0);
-        const hasFilters = uncheckedLines.size > 0 || uncheckedCats.size > 0;
         return (
           <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
