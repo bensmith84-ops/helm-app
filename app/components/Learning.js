@@ -69,6 +69,8 @@ export default function LearningView({ modulePerms = {} }) {
   const [catFilter, setCatFilter] = useState("all");
   const [searchQ, setSearchQ] = useState("");
   const [courseStarted, setCourseStarted] = useState(false);
+  const [editingLesson, setEditingLesson] = useState(null); // lesson id being edited
+  const [editLessonForm, setEditLessonForm] = useState({ title: "", content_type: "text", content: "", estimated_minutes: "" });
   const isAdmin = profile?.email?.includes("ben.smith@earthbreeze") || false;
   // LMS Admin: full admin OR has learning.manage_courses permission
   const isLmsAdmin = isAdmin || modulePerms["learning.manage_courses"] !== false;
@@ -179,6 +181,14 @@ export default function LearningView({ modulePerms = {} }) {
   };
 
   const deleteLesson = async lid => { if(!window.confirm("Delete this lesson?")) return; await supabase.from("lms_lessons").delete().eq("id",lid); setLessons(p=>p.filter(l=>l.id!==lid)); };
+
+  const updateLesson = async () => {
+    if (!editingLesson || !editLessonForm.title.trim()) return;
+    const updates = { title: editLessonForm.title, content_type: editLessonForm.content_type, content: editLessonForm.content, estimated_minutes: editLessonForm.estimated_minutes ? parseInt(editLessonForm.estimated_minutes) : null };
+    await supabase.from("lms_lessons").update(updates).eq("id", editingLesson);
+    setLessons(p => p.map(l => l.id === editingLesson ? { ...l, ...updates } : l));
+    setEditingLesson(null);
+  };
 
   const saveQuiz = async () => {
     if(!showQuizBuilder) return;
@@ -400,26 +410,72 @@ export default function LearningView({ modulePerms = {} }) {
             {active ? (
               <>
                 {/* Lesson header */}
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
                   <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:6, background:cat.color+"15", color:cat.color }}>Lesson {activeLessonIdx+1} of {cL.length}</span>
                   {lessonDone && <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:6, background:G.greenDim, color:G.green }}>✓ Complete</span>}
                   {active.estimated_minutes && <span style={{ fontSize:11, color:G.text3 }}>~{active.estimated_minutes} min read</span>}
+                  {isLmsAdmin && editingLesson !== active.id && (
+                    <button onClick={() => { setEditingLesson(active.id); setEditLessonForm({ title: active.title, content_type: active.content_type || "text", content: active.content || "", estimated_minutes: active.estimated_minutes || "" }); }}
+                      style={{ fontSize:10, fontWeight:600, padding:"3px 10px", borderRadius:6, background:G.surface2, border:`1px solid ${G.border}`, color:G.text3, cursor:"pointer", marginLeft:"auto" }}>✎ Edit</button>
+                  )}
                 </div>
-                <h1 style={{ fontSize:26, fontWeight:800, color:G.text, lineHeight:1.3, margin:"8px 0 20px" }}>{active.title}</h1>
 
-                {/* Content */}
-                {active.content_type === "text" && (
-                  <div style={{ marginBottom:32 }}>{renderContent(active.content)}</div>
-                )}
-                {active.content_type === "video" && active.content && (
-                  <div style={{ position:"relative", paddingBottom:"56.25%", height:0, borderRadius:12, overflow:"hidden", marginBottom:24, boxShadow:`0 4px 20px rgba(0,0,0,0.15)` }}>
-                    <iframe src={active.content.replace("watch?v=","embed/").replace("youtu.be/","youtube.com/embed/")} style={{ position:"absolute", top:0, left:0, width:"100%", height:"100%", border:"none" }} allowFullScreen />
+                {/* Editing mode */}
+                {editingLesson === active.id ? (
+                  <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:24 }}>
+                    <div>
+                      <div style={{ fontSize:10, fontWeight:600, color:G.text3, marginBottom:3 }}>Lesson Title</div>
+                      <input value={editLessonForm.title} onChange={e => setEditLessonForm(f => ({...f, title: e.target.value}))}
+                        style={{ width:"100%", padding:"10px 14px", fontSize:16, fontWeight:700, border:`1px solid ${G.border}`, borderRadius:10, background:G.surface2, color:G.text, boxSizing:"border-box" }} />
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                      <div>
+                        <div style={{ fontSize:10, fontWeight:600, color:G.text3, marginBottom:3 }}>Content Type</div>
+                        <select value={editLessonForm.content_type} onChange={e => setEditLessonForm(f => ({...f, content_type: e.target.value}))}
+                          style={{ width:"100%", padding:"8px 12px", fontSize:12, border:`1px solid ${G.border}`, borderRadius:8, background:G.surface2, color:G.text }}>
+                          <option value="text">Text / Markdown</option>
+                          <option value="video">Video (YouTube/Embed URL)</option>
+                          <option value="document">Document (URL)</option>
+                          <option value="link">External Link</option>
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:10, fontWeight:600, color:G.text3, marginBottom:3 }}>Est. Minutes</div>
+                        <input type="number" value={editLessonForm.estimated_minutes} onChange={e => setEditLessonForm(f => ({...f, estimated_minutes: e.target.value}))}
+                          style={{ width:"100%", padding:"8px 12px", fontSize:12, border:`1px solid ${G.border}`, borderRadius:8, background:G.surface2, color:G.text, boxSizing:"border-box" }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:10, fontWeight:600, color:G.text3, marginBottom:3 }}>Content</div>
+                      <textarea value={editLessonForm.content} onChange={e => setEditLessonForm(f => ({...f, content: e.target.value}))}
+                        rows={20}
+                        style={{ width:"100%", padding:"12px 14px", fontSize:13, lineHeight:1.7, border:`1px solid ${G.border}`, borderRadius:10, background:G.surface2, color:G.text, boxSizing:"border-box", fontFamily:"inherit", resize:"vertical" }} />
+                    </div>
+                    <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+                      <button onClick={() => setEditingLesson(null)} style={{ padding:"8px 16px", fontSize:12, background:G.surface2, border:`1px solid ${G.border}`, borderRadius:8, color:G.text3, cursor:"pointer" }}>Cancel</button>
+                      <button onClick={() => { deleteLesson(active.id); setEditingLesson(null); }} style={{ padding:"8px 16px", fontSize:12, background:"#ef444415", border:"1px solid #ef444440", borderRadius:8, color:"#ef4444", cursor:"pointer", fontWeight:600 }}>Delete</button>
+                      <button onClick={updateLesson} disabled={!editLessonForm.title.trim()} style={{ padding:"8px 20px", fontSize:12, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:8, cursor:"pointer" }}>Save Changes</button>
+                    </div>
                   </div>
-                )}
-                {(active.content_type === "document" || active.content_type === "link") && active.content && (
-                  <a href={active.content} target="_blank" rel="noopener noreferrer" style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"14px 24px", background:G.accentDim, color:G.accent, borderRadius:12, fontSize:14, fontWeight:600, textDecoration:"none", border:`1px solid ${G.accent}25`, marginBottom:24 }}>
-                    {active.content_type === "document" ? "📎 Open Document" : "🔗 Open Link"} →
-                  </a>
+                ) : (
+                  <>
+                    <h1 style={{ fontSize:26, fontWeight:800, color:G.text, lineHeight:1.3, margin:"8px 0 20px" }}>{active.title}</h1>
+
+                    {/* Content */}
+                    {active.content_type === "text" && (
+                      <div style={{ marginBottom:32 }}>{renderContent(active.content)}</div>
+                    )}
+                    {active.content_type === "video" && active.content && (
+                      <div style={{ position:"relative", paddingBottom:"56.25%", height:0, borderRadius:12, overflow:"hidden", marginBottom:24, boxShadow:`0 4px 20px rgba(0,0,0,0.15)` }}>
+                        <iframe src={active.content.replace("watch?v=","embed/").replace("youtu.be/","youtube.com/embed/")} style={{ position:"absolute", top:0, left:0, width:"100%", height:"100%", border:"none" }} allowFullScreen />
+                      </div>
+                    )}
+                    {(active.content_type === "document" || active.content_type === "link") && active.content && (
+                      <a href={active.content} target="_blank" rel="noopener noreferrer" style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"14px 24px", background:G.accentDim, color:G.accent, borderRadius:12, fontSize:14, fontWeight:600, textDecoration:"none", border:`1px solid ${G.accent}25`, marginBottom:24 }}>
+                        {active.content_type === "document" ? "📎 Open Document" : "🔗 Open Link"} →
+                      </a>
+                    )}
+                  </>
                 )}
               </>
             ) : (
