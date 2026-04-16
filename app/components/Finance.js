@@ -2531,6 +2531,8 @@ function PLExplorer({ isMobile }) {
   const [expandedRow, setExpandedRow] = useState(null);
   const [viewMode, setViewMode] = useState("monthly"); // monthly, quarterly, ytd
   const [showType, setShowType] = useState("all"); // all, revenue, expense
+  const [showExport, setShowExport] = useState(false);
+  const [exportOpts, setExportOpts] = useState({ startMonth: "", endMonth: "", granularity: "monthly", detail: "accounts", includeVendors: false });
 
   useEffect(() => {
     (async () => {
@@ -2625,6 +2627,10 @@ function PLExplorer({ isMobile }) {
               <button key={k} onClick={() => setShowType(k)} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: showType === k ? T.accent : T.surface2, color: showType === k ? "#fff" : T.text3, borderRight: `1px solid ${T.border}` }}>{l}</button>
             ))}
           </div>
+          <button onClick={() => { setExportOpts(o => ({ ...o, startMonth: months[0] || "", endMonth: months[months.length - 1] || "" })); setShowExport(true); }}
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 12px", fontSize: 11, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text2, cursor: "pointer" }}>
+            📥 Export
+          </button>
         </div>
       </div>
 
@@ -2717,6 +2723,172 @@ function PLExplorer({ isMobile }) {
           </tbody>
         </table>
       </div>
+
+      {/* Export Modal */}
+      {showExport && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowExport(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, padding: 24, width: "min(480px, 95vw)", border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: T.text, marginBottom: 16 }}>📥 Export P&L</div>
+
+            {/* Time Period */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Time Period</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select value={exportOpts.startMonth} onChange={e => setExportOpts(o => ({ ...o, startMonth: e.target.value }))}
+                  style={{ flex: 1, padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }}>
+                  {months.map(m => <option key={m} value={m}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "long", year: "numeric" })}</option>)}
+                </select>
+                <span style={{ color: T.text3, fontSize: 11 }}>to</span>
+                <select value={exportOpts.endMonth} onChange={e => setExportOpts(o => ({ ...o, endMonth: e.target.value }))}
+                  style={{ flex: 1, padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }}>
+                  {months.map(m => <option key={m} value={m}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "long", year: "numeric" })}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Granularity */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Group By</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {[["daily","Day"],["weekly","Week"],["monthly","Month"],["quarterly","Quarter"]].map(([k,l]) => (
+                  <button key={k} onClick={() => setExportOpts(o => ({ ...o, granularity: k }))}
+                    style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: `1px solid ${exportOpts.granularity === k ? T.accent : T.border}`, borderRadius: 6, background: exportOpts.granularity === k ? T.accent + "15" : T.surface2, color: exportOpts.granularity === k ? T.accent : T.text3, cursor: "pointer" }}>{l}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Detail Level */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 4 }}>Detail Level</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {[["summary","Summary (Totals Only)"],["accounts","GL Accounts"],["transactions","All Transactions"]].map(([k,l]) => (
+                  <button key={k} onClick={() => setExportOpts(o => ({ ...o, detail: k }))}
+                    style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: `1px solid ${exportOpts.detail === k ? T.accent : T.border}`, borderRadius: 6, background: exportOpts.detail === k ? T.accent + "15" : T.surface2, color: exportOpts.detail === k ? T.accent : T.text3, cursor: "pointer" }}>{l}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Vendor Breakdown */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={exportOpts.includeVendors} onChange={e => setExportOpts(o => ({ ...o, includeVendors: e.target.checked }))}
+                  style={{ width: 16, height: 16, accentColor: T.accent }} />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>Include vendor breakdown</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>Adds a sheet with spend by vendor per GL account</div>
+                </div>
+              </label>
+            </div>
+
+            {/* Export Button */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowExport(false)} style={{ padding: "8px 16px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2, color: T.text3, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => {
+                // Build CSV export
+                const { startMonth, endMonth, granularity, detail, includeVendors } = exportOpts;
+                const filteredMonths = months.filter(m => m >= startMonth && m <= endMonth);
+                if (filteredMonths.length === 0) return;
+
+                // Helper: group months by granularity
+                const getBuckets = () => {
+                  if (granularity === "monthly") return filteredMonths.map(m => ({ key: m, label: new Date(m + "-15").toLocaleDateString("en-US", { month: "short", year: "numeric" }), months: [m] }));
+                  if (granularity === "quarterly") {
+                    const qMap = {};
+                    filteredMonths.forEach(m => { const q = `Q${Math.ceil(parseInt(m.slice(5)) / 3)} ${m.slice(0, 4)}`; if (!qMap[q]) qMap[q] = { key: q, label: q, months: [] }; qMap[q].months.push(m); });
+                    return Object.values(qMap);
+                  }
+                  if (granularity === "daily" || granularity === "weekly") {
+                    // For daily/weekly, we need transaction-level data
+                    return filteredMonths.map(m => ({ key: m, label: new Date(m + "-15").toLocaleDateString("en-US", { month: "short", year: "numeric" }), months: [m] }));
+                  }
+                  return filteredMonths.map(m => ({ key: m, label: m, months: [m] }));
+                };
+                const buckets = getBuckets();
+
+                // Build rows
+                const rows = [];
+                const accts = allAccounts.filter(a => showType === "all" || (showType === "revenue" ? getClassification(a) === "Revenue" : getClassification(a) === "Expense")).sort();
+
+                // Header row
+                const header = ["Account", "Classification", ...buckets.map(b => b.label), "Total"];
+                rows.push(header);
+
+                if (detail === "summary") {
+                  // Revenue total, Expense total, Net
+                  const revAccts = allAccounts.filter(a => getClassification(a) === "Revenue");
+                  const expAccts = allAccounts.filter(a => getClassification(a) === "Expense");
+                  const revRow = ["Total Revenue", "Revenue", ...buckets.map(b => b.months.reduce((s, m) => s + revAccts.reduce((s2, a) => s2 + Math.abs(Number(plMonthly.find(r => r.period_month === m && r.account_name === a)?.amount) || 0), 0), 0))];
+                  revRow.push(revRow.slice(2).reduce((s, v) => s + v, 0));
+                  const expRow = ["Total Expenses", "Expense", ...buckets.map(b => b.months.reduce((s, m) => s + Math.abs(Number(plMonthly.find(r => r.period_month === m && r.account_name === a)?.amount) || 0), 0))];
+                  // Fix: compute expense row properly
+                  const expRowFixed = ["Total Expenses", "Expense", ...buckets.map(b => b.months.reduce((s, m) => s + expAccts.reduce((s2, a) => s2 + Math.abs(Number(plMonthly.find(r => r.period_month === m && r.account_name === a)?.amount) || 0), 0), 0))];
+                  expRowFixed.push(expRowFixed.slice(2).reduce((s, v) => s + v, 0));
+                  rows.push(revRow);
+                  rows.push(expRowFixed);
+                  const netRow = ["Net Income", "", ...buckets.map((b, i) => revRow[i + 2] - expRowFixed[i + 2])];
+                  netRow.push(netRow.slice(2).reduce((s, v) => s + v, 0));
+                  rows.push(netRow);
+                } else {
+                  accts.forEach(acct => {
+                    const vals = buckets.map(b => b.months.reduce((s, m) => s + (Number(plMonthly.find(r => r.period_month === m && r.account_name === acct)?.amount) || 0), 0));
+                    const total = vals.reduce((s, v) => s + v, 0);
+                    if (Math.abs(total) > 0) rows.push([acct, getClassification(acct), ...vals, total]);
+                  });
+                }
+
+                // Vendor sheet data
+                let vendorRows = [];
+                if (includeVendors) {
+                  vendorRows.push(["Vendor", "GL Account", "Date", "Amount", "Memo"]);
+                  const allTxns = [...bills, ...purchases].filter(t => {
+                    if (!t.txn_date) return false;
+                    const m = t.txn_date.slice(0, 7);
+                    return m >= startMonth && m <= endMonth;
+                  }).sort((a, b) => a.txn_date.localeCompare(b.txn_date));
+                  allTxns.forEach(t => {
+                    const gl = Array.isArray(t.gl_accounts) ? t.gl_accounts.join(", ") : (t.gl_accounts || "");
+                    vendorRows.push([t.vendor_name || "Unknown", gl, t.txn_date, Math.abs(Number(t.total_amount) || 0), t.memo || ""]);
+                  });
+                }
+
+                // Transaction detail — add each transaction as a row
+                if (detail === "transactions") {
+                  rows.length = 0;
+                  rows.push(["Date", "Vendor", "GL Account", "Amount", "Type", "Memo"]);
+                  const allTxns = [...bills.map(b => ({ ...b, type: "Bill" })), ...purchases.map(p => ({ ...p, type: "Purchase" }))].filter(t => {
+                    if (!t.txn_date) return false;
+                    const m = t.txn_date.slice(0, 7);
+                    return m >= startMonth && m <= endMonth;
+                  }).sort((a, b) => a.txn_date.localeCompare(b.txn_date));
+                  allTxns.forEach(t => {
+                    const gl = Array.isArray(t.gl_accounts) ? t.gl_accounts.join(", ") : (t.gl_accounts || "");
+                    rows.push([t.txn_date, t.vendor_name || "Unknown", gl, Math.abs(Number(t.total_amount) || 0), t.type, t.memo || ""]);
+                  });
+                }
+
+                // Generate CSV and download
+                const escapeCsv = v => { const s = String(v ?? ""); return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s; };
+                let csv = rows.map(r => r.map(escapeCsv).join(",")).join("\n");
+                if (includeVendors && vendorRows.length > 1 && detail !== "transactions") {
+                  csv += "\n\n--- VENDOR BREAKDOWN ---\n";
+                  csv += vendorRows.map(r => r.map(escapeCsv).join(",")).join("\n");
+                }
+                const blob = new Blob([csv], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `PL_Export_${startMonth}_to_${endMonth}_${granularity}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                setShowExport(false);
+              }}
+                style={{ padding: "8px 20px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>
+                📥 Download CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
