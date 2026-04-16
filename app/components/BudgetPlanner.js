@@ -210,11 +210,13 @@ export default function BudgetPlanner() {
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year + 1}-01-01`;
 
-    // Pull from 3 sources in parallel
+    // Pull from 4 sources in parallel
     const [
-      { data: vs },        // fin_vendor_spend — summary with vendor breakdown
-      { data: bills },     // qbo_bills — real-time vendor-level bills with dates
-      { data: plMonthly }, // qbo_pl_monthly — official month-level totals per GL account
+      { data: vs },          // fin_vendor_spend — summary with vendor breakdown
+      { data: bills },       // qbo_bills — AP vendor-level with dates
+      { data: purchases },   // qbo_purchases — CC charges, bank debits (3.5x more txns than bills)
+      { data: plMonthly },   // qbo_pl_monthly — official month-level totals per GL account
+      { data: qboAccounts }, // qbo_accounts — for name→code mapping
     ] = await Promise.all([
       supabase.from("fin_vendor_spend")
         .select("vendor_name, gl_account, amount, period, budget_or_actual")
@@ -224,14 +226,67 @@ export default function BudgetPlanner() {
         .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
         .eq("org_id", orgId)
         .gte("txn_date", yearStart).lt("txn_date", yearEnd),
+      supabase.from("qbo_purchases")
+        .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
+        .eq("org_id", orgId)
+        .gte("txn_date", yearStart).lt("txn_date", yearEnd),
       supabase.from("qbo_pl_monthly")
         .select("period_month, account_name, amount")
         .eq("org_id", orgId)
         .like("period_month", `${year}-%`),
+      supabase.from("qbo_accounts")
+        .select("qbo_id, name, fully_qualified_name")
+        .eq("org_id", orgId).eq("active", true),
     ]);
 
-    // Build month-level totals from qbo_pl_monthly (authoritative source)
-    // Structure: { glCode: { "YYYY-MM": total } }
+    // ── Build name→code mapping from qbo_pl_monthly account names ──
+    // "60520 Software & Subscriptions" → leaf name "Software & Subscriptions" → code "60520"
+    // Also map fully_qualified_name from qbo_accounts to code
+    const leafToCode = {};   // "Software & Subscriptions" → "60520"
+    const fqnToCode = {};    // "G&A:Software & Subscriptions" → "60520"
+    const qboIdToCode = {};  // "234" → "60520"
+
+    (plMonthly || []).forEach(row => {
+      const code = extractGLCode(row.account_name);
+      if (!code) return;
+      // Extract the suffix after "60520 " — e.g. "Software & Subscriptions" or "Direct Ad Spend:Google Ads"
+      const suffix = String(row.account_name).replace(/^\d{5}\s+/, "");
+      if (suffix) {
+        // Map both the full suffix and the leaf part
+        leafToCode[suffix] = code;
+        const parts = suffix.split(":");
+        if (parts.length > 1) leafToCode[parts[parts.length - 1].trim()] = code;
+      }
+    });
+
+    // Map QBO accounts to codes via leaf name matching
+    (qboAccounts || []).forEach(acc => {
+      const code = leafToCode[acc.name] || leafToCode[acc.fully_qualified_name];
+      if (code) {
+        fqnToCode[acc.fully_qualified_name] = code;
+        qboIdToCode[acc.qbo_id] = code;
+      }
+    });
+
+    // Resolve GL code from any format: "60520 ...", "G&A:Software & Subscriptions", gl_id "234"
+    const resolveCode = (glStr, glId) => {
+      if (!glStr && !glId) return null;
+      // Try 5-digit prefix first
+      const direct = extractGLCode(glStr);
+      if (direct) return direct;
+      // Try fully qualified name
+      if (glStr && fqnToCode[glStr]) return fqnToCode[glStr];
+      // Try leaf name
+      if (glStr) {
+        const leaf = glStr.split(":").pop().trim();
+        if (leafToCode[leaf]) return leafToCode[leaf];
+      }
+      // Try QBO account ID
+      if (glId && qboIdToCode[glId]) return qboIdToCode[glId];
+      return null;
+    };
+
+    // ── Build month-level totals from qbo_pl_monthly (authoritative source) ──
     const monthlyMap = {};
     (plMonthly || []).forEach(row => {
       const code = extractGLCode(row.account_name);
@@ -241,51 +296,54 @@ export default function BudgetPlanner() {
     });
     setGlMonthlyTotals(monthlyMap);
 
-    // Build vendor-level actuals map: { glCode: { period: { vendor: amount } } }
-    // Merge fin_vendor_spend + qbo_bills for complete vendor×month×GL picture
+    // ── Build vendor-level actuals map: { glCode: { period: { vendor: amount } } } ──
     const actMap = {};
 
-    // First from fin_vendor_spend (Jan is here)
+    const addToMap = (code, period, vendor, amount) => {
+      if (!code || !period) return;
+      if (!actMap[code]) actMap[code] = {};
+      if (!actMap[code][period]) actMap[code][period] = {};
+      actMap[code][period][vendor] = (actMap[code][period][vendor] || 0) + amount;
+    };
+
+    // 1. fin_vendor_spend (Jan baseline with vendor breakdown)
     (vs || []).forEach(row => {
       const code = extractGLCode(row.gl_account);
-      if (!code) return;
-      if (!actMap[code]) actMap[code] = {};
-      if (!actMap[code][row.period]) actMap[code][row.period] = {};
-      const v = row.vendor_name || "(blank)";
-      actMap[code][row.period][v] = (actMap[code][row.period][v] || 0) + Number(row.amount || 0);
+      if (code) addToMap(code, row.period, row.vendor_name || "(blank)", Number(row.amount || 0));
     });
 
-    // Then from qbo_bills (later months) — dedupe using a tracking set by (vendor, period, code)
-    // Only ADD qbo_bills data if fin_vendor_spend didn't already cover that period
+    // Track which periods are covered by fin_vendor_spend
     const coveredPeriods = new Set();
     (vs || []).forEach(row => coveredPeriods.add(row.period));
 
-    (bills || []).forEach(bill => {
-      if (!bill.txn_date) return;
-      const period = bill.txn_date.slice(0, 7); // YYYY-MM
-      if (coveredPeriods.has(period)) return; // skip if already counted via fin_vendor_spend
+    // Helper: process a bill or purchase transaction
+    const processTxn = (txn) => {
+      if (!txn.txn_date) return;
+      const period = txn.txn_date.slice(0, 7);
+      if (coveredPeriods.has(period)) return;
 
-      const vendor = bill.vendor_name || "(blank)";
-      const items = Array.isArray(bill.line_items) ? bill.line_items : [];
+      const vendor = txn.vendor_name || "(blank)";
+      let items = txn.line_items;
+      // line_items might be a JSON string
+      if (typeof items === "string") { try { items = JSON.parse(items); } catch { items = []; } }
+      if (!Array.isArray(items)) items = [];
 
       if (items.length > 0) {
-        // Distribute by line item GL account
         items.forEach(li => {
-          const code = extractGLCode(li.gl_account);
-          if (!code) return;
-          if (!actMap[code]) actMap[code] = {};
-          if (!actMap[code][period]) actMap[code][period] = {};
-          actMap[code][period][vendor] = (actMap[code][period][vendor] || 0) + Number(li.amount || 0);
+          const code = resolveCode(li.gl_account, li.gl_id);
+          if (code) addToMap(code, period, vendor, Number(li.amount || 0));
         });
-      } else if (bill.gl_accounts) {
-        // Fallback: single GL on the whole bill
-        const code = extractGLCode(bill.gl_accounts);
-        if (!code) return;
-        if (!actMap[code]) actMap[code] = {};
-        if (!actMap[code][period]) actMap[code][period] = {};
-        actMap[code][period][vendor] = (actMap[code][period][vendor] || 0) + Number(bill.total_amount || 0);
+      } else if (txn.gl_accounts) {
+        const code = resolveCode(txn.gl_accounts, null);
+        if (code) addToMap(code, period, vendor, Number(txn.total_amount || 0));
       }
-    });
+    };
+
+    // 2. qbo_bills (AP invoices)
+    (bills || []).forEach(processTxn);
+
+    // 3. qbo_purchases (CC charges, bank debits — the big one)
+    (purchases || []).forEach(processTxn);
 
     setActuals(actMap);
     setLastSynced(new Date());
