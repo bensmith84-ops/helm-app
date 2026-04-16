@@ -193,29 +193,118 @@ export default function BudgetPlanner() {
   const [orgMembers, setOrgMembers] = useState([]);
 
   // ── Load reference data (GL cats/codes + actuals) ──────────────────────────
+  // Extract GL code prefix (e.g., "60211" from "60211 Google Ads" or "60211 Direct Ad Spend:Google Ads")
+  const extractGLCode = (str) => {
+    if (!str) return null;
+    const m = String(str).match(/^(\d{5})/);
+    return m ? m[1] : null;
+  };
+
+  const [lastSynced, setLastSynced] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [glMonthlyTotals, setGlMonthlyTotals] = useState({}); // { glCode: { period: total } } - from qbo_pl_monthly
+
+  const loadActuals = useCallback(async () => {
+    if (!orgId) return;
+    setSyncing(true);
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year + 1}-01-01`;
+
+    // Pull from 3 sources in parallel
+    const [
+      { data: vs },        // fin_vendor_spend — summary with vendor breakdown
+      { data: bills },     // qbo_bills — real-time vendor-level bills with dates
+      { data: plMonthly }, // qbo_pl_monthly — official month-level totals per GL account
+    ] = await Promise.all([
+      supabase.from("fin_vendor_spend")
+        .select("vendor_name, gl_account, amount, period, budget_or_actual")
+        .eq("org_id", orgId).eq("budget_or_actual", "Actual")
+        .like("period", `${year}-%`),
+      supabase.from("qbo_bills")
+        .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
+        .eq("org_id", orgId)
+        .gte("txn_date", yearStart).lt("txn_date", yearEnd),
+      supabase.from("qbo_pl_monthly")
+        .select("period_month, account_name, amount")
+        .eq("org_id", orgId)
+        .like("period_month", `${year}-%`),
+    ]);
+
+    // Build month-level totals from qbo_pl_monthly (authoritative source)
+    // Structure: { glCode: { "YYYY-MM": total } }
+    const monthlyMap = {};
+    (plMonthly || []).forEach(row => {
+      const code = extractGLCode(row.account_name);
+      if (!code) return;
+      if (!monthlyMap[code]) monthlyMap[code] = {};
+      monthlyMap[code][row.period_month] = (monthlyMap[code][row.period_month] || 0) + Number(row.amount || 0);
+    });
+    setGlMonthlyTotals(monthlyMap);
+
+    // Build vendor-level actuals map: { glCode: { period: { vendor: amount } } }
+    // Merge fin_vendor_spend + qbo_bills for complete vendor×month×GL picture
+    const actMap = {};
+
+    // First from fin_vendor_spend (Jan is here)
+    (vs || []).forEach(row => {
+      const code = extractGLCode(row.gl_account);
+      if (!code) return;
+      if (!actMap[code]) actMap[code] = {};
+      if (!actMap[code][row.period]) actMap[code][row.period] = {};
+      const v = row.vendor_name || "(blank)";
+      actMap[code][row.period][v] = (actMap[code][row.period][v] || 0) + Number(row.amount || 0);
+    });
+
+    // Then from qbo_bills (later months) — dedupe using a tracking set by (vendor, period, code)
+    // Only ADD qbo_bills data if fin_vendor_spend didn't already cover that period
+    const coveredPeriods = new Set();
+    (vs || []).forEach(row => coveredPeriods.add(row.period));
+
+    (bills || []).forEach(bill => {
+      if (!bill.txn_date) return;
+      const period = bill.txn_date.slice(0, 7); // YYYY-MM
+      if (coveredPeriods.has(period)) return; // skip if already counted via fin_vendor_spend
+
+      const vendor = bill.vendor_name || "(blank)";
+      const items = Array.isArray(bill.line_items) ? bill.line_items : [];
+
+      if (items.length > 0) {
+        // Distribute by line item GL account
+        items.forEach(li => {
+          const code = extractGLCode(li.gl_account);
+          if (!code) return;
+          if (!actMap[code]) actMap[code] = {};
+          if (!actMap[code][period]) actMap[code][period] = {};
+          actMap[code][period][vendor] = (actMap[code][period][vendor] || 0) + Number(li.amount || 0);
+        });
+      } else if (bill.gl_accounts) {
+        // Fallback: single GL on the whole bill
+        const code = extractGLCode(bill.gl_accounts);
+        if (!code) return;
+        if (!actMap[code]) actMap[code] = {};
+        if (!actMap[code][period]) actMap[code][period] = {};
+        actMap[code][period][vendor] = (actMap[code][period][vendor] || 0) + Number(bill.total_amount || 0);
+      }
+    });
+
+    setActuals(actMap);
+    setLastSynced(new Date());
+    setSyncing(false);
+  }, [orgId, year]);
+
   useEffect(() => {
     if (!orgId) return;
     (async () => {
-      const [{ data: cats }, { data: codes }, { data: vs }] = await Promise.all([
+      const [{ data: cats }, { data: codes }] = await Promise.all([
         supabase.from("af_gl_categories").select("*").eq("org_id", orgId).order("sort_order"),
         supabase.from("af_gl_codes").select("*").eq("org_id", orgId).eq("is_active", true).order("code"),
-        supabase.from("fin_vendor_spend").select("vendor_name, gl_account, amount, period, budget_or_actual")
-          .eq("org_id", orgId).eq("budget_or_actual", "Actual"),
       ]);
       setCategories(cats || []);
       setGlCodes(codes || []);
-      // Build actuals map: { glCode: { period: { vendor: amount } } }
-      const actMap = {};
-      (vs || []).forEach(row => {
-        if (!row.gl_account) return;
-        if (!actMap[row.gl_account]) actMap[row.gl_account] = {};
-        if (!actMap[row.gl_account][row.period]) actMap[row.gl_account][row.period] = {};
-        const v = row.vendor_name || "(blank)";
-        actMap[row.gl_account][row.period][v] = (actMap[row.gl_account][row.period][v] || 0) + Number(row.amount || 0);
-      });
-      setActuals(actMap);
     })();
   }, [orgId]);
+
+  useEffect(() => { loadActuals(); }, [loadActuals]);
 
   // ── Load org members for sharing ───────────────────────────────────────────
   useEffect(() => {
@@ -407,11 +496,16 @@ export default function BudgetPlanner() {
   };
 
   // ── Computed totals ────────────────────────────────────────────────────────
+  // Priority: qbo_pl_monthly (official P&L) > vendor breakdown sum from fin_vendor_spend + qbo_bills
   const getActualVendorTotal = useCallback((glCode, monthIdx) => {
     const pk = periodKey(monthIdx, year);
+    // Prefer authoritative P&L total if available for this GL+month
+    const plTotal = glMonthlyTotals[glCode]?.[pk];
+    if (plTotal != null) return plTotal;
+    // Fallback: sum vendor breakdown
     const vendors = actuals[glCode]?.[pk] || {};
     return Object.values(vendors).reduce((s,v) => s + v, 0);
-  }, [actuals, year]);
+  }, [actuals, glMonthlyTotals, year]);
 
   const getVendorPlanTotal = useCallback((glCodeId, monthIdx) => {
     const pk = periodKey(monthIdx, year);
@@ -509,6 +603,17 @@ export default function BudgetPlanner() {
   const totalPlanned = Object.values(grandTotals).reduce((s,t) => s + t.planned, 0);
   const remaining = annualBudget - ytdActual;
 
+  // Spend-to-date: only include months we have actuals for, and matching budget for same months
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonthIdx = now.getMonth(); // 0-11
+  // If viewing past year, use all 12 months; if current, through current month; if future, 0
+  const monthsElapsed = year < currentYear ? 12 : year > currentYear ? 0 : currentMonthIdx + 1;
+  const budgetToDate = Array.from({length: monthsElapsed}, (_,i) => grandTotals[i]?.budget || 0).reduce((s,v) => s + v, 0);
+  const spendToDate = Array.from({length: monthsElapsed}, (_,i) => grandTotals[i]?.actual || 0).reduce((s,v) => s + v, 0);
+  const ytdVariance = budgetToDate - spendToDate; // positive = under budget
+  const pctOfBudget = annualBudget > 0 ? (ytdActual / annualBudget) * 100 : 0;
+
   // ───────────────────────────────────────────────────────────────────────────
   // RENDER
   // ───────────────────────────────────────────────────────────────────────────
@@ -578,6 +683,15 @@ export default function BudgetPlanner() {
               <option value="quarterly">Quarterly</option>
               <option value="annual">Annual</option>
             </select>
+            <button onClick={loadActuals} disabled={syncing} title={lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : "Pull latest actuals from QBO"} style={{
+              background: syncing ? T.surface2 : T.surface2, color: syncing ? T.text3 : T.text,
+              border: `1px solid ${T.border}`, padding: "7px 12px",
+              borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: syncing ? "wait" : "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              <span style={{ display: "inline-block", transform: syncing ? "rotate(360deg)" : "none", transition: "transform 1s linear" }}>↻</span>
+              {syncing ? "Syncing…" : "Refresh QBO"}
+            </button>
             {isOwner && (
               <button onClick={() => setShowShare(true)} style={{
                 background: T.accent, color: "#fff", border: "none", padding: "7px 14px",
@@ -615,23 +729,66 @@ export default function BudgetPlanner() {
         <>
           {/* Summary cards */}
           <div style={{
-            display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10,
+            display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10,
             padding: "14px 24px", borderBottom: `1px solid ${T.border}`, flexShrink: 0,
           }}>
-            {[
-              { label: "Annual Budget", value: annualBudget, color: T.accent },
-              { label: "YTD Actual (QBO)", value: ytdActual, color: T.green },
-              { label: "Total Planned", value: totalPlanned, color: T.purple },
-              { label: "Remaining", value: remaining, color: remaining < 0 ? T.red : T.yellow },
-            ].map((c,i) => (
-              <div key={i} style={{
-                background: T.surface, border: `1px solid ${T.border}`,
-                borderRadius: 8, padding: "12px 14px",
-              }}>
-                <div style={{ fontSize: 10, color: T.text2, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{c.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: c.color, fontFamily: "ui-monospace, monospace" }}>{fmt(c.value)}</div>
+            {/* Annual Budget */}
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: T.text2, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Annual Budget</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: T.accent, fontFamily: "ui-monospace, monospace" }}>{fmt(annualBudget)}</div>
+            </div>
+            {/* Spend to Date */}
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ fontSize: 10, color: T.text2, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Spend to Date
+                  <span style={{ color: T.text3, textTransform: "none", letterSpacing: 0 }}> ({monthsElapsed}mo)</span>
+                </div>
+                <div style={{ fontSize: 10, color: pctOfBudget > 100 ? T.red : T.text3, fontWeight: 600 }}>
+                  {pctOfBudget.toFixed(1)}% used
+                </div>
               </div>
-            ))}
+              <div style={{ fontSize: 20, fontWeight: 800, color: T.green, fontFamily: "ui-monospace, monospace" }}>{fmt(spendToDate)}</div>
+              {/* Progress bar */}
+              <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: T.surface3 }}>
+                <div style={{
+                  height: "100%", borderRadius: 2,
+                  width: `${Math.min(pctOfBudget, 100)}%`,
+                  background: pctOfBudget > 100 ? T.red : pctOfBudget > 80 ? T.yellow : T.green,
+                  transition: "width 0.4s ease",
+                }} />
+              </div>
+            </div>
+            {/* YTD Variance */}
+            <div style={{ background: T.surface, border: `1px solid ${ytdVariance < 0 ? T.red + "44" : T.border}`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: T.text2, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                YTD Variance
+              </div>
+              <div style={{
+                fontSize: 20, fontWeight: 800, fontFamily: "ui-monospace, monospace",
+                color: ytdVariance < 0 ? T.red : T.green,
+              }}>
+                {ytdVariance >= 0 ? "+" : ""}{fmt(ytdVariance)}
+              </div>
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+                vs {fmt(budgetToDate)} budget ({monthsElapsed}mo)
+              </div>
+            </div>
+            {/* Vendor Plans */}
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: T.text2, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Planned (Vendors)</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: T.purple, fontFamily: "ui-monospace, monospace" }}>{fmt(totalPlanned)}</div>
+            </div>
+            {/* Remaining */}
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: T.text2, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Remaining</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: remaining < 0 ? T.red : T.yellow, fontFamily: "ui-monospace, monospace" }}>{fmt(remaining)}</div>
+              {lastSynced && (
+                <div style={{ fontSize: 9, color: T.text3, marginTop: 3 }}>
+                  QBO synced {lastSynced.toLocaleTimeString()}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Search */}
@@ -1020,7 +1177,9 @@ export default function BudgetPlanner() {
           <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, marginTop: 28 }}>Data Sources</h3>
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 14 }}>
             {[
-              { label: "QuickBooks Online (Actuals)", status: `${Object.keys(actuals).length} GL accounts`, color: T.green },
+              { label: "QBO P&L Monthly", status: `${Object.keys(glMonthlyTotals).length} GL accounts · Jan–${MONTHS[monthsElapsed - 1] || "–"} ${year}`, color: T.green },
+              { label: "QBO Bills (Vendor Detail)", status: `${Object.keys(actuals).length} GL codes with vendors`, color: T.green },
+              { label: "Last Synced", status: lastSynced ? lastSynced.toLocaleString() : "Not synced yet", color: lastSynced ? T.green : T.yellow },
               { label: "GL Categories (Helm)", status: `${categories.length} categories`, color: T.accent },
               { label: "GL Codes (Helm)", status: `${glCodes.length} active codes`, color: T.accent },
             ].map((d,i) => (
