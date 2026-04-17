@@ -210,33 +210,52 @@ export default function BudgetPlanner() {
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year + 1}-01-01`;
 
-    // Pull from 4 sources in parallel
-    const [
-      { data: vs },          // fin_vendor_spend — summary with vendor breakdown
-      { data: bills },       // qbo_bills — AP vendor-level with dates
-      { data: purchases },   // qbo_purchases — CC charges, bank debits (3.5x more txns than bills)
-      { data: plMonthly },   // qbo_pl_monthly — official month-level totals per GL account
-      { data: qboAccounts }, // qbo_accounts — for name→code mapping
-    ] = await Promise.all([
-      supabase.from("fin_vendor_spend")
-        .select("vendor_name, gl_account, amount, period, budget_or_actual")
-        .eq("org_id", orgId).eq("budget_or_actual", "Actual")
-        .like("period", `${year}-%`),
-      supabase.from("qbo_bills")
-        .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
-        .eq("org_id", orgId)
-        .gte("txn_date", yearStart).lt("txn_date", yearEnd),
-      supabase.from("qbo_purchases")
-        .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
-        .eq("org_id", orgId)
-        .gte("txn_date", yearStart).lt("txn_date", yearEnd),
-      supabase.from("qbo_pl_monthly")
-        .select("period_month, account_name, amount")
-        .eq("org_id", orgId)
-        .like("period_month", `${year}-%`),
-      supabase.from("qbo_accounts")
-        .select("qbo_id, name, fully_qualified_name")
-        .eq("org_id", orgId).eq("active", true),
+    // Paginated fetch — Supabase default limit is 1000 rows
+    const fetchAll = async (query) => {
+      const PAGE = 5000;
+      let all = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await query.range(from, from + PAGE - 1);
+        if (error || !data || data.length === 0) break;
+        all = all.concat(data);
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
+      return all;
+    };
+
+    // Pull from 5 sources in parallel (paginated for large tables)
+    const [vs, bills, purchases, plMonthly, qboAccounts] = await Promise.all([
+      fetchAll(
+        supabase.from("fin_vendor_spend")
+          .select("vendor_name, gl_account, amount, period, budget_or_actual")
+          .eq("org_id", orgId).eq("budget_or_actual", "Actual")
+          .like("period", `${year}-%`)
+      ),
+      fetchAll(
+        supabase.from("qbo_bills")
+          .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
+          .eq("org_id", orgId)
+          .gte("txn_date", yearStart).lt("txn_date", yearEnd)
+      ),
+      fetchAll(
+        supabase.from("qbo_purchases")
+          .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
+          .eq("org_id", orgId)
+          .gte("txn_date", yearStart).lt("txn_date", yearEnd)
+      ),
+      fetchAll(
+        supabase.from("qbo_pl_monthly")
+          .select("period_month, account_name, amount")
+          .eq("org_id", orgId)
+          .like("period_month", `${year}-%`)
+      ),
+      fetchAll(
+        supabase.from("qbo_accounts")
+          .select("qbo_id, name, fully_qualified_name")
+          .eq("org_id", orgId).eq("active", true)
+      ),
     ]);
 
     // ── Build name→code mapping from qbo_pl_monthly account names ──
