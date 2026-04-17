@@ -4275,6 +4275,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   const createBudget = async () => {
     if (!newBudgetForm.name.trim()) return;
     const { data } = await supabase.from("fin_budgets").insert({
+      org_id: orgId,
       name: newBudgetForm.name.trim(),
       description: newBudgetForm.description || null,
       fiscal_year: parseInt(newBudgetForm.fiscal_year) || new Date().getFullYear(),
@@ -4286,7 +4287,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       setFinBudgets(p => [data, ...p]);
       // Auto-add creator as owner member
       const { data: mem } = await supabase.from("fin_budget_members").insert({
-        budget_id: data.id, user_id: user?.id, role: "owner", added_by: user?.id,
+        org_id: orgId, budget_id: data.id, user_id: user?.id, role: "owner", added_by: user?.id,
       }).select().single();
       if (mem) setBudgetMembers(p => [...p, mem]);
       setActiveBudgetName(data.name);
