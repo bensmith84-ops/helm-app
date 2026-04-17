@@ -1093,12 +1093,25 @@ export default function BudgetPlanner() {
                       {/* GL codes */}
                       {isExp && glsInCat.map(gl => {
                         const glExp = expandedGLs[gl.id];
-                        const overSome = MONTHS.some((_,i) => isGLOverBudget(gl.id, i));
                         // Aggregate vendor names from BOTH planned and actual for this GL
                         const allVendors = new Set();
                         Object.values(vendorPlans[gl.id] || {}).forEach(periodMap => Object.keys(periodMap).forEach(v => allVendors.add(v)));
                         Object.values(actuals[gl.code] || {}).forEach(periodMap => Object.keys(periodMap).forEach(v => allVendors.add(v)));
                         const vendorList = Array.from(allVendors).sort();
+                        const hasVendorPlans = Object.keys(vendorPlans[gl.id] || {}).length > 0;
+
+                        // Annual totals for this GL
+                        const annualBudgetGL = MONTHS.reduce((s,_,i) => s + (Number(glBudgets[gl.id]?.[periodKey(i, year)]) || 0), 0);
+                        const annualActualGL = MONTHS.reduce((s,_,i) => s + getActualVendorTotal(gl.code, i), 0);
+                        const annualPlannedGL = MONTHS.reduce((s,_,i) => s + getVendorPlanTotal(gl.id, i), 0);
+                        const overSome = MONTHS.some((_,i) => {
+                          const pk = periodKey(i, year);
+                          const bgt = Number(glBudgets[gl.id]?.[pk]) || 0;
+                          const pln = getVendorPlanTotal(gl.id, i);
+                          const act = getActualVendorTotal(gl.code, i);
+                          return bgt > 0 && (pln > bgt || act > bgt);
+                        });
+
                         return (
                           <Fragment key={gl.id}>
                             <tr onClick={() => setExpandedGLs(p => ({ ...p, [gl.id]: !p[gl.id] }))} style={{
@@ -1113,22 +1126,23 @@ export default function BudgetPlanner() {
                                   <span style={{ fontSize: 8, color: T.text2, transform: glExp ? "rotate(90deg)" : "none", transition: "transform .12s" }}>▶</span>
                                   <span style={{ fontSize: 10, color: T.text3, fontFamily: "ui-monospace, monospace", minWidth: 42 }}>{gl.code}</span>
                                   <span style={{ fontSize: 12 }}>{gl.name}</span>
-                                  {overSome && <span style={{ fontSize: 9, color: T.red, fontWeight: 700 }}>⚠</span>}
-                                  <span style={{ fontSize: 10, color: T.text3 }}>({vendorList.length} vendors)</span>
+                                  {overSome && <span style={{ fontSize: 9, color: T.red, fontWeight: 700 }}>⚠ OVER</span>}
+                                  {vendorList.length > 0 && <span style={{ fontSize: 10, color: T.text3 }}>({vendorList.length} vendors)</span>}
                                 </div>
                               </td>
-                              <td style={{ textAlign: "center", fontSize: 9, color: T.yellow, borderBottom: `1px solid ${T.border}` }}>GL</td>
+                              <td style={{ textAlign: "center", fontSize: 9, color: T.yellow, borderBottom: `1px solid ${T.border}` }}>Budget</td>
                               {visibleMonths.map(([label, start, end]) => {
                                 const months = Array.from({length: end-start+1}, (_,k) => start+k);
                                 const budget = months.reduce((s,m) => s + (Number(glBudgets[gl.id]?.[periodKey(m, year)]) || 0), 0);
                                 const actual = months.reduce((s,m) => s + getActualVendorTotal(gl.code, m), 0);
                                 const planned = months.reduce((s,m) => s + getVendorPlanTotal(gl.id, m), 0);
-                                const overBudget = months.some(m => isGLOverBudget(gl.id, m));
+                                const overBudget = budget > 0 && (planned > budget || actual > budget);
                                 const singleMonth = months.length === 1 ? months[0] : null;
                                 return (
                                   <td key={label} onClick={e => e.stopPropagation()} style={{
                                     textAlign: "right", padding: "6px 6px", borderBottom: `1px solid ${T.border}`,
                                   }}>
+                                    {/* Budget cap — always editable */}
                                     {singleMonth !== null ? (
                                       <EditableCell
                                         value={budget}
@@ -1148,28 +1162,41 @@ export default function BudgetPlanner() {
                                       />
                                     ) : (
                                       <div style={{
-                                        fontFamily: "ui-monospace, monospace", fontSize: 11,
+                                        fontFamily: "ui-monospace, monospace", fontSize: 11, fontWeight: 600,
                                         color: overBudget ? T.red : T.text, padding: "3px 6px",
                                       }}>{fmt(budget)}</div>
                                     )}
+                                    {/* Actual spend from QBO */}
                                     {actual > 0 && (
-                                      <div style={{ fontSize: 9, color: actual > budget && budget > 0 ? T.red : T.green }}>
-                                        {fmt(actual)} act
+                                      <div style={{ fontSize: 9, color: budget > 0 && actual > budget ? T.red : T.green, marginTop: 1 }}>
+                                        {fmt(actual)} spent
                                       </div>
                                     )}
-                                    {planned > 0 && (
-                                      <div style={{ fontSize: 9, color: overBudget ? T.red : T.purple }}>
-                                        {fmt(planned)} plan
+                                    {/* Vendor plan sum — only show if vendors have plans */}
+                                    {hasVendorPlans && planned > 0 && (
+                                      <div style={{ fontSize: 9, color: budget > 0 && planned > budget ? T.red : T.purple, marginTop: 1 }}>
+                                        {fmt(planned)} planned
                                       </div>
                                     )}
                                   </td>
                                 );
                               })}
+                              {/* Total column */}
                               <td style={{
                                 textAlign: "right", padding: "7px 12px", borderBottom: `1px solid ${T.border}`,
-                                fontFamily: "ui-monospace, monospace", fontSize: 11, fontWeight: 600,
+                                fontFamily: "ui-monospace, monospace", fontSize: 11,
                               }}>
-                                {fmt(MONTHS.reduce((s,_,i) => s + (Number(glBudgets[gl.id]?.[periodKey(i, year)]) || 0), 0))}
+                                <div style={{ fontWeight: 700 }}>{fmt(annualBudgetGL)}</div>
+                                {annualActualGL > 0 && (
+                                  <div style={{ fontSize: 9, color: annualBudgetGL > 0 && annualActualGL > annualBudgetGL ? T.red : T.green }}>
+                                    {fmt(annualActualGL)} spent
+                                  </div>
+                                )}
+                                {hasVendorPlans && annualPlannedGL > 0 && (
+                                  <div style={{ fontSize: 9, color: annualBudgetGL > 0 && annualPlannedGL > annualBudgetGL ? T.red : T.purple }}>
+                                    {fmt(annualPlannedGL)} planned
+                                  </div>
+                                )}
                               </td>
                             </tr>
 
@@ -1250,19 +1277,22 @@ export default function BudgetPlanner() {
           {/* Legend */}
           <div style={{
             padding: "10px 24px", borderTop: `1px solid ${T.border}`,
-            display: "flex", gap: 18, fontSize: 10, color: T.text2, flexShrink: 0, background: T.surface,
+            display: "flex", gap: 18, fontSize: 10, color: T.text2, flexShrink: 0, background: T.surface, flexWrap: "wrap",
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: T.green }} /> QBO Actual
+              <span style={{ borderBottom: `1px dashed ${T.border2}`, width: 16, display: "inline-block" }} /> Budget cap (click to edit)
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, color: T.green }}>
+              spent = QBO actual
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, color: T.purple }}>
+              planned = vendor plan sum
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: T.purple }} /> Planned
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: T.red }} /> Over budget
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: T.red }} /> Over Budget
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ borderBottom: `1px dashed ${T.border2}`, width: 16, display: "inline-block" }} /> Click to edit
+            <div style={{ color: T.text3 }}>
+              Tab / Enter = next cell · → = fill forward · Ctrl+V = paste from spreadsheet
             </div>
           </div>
         </>
