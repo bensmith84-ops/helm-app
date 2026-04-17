@@ -20,15 +20,62 @@ const fmtFull = (n) => n == null ? "$0.00" : `$${Number(n).toLocaleString("en-US
 // Period helper: convert (month index 0-11, year) → "YYYY-MM" used by fin_vendor_spend
 const periodKey = (mIdx, year) => `${year}-${String(mIdx+1).padStart(2,"0")}`;
 
+// Clean a pasted value: strip $, commas, quotes, handle (1234) negatives, treat dashes as zero
+const cleanPastedValue = (str) => {
+  if (!str || str.trim() === "" || str.trim() === "-" || str.trim() === "—" || str.trim() === "$ -") return 0;
+  let s = String(str).replace(/[$,"'\s]/g, "");
+  // Handle accounting negatives: (1234) → -1234
+  const parenMatch = s.match(/^\((.+)\)$/);
+  if (parenMatch) s = "-" + parenMatch[1];
+  const n = Number(s);
+  return isNaN(n) ? 0 : n;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
-// EditableCell — inline numeric editor with click-to-edit
+// EditableCell — inline numeric editor with Tab, fill-forward, and paste
 // ─────────────────────────────────────────────────────────────────────────────
-function EditableCell({ value, onSave, isOver, isReadOnly, small }) {
+function EditableCell({ value, onSave, isOver, isReadOnly, small, cellId, onFillForward, onPasteMulti, showFillForward }) {
   const [editing, setEditing] = useState(false);
   const [local, setLocal] = useState(value);
   const ref = useRef(null);
   useEffect(() => { setLocal(value); }, [value]);
   useEffect(() => { if (editing && ref.current) { ref.current.focus(); ref.current.select(); } }, [editing]);
+
+  const commitAndMove = (direction) => {
+    onSave(Number(local) || 0);
+    setEditing(false);
+    // Find next editable cell using data-cell-id
+    if (cellId && direction) {
+      setTimeout(() => {
+        const allCells = Array.from(document.querySelectorAll("[data-cell-id]"));
+        const idx = allCells.findIndex(el => el.dataset.cellId === cellId);
+        if (idx >= 0) {
+          const nextIdx = direction === "right" ? idx + 1 : idx - 1;
+          if (nextIdx >= 0 && nextIdx < allCells.length) {
+            allCells[nextIdx].click();
+          }
+        }
+      }, 30);
+    }
+  };
+
+  const handlePaste = (e) => {
+    const text = e.clipboardData?.getData("text/plain");
+    if (!text) return;
+    // Split by tabs (row paste) or newlines (column paste)
+    const hasTab = text.includes("\t");
+    const values = hasTab
+      ? text.split(/\r?\n/)[0].split("\t").map(cleanPastedValue)
+      : text.split(/\r?\n/).filter(s => s.trim()).map(cleanPastedValue);
+    if (values.length > 1 && onPasteMulti) {
+      e.preventDefault();
+      onPasteMulti(values);
+      setEditing(false);
+    } else if (values.length === 1) {
+      e.preventDefault();
+      setLocal(values[0]);
+    }
+  };
 
   if (editing) {
     return (
@@ -36,10 +83,13 @@ function EditableCell({ value, onSave, isOver, isReadOnly, small }) {
         ref={ref}
         type="number"
         value={local}
+        data-cell-id={cellId}
         onChange={e => setLocal(e.target.value)}
         onBlur={() => { onSave(Number(local) || 0); setEditing(false); }}
+        onPaste={handlePaste}
         onKeyDown={e => {
-          if (e.key === "Enter") { onSave(Number(local) || 0); setEditing(false); }
+          if (e.key === "Tab") { e.preventDefault(); commitAndMove(e.shiftKey ? "left" : "right"); }
+          if (e.key === "Enter") { e.preventDefault(); commitAndMove("right"); }
           if (e.key === "Escape") { setLocal(value); setEditing(false); }
         }}
         style={{
@@ -52,20 +102,36 @@ function EditableCell({ value, onSave, isOver, isReadOnly, small }) {
     );
   }
   return (
-    <div
-      onClick={(e) => { if (!isReadOnly) { e.stopPropagation(); setEditing(true); } }}
-      style={{
-        cursor: isReadOnly ? "default" : "pointer",
-        textAlign: "right", padding: "3px 6px", borderRadius: 4,
-        fontSize: small ? 11 : 12,
-        fontFamily: "ui-monospace, SFMono-Regular, monospace",
-        color: isOver ? T.red : (Number(value) > 0 ? T.text : T.text3),
-        background: isOver ? T.redDim : "transparent",
-        borderBottom: !isReadOnly ? `1px dashed ${T.border2}` : "none",
-        transition: "background .12s",
-      }}
-    >
-      {fmt(value)}
+    <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+      <div
+        data-cell-id={cellId}
+        onClick={(e) => { if (!isReadOnly) { e.stopPropagation(); setEditing(true); } }}
+        style={{
+          cursor: isReadOnly ? "default" : "pointer",
+          textAlign: "right", padding: "3px 6px", borderRadius: 4,
+          fontSize: small ? 11 : 12, flex: 1,
+          fontFamily: "ui-monospace, SFMono-Regular, monospace",
+          color: isOver ? T.red : (Number(value) > 0 ? T.text : T.text3),
+          background: isOver ? T.redDim : "transparent",
+          borderBottom: !isReadOnly ? `1px dashed ${T.border2}` : "none",
+          transition: "background .12s",
+        }}
+      >
+        {fmt(value)}
+      </div>
+      {showFillForward && !isReadOnly && Number(value) > 0 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); if (onFillForward) onFillForward(Number(value)); }}
+          title="Fill forward →"
+          style={{
+            background: "none", border: "none", color: T.text3, cursor: "pointer",
+            fontSize: 10, padding: "0 2px", opacity: 0.4, lineHeight: 1,
+            transition: "opacity 0.15s",
+          }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "0.4"}
+        >→</button>
+      )}
     </div>
   );
 }
@@ -130,6 +196,17 @@ function VendorRow({ vendor, glId, plan, year, vendorPlans, actuals, savePlan, d
                 value={getPlanForMonth(singleMonth)}
                 onSave={(v) => savePlan(vendor, glId, singleMonth, v, getPlanIdForMonth(singleMonth))}
                 small
+                cellId={`vp-${glId}-${vendor}-${singleMonth}`}
+                showFillForward={singleMonth < 11}
+                onFillForward={(v) => {
+                  for (let m = singleMonth; m < 12; m++) savePlan(vendor, glId, m, v, getPlanIdForMonth(m));
+                }}
+                onPasteMulti={(vals) => {
+                  vals.forEach((v, i) => {
+                    const m = singleMonth + i;
+                    if (m < 12) savePlan(vendor, glId, m, v, getPlanIdForMonth(m));
+                  });
+                }}
               />
             ) : (
               planSum > 0 && (
@@ -979,6 +1056,17 @@ export default function BudgetPlanner() {
                                   value={budget}
                                   onSave={(v) => saveCatBudget(cat.id, singleMonth, v)}
                                   isOver={isOver}
+                                  cellId={`cat-${cat.id}-${singleMonth}`}
+                                  showFillForward={singleMonth < 11}
+                                  onFillForward={(v) => {
+                                    for (let m = singleMonth; m < 12; m++) saveCatBudget(cat.id, m, v);
+                                  }}
+                                  onPasteMulti={(vals) => {
+                                    vals.forEach((v, i) => {
+                                      const m = singleMonth + i;
+                                      if (m < 12) saveCatBudget(cat.id, m, v);
+                                    });
+                                  }}
                                 />
                               ) : (
                                 <div style={{
@@ -1046,6 +1134,17 @@ export default function BudgetPlanner() {
                                         value={budget}
                                         onSave={(v) => saveGLBudget(gl.id, singleMonth, v)}
                                         isOver={overBudget}
+                                        cellId={`gl-${gl.id}-${singleMonth}`}
+                                        showFillForward={singleMonth < 11}
+                                        onFillForward={(v) => {
+                                          for (let m = singleMonth; m < 12; m++) saveGLBudget(gl.id, m, v);
+                                        }}
+                                        onPasteMulti={(vals) => {
+                                          vals.forEach((v, i) => {
+                                            const m = singleMonth + i;
+                                            if (m < 12) saveGLBudget(gl.id, m, v);
+                                          });
+                                        }}
                                       />
                                     ) : (
                                       <div style={{
