@@ -210,16 +210,18 @@ export default function BudgetPlanner() {
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year + 1}-01-01`;
 
-    // Paginated fetch — Supabase default limit is 1000 rows
-    const fetchAll = async (query) => {
-      const PAGE = 5000;
+    // Paginated fetch — Supabase server default max is 1000 rows per request
+    // Must use page size ≤ server max so we can detect when more rows exist
+    const fetchAll = async (buildQuery) => {
+      const PAGE = 1000;
       let all = [];
       let from = 0;
       while (true) {
-        const { data, error } = await query.range(from, from + PAGE - 1);
-        if (error || !data || data.length === 0) break;
+        const { data, error } = await buildQuery().range(from, from + PAGE - 1);
+        if (error) { console.error("[BudgetPlanner] fetchAll error:", error); break; }
+        if (!data || data.length === 0) break;
         all = all.concat(data);
-        if (data.length < PAGE) break;
+        if (data.length < PAGE) break; // last page
         from += PAGE;
       }
       return all;
@@ -227,38 +229,38 @@ export default function BudgetPlanner() {
 
     // Pull from 5 sources in parallel (paginated for large tables)
     const [vs, bills, purchases, plMonthly, qboAccounts] = await Promise.all([
-      fetchAll(
+      fetchAll(() =>
         supabase.from("fin_vendor_spend")
           .select("vendor_name, gl_account, amount, period, budget_or_actual")
           .eq("org_id", orgId).eq("budget_or_actual", "Actual")
           .like("period", `${year}-%`)
       ),
-      fetchAll(
+      fetchAll(() =>
         supabase.from("qbo_bills")
           .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
           .eq("org_id", orgId)
           .gte("txn_date", yearStart).lt("txn_date", yearEnd)
       ),
-      fetchAll(
+      fetchAll(() =>
         supabase.from("qbo_purchases")
           .select("vendor_name, txn_date, total_amount, gl_accounts, line_items")
           .eq("org_id", orgId)
           .gte("txn_date", yearStart).lt("txn_date", yearEnd)
       ),
-      fetchAll(
+      fetchAll(() =>
         supabase.from("qbo_pl_monthly")
           .select("period_month, account_name, amount")
           .eq("org_id", orgId)
           .like("period_month", `${year}-%`)
       ),
-      fetchAll(
+      fetchAll(() =>
         supabase.from("qbo_accounts")
           .select("qbo_id, name, fully_qualified_name")
           .eq("org_id", orgId).eq("active", true)
       ),
     ]);
 
-    // ── Build name→code mapping from qbo_pl_monthly account names ──
+    console.log(`[BudgetPlanner] Loaded: ${vs.length} vendor_spend, ${bills.length} bills, ${purchases.length} purchases, ${plMonthly.length} pl_monthly, ${qboAccounts.length} accounts`);
     // "60520 Software & Subscriptions" → leaf name "Software & Subscriptions" → code "60520"
     // Also map fully_qualified_name from qbo_accounts to code
     const leafToCode = {};   // "Software & Subscriptions" → "60520"
@@ -364,6 +366,8 @@ export default function BudgetPlanner() {
     // 3. qbo_purchases (CC charges, bank debits — the big one)
     (purchases || []).forEach(processTxn);
 
+    const totalVendorEntries = Object.values(actMap).reduce((s, periods) => s + Object.values(periods).reduce((s2, vendors) => s2 + Object.keys(vendors).length, 0), 0);
+    console.log(`[BudgetPlanner] actMap: ${Object.keys(actMap).length} GL codes, ${totalVendorEntries} vendor×month entries, coveredPeriods: [${[...coveredPeriods]}]`);
     setActuals(actMap);
     setLastSynced(new Date());
     setSyncing(false);
