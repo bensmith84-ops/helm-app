@@ -1166,15 +1166,13 @@ export default function BudgetPlanner() {
                                         color: overBudget ? T.red : T.text, padding: "3px 6px",
                                       }}>{fmt(budget)}</div>
                                     )}
-                                    {/* Actual spend from QBO */}
-                                    {actual > 0 && (
-                                      <div style={{ fontSize: 9, color: budget > 0 && actual > budget ? T.red : T.green, marginTop: 1 }}>
-                                        {fmt(actual)} spent
-                                      </div>
-                                    )}
-                                    {/* Vendor plan sum — only show if vendors have plans */}
-                                    {hasVendorPlans && planned > 0 && (
-                                      <div style={{ fontSize: 9, color: budget > 0 && planned > budget ? T.red : T.purple, marginTop: 1 }}>
+                                    {/* Actual spend from QBO — always show */}
+                                    <div style={{ fontSize: 9, color: budget > 0 && actual > budget ? T.red : actual > 0 ? T.green : T.text3, marginTop: 1 }}>
+                                      {fmt(actual)} spent
+                                    </div>
+                                    {/* Vendor plan sum — show if any vendor plans exist for this GL */}
+                                    {hasVendorPlans && (
+                                      <div style={{ fontSize: 9, color: budget > 0 && planned > budget ? T.red : planned > 0 ? T.purple : T.text3, marginTop: 1 }}>
                                         {fmt(planned)} planned
                                       </div>
                                     )}
@@ -1187,13 +1185,11 @@ export default function BudgetPlanner() {
                                 fontFamily: "ui-monospace, monospace", fontSize: 11,
                               }}>
                                 <div style={{ fontWeight: 700 }}>{fmt(annualBudgetGL)}</div>
-                                {annualActualGL > 0 && (
-                                  <div style={{ fontSize: 9, color: annualBudgetGL > 0 && annualActualGL > annualBudgetGL ? T.red : T.green }}>
-                                    {fmt(annualActualGL)} spent
-                                  </div>
-                                )}
-                                {hasVendorPlans && annualPlannedGL > 0 && (
-                                  <div style={{ fontSize: 9, color: annualBudgetGL > 0 && annualPlannedGL > annualBudgetGL ? T.red : T.purple }}>
+                                <div style={{ fontSize: 9, color: annualBudgetGL > 0 && annualActualGL > annualBudgetGL ? T.red : annualActualGL > 0 ? T.green : T.text3 }}>
+                                  {fmt(annualActualGL)} spent
+                                </div>
+                                {hasVendorPlans && (
+                                  <div style={{ fontSize: 9, color: annualBudgetGL > 0 && annualPlannedGL > annualBudgetGL ? T.red : annualPlannedGL > 0 ? T.purple : T.text3 }}>
                                     {fmt(annualPlannedGL)} planned
                                   </div>
                                 )}
