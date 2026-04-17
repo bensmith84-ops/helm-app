@@ -69,6 +69,14 @@ export default function LearningView({ modulePerms = {} }) {
   const [quizForm, setQuizForm] = useState({ title: "Quiz", questions: [{ q: "", type: "multiple_choice", options: ["", "", "", ""], correct: 0, points: 1 }], passing_score: 70 });
   const [catFilter, setCatFilter] = useState("all");
   const [searchQ, setSearchQ] = useState("");
+  const [folders, setFolders] = useState([]);
+  const [folderFilter, setFolderFilter] = useState("all");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderIcon, setNewFolderIcon] = useState("📁");
+  const [newFolderColor, setNewFolderColor] = useState("#6C63FF");
+  const [editingFolder, setEditingFolder] = useState(null);
+  const [movingCourse, setMovingCourse] = useState(null); // course id being moved
   const [courseStarted, setCourseStarted] = useState(false);
   const [editingLesson, setEditingLesson] = useState(null); // lesson id being edited
   const [editLessonForm, setEditLessonForm] = useState({ title: "", content_type: "text", content: "", estimated_minutes: "" });
@@ -100,7 +108,7 @@ export default function LearningView({ modulePerms = {} }) {
   useEffect(() => {
     if (!user?.id) return;
     (async () => {
-      const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11] = await Promise.all([
+      const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12] = await Promise.all([
         supabase.from("lms_courses").select("*").eq("org_id", orgId).is("deleted_at", null).order("title"),
         supabase.from("lms_lessons").select("*").order("sort_order"),
         supabase.from("lms_quizzes").select("*"),
@@ -112,11 +120,12 @@ export default function LearningView({ modulePerms = {} }) {
         supabase.from("team_members").select("*"),
         supabase.from("lms_progress").select("*").eq("org_id", orgId),
         supabase.from("org_memberships").select("user_id, role, module_permissions").eq("org_id", orgId),
+        supabase.from("lms_folders").select("*").eq("org_id", orgId).order("sort_order").order("name"),
       ]);
       setCourses(r1.data||[]); setLessons(r2.data||[]); setQuizzes(r3.data||[]);
       setAssignments(r4.data||[]); setProgress(r5.data||[]); setQuizAttempts(r6.data||[]);
       setMembers(r7.data||[]); setTeams(r8.data||[]); setTeamMembers(r9.data||[]);
-      setAllProgress(r10.data||[]); setAllMemberships(r11.data||[]); setLoading(false);
+      setAllProgress(r10.data||[]); setAllMemberships(r11.data||[]); setFolders(r12.data||[]); setLoading(false);
     })();
   }, [user?.id]);
 
@@ -179,10 +188,37 @@ export default function LearningView({ modulePerms = {} }) {
 
   const saveCourse = async () => {
     if (!courseForm.title.trim()) return;
-    const row = { title:courseForm.title, description:courseForm.description, category:courseForm.category, is_required:courseForm.is_required, passing_score:parseInt(courseForm.passing_score)||70, refresh_interval_days:courseForm.refresh_interval_days?parseInt(courseForm.refresh_interval_days):null, estimated_minutes:courseForm.estimated_minutes?parseInt(courseForm.estimated_minutes):null };
+    const row = { title:courseForm.title, description:courseForm.description, category:courseForm.category, is_required:courseForm.is_required, passing_score:parseInt(courseForm.passing_score)||70, refresh_interval_days:courseForm.refresh_interval_days?parseInt(courseForm.refresh_interval_days):null, estimated_minutes:courseForm.estimated_minutes?parseInt(courseForm.estimated_minutes):null, folder_id:courseForm.folder_id||null };
     if (editingCourse) { await supabase.from("lms_courses").update(row).eq("org_id", orgId).eq("id",editingCourse.id); setCourses(p=>p.map(c=>c.id===editingCourse.id?{...c,...row}:c)); }
     else { const{data}=await supabase.from("lms_courses").insert({...row,status:"draft",created_by:user.id,org_id:orgId}).select().single(); if(data) setCourses(p=>[...p,data]); }
-    setShowNewCourse(false); setEditingCourse(null); setCourseForm({title:"",description:"",category:"onboarding",is_required:false,refresh_interval_days:"",estimated_minutes:"",passing_score:70});
+    setShowNewCourse(false); setEditingCourse(null); setCourseForm({title:"",description:"",category:"onboarding",is_required:false,refresh_interval_days:"",estimated_minutes:"",passing_score:70,folder_id:""});
+  };
+
+  const saveFolder = async () => {
+    if (!newFolderName.trim()) return;
+    if (editingFolder) {
+      await supabase.from("lms_folders").update({ name: newFolderName.trim(), icon: newFolderIcon, color: newFolderColor }).eq("id", editingFolder.id);
+      setFolders(p => p.map(f => f.id === editingFolder.id ? { ...f, name: newFolderName.trim(), icon: newFolderIcon, color: newFolderColor } : f));
+    } else {
+      const { data } = await supabase.from("lms_folders").insert({ org_id: orgId, name: newFolderName.trim(), icon: newFolderIcon, color: newFolderColor, sort_order: folders.length, created_by: user.id }).select().single();
+      if (data) setFolders(p => [...p, data]);
+    }
+    setShowNewFolder(false); setEditingFolder(null); setNewFolderName(""); setNewFolderIcon("📁"); setNewFolderColor("#6C63FF");
+  };
+
+  const deleteFolder = async (folderId) => {
+    if (!window.confirm("Delete this folder? Courses inside will be moved to Unfiled.")) return;
+    await supabase.from("lms_courses").update({ folder_id: null }).eq("folder_id", folderId);
+    setCourses(p => p.map(c => c.folder_id === folderId ? { ...c, folder_id: null } : c));
+    await supabase.from("lms_folders").delete().eq("id", folderId);
+    setFolders(p => p.filter(f => f.id !== folderId));
+  };
+
+  const moveCourseToFolder = async (courseId, folderId) => {
+    const fid = folderId === "__none__" ? null : folderId;
+    await supabase.from("lms_courses").update({ folder_id: fid }).eq("id", courseId);
+    setCourses(p => p.map(c => c.id === courseId ? { ...c, folder_id: fid } : c));
+    setMovingCourse(null);
   };
 
   const togglePublish = async c => { const n=c.status==="published"?"draft":"published"; await supabase.from("lms_courses").update({status:n}).eq("org_id", orgId).eq("id",c.id); setCourses(p=>p.map(x=>x.id===c.id?{...x,status:n}:x)); };
@@ -681,13 +717,18 @@ export default function LearningView({ modulePerms = {} }) {
             <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
               <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Search courses…" style={{ ...inp, maxWidth:260, background:G.surface, border:`1px solid ${G.border}` }} />
               <div style={{ display:"flex", gap:3, background:G.surface2, borderRadius:8, padding:3 }}>
-                {[{id:"all",label:"All"},...Object.entries(CATS).map(([k,v])=>({id:k,label:v.label,icon:v.icon}))].map(f => (
-                  <button key={f.id} onClick={()=>setCatFilter(f.id)} style={{ padding:"5px 10px", fontSize:10, fontWeight:600, border:"none", cursor:"pointer", borderRadius:6, background:catFilter===f.id?G.surface3:"transparent", color:catFilter===f.id?G.text:G.text3 }}>{f.icon||"🔘"} {f.label}</button>
+                <button onClick={()=>setFolderFilter("all")} style={{ padding:"5px 10px", fontSize:10, fontWeight:600, border:"none", cursor:"pointer", borderRadius:6, background:folderFilter==="all"?G.surface3:"transparent", color:folderFilter==="all"?G.text:G.text3 }}>All</button>
+                {folders.map(f => (
+                  <button key={f.id} onClick={()=>setFolderFilter(f.id)} style={{ padding:"5px 10px", fontSize:10, fontWeight:600, border:"none", cursor:"pointer", borderRadius:6, background:folderFilter===f.id?G.surface3:"transparent", color:folderFilter===f.id?G.text:G.text3 }}>{f.icon} {f.name}</button>
                 ))}
+                <button onClick={()=>setFolderFilter("unfiled")} style={{ padding:"5px 10px", fontSize:10, fontWeight:600, border:"none", cursor:"pointer", borderRadius:6, background:folderFilter==="unfiled"?G.surface3:"transparent", color:folderFilter==="unfiled"?G.text:G.text3 }}>📄 Unfiled</button>
               </div>
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)", gap:14 }}>
-              {filteredCatalog.map(c => {
+            {/* Render courses grouped by folder */}
+            {(() => {
+              const q = searchQ.toLowerCase();
+              const matchesSearch = c => !q || c.title.toLowerCase().includes(q) || (c.description||"").toLowerCase().includes(q);
+              const renderCourseCard = (c) => {
                 const cL = getCourseLessons(c.id);
                 const prog = getMyProgress(c.id);
                 const cat = CATS[c.category]||CATS.other;
@@ -711,8 +752,46 @@ export default function LearningView({ modulePerms = {} }) {
                     </div>
                   </div>
                 );
-              })}
-            </div>
+              };
+              // Filter
+              const visibleFolders = folderFilter === "all" ? folders : folderFilter === "unfiled" ? [] : folders.filter(f => f.id === folderFilter);
+              const showUnfiled = folderFilter === "all" || folderFilter === "unfiled";
+              const unfiledCourses = publishedCourses.filter(c => !c.folder_id && matchesSearch(c));
+              return (
+                <>
+                  {visibleFolders.map(folder => {
+                    const folderCourses = publishedCourses.filter(c => c.folder_id === folder.id && matchesSearch(c));
+                    if (folderCourses.length === 0 && searchQ) return null;
+                    return (
+                      <div key={folder.id} style={{ marginBottom: 20 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: "8px 12px", background: folder.color + "12", borderRadius: 10, border: `1px solid ${folder.color}30` }}>
+                          <span style={{ fontSize: 20 }}>{folder.icon}</span>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: G.text }}>{folder.name}</span>
+                          <Badge label={`${folderCourses.length} courses`} color={folder.color} />
+                        </div>
+                        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)", gap:14 }}>
+                          {folderCourses.map(renderCourseCard)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {showUnfiled && unfiledCourses.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                      {folders.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: "8px 12px", background: G.surface2, borderRadius: 10, border: `1px solid ${G.border}` }}>
+                          <span style={{ fontSize: 20 }}>📄</span>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: G.text }}>Unfiled</span>
+                          <Badge label={`${unfiledCourses.length} courses`} color={G.text3} bg={G.surface3} />
+                        </div>
+                      )}
+                      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)", gap:14 }}>
+                        {unfiledCourses.map(renderCourseCard)}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -721,15 +800,43 @@ export default function LearningView({ modulePerms = {} }) {
           <div style={{ animation:"lms-fadeIn 0.3s ease", display:"flex", flexDirection:"column", gap:12 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div style={{ fontSize:16, fontWeight:700, color:G.text }}>All Courses ({courses.length})</div>
-              <button onClick={()=>{setCourseForm({title:"",description:"",category:"onboarding",is_required:false,refresh_interval_days:"",estimated_minutes:"",passing_score:70});setEditingCourse(null);setShowNewCourse(true);}} style={{ padding:"8px 16px", fontSize:12, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>+ New Course</button>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={()=>{setEditingFolder(null);setNewFolderName("");setNewFolderIcon("📁");setNewFolderColor("#6C63FF");setShowNewFolder(true);}} style={{ padding:"8px 16px", fontSize:12, fontWeight:600, background:G.surface2, color:G.text2, border:`1px solid ${G.border}`, borderRadius:10, cursor:"pointer" }}>+ New Folder</button>
+                <button onClick={()=>{setCourseForm({title:"",description:"",category:"onboarding",is_required:false,refresh_interval_days:"",estimated_minutes:"",passing_score:70,folder_id:""});setEditingCourse(null);setShowNewCourse(true);}} style={{ padding:"8px 16px", fontSize:12, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>+ New Course</button>
+              </div>
             </div>
-            {courses.map(c => {
+
+            {/* Folder management strip */}
+            {folders.length > 0 && (
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:4 }}>
+                {folders.map(f => (
+                  <div key={f.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 12px", background:f.color+"12", border:`1px solid ${f.color}30`, borderRadius:8 }}>
+                    <span style={{ fontSize:14 }}>{f.icon}</span>
+                    <span style={{ fontSize:12, fontWeight:600, color:G.text }}>{f.name}</span>
+                    <span style={{ fontSize:10, color:G.text3 }}>({courses.filter(c=>c.folder_id===f.id).length})</span>
+                    <button onClick={()=>{setEditingFolder(f);setNewFolderName(f.name);setNewFolderIcon(f.icon);setNewFolderColor(f.color);setShowNewFolder(true);}} style={{ fontSize:10, color:G.text3, background:"none", border:"none", cursor:"pointer", padding:"0 2px" }}>✏️</button>
+                    <button onClick={()=>deleteFolder(f.id)} style={{ fontSize:10, color:G.red, background:"none", border:"none", cursor:"pointer", padding:"0 2px" }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Courses grouped by folder */}
+            {[...folders, { id: null, name: "Unfiled", icon: "📄", color: G.text3 }].map(folder => {
+              const folderCourses = courses.filter(c => folder.id ? c.folder_id === folder.id : !c.folder_id);
+              if (folderCourses.length === 0) return null;
+              return (
+                <div key={folder.id || "unfiled"}>
+                  <div style={{ fontSize:12, fontWeight:700, color:folder.color || G.text3, marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+                    <span>{folder.icon}</span> {folder.name} ({folderCourses.length})
+                  </div>
+                  {folderCourses.map(c => {
               const cL = getCourseLessons(c.id);
               const quiz = getCourseQuiz(c.id);
               const assignCount = assignments.filter(a=>a.course_id===c.id).length;
               const cat = CATS[c.category]||CATS.other;
               return (
-                <div key={c.id} style={{ background:G.surface, border:`1px solid ${G.border}`, borderRadius:14, padding:16, borderLeft:`4px solid ${c.status==="published"?G.green:G.text3}` }}>
+                <div key={c.id} style={{ background:G.surface, border:`1px solid ${G.border}`, borderRadius:14, padding:16, borderLeft:`4px solid ${c.status==="published"?G.green:G.text3}`, marginBottom:8 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
                     <div><div style={{ fontSize:14, fontWeight:700, color:G.text }}>{cat.icon} {c.title}</div><div style={{ fontSize:11, color:G.text3, marginTop:2 }}>{cL.length} lessons{quiz?" + quiz":""} · {assignCount} assigned</div></div>
                     <Badge label={c.status.toUpperCase()} color={c.status==="published"?G.green:G.text3} />
@@ -739,9 +846,14 @@ export default function LearningView({ modulePerms = {} }) {
                       { l:"+ Lesson", c:G.accent, fn:()=>setShowLessonForm(c.id) },
                       { l:quiz?"✏️ Quiz":"📝 Quiz", c:G.yellow, fn:()=>{setShowQuizBuilder(c.id);if(quiz) setQuizForm({title:quiz.title,questions:quiz.questions,passing_score:quiz.passing_score}); else setQuizForm({title:"Quiz",questions:[{q:"",type:"multiple_choice",options:["","","",""],correct:0,points:1}],passing_score:70});} },
                       { l:"👥 Assign", c:"#B24BF3", fn:()=>{setShowAssign(c.id);setAssignForm({user_id:"",team_id:"",due_date:"",is_mandatory:true});} },
-                      { l:"✏️ Edit", c:G.text3, fn:()=>{setEditingCourse(c);setCourseForm({title:c.title,description:c.description||"",category:c.category,is_required:c.is_required,refresh_interval_days:c.refresh_interval_days||"",estimated_minutes:c.estimated_minutes||"",passing_score:c.passing_score||70});setShowNewCourse(true);} },
+                      { l:"✏️ Edit", c:G.text3, fn:()=>{setEditingCourse(c);setCourseForm({title:c.title,description:c.description||"",category:c.category,is_required:c.is_required,refresh_interval_days:c.refresh_interval_days||"",estimated_minutes:c.estimated_minutes||"",passing_score:c.passing_score||70,folder_id:c.folder_id||""});setShowNewCourse(true);} },
                       { l:c.status==="published"?"Unpublish":"Publish", c:c.status==="published"?G.red:G.green, fn:()=>togglePublish(c) },
                     ].map(b => <button key={b.l} onClick={b.fn} style={{ padding:"5px 12px", fontSize:10, fontWeight:600, background:b.c+"15", color:b.c, border:"none", borderRadius:6, cursor:"pointer" }}>{b.l}</button>)}
+                    {/* Move to folder */}
+                    <select value={c.folder_id||"__none__"} onChange={e=>moveCourseToFolder(c.id, e.target.value)} style={{ padding:"4px 8px", fontSize:10, background:G.surface2, color:G.text2, border:`1px solid ${G.border}`, borderRadius:6, cursor:"pointer" }}>
+                      <option value="__none__">📄 Unfiled</option>
+                      {folders.map(f => <option key={f.id} value={f.id}>{f.icon} {f.name}</option>)}
+                    </select>
                   </div>
                   {cL.length>0 && (
                     <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${G.border}` }}>
@@ -753,6 +865,9 @@ export default function LearningView({ modulePerms = {} }) {
                       ))}
                     </div>
                   )}
+                </div>
+              );
+            })}
                 </div>
               );
             })}
@@ -879,6 +994,12 @@ export default function LearningView({ modulePerms = {} }) {
               <textarea value={courseForm.description} onChange={e=>setCourseForm(p=>({...p,description:e.target.value}))} placeholder="Description" rows={3} style={{...inp,resize:"vertical"}} />
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                 <select value={courseForm.category} onChange={e=>setCourseForm(p=>({...p,category:e.target.value}))} style={inp}>{Object.entries(CATS).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}</select>
+                <select value={courseForm.folder_id||""} onChange={e=>setCourseForm(p=>({...p,folder_id:e.target.value}))} style={inp}>
+                  <option value="">📄 No folder</option>
+                  {folders.map(f => <option key={f.id} value={f.id}>{f.icon} {f.name}</option>)}
+                </select>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                 <input value={courseForm.estimated_minutes} onChange={e=>setCourseForm(p=>({...p,estimated_minutes:e.target.value}))} placeholder="Est. minutes" type="number" style={inp} />
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
@@ -889,6 +1010,43 @@ export default function LearningView({ modulePerms = {} }) {
               <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
                 <button onClick={()=>setShowNewCourse(false)} style={{ padding:"10px 18px", fontSize:12, background:G.surface3, border:"none", borderRadius:8, color:G.text3, cursor:"pointer" }}>Cancel</button>
                 <button onClick={saveCourse} disabled={!courseForm.title.trim()} style={{ padding:"10px 22px", fontSize:13, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>{editingCourse?"Save":"Create"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNewFolder && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", backdropFilter:"blur(4px)" }} onClick={()=>{setShowNewFolder(false);setEditingFolder(null);}}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"min(420px,95vw)", background:G.surface, borderRadius:20, padding:28, border:`1px solid ${G.border}` }}>
+            <div style={{ fontSize:18, fontWeight:800, color:G.text, marginBottom:18 }}>{editingFolder?"Edit Folder":"New Folder"}</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <input value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} placeholder="Folder name" autoFocus style={inp} />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                <div>
+                  <div style={{ fontSize:11, color:G.text3, marginBottom:4 }}>Icon</div>
+                  <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                    {["📁","🛡️","🌱","📋","📦","⚙️","💡","🎓","📚","🔬","🏭","💼","🎯","🔒"].map(icon => (
+                      <button key={icon} onClick={()=>setNewFolderIcon(icon)} style={{ fontSize:18, padding:"4px 6px", borderRadius:6, border: newFolderIcon===icon?`2px solid ${G.accent}`:`1px solid ${G.border}`, background: newFolderIcon===icon?G.accentDim:"transparent", cursor:"pointer" }}>{icon}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:G.text3, marginBottom:4 }}>Color</div>
+                  <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                    {["#F87171","#FBBF24","#34D399","#6C63FF","#38BDF8","#B24BF3","#EC4899","#F97316","#14B8A6","#9CA3C0"].map(c => (
+                      <button key={c} onClick={()=>setNewFolderColor(c)} style={{ width:24, height:24, borderRadius:6, background:c, border: newFolderColor===c?`2px solid ${G.text}`:`2px solid transparent`, cursor:"pointer" }} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", background:newFolderColor+"12", borderRadius:10, border:`1px solid ${newFolderColor}30` }}>
+                <span style={{ fontSize:24 }}>{newFolderIcon}</span>
+                <span style={{ fontSize:15, fontWeight:700, color:G.text }}>{newFolderName || "Preview"}</span>
+              </div>
+              <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+                <button onClick={()=>{setShowNewFolder(false);setEditingFolder(null);}} style={{ padding:"10px 18px", fontSize:12, background:G.surface3, border:"none", borderRadius:8, color:G.text3, cursor:"pointer" }}>Cancel</button>
+                <button onClick={saveFolder} disabled={!newFolderName.trim()} style={{ padding:"10px 22px", fontSize:13, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>{editingFolder?"Save":"Create"}</button>
               </div>
             </div>
           </div>
