@@ -438,7 +438,7 @@ export default function BudgetPlanner() {
         supabase.from("budget_plan_gl").select("*").eq("plan_id", activePlan.id),
         supabase.from("budget_plan_vendors").select("*").eq("plan_id", activePlan.id),
         supabase.from("budget_plan_people").select("*").eq("plan_id", activePlan.id),
-        supabase.from("budget_plan_access").select("*, profile:profiles!budget_plan_access_user_id_fkey(display_name,email)").eq("plan_id", activePlan.id),
+        supabase.from("budget_plan_access").select("*, profile:profiles!budget_plan_access_user_id_profiles_fkey(display_name,email)").eq("plan_id", activePlan.id),
       ]);
 
       const cb = {};
@@ -566,7 +566,7 @@ export default function BudgetPlanner() {
       plan_id: activePlan.id, user_id: userId, role, granted_by: user.id,
     });
     const { data } = await supabase.from("budget_plan_access")
-      .select("*, profile:profiles!budget_plan_access_user_id_fkey(display_name,email)")
+      .select("*, profile:profiles!budget_plan_access_user_id_profiles_fkey(display_name,email)")
       .eq("plan_id", activePlan.id);
     setPlanAccess(data || []);
   };
