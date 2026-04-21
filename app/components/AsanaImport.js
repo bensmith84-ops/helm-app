@@ -23,9 +23,16 @@ export default function AsanaImportModal({ onClose, onImported }) {
   }, []);
 
   const callClaude = async (prompt, systemPrompt) => {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    // Get Supabase session for auth
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    
+    const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/asana-proxy", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 4096,
