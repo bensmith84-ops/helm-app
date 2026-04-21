@@ -630,38 +630,72 @@ function calcChannelUnits(ch, allChannels, allPeriods, chEmailSends) {
 // ── Debounced Input (top-level to avoid re-creation on parent render) ──
 function DebouncedInput({ label, value, onChange, type = "text", placeholder, suffix, prefix, small }) {
   const [local, setLocal] = useState(value ?? "");
+  const [focused, setFocused] = useState(false);
   const timerRef = useRef(null);
   const dirtyRef = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  // Only sync from parent when NOT actively editing
   useEffect(() => { if (!dirtyRef.current) setLocal(value ?? ""); }, [value]);
+
+  const fmtComma = (v) => {
+    if (v === "" || v === null || v === undefined) return "";
+    const n = Number(v);
+    if (isNaN(n)) return String(v);
+    if (Number.isInteger(n)) return n.toLocaleString("en-US");
+    return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  };
+
   const handleChange = (e) => {
-    const v = type === "number" ? (e.target.value === "" ? "" : e.target.value) : e.target.value;
+    const raw = e.target.value;
+    // Strip commas for number fields so user can type freely
+    const cleaned = type === "number" ? raw.replace(/,/g, "") : raw;
+    const v = type === "number" ? (cleaned === "" ? "" : cleaned) : cleaned;
     setLocal(v);
     dirtyRef.current = true;
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       const parsed = type === "number" ? (v === "" ? null : Number(v)) : v;
       onChangeRef.current(parsed);
-      // Allow parent sync again after save completes
       setTimeout(() => { dirtyRef.current = false; }, 100);
     }, 600);
   };
+
+  const displayValue = type === "number" && !focused ? fmtComma(local) : local;
+
   return (
     <div style={{ marginBottom: small ? 6 : 10 }}>
       <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>{label}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {prefix && <span style={{ fontSize: 11, color: T.text3 }}>{prefix}</span>}
-        <input value={local} onChange={handleChange} onBlur={() => { dirtyRef.current = false; }} type={type} placeholder={placeholder}
-          style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" }} />
+        <input value={displayValue} onChange={handleChange}
+          onFocus={() => setFocused(true)}
+          onBlur={() => { setFocused(false); dirtyRef.current = false; }}
+          type="text" inputMode={type === "number" ? "decimal" : undefined} placeholder={placeholder}
+          style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%", textAlign: type === "number" ? "right" : "left" }} />
         {suffix && <span style={{ fontSize: 10, color: T.text3 }}>{suffix}</span>}
       </div>
     </div>
   );
 }
 
-// ── Channel Input Fields (top-level to avoid re-creation) ──
+// Inline number input with comma formatting for table cells
+function FmtInput({ defaultValue, onBlur, style }) {
+  const [val, setVal] = useState(defaultValue ?? "");
+  const [focused, setFocused] = useState(false);
+  const fmtC = (v) => { if (v === "" || v === null || v === undefined) return ""; const n = Number(v); return isNaN(n) ? String(v) : n.toLocaleString("en-US", { maximumFractionDigits: 4 }); };
+  useEffect(() => { if (!focused) setVal(defaultValue ?? ""); }, [defaultValue]);
+  return (
+    <input
+      value={focused ? val : fmtC(val)}
+      onChange={e => setVal(e.target.value.replace(/,/g, ""))}
+      onFocus={() => setFocused(true)}
+      onBlur={e => { setFocused(false); onBlur({ target: { value: String(val).replace(/,/g, "") } }); }}
+      type="text" inputMode="decimal"
+      style={style}
+    />
+  );
+}
+
 function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods, emailSends, onAddEmailSend, onUpdateEmailSend, onRemoveEmailSend, variantSplits, onAddVariantSplit, onUpdateVariantSplit, onRemoveVariantSplit, onInitDefaultVariants }) {
   const up = (field, val) => onUpdateChannel(ch.id, { [field]: val });
   const c = ch.channel;
@@ -798,11 +832,11 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                           <tr key={p.id} style={{ borderBottom: `1px solid ${T.border}08` }}>
                             <td style={{ padding: "3px 6px", color: T.text2, fontWeight: 600, fontSize: 10 }}>{p.period_label}</td>
                             <td style={{ padding: "3px 2px" }}>
-                              <input type="number" defaultValue={p.ad_spend ?? ""} onBlur={e => onUpdatePeriod(p.id, { ad_spend: e.target.value === "" ? null : Number(e.target.value) })}
+                              <FmtInput defaultValue={p.ad_spend ?? ""} onBlur={e => onUpdatePeriod(p.id, { ad_spend: e.target.value === "" ? null : Number(e.target.value) })}
                                 style={{ width: "100%", padding: "3px 6px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" }} />
                             </td>
                             <td style={{ padding: "3px 2px" }}>
-                              <input type="number" defaultValue={p.cpa ?? ""} onBlur={e => onUpdatePeriod(p.id, { cpa: e.target.value === "" ? null : Number(e.target.value) })}
+                              <FmtInput defaultValue={p.cpa ?? ""} onBlur={e => onUpdatePeriod(p.id, { cpa: e.target.value === "" ? null : Number(e.target.value) })}
                                 style={{ width: "100%", padding: "3px 6px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" }} />
                             </td>
                             <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 700, color: T.accent, fontSize: 11 }}>{fmt(pCust)}</td>
@@ -886,22 +920,22 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                             <input defaultValue={s.label} onBlur={e => onUpdateEmailSend(s.id, { label: e.target.value })} style={{ ...inp2, textAlign: "left", width: 70 }} />
                           </td>
                           <td style={{ padding: "3px 2px" }}>
-                            <input type="number" defaultValue={s.list_size ?? ""} onBlur={e => onUpdateEmailSend(s.id, { list_size: e.target.value === "" ? null : Number(e.target.value) })} style={inp2} />
+                            <FmtInput defaultValue={s.list_size ?? ""} onBlur={e => onUpdateEmailSend(s.id, { list_size: e.target.value === "" ? null : Number(e.target.value) })} style={inp2} />
                           </td>
                           <td style={{ padding: "3px 2px" }}>
-                            <input type="number" defaultValue={s.send_pct ?? 100} onBlur={e => onUpdateEmailSend(s.id, { send_pct: Number(e.target.value) || 100 })} style={{ ...inp2, width: 50 }} />
+                            <FmtInput defaultValue={s.send_pct ?? 100} onBlur={e => onUpdateEmailSend(s.id, { send_pct: Number(e.target.value) || 100 })} style={{ ...inp2, width: 50 }} />
                           </td>
                           <td style={{ padding: "3px 2px" }}>
-                            <input type="number" defaultValue={s.open_rate ?? 25} onBlur={e => onUpdateEmailSend(s.id, { open_rate: Number(e.target.value) || 25 })} style={{ ...inp2, width: 50 }} />
+                            <FmtInput defaultValue={s.open_rate ?? 25} onBlur={e => onUpdateEmailSend(s.id, { open_rate: Number(e.target.value) || 25 })} style={{ ...inp2, width: 50 }} />
                           </td>
                           <td style={{ padding: "3px 2px" }}>
-                            <input type="number" defaultValue={s.click_rate ?? 3} onBlur={e => onUpdateEmailSend(s.id, { click_rate: Number(e.target.value) || 3 })} style={{ ...inp2, width: 50 }} />
+                            <FmtInput defaultValue={s.click_rate ?? 3} onBlur={e => onUpdateEmailSend(s.id, { click_rate: Number(e.target.value) || 3 })} style={{ ...inp2, width: 50 }} />
                           </td>
                           <td style={{ padding: "3px 2px" }}>
-                            <input type="number" defaultValue={s.conversion_rate ?? 5} onBlur={e => onUpdateEmailSend(s.id, { conversion_rate: Number(e.target.value) || 5 })} style={{ ...inp2, width: 50 }} />
+                            <FmtInput defaultValue={s.conversion_rate ?? 5} onBlur={e => onUpdateEmailSend(s.id, { conversion_rate: Number(e.target.value) || 5 })} style={{ ...inp2, width: 50 }} />
                           </td>
                           <td style={{ padding: "3px 2px" }}>
-                            <input type="number" defaultValue={s.units_per_order ?? 1} onBlur={e => onUpdateEmailSend(s.id, { units_per_order: Number(e.target.value) || 1 })} style={{ ...inp2, width: 40 }} />
+                            <FmtInput defaultValue={s.units_per_order ?? 1} onBlur={e => onUpdateEmailSend(s.id, { units_per_order: Number(e.target.value) || 1 })} style={{ ...inp2, width: 40 }} />
                           </td>
                           <td style={{ padding: "3px 4px", textAlign: "right", fontWeight: 700, color: T.accent, fontSize: 11 }}>{fmt(sUnits)}</td>
                           <td><button onClick={() => onRemoveEmailSend(s.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
@@ -1041,10 +1075,10 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                             </div>
                           </td>
                           <td style={{ padding: "4px 6px" }}>
-                            <input type="number" defaultValue={v.units_per_variant ?? 1} onBlur={e => onUpdateVariantSplit(v.id, { units_per_variant: Number(e.target.value) || 1 })} style={inp3} />
+                            <FmtInput defaultValue={v.units_per_variant ?? 1} onBlur={e => onUpdateVariantSplit(v.id, { units_per_variant: Number(e.target.value) || 1 })} style={inp3} />
                           </td>
                           <td style={{ padding: "4px 6px" }}>
-                            <input type="number" defaultValue={v.take_rate_pct ?? 25} onBlur={e => onUpdateVariantSplit(v.id, { take_rate_pct: Number(e.target.value) || 0 })} style={inp3} />
+                            <FmtInput defaultValue={v.take_rate_pct ?? 25} onBlur={e => onUpdateVariantSplit(v.id, { take_rate_pct: Number(e.target.value) || 0 })} style={inp3} />
                           </td>
                           <td style={{ padding: "4px 6px", textAlign: "right", fontSize: 11, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "—"}</td>
                           <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: 11, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "—"}</td>
