@@ -9,6 +9,7 @@ import { useResponsive } from "../lib/responsive";
 import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import SearchableMultiSelect from "./SearchableSelect";
+import AsanaImportModal from "./AsanaImport";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
 const TABS = ["Info", "List", "Board", "Timeline", "Calendar", "Updates", "Docs", "Rules"];
@@ -195,6 +196,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [plmPrograms, setPlmPrograms] = useState([]); // PLM programs for linking
   // Templates & copy
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showAsanaImport, setShowAsanaImport] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [copyingProject, setCopyingProject] = useState(null);
   // Status updates
@@ -916,6 +918,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Projects</span>
         <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setShowAsanaImport(true)} title="Import from Asana" style={{ ...S.iconBtn, fontSize: 11, padding: "3px 6px", borderRadius: 5, color: T.text3 }}>📥</button>
           <button onClick={() => setShowTemplates(true)} title="From template" style={{ ...S.iconBtn, fontSize: 12, padding: "3px 6px", borderRadius: 5, color: T.accent }}>⊞</button>
           <button onClick={openNewProject} style={{ ...S.iconBtn, background: T.accent, color: "#fff", borderRadius: 6, width: 24, height: 24, fontSize: 16 }}>+</button>
         </div>
@@ -3213,6 +3216,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       </div>
       {projectFormModalEl}
       {templatesModalEl}
+      {showAsanaImport && <AsanaImportModal onClose={() => setShowAsanaImport(false)} onImported={(projId) => { setShowAsanaImport(false); window.location.reload(); }} />}
       {saveAsTemplateModalEl}
       {copyModalEl}
       {statusFormModalEl}
