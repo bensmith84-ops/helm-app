@@ -740,7 +740,6 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
       {/* Direct mode inputs (shown for 'direct', 'both', or always for hero_gwp) */}
       {(!isHalo || isPrimary) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <I label="Units per Order" value={ch.units_per_order} onChange={v => up("units_per_order", v)} type="number" placeholder="1" />
           
           {/* Hero GWP / DTC Paid — primary driver with optional time-phased spend */}
           {(c === "hero_gwp" || c === "dtc_paid") && (() => {
@@ -1017,55 +1016,64 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   ))}
                 </div>
                 
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col style={{ width: "30%" }} />
+                    <col style={{ width: "18%" }} />
+                    <col style={{ width: "18%" }} />
+                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "6%" }} />
+                  </colgroup>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <th style={{ textAlign: "left", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Variant</th>
-                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Qty (units)</th>
-                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Take Rate %</th>
-                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Orders</th>
-                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.accent }}>Units</th>
-                      <th style={{ width: 20 }}></th>
+                      <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Variant</th>
+                      <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Qty (units)</th>
+                      <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Take Rate %</th>
+                      <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Orders</th>
+                      <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.accent }}>Units</th>
+                      <th style={{ padding: "6px 2px" }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {splits.map((v, i) => {
                       const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
                       const vUnits = Math.round(vOrders * (v.units_per_variant || 1));
-                      const inp3 = { width: "100%", padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
+                      const inp3 = { width: "100%", padding: "4px 6px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
                       return (
-                        <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}08` }}>
-                          <td style={{ padding: "3px 4px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
+                          <td style={{ padding: "4px 6px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <span style={{ width: 8, height: 8, borderRadius: 2, background: colors[i % colors.length], flexShrink: 0 }} />
-                              <input defaultValue={v.variant_label} onBlur={e => onUpdateVariantSplit(v.id, { variant_label: e.target.value })} style={{ ...inp3, textAlign: "left", width: 80 }} />
+                              <input defaultValue={v.variant_label} onBlur={e => onUpdateVariantSplit(v.id, { variant_label: e.target.value })} style={{ ...inp3, textAlign: "left" }} />
                             </div>
                           </td>
-                          <td style={{ padding: "3px 2px" }}>
-                            <input type="number" defaultValue={v.units_per_variant ?? 1} onBlur={e => onUpdateVariantSplit(v.id, { units_per_variant: Number(e.target.value) || 1 })} style={{ ...inp3, width: 50 }} />
+                          <td style={{ padding: "4px 6px" }}>
+                            <input type="number" defaultValue={v.units_per_variant ?? 1} onBlur={e => onUpdateVariantSplit(v.id, { units_per_variant: Number(e.target.value) || 1 })} style={inp3} />
                           </td>
-                          <td style={{ padding: "3px 2px" }}>
-                            <input type="number" defaultValue={v.take_rate_pct ?? 25} onBlur={e => onUpdateVariantSplit(v.id, { take_rate_pct: Number(e.target.value) || 0 })} style={{ ...inp3, width: 50 }} />
+                          <td style={{ padding: "4px 6px" }}>
+                            <input type="number" defaultValue={v.take_rate_pct ?? 25} onBlur={e => onUpdateVariantSplit(v.id, { take_rate_pct: Number(e.target.value) || 0 })} style={inp3} />
                           </td>
-                          <td style={{ padding: "3px 4px", textAlign: "right", fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "—"}</td>
-                          <td style={{ padding: "3px 4px", textAlign: "right", fontWeight: 700, fontSize: 11, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "—"}</td>
-                          <td><button onClick={() => onRemoveVariantSplit(v.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
+                          <td style={{ padding: "4px 6px", textAlign: "right", fontSize: 11, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "—"}</td>
+                          <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: 11, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "—"}</td>
+                          <td style={{ padding: "4px 2px", textAlign: "center" }}><button onClick={() => onRemoveVariantSplit(v.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
                         </tr>
                       );
                     })}
                   </tbody>
                   <tfoot>
                     <tr style={{ borderTop: `2px solid ${T.border}` }}>
-                      <td colSpan={2} style={{ padding: "5px 4px", fontWeight: 700, fontSize: 10, color: T.text }}>Total</td>
-                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: pctWarning ? T.red : T.text }}>{totalPct.toFixed(0)}%{pctWarning ? " ⚠" : ""}</td>
-                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(totalOrders) : "—"}</td>
-                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>
+                      <td style={{ padding: "6px 6px", fontWeight: 700, fontSize: 10, color: T.text }}>Total</td>
+                      <td style={{ padding: "6px 6px" }}></td>
+                      <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 700, fontSize: 10, color: pctWarning ? T.red : T.text }}>{totalPct.toFixed(0)}%{pctWarning ? " ⚠" : ""}</td>
+                      <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(totalOrders) : "—"}</td>
+                      <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>
                         {totalOrders > 0 ? fmt(splits.reduce((s, v) => {
                           const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
                           return s + Math.round(vOrders * (v.units_per_variant || 1));
                         }, 0)) : "—"}
                       </td>
-                      <td></td>
+                      <td style={{ padding: "6px 2px" }}></td>
                     </tr>
                   </tfoot>
                 </table>
