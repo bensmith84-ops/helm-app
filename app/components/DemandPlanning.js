@@ -988,20 +988,24 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
         )}
       </div>
 
-      {/* Variant / Pack-Size Allocation (Hero GWP + any channel) */}
-      {(c === "hero_gwp" || c === "dtc_paid") && units > 0 && (() => {
+      {/* Variant / Pack-Size Allocation — available on any channel */}
+      {(() => {
         const splits = variantSplits || [];
         const totalPct = splits.reduce((s, v) => s + (v.take_rate_pct || 0), 0);
         const pctWarning = splits.length > 0 && Math.abs(totalPct - 100) > 0.5;
         const colors = ["#94a3b8", "#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444"];
+        const totalOrders = units > 0 && (ch.units_per_order || 1) > 0 ? Math.round(units / (ch.units_per_order || 1)) : 0;
         
         return (
           <div style={{ marginTop: 10, padding: "10px 12px", background: "#8b5cf608", borderRadius: 8, border: `1px solid #8b5cf615` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#8b5cf6" }}>📦 Variant / Pack-Size Allocation</div>
-              {splits.length === 0 && (
-                <button onClick={() => onInitDefaultVariants(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "#8b5cf610", color: "#8b5cf6", cursor: "pointer" }}>Load Defaults (1-4 Pack)</button>
-              )}
+              <div style={{ display: "flex", gap: 6 }}>
+                {splits.length === 0 && (
+                  <button onClick={() => onInitDefaultVariants(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "#8b5cf610", color: "#8b5cf6", cursor: "pointer" }}>Load Defaults (1-4 Pack)</button>
+                )}
+                <button onClick={() => onAddVariantSplit(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "transparent", color: "#8b5cf6", cursor: "pointer" }}>+ Add Variant</button>
+              </div>
             </div>
             
             {splits.length > 0 && (
@@ -1017,7 +1021,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                       <th style={{ textAlign: "left", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Variant</th>
-                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Units/Variant</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Qty (units)</th>
                       <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Take Rate %</th>
                       <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Orders</th>
                       <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.accent }}>Units</th>
@@ -1026,7 +1030,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   </thead>
                   <tbody>
                     {splits.map((v, i) => {
-                      const vOrders = Math.round((units / (ch.units_per_order || 1)) * ((v.take_rate_pct || 0) / 100));
+                      const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
                       const vUnits = Math.round(vOrders * (v.units_per_variant || 1));
                       const inp3 = { width: "100%", padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
                       return (
@@ -1043,8 +1047,8 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                           <td style={{ padding: "3px 2px" }}>
                             <input type="number" defaultValue={v.take_rate_pct ?? 25} onBlur={e => onUpdateVariantSplit(v.id, { take_rate_pct: Number(e.target.value) || 0 })} style={{ ...inp3, width: 50 }} />
                           </td>
-                          <td style={{ padding: "3px 4px", textAlign: "right", fontSize: 10, color: T.text2 }}>{fmt(vOrders)}</td>
-                          <td style={{ padding: "3px 4px", textAlign: "right", fontWeight: 700, fontSize: 11, color: colors[i % colors.length] }}>{fmt(vUnits)}</td>
+                          <td style={{ padding: "3px 4px", textAlign: "right", fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "—"}</td>
+                          <td style={{ padding: "3px 4px", textAlign: "right", fontWeight: 700, fontSize: 11, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "—"}</td>
                           <td><button onClick={() => onRemoveVariantSplit(v.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
                         </tr>
                       );
@@ -1054,22 +1058,23 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                     <tr style={{ borderTop: `2px solid ${T.border}` }}>
                       <td colSpan={2} style={{ padding: "5px 4px", fontWeight: 700, fontSize: 10, color: T.text }}>Total</td>
                       <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: pctWarning ? T.red : T.text }}>{totalPct.toFixed(0)}%{pctWarning ? " ⚠" : ""}</td>
-                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{fmt(Math.round(units / (ch.units_per_order || 1)))}</td>
+                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(totalOrders) : "—"}</td>
                       <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>
-                        {fmt(splits.reduce((s, v) => {
-                          const vOrders = Math.round((units / (ch.units_per_order || 1)) * ((v.take_rate_pct || 0) / 100));
+                        {totalOrders > 0 ? fmt(splits.reduce((s, v) => {
+                          const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
                           return s + Math.round(vOrders * (v.units_per_variant || 1));
-                        }, 0))}
+                        }, 0)) : "—"}
                       </td>
                       <td></td>
                     </tr>
                   </tfoot>
                 </table>
                 {pctWarning && <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>⚠ Take rates sum to {totalPct.toFixed(0)}% — should total 100%</div>}
+                {totalOrders === 0 && splits.length > 0 && <div style={{ fontSize: 9, color: T.text3, marginTop: 4, fontStyle: "italic" }}>Fill in the demand model above to see order/unit projections per variant.</div>}
               </>
             )}
             
-            <button onClick={() => onAddVariantSplit(ch.id)} style={{ marginTop: 6, padding: "4px 12px", fontSize: 10, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "transparent", color: "#8b5cf6", cursor: "pointer" }}>+ Add Variant</button>
+            {splits.length === 0 && <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>No variants configured. Add variants to allocate demand across pack sizes (e.g. 1-Pack, 2-Pack, 4-Pack).</div>}
           </div>
         );
       })()}
