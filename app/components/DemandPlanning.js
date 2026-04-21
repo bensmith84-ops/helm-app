@@ -562,77 +562,69 @@ const STATUS_OPTS = [
 
 function calcChannelUnits(ch, allChannels, allPeriods, chEmailSends) {
   const c = ch.channel;
-  const upo = ch.units_per_order || 1;
 
+  // Returns ORDERS (conversions). Variant splits handle unit allocation.
   const getPaidOrders = () => {
     if (!allChannels) return 0;
     const heroChannels = allChannels.filter(s => s.id !== ch.id && (s.channel === "hero_gwp" || s.channel === "dtc_paid"));
-    return heroChannels.reduce((sum, s) => {
-      const u = calcChannelUnits(s, null, allPeriods);
-      return sum + ((s.units_per_order || 1) > 0 ? u / (s.units_per_order || 1) : u);
-    }, 0);
+    return heroChannels.reduce((sum, s) => sum + calcChannelUnits(s, null, allPeriods), 0);
   };
 
-  const getHaloUnits = () => {
+  const getHaloOrders = () => {
     if (!ch.halo_pct) return 0;
-    return Math.round(getPaidOrders() * (ch.halo_pct / 100) * upo);
+    return Math.round(getPaidOrders() * (ch.halo_pct / 100));
   };
 
-  const getDirectUnits = () => {
+  const getDirectOrders = () => {
     if (c === "hero_gwp" || c === "dtc_paid") {
       const chPeriods = (allPeriods || []).filter(p => p.channel_id === ch.id);
       if (chPeriods.length > 0) {
-        const totalCustomers = chPeriods.reduce((sum, p) => {
+        return chPeriods.reduce((sum, p) => {
           const spend = parseFloat(p.ad_spend) || 0;
           const cpa = parseFloat(p.cpa) || 0;
           return sum + (cpa > 0 ? Math.round(spend / cpa) : 0);
         }, 0);
-        return Math.round(totalCustomers * upo);
       }
-      if (ch.ad_spend && ch.cpa && ch.cpa > 0) return Math.round((ch.ad_spend / ch.cpa) * upo);
-      if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
+      if (ch.ad_spend && ch.cpa && ch.cpa > 0) return Math.round(ch.ad_spend / ch.cpa);
+      if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers);
       return 0;
     }
     if (c === "email") {
-      // Multi-send mode: sum conversions across all sends
       if (chEmailSends && chEmailSends.length > 0) {
         return chEmailSends.reduce((sum, send) => {
           const sent = (send.list_size || 0) * ((send.send_pct || 100) / 100);
           const opened = sent * ((send.open_rate || 25) / 100);
           const clicked = opened * ((send.click_rate || 3) / 100);
-          const converted = clicked * ((send.conversion_rate || 5) / 100);
-          return sum + Math.round(converted * (send.units_per_order || upo));
+          return sum + Math.round(clicked * ((send.conversion_rate || 5) / 100));
         }, 0);
       }
-      // Legacy single-send fallback
       const sent = (ch.email_list_size || 0) * ((ch.email_send_pct || 100) / 100);
       const opened = sent * ((ch.email_open_rate || 25) / 100);
       const clicked = opened * ((ch.email_click_rate || 3) / 100);
-      const converted = clicked * ((ch.email_conversion_rate || 5) / 100);
-      return Math.round(converted * upo);
+      return Math.round(clicked * ((ch.email_conversion_rate || 5) / 100));
     }
     if (c === "upsell") {
-      return Math.round((ch.upsell_eligible_orders || 0) * ((ch.upsell_take_rate || 15) / 100) * upo);
+      return Math.round((ch.upsell_eligible_orders || 0) * ((ch.upsell_take_rate || 15) / 100));
     }
     if (c === "free_gift") {
-      return Math.round((ch.free_gift_eligible_orders || 0) * ((ch.free_gift_take_rate || 100) / 100) * (ch.free_gift_qty_per_order || 1));
+      return Math.round((ch.free_gift_eligible_orders || 0) * ((ch.free_gift_take_rate || 100) / 100));
     }
     if (c === "amazon") {
       const weeks = ch.forecast_weeks || ch.retail_weeks || 12;
       const dailyOrders = (ch.amz_daily_sessions || 0) * ((ch.amz_conversion_rate || 12) / 100);
-      return Math.round(dailyOrders * 7 * weeks * upo);
+      return Math.round(dailyOrders * 7 * weeks);
     }
     if (c === "retail") {
       return Math.round((ch.retail_store_count || 0) * (ch.retail_units_per_store_per_week || 0) * (ch.forecast_weeks || ch.retail_weeks || 12));
     }
-    if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
+    if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers);
     return ch.estimated_units || 0;
   };
 
   const source = ch.demand_source || "direct";
-  if (source === "halo") return getHaloUnits();
-  if (source === "both") return getDirectUnits() + getHaloUnits();
-  return getDirectUnits();
+  if (source === "halo") return getHaloOrders();
+  if (source === "both") return getDirectOrders() + getHaloOrders();
+  return getDirectOrders();
 }
 
 // ── Debounced Input (top-level to avoid re-creation on parent render) ──
@@ -972,7 +964,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
       <div style={{ marginTop: 8, padding: "8px 12px", background: T.accent + "10", borderRadius: 6, border: `1px solid ${T.accent}20` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Units</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>Estimated Orders</span>
             {(isHalo || isBoth) && <span style={{ fontSize: 9, color: T.text3, marginLeft: 6 }}>
               {isHalo ? `(${ch.halo_pct || 0}% halo)` : `(direct + ${ch.halo_pct || 0}% halo)`}
             </span>}
@@ -993,7 +985,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
         const totalPct = splits.reduce((s, v) => s + (v.take_rate_pct || 0), 0);
         const pctWarning = splits.length > 0 && Math.abs(totalPct - 100) > 0.5;
         const colors = ["#94a3b8", "#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444"];
-        const totalOrders = units > 0 && (ch.units_per_order || 1) > 0 ? Math.round(units / (ch.units_per_order || 1)) : 0;
+        const totalOrders = units;
         
         return (
           <div style={{ marginTop: 10, padding: "10px 12px", background: "#8b5cf608", borderRadius: 8, border: `1px solid #8b5cf615` }}>
