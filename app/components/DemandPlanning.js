@@ -560,11 +560,10 @@ const STATUS_OPTS = [
   { value: "cancelled", label: "Cancelled", color: "#ef4444" },
 ];
 
-function calcChannelUnits(ch, allChannels, allPeriods) {
+function calcChannelUnits(ch, allChannels, allPeriods, chEmailSends) {
   const c = ch.channel;
   const upo = ch.units_per_order || 1;
 
-  // Helper: get total orders from paid media channels (hero + dtc_paid)
   const getPaidOrders = () => {
     if (!allChannels) return 0;
     const heroChannels = allChannels.filter(s => s.id !== ch.id && (s.channel === "hero_gwp" || s.channel === "dtc_paid"));
@@ -574,17 +573,13 @@ function calcChannelUnits(ch, allChannels, allPeriods) {
     }, 0);
   };
 
-  // Helper: calc halo units from paid media orders
   const getHaloUnits = () => {
     if (!ch.halo_pct) return 0;
-    const paidOrders = getPaidOrders();
-    return Math.round(paidOrders * (ch.halo_pct / 100) * upo);
+    return Math.round(getPaidOrders() * (ch.halo_pct / 100) * upo);
   };
 
-  // Helper: calc direct units based on channel type
   const getDirectUnits = () => {
     if (c === "hero_gwp" || c === "dtc_paid") {
-      // Check for time-phased periods first
       const chPeriods = (allPeriods || []).filter(p => p.channel_id === ch.id);
       if (chPeriods.length > 0) {
         const totalCustomers = chPeriods.reduce((sum, p) => {
@@ -594,12 +589,22 @@ function calcChannelUnits(ch, allChannels, allPeriods) {
         }, 0);
         return Math.round(totalCustomers * upo);
       }
-      // Fallback: single ad_spend / cpa on the channel itself
       if (ch.ad_spend && ch.cpa && ch.cpa > 0) return Math.round((ch.ad_spend / ch.cpa) * upo);
       if (ch.estimated_new_customers) return Math.round(ch.estimated_new_customers * upo);
       return 0;
     }
     if (c === "email") {
+      // Multi-send mode: sum conversions across all sends
+      if (chEmailSends && chEmailSends.length > 0) {
+        return chEmailSends.reduce((sum, send) => {
+          const sent = (send.list_size || 0) * ((send.send_pct || 100) / 100);
+          const opened = sent * ((send.open_rate || 25) / 100);
+          const clicked = opened * ((send.click_rate || 3) / 100);
+          const converted = clicked * ((send.conversion_rate || 5) / 100);
+          return sum + Math.round(converted * (send.units_per_order || upo));
+        }, 0);
+      }
+      // Legacy single-send fallback
       const sent = (ch.email_list_size || 0) * ((ch.email_send_pct || 100) / 100);
       const opened = sent * ((ch.email_open_rate || 25) / 100);
       const clicked = opened * ((ch.email_click_rate || 3) / 100);
@@ -665,10 +670,10 @@ function DebouncedInput({ label, value, onChange, type = "text", placeholder, su
 }
 
 // ── Channel Input Fields (top-level to avoid re-creation) ──
-function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods }) {
+function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods, emailSends, onAddEmailSend, onUpdateEmailSend, onRemoveEmailSend, variantSplits, onAddVariantSplit, onUpdateVariantSplit, onRemoveVariantSplit, onInitDefaultVariants }) {
   const up = (field, val) => onUpdateChannel(ch.id, { [field]: val });
   const c = ch.channel;
-  const units = calcChannelUnits(ch, allChannels, allPeriods);
+  const units = calcChannelUnits(ch, allChannels, allPeriods, emailSends);
   const I = DebouncedInput;
   const isHalo = ch.demand_source === "halo";
   const isBoth = ch.demand_source === "both";
@@ -831,14 +836,101 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
             </>;
           })()}
 
-          {/* Email */}
-          {c === "email" && <>
-            <I label="Email List Size" value={ch.email_list_size} onChange={v => up("email_list_size", v)} type="number" />
-            <I label="Send % of List" value={ch.email_send_pct} onChange={v => up("email_send_pct", v)} type="number" suffix="%" />
-            <I label="Open Rate" value={ch.email_open_rate} onChange={v => up("email_open_rate", v)} type="number" suffix="%" />
-            <I label="Click Rate" value={ch.email_click_rate} onChange={v => up("email_click_rate", v)} type="number" suffix="%" />
-            <I label="Conversion Rate" value={ch.email_conversion_rate} onChange={v => up("email_conversion_rate", v)} type="number" suffix="%" />
-          </>}
+          {/* Email — Multi-Send Table */}
+          {c === "email" && (() => {
+            const sends = emailSends || [];
+            const hasSends = sends.length > 0;
+            // If legacy single-send data exists and no sends, show migration hint
+            const hasLegacy = !hasSends && (ch.email_list_size > 0);
+            
+            const calcSendUnits = (s) => {
+              const sent = (s.list_size || 0) * ((s.send_pct || 100) / 100);
+              const opened = sent * ((s.open_rate || 25) / 100);
+              const clicked = opened * ((s.click_rate || 3) / 100);
+              const converted = clicked * ((s.conversion_rate || 5) / 100);
+              return Math.round(converted * (s.units_per_order || 1));
+            };
+            
+            const totalSendUnits = sends.reduce((s, send) => s + calcSendUnits(send), 0);
+            
+            return <div style={{ gridColumn: "1 / -1" }}>
+              {hasLegacy && <div style={{ fontSize: 10, color: T.yellow, marginBottom: 8, padding: "6px 10px", background: T.yellow + "10", borderRadius: 6 }}>
+                ⚠ Legacy single-send mode. Click "+ Add Send" to switch to multi-send planning.
+              </div>}
+              
+              {/* Legacy single-send (backward compat) */}
+              {!hasSends && <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <I label="Email List Size" value={ch.email_list_size} onChange={v => up("email_list_size", v)} type="number" />
+                  <I label="Send % of List" value={ch.email_send_pct} onChange={v => up("email_send_pct", v)} type="number" suffix="%" />
+                  <I label="Open Rate" value={ch.email_open_rate} onChange={v => up("email_open_rate", v)} type="number" suffix="%" />
+                  <I label="Click Rate" value={ch.email_click_rate} onChange={v => up("email_click_rate", v)} type="number" suffix="%" />
+                  <I label="Conversion Rate" value={ch.email_conversion_rate} onChange={v => up("email_conversion_rate", v)} type="number" suffix="%" />
+                </div>
+              </>}
+              
+              {/* Multi-send table */}
+              {hasSends && (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <th style={{ textAlign: "left", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Send</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>List Size</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Send %</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Open %</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Click %</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>CVR %</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>UPO</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.accent }}>Units</th>
+                      <th style={{ width: 20 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sends.map((s) => {
+                      const sUnits = calcSendUnits(s);
+                      const inp2 = { width: "100%", padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
+                      return (
+                        <tr key={s.id} style={{ borderBottom: `1px solid ${T.border}08` }}>
+                          <td style={{ padding: "3px 4px" }}>
+                            <input defaultValue={s.label} onBlur={e => onUpdateEmailSend(s.id, { label: e.target.value })} style={{ ...inp2, textAlign: "left", width: 70 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <input type="number" defaultValue={s.list_size ?? ""} onBlur={e => onUpdateEmailSend(s.id, { list_size: e.target.value === "" ? null : Number(e.target.value) })} style={inp2} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <input type="number" defaultValue={s.send_pct ?? 100} onBlur={e => onUpdateEmailSend(s.id, { send_pct: Number(e.target.value) || 100 })} style={{ ...inp2, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <input type="number" defaultValue={s.open_rate ?? 25} onBlur={e => onUpdateEmailSend(s.id, { open_rate: Number(e.target.value) || 25 })} style={{ ...inp2, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <input type="number" defaultValue={s.click_rate ?? 3} onBlur={e => onUpdateEmailSend(s.id, { click_rate: Number(e.target.value) || 3 })} style={{ ...inp2, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <input type="number" defaultValue={s.conversion_rate ?? 5} onBlur={e => onUpdateEmailSend(s.id, { conversion_rate: Number(e.target.value) || 5 })} style={{ ...inp2, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <input type="number" defaultValue={s.units_per_order ?? 1} onBlur={e => onUpdateEmailSend(s.id, { units_per_order: Number(e.target.value) || 1 })} style={{ ...inp2, width: 40 }} />
+                          </td>
+                          <td style={{ padding: "3px 4px", textAlign: "right", fontWeight: 700, color: T.accent, fontSize: 11 }}>{fmt(sUnits)}</td>
+                          <td><button onClick={() => onRemoveEmailSend(s.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                      <td colSpan={7} style={{ padding: "5px 4px", fontWeight: 700, fontSize: 10, color: T.text }}>Total ({sends.length} sends)</td>
+                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>{fmt(totalSendUnits)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+              
+              <button onClick={() => onAddEmailSend(ch.id)} style={{ marginTop: 6, padding: "4px 12px", fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 4, background: "transparent", color: T.text3, cursor: "pointer" }}>+ Add Send</button>
+            </div>;
+          })()}
 
           {/* Upsell */}
           {c === "upsell" && <>
@@ -895,6 +987,92 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
           </div>
         )}
       </div>
+
+      {/* Variant / Pack-Size Allocation (Hero GWP + any channel) */}
+      {(c === "hero_gwp" || c === "dtc_paid") && units > 0 && (() => {
+        const splits = variantSplits || [];
+        const totalPct = splits.reduce((s, v) => s + (v.take_rate_pct || 0), 0);
+        const pctWarning = splits.length > 0 && Math.abs(totalPct - 100) > 0.5;
+        const colors = ["#94a3b8", "#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444"];
+        
+        return (
+          <div style={{ marginTop: 10, padding: "10px 12px", background: "#8b5cf608", borderRadius: 8, border: `1px solid #8b5cf615` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#8b5cf6" }}>📦 Variant / Pack-Size Allocation</div>
+              {splits.length === 0 && (
+                <button onClick={() => onInitDefaultVariants(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "#8b5cf610", color: "#8b5cf6", cursor: "pointer" }}>Load Defaults (1-4 Pack)</button>
+              )}
+            </div>
+            
+            {splits.length > 0 && (
+              <>
+                {/* Visual bar */}
+                <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+                  {splits.map((v, i) => (
+                    <div key={v.id} style={{ width: `${v.take_rate_pct || 0}%`, background: colors[i % colors.length], transition: "width 0.3s" }} />
+                  ))}
+                </div>
+                
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <th style={{ textAlign: "left", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Variant</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Units/Variant</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Take Rate %</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Orders</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.accent }}>Units</th>
+                      <th style={{ width: 20 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {splits.map((v, i) => {
+                      const vOrders = Math.round((units / (ch.units_per_order || 1)) * ((v.take_rate_pct || 0) / 100));
+                      const vUnits = Math.round(vOrders * (v.units_per_variant || 1));
+                      const inp3 = { width: "100%", padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
+                      return (
+                        <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}08` }}>
+                          <td style={{ padding: "3px 4px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: 2, background: colors[i % colors.length], flexShrink: 0 }} />
+                              <input defaultValue={v.variant_label} onBlur={e => onUpdateVariantSplit(v.id, { variant_label: e.target.value })} style={{ ...inp3, textAlign: "left", width: 80 }} />
+                            </div>
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <input type="number" defaultValue={v.units_per_variant ?? 1} onBlur={e => onUpdateVariantSplit(v.id, { units_per_variant: Number(e.target.value) || 1 })} style={{ ...inp3, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <input type="number" defaultValue={v.take_rate_pct ?? 25} onBlur={e => onUpdateVariantSplit(v.id, { take_rate_pct: Number(e.target.value) || 0 })} style={{ ...inp3, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 4px", textAlign: "right", fontSize: 10, color: T.text2 }}>{fmt(vOrders)}</td>
+                          <td style={{ padding: "3px 4px", textAlign: "right", fontWeight: 700, fontSize: 11, color: colors[i % colors.length] }}>{fmt(vUnits)}</td>
+                          <td><button onClick={() => onRemoveVariantSplit(v.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                      <td colSpan={2} style={{ padding: "5px 4px", fontWeight: 700, fontSize: 10, color: T.text }}>Total</td>
+                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: pctWarning ? T.red : T.text }}>{totalPct.toFixed(0)}%{pctWarning ? " ⚠" : ""}</td>
+                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{fmt(Math.round(units / (ch.units_per_order || 1)))}</td>
+                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>
+                        {fmt(splits.reduce((s, v) => {
+                          const vOrders = Math.round((units / (ch.units_per_order || 1)) * ((v.take_rate_pct || 0) / 100));
+                          return s + Math.round(vOrders * (v.units_per_variant || 1));
+                        }, 0))}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+                {pctWarning && <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>⚠ Take rates sum to {totalPct.toFixed(0)}% — should total 100%</div>}
+              </>
+            )}
+            
+            <button onClick={() => onAddVariantSplit(ch.id)} style={{ marginTop: 6, padding: "4px 12px", fontSize: 10, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "transparent", color: "#8b5cf6", cursor: "pointer" }}>+ Add Variant</button>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -907,18 +1085,23 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const [channels, setChannels] = useState([]);
   const [periods, setPeriods] = useState([]);
   const [pos, setPos] = useState([]);
+  const [emailSends, setEmailSends] = useState([]);
+  const [variantSplits, setVariantSplits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: "", product_name: "", launch_date: "", moq: 5000, lead_time_days: 45, unit_cost: "", retail_price: "", target_margin_pct: 65, forecast_period_weeks: 12, supplier: "" });
 
   const load = async () => {
-    const [{ data: l }, { data: c }, { data: p }, { data: pr }] = await Promise.all([
+    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }] = await Promise.all([
       supabase.from("dp_launches").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
       supabase.from("dp_launch_channels").select("*").eq("org_id", orgId),
       supabase.from("dp_launch_pos").select("*").eq("org_id", orgId),
       supabase.from("dp_launch_periods").select("*").eq("org_id", orgId).order("period_index"),
+      supabase.from("dp_launch_email_sends").select("*").eq("org_id", orgId).order("sort_order"),
+      supabase.from("dp_launch_variant_splits").select("*").eq("org_id", orgId).order("sort_order"),
     ]);
-    setLaunches(l || []); setChannels(c || []); setPos(p || []); setPeriods(pr || []); setLoading(false);
+    setLaunches(l || []); setChannels(c || []); setPos(p || []); setPeriods(pr || []);
+    setEmailSends(es || []); setVariantSplits(vs || []); setLoading(false);
   };
   useEffect(() => { if (orgId) load(); }, [orgId]);
 
@@ -964,6 +1147,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
     await supabase.from("dp_launch_channels").delete().eq("id", id);
     setChannels(p => p.filter(c => c.id !== id));
     setPeriods(p => p.filter(pr => pr.channel_id !== id));
+    setEmailSends(p => p.filter(s => s.channel_id !== id));
+    setVariantSplits(p => p.filter(s => s.channel_id !== id));
   };
 
   // ── Period management (time-phased spend/CPA for paid channels) ──
@@ -988,13 +1173,67 @@ function LaunchPlannerView({ isMobile, orgId }) {
 
   const initPeriods = async (channelId, count, type) => {
     await updateChannel(channelId, { period_type: type });
-    // Remove existing periods for this channel
     const existing = periods.filter(p => p.channel_id === channelId);
     for (const pr of existing) await supabase.from("dp_launch_periods").delete().eq("id", pr.id);
     setPeriods(p => p.filter(pr => pr.channel_id !== channelId));
-    // Create new periods with the correct type
     for (let i = 0; i < count; i++) {
       await addPeriod(channelId, i, type);
+    }
+  };
+
+  // ── Email Send management (multiple sends per email channel) ──
+  const addEmailSend = async (channelId) => {
+    const existing = emailSends.filter(s => s.channel_id === channelId);
+    const { data } = await supabase.from("dp_launch_email_sends").insert({
+      org_id: orgId, channel_id: channelId, label: `Send ${existing.length + 1}`,
+      sort_order: existing.length, list_size: 0, send_pct: 100, open_rate: 25, click_rate: 3, conversion_rate: 5, units_per_order: 1,
+    }).select().single();
+    if (data) setEmailSends(p => [...p, data]);
+  };
+
+  const updateEmailSend = async (id, updates) => {
+    await supabase.from("dp_launch_email_sends").update(updates).eq("id", id);
+    setEmailSends(p => p.map(s => s.id === id ? { ...s, ...updates } : s));
+  };
+
+  const removeEmailSend = async (id) => {
+    await supabase.from("dp_launch_email_sends").delete().eq("id", id);
+    setEmailSends(p => p.filter(s => s.id !== id));
+  };
+
+  // ── Variant Split management (pack-size allocation for hero GWP) ──
+  const addVariantSplit = async (channelId) => {
+    const existing = variantSplits.filter(s => s.channel_id === channelId);
+    const { data } = await supabase.from("dp_launch_variant_splits").insert({
+      org_id: orgId, channel_id: channelId, variant_label: `${existing.length + 1}-Pack`,
+      units_per_variant: existing.length + 1, take_rate_pct: 25, sort_order: existing.length,
+    }).select().single();
+    if (data) setVariantSplits(p => [...p, data]);
+  };
+
+  const updateVariantSplit = async (id, updates) => {
+    await supabase.from("dp_launch_variant_splits").update(updates).eq("id", id);
+    setVariantSplits(p => p.map(s => s.id === id ? { ...s, ...updates } : s));
+  };
+
+  const removeVariantSplit = async (id) => {
+    await supabase.from("dp_launch_variant_splits").delete().eq("id", id);
+    setVariantSplits(p => p.filter(s => s.id !== id));
+  };
+
+  const initDefaultVariants = async (channelId) => {
+    const defaults = [
+      { label: "1-Pack", units: 1, pct: 18 },
+      { label: "2-Pack", units: 2, pct: 32 },
+      { label: "3-Pack", units: 3, pct: 22 },
+      { label: "4-Pack", units: 4, pct: 28 },
+    ];
+    for (let i = 0; i < defaults.length; i++) {
+      const { data } = await supabase.from("dp_launch_variant_splits").insert({
+        org_id: orgId, channel_id: channelId, variant_label: defaults[i].label,
+        units_per_variant: defaults[i].units, take_rate_pct: defaults[i].pct, sort_order: i,
+      }).select().single();
+      if (data) setVariantSplits(p => [...p, data]);
     }
   };
 
@@ -1156,7 +1395,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                       </div>
                     </div>
                     <div style={{ padding: "10px 14px" }}>
-                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} allPeriods={launchPeriods} onAddPeriod={addPeriod} onUpdatePeriod={updatePeriod} onRemovePeriod={removePeriod} onInitPeriods={initPeriods} />
+                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} allPeriods={launchPeriods} onAddPeriod={addPeriod} onUpdatePeriod={updatePeriod} onRemovePeriod={removePeriod} onInitPeriods={initPeriods} emailSends={emailSends.filter(s => s.channel_id === ch.id)} onAddEmailSend={addEmailSend} onUpdateEmailSend={updateEmailSend} onRemoveEmailSend={removeEmailSend} variantSplits={variantSplits.filter(s => s.channel_id === ch.id)} onAddVariantSplit={addVariantSplit} onUpdateVariantSplit={updateVariantSplit} onRemoveVariantSplit={removeVariantSplit} onInitDefaultVariants={initDefaultVariants} />
                     </div>
                   </div>
                 );
