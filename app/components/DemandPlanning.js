@@ -711,7 +711,7 @@ function FmtInput({ defaultValue, onBlur, style }) {
   );
 }
 
-function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods, emailSends, onAddEmailSend, onUpdateEmailSend, onRemoveEmailSend, variantSplits, onAddVariantSplit, onUpdateVariantSplit, onRemoveVariantSplit, onInitDefaultVariants }) {
+function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods, emailSends, onAddEmailSend, onUpdateEmailSend, onRemoveEmailSend, variantSplits, onAddVariantSplit, onUpdateVariantSplit, onRemoveVariantSplit, onInitDefaultVariants, gwpTiers, onAddGwpTier, onUpdateGwpTier, onRemoveGwpTier }) {
   const up = (field, val) => onUpdateChannel(ch.id, { [field]: val });
   const c = ch.channel;
   const units = calcChannelUnits(ch, allChannels, allPeriods, emailSends);
@@ -874,6 +874,69 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                 </div>
               )}
             </>;
+          })()}
+
+          {/* GWP Tier Gifts — only for hero_gwp */}
+          {c === "hero_gwp" && (() => {
+            const tiers = gwpTiers || [];
+            const inp4 = { width: "100%", padding: "4px 6px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
+            return (
+              <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+                <div style={{ padding: "10px 12px", background: "#f59e0b08", borderRadius: 8, border: `1px solid #f59e0b15` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b" }}>🎁 Free Gift Tiers</div>
+                    <button onClick={() => onAddGwpTier(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #f59e0b30`, borderRadius: 4, background: "transparent", color: "#f59e0b", cursor: "pointer" }}>+ Add Tier</button>
+                  </div>
+
+                  {tiers.length > 0 ? (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
+                      <colgroup>
+                        <col style={{ width: "18%" }} />
+                        <col style={{ width: "15%" }} />
+                        <col style={{ width: "32%" }} />
+                        <col style={{ width: "25%" }} />
+                        <col style={{ width: "10%" }} />
+                      </colgroup>
+                      <thead>
+                        <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                          <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Tier</th>
+                          <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Min Spend</th>
+                          <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Gift</th>
+                          <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Description</th>
+                          <th style={{ padding: "6px 2px" }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tiers.map((tier, i) => (
+                          <tr key={tier.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
+                            <td style={{ padding: "4px 6px" }}>
+                              <input defaultValue={tier.tier_label} onBlur={e => onUpdateGwpTier(tier.id, { tier_label: e.target.value })} style={{ ...inp4, textAlign: "left" }} />
+                            </td>
+                            <td style={{ padding: "4px 6px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                                <span style={{ fontSize: 10, color: T.text3 }}>$</span>
+                                <FmtInput defaultValue={tier.min_spend ?? 0} onBlur={e => onUpdateGwpTier(tier.id, { min_spend: Number(e.target.value) || 0 })} style={{ ...inp4, textAlign: "right" }} />
+                              </div>
+                            </td>
+                            <td style={{ padding: "4px 6px" }}>
+                              <input defaultValue={tier.gift_name || ""} onBlur={e => onUpdateGwpTier(tier.id, { gift_name: e.target.value })} placeholder="e.g. Tote Bag" style={{ ...inp4, textAlign: "left" }} />
+                            </td>
+                            <td style={{ padding: "4px 6px" }}>
+                              <input defaultValue={tier.gift_description || ""} onBlur={e => onUpdateGwpTier(tier.id, { gift_description: e.target.value })} placeholder="Optional details" style={{ ...inp4, textAlign: "left", fontSize: 10 }} />
+                            </td>
+                            <td style={{ padding: "4px 2px", textAlign: "center" }}>
+                              <button onClick={() => onRemoveGwpTier(tier.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>No gift tiers configured. Add tiers to define what free gifts customers receive at each spend level.</div>
+                  )}
+                </div>
+              </div>
+            );
           })()}
 
           {/* Email — Multi-Send Table */}
@@ -1220,21 +1283,23 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const [pos, setPos] = useState([]);
   const [emailSends, setEmailSends] = useState([]);
   const [variantSplits, setVariantSplits] = useState([]);
+  const [gwpTiers, setGwpTiers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: "", product_name: "", launch_date: "", moq: 5000, lead_time_days: 45, unit_cost: "", retail_price: "", target_margin_pct: 65, forecast_period_weeks: 12, supplier: "" });
 
   const load = async () => {
-    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }] = await Promise.all([
+    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }, { data: gt }] = await Promise.all([
       supabase.from("dp_launches").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
       supabase.from("dp_launch_channels").select("*").eq("org_id", orgId),
       supabase.from("dp_launch_pos").select("*").eq("org_id", orgId),
       supabase.from("dp_launch_periods").select("*").eq("org_id", orgId).order("period_index"),
       supabase.from("dp_launch_email_sends").select("*").eq("org_id", orgId).order("sort_order"),
       supabase.from("dp_launch_variant_splits").select("*").eq("org_id", orgId).order("sort_order"),
+      supabase.from("dp_launch_gwp_tiers").select("*").eq("org_id", orgId).order("sort_order"),
     ]);
     setLaunches(l || []); setChannels(c || []); setPos(p || []); setPeriods(pr || []);
-    setEmailSends(es || []); setVariantSplits(vs || []); setLoading(false);
+    setEmailSends(es || []); setVariantSplits(vs || []); setGwpTiers(gt || []); setLoading(false);
   };
   useEffect(() => { if (orgId) load(); }, [orgId]);
 
@@ -1282,6 +1347,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
     setPeriods(p => p.filter(pr => pr.channel_id !== id));
     setEmailSends(p => p.filter(s => s.channel_id !== id));
     setVariantSplits(p => p.filter(s => s.channel_id !== id));
+    setGwpTiers(p => p.filter(t => t.channel_id !== id));
   };
 
   // ── Period management (time-phased spend/CPA for paid channels) ──
@@ -1368,6 +1434,27 @@ function LaunchPlannerView({ isMobile, orgId }) {
       }).select().single();
       if (data) setVariantSplits(p => [...p, data]);
     }
+  };
+
+  // ── GWP Tier management (free gifts per spend tier for hero GWP) ──
+  const addGwpTier = async (channelId) => {
+    const existing = gwpTiers.filter(t => t.channel_id === channelId);
+    const nextMin = existing.length === 0 ? 0 : Math.max(...existing.map(t => t.min_spend || 0)) + 25;
+    const { data } = await supabase.from("dp_launch_gwp_tiers").insert({
+      org_id: orgId, channel_id: channelId, tier_label: `Tier ${existing.length + 1}`,
+      min_spend: nextMin, gift_name: "", gift_qty: 1, sort_order: existing.length,
+    }).select().single();
+    if (data) setGwpTiers(p => [...p, data]);
+  };
+
+  const updateGwpTier = async (id, updates) => {
+    await supabase.from("dp_launch_gwp_tiers").update(updates).eq("id", id);
+    setGwpTiers(p => p.map(t => t.id === id ? { ...t, ...updates } : t));
+  };
+
+  const removeGwpTier = async (id) => {
+    await supabase.from("dp_launch_gwp_tiers").delete().eq("id", id);
+    setGwpTiers(p => p.filter(t => t.id !== id));
   };
 
   const addPo = async (launchId) => {
@@ -1528,7 +1615,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                       </div>
                     </div>
                     <div style={{ padding: "10px 14px" }}>
-                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} allPeriods={launchPeriods} onAddPeriod={addPeriod} onUpdatePeriod={updatePeriod} onRemovePeriod={removePeriod} onInitPeriods={initPeriods} emailSends={emailSends.filter(s => s.channel_id === ch.id)} onAddEmailSend={addEmailSend} onUpdateEmailSend={updateEmailSend} onRemoveEmailSend={removeEmailSend} variantSplits={variantSplits.filter(s => s.channel_id === ch.id)} onAddVariantSplit={addVariantSplit} onUpdateVariantSplit={updateVariantSplit} onRemoveVariantSplit={removeVariantSplit} onInitDefaultVariants={initDefaultVariants} />
+                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} allPeriods={launchPeriods} onAddPeriod={addPeriod} onUpdatePeriod={updatePeriod} onRemovePeriod={removePeriod} onInitPeriods={initPeriods} emailSends={emailSends.filter(s => s.channel_id === ch.id)} onAddEmailSend={addEmailSend} onUpdateEmailSend={updateEmailSend} onRemoveEmailSend={removeEmailSend} variantSplits={variantSplits.filter(s => s.channel_id === ch.id)} onAddVariantSplit={addVariantSplit} onUpdateVariantSplit={updateVariantSplit} onRemoveVariantSplit={removeVariantSplit} onInitDefaultVariants={initDefaultVariants} gwpTiers={gwpTiers.filter(t => t.channel_id === ch.id)} onAddGwpTier={addGwpTier} onUpdateGwpTier={updateGwpTier} onRemoveGwpTier={removeGwpTier} />
                     </div>
                   </div>
                 );
