@@ -885,44 +885,70 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                 <div style={{ padding: "10px 12px", background: "#f59e0b08", borderRadius: 8, border: `1px solid #f59e0b15` }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b" }}>🎁 Free Gift Tiers</div>
-                    <button onClick={() => onAddGwpTier(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #f59e0b30`, borderRadius: 4, background: "transparent", color: "#f59e0b", cursor: "pointer" }}>+ Add Tier</button>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {/* Trigger type toggle */}
+                      <div style={{ display: "flex", gap: 2, background: T.surface3, borderRadius: 4, padding: 2 }}>
+                        {[{ v: "units", l: "📦 By Units" }, { v: "spend", l: "💵 By Spend" }].map(opt => {
+                          const active = (tiers[0]?.trigger_type || "units") === opt.v;
+                          return <button key={opt.v} onClick={() => tiers.forEach(t => onUpdateGwpTier(t.id, { trigger_type: opt.v }))}
+                            style={{ padding: "2px 8px", fontSize: 9, fontWeight: 600, borderRadius: 3, border: "none", background: active ? "#f59e0b20" : "transparent", color: active ? "#f59e0b" : T.text3, cursor: "pointer" }}>{opt.l}</button>;
+                        })}
+                      </div>
+                      <button onClick={() => onAddGwpTier(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #f59e0b30`, borderRadius: 4, background: "transparent", color: "#f59e0b", cursor: "pointer" }}>+ Add Tier</button>
+                    </div>
                   </div>
 
-                  {tiers.length > 0 ? (
+                  {tiers.length > 0 ? (() => {
+                    const triggerType = tiers[0]?.trigger_type || "units";
+                    const triggerLabel = triggerType === "units" ? "Min Qty" : "Min Spend";
+                    return (
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
                       <colgroup>
-                        <col style={{ width: "18%" }} />
-                        <col style={{ width: "15%" }} />
-                        <col style={{ width: "32%" }} />
-                        <col style={{ width: "25%" }} />
-                        <col style={{ width: "10%" }} />
+                        <col style={{ width: "14%" }} />
+                        <col style={{ width: "12%" }} />
+                        <col style={{ width: "24%" }} />
+                        <col style={{ width: "24%" }} />
+                        <col style={{ width: "12%" }} />
+                        <col style={{ width: "8%" }} />
+                        <col style={{ width: "6%" }} />
                       </colgroup>
                       <thead>
                         <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                          <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Tier</th>
-                          <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Min Spend</th>
-                          <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Gift</th>
-                          <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Description</th>
+                          <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Tier</th>
+                          <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>{triggerLabel}</th>
+                          <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Gift</th>
+                          <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Description</th>
+                          <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Gift Qty</th>
+                          <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.red }}>Cost</th>
                           <th style={{ padding: "6px 2px" }}></th>
                         </tr>
                       </thead>
                       <tbody>
                         {tiers.map((tier, i) => (
                           <tr key={tier.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
-                            <td style={{ padding: "4px 6px" }}>
-                              <input defaultValue={tier.tier_label} onBlur={e => onUpdateGwpTier(tier.id, { tier_label: e.target.value })} style={{ ...inp4, textAlign: "left" }} />
+                            <td style={{ padding: "4px 4px" }}>
+                              <input defaultValue={tier.tier_label} onBlur={e => onUpdateGwpTier(tier.id, { tier_label: e.target.value })} style={{ ...inp4, textAlign: "left", padding: "4px 4px" }} />
                             </td>
-                            <td style={{ padding: "4px 6px" }}>
+                            <td style={{ padding: "4px 4px" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                                <span style={{ fontSize: 10, color: T.text3 }}>$</span>
-                                <FmtInput defaultValue={tier.min_spend ?? 0} onBlur={e => onUpdateGwpTier(tier.id, { min_spend: Number(e.target.value) || 0 })} style={{ ...inp4, textAlign: "right" }} />
+                                {triggerType === "spend" && <span style={{ fontSize: 9, color: T.text3 }}>$</span>}
+                                <FmtInput defaultValue={triggerType === "units" ? (tier.trigger_qty ?? 1) : (tier.min_spend ?? 0)} onBlur={e => onUpdateGwpTier(tier.id, triggerType === "units" ? { trigger_qty: Number(e.target.value) || 1 } : { min_spend: Number(e.target.value) || 0 })} style={{ ...inp4, textAlign: "right", padding: "4px 4px" }} />
                               </div>
                             </td>
-                            <td style={{ padding: "4px 6px" }}>
-                              <input defaultValue={tier.gift_name || ""} onBlur={e => onUpdateGwpTier(tier.id, { gift_name: e.target.value })} placeholder="e.g. Tote Bag" style={{ ...inp4, textAlign: "left" }} />
+                            <td style={{ padding: "4px 4px" }}>
+                              <input defaultValue={tier.gift_name || ""} onBlur={e => onUpdateGwpTier(tier.id, { gift_name: e.target.value })} placeholder="e.g. Tote Bag" style={{ ...inp4, textAlign: "left", padding: "4px 4px" }} />
                             </td>
-                            <td style={{ padding: "4px 6px" }}>
-                              <input defaultValue={tier.gift_description || ""} onBlur={e => onUpdateGwpTier(tier.id, { gift_description: e.target.value })} placeholder="Optional details" style={{ ...inp4, textAlign: "left", fontSize: 10 }} />
+                            <td style={{ padding: "4px 4px" }}>
+                              <input defaultValue={tier.gift_description || ""} onBlur={e => onUpdateGwpTier(tier.id, { gift_description: e.target.value })} placeholder="Details" style={{ ...inp4, textAlign: "left", padding: "4px 4px", fontSize: 10 }} />
+                            </td>
+                            <td style={{ padding: "4px 4px" }}>
+                              <FmtInput defaultValue={tier.gift_qty ?? 1} onBlur={e => onUpdateGwpTier(tier.id, { gift_qty: Number(e.target.value) || 1 })} style={{ ...inp4, textAlign: "right", padding: "4px 4px" }} />
+                            </td>
+                            <td style={{ padding: "4px 4px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                                <span style={{ fontSize: 9, color: T.text3 }}>$</span>
+                                <FmtInput defaultValue={tier.gift_cost ?? 0} onBlur={e => onUpdateGwpTier(tier.id, { gift_cost: Number(e.target.value) || 0 })} style={{ ...inp4, textAlign: "right", padding: "4px 4px" }} />
+                              </div>
                             </td>
                             <td style={{ padding: "4px 2px", textAlign: "center" }}>
                               <button onClick={() => onRemoveGwpTier(tier.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button>
@@ -930,9 +956,9 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                           </tr>
                         ))}
                       </tbody>
-                    </table>
-                  ) : (
-                    <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>No gift tiers configured. Add tiers to define what free gifts customers receive at each spend level.</div>
+                    </table>);
+                  })() : (
+                    <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>No gift tiers configured. Add tiers to define free gifts by unit quantity or spend threshold.</div>
                   )}
                 </div>
               </div>
@@ -1151,6 +1177,15 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
         </div>
       )}
 
+      {/* OTP vs Subscription Split — all channels */}
+      <div style={{ marginTop: 8, padding: "8px 12px", background: T.surface3, borderRadius: 6, border: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Order Type Split</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <I label="OTP (One-Time Purchase) %" value={ch.otp_pct} onChange={v => { up("otp_pct", v); if (v !== null) up("sub_take_rate_pct", 100 - v); }} type="number" suffix="%" small />
+          <I label="Subscription %" value={ch.sub_take_rate_pct} onChange={v => { up("sub_take_rate_pct", v); if (v !== null) up("otp_pct", 100 - v); }} type="number" suffix="%" small />
+        </div>
+      </div>
+
       {/* Result */}
       <div style={{ marginTop: 8, padding: "8px 12px", background: T.accent + "10", borderRadius: 6, border: `1px solid ${T.accent}20` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1162,6 +1197,12 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
           </div>
           <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(units)}</span>
         </div>
+        {units > 0 && (
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 4, display: "flex", gap: 12 }}>
+            <span>🛒 OTP: {fmt(Math.round(units * ((ch.otp_pct || 30) / 100)))}</span>
+            <span>🔄 Sub: {fmt(Math.round(units * ((ch.sub_take_rate_pct || 70) / 100)))}</span>
+          </div>
+        )}
         {isBoth && haloUnits > 0 && (
           <div style={{ fontSize: 10, color: T.text3, marginTop: 4, display: "flex", gap: 12 }}>
             <span>📱 Direct: {fmt(units - haloUnits)}</span>
@@ -1201,20 +1242,26 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                 
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
                   <colgroup>
-                    <col style={{ width: "30%" }} />
-                    <col style={{ width: "18%" }} />
-                    <col style={{ width: "18%" }} />
+                    <col style={{ width: "20%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "10%" }} />
                     <col style={{ width: "14%" }} />
                     <col style={{ width: "14%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "6%" }} />
                     <col style={{ width: "6%" }} />
                   </colgroup>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Variant</th>
-                      <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Qty (units)</th>
-                      <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Take Rate %</th>
-                      <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Orders</th>
-                      <th style={{ textAlign: "right", padding: "6px 6px", fontSize: 9, fontWeight: 700, color: T.accent }}>Units</th>
+                      <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Variant</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Qty</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Take %</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>OTP Price</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Sub Price</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Orders</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.accent }}>Units</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.green }}>Rev</th>
                       <th style={{ padding: "6px 2px" }}></th>
                     </tr>
                   </thead>
@@ -1222,23 +1269,35 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                     {splits.map((v, i) => {
                       const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
                       const vUnits = Math.round(vOrders * (v.units_per_variant || 1));
-                      const inp3 = { width: "100%", padding: "4px 6px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
+                      const otpOrders = Math.round(vOrders * ((ch.otp_pct || 30) / 100));
+                      const subOrders = vOrders - otpOrders;
+                      const otpRev = otpOrders * (v.first_purchase_price || 0);
+                      const subRev = subOrders * (v.subscription_price || 0);
+                      const vRev = otpRev + subRev;
+                      const inp3 = { width: "100%", padding: "4px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
                       return (
                         <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
-                          <td style={{ padding: "4px 6px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: 2, background: colors[i % colors.length], flexShrink: 0 }} />
+                          <td style={{ padding: "4px 4px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ width: 6, height: 6, borderRadius: 2, background: colors[i % colors.length], flexShrink: 0 }} />
                               <input defaultValue={v.variant_label} onBlur={e => onUpdateVariantSplit(v.id, { variant_label: e.target.value })} style={{ ...inp3, textAlign: "left" }} />
                             </div>
                           </td>
-                          <td style={{ padding: "4px 6px" }}>
+                          <td style={{ padding: "4px 4px" }}>
                             <FmtInput defaultValue={v.units_per_variant ?? 1} onBlur={e => onUpdateVariantSplit(v.id, { units_per_variant: Number(e.target.value) || 1 })} style={inp3} />
                           </td>
-                          <td style={{ padding: "4px 6px" }}>
+                          <td style={{ padding: "4px 4px" }}>
                             <FmtInput defaultValue={v.take_rate_pct ?? 25} onBlur={e => onUpdateVariantSplit(v.id, { take_rate_pct: Number(e.target.value) || 0 })} style={inp3} />
                           </td>
-                          <td style={{ padding: "4px 6px", textAlign: "right", fontSize: 11, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "—"}</td>
-                          <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: 11, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "—"}</td>
+                          <td style={{ padding: "4px 4px" }}>
+                            <FmtInput defaultValue={v.first_purchase_price ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { first_purchase_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
+                          </td>
+                          <td style={{ padding: "4px 4px" }}>
+                            <FmtInput defaultValue={v.subscription_price ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { subscription_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
+                          </td>
+                          <td style={{ padding: "4px 4px", textAlign: "right", fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "—"}</td>
+                          <td style={{ padding: "4px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "—"}</td>
+                          <td style={{ padding: "4px 4px", textAlign: "right", fontSize: 9, color: T.green }}>{vRev > 0 ? `$${fmt(Math.round(vRev))}` : "—"}</td>
                           <td style={{ padding: "4px 2px", textAlign: "center" }}><button onClick={() => onRemoveVariantSplit(v.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
                         </tr>
                       );
@@ -1246,15 +1305,24 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   </tbody>
                   <tfoot>
                     <tr style={{ borderTop: `2px solid ${T.border}` }}>
-                      <td style={{ padding: "6px 6px", fontWeight: 700, fontSize: 10, color: T.text }}>Total</td>
-                      <td style={{ padding: "6px 6px" }}></td>
-                      <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 700, fontSize: 10, color: pctWarning ? T.red : T.text }}>{totalPct.toFixed(0)}%{pctWarning ? " ⚠" : ""}</td>
-                      <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(totalOrders) : "—"}</td>
-                      <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>
+                      <td style={{ padding: "6px 4px", fontWeight: 700, fontSize: 10, color: T.text }}>Total</td>
+                      <td style={{ padding: "6px 4px" }}></td>
+                      <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: pctWarning ? T.red : T.text }}>{totalPct.toFixed(0)}%{pctWarning ? " ⚠" : ""}</td>
+                      <td style={{ padding: "6px 4px" }}></td>
+                      <td style={{ padding: "6px 4px" }}></td>
+                      <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(totalOrders) : "—"}</td>
+                      <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 800, fontSize: 11, color: T.accent }}>
                         {totalOrders > 0 ? fmt(splits.reduce((s, v) => {
                           const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
                           return s + Math.round(vOrders * (v.units_per_variant || 1));
                         }, 0)) : "—"}
+                      </td>
+                      <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: T.green }}>
+                        {totalOrders > 0 ? "$" + fmt(Math.round(splits.reduce((s, v) => {
+                          const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
+                          const otpO = Math.round(vOrders * ((ch.otp_pct || 30) / 100));
+                          return s + otpO * (v.first_purchase_price || 0) + (vOrders - otpO) * (v.subscription_price || 0);
+                        }, 0))) : "—"}
                       </td>
                       <td style={{ padding: "6px 2px" }}></td>
                     </tr>
@@ -1326,8 +1394,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const addChannel = async (launchId, channelKey) => {
     const def = CHANNEL_DEFS.find(d => d.key === channelKey);
     const { data } = await supabase.from("dp_launch_channels").insert({
-      launch_id: launchId, channel: channelKey, label: def?.label || channelKey,
-      units_per_order: 1,
+      org_id: orgId, launch_id: launchId, channel: channelKey, label: def?.label || channelKey,
+      units_per_order: 1, otp_pct: 30, sub_take_rate_pct: 70,
     }).select().single();
     if (data) setChannels(p => [...p, data]);
   };
