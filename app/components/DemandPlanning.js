@@ -1376,7 +1376,22 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   const src = allChannels.find(oc => oc.id === srcId);
                   if (!src) return;
                   const srcRates = Array.isArray(src.rebill_rates) ? src.rebill_rates : [52, 21, 15, 12, 10, 8];
-                  onUpdateChannel(ch.id, { rebill_rates: srcRates, otp_reorder_rate: src.otp_reorder_rate ?? 10 });
+                  onUpdateChannel(ch.id, {
+                    rebill_rates: srcRates,
+                    otp_reorder_rate: src.otp_reorder_rate ?? 10,
+                    reorder_mode: src.reorder_mode || "global",
+                  });
+                  // If per-variant mode, also copy variant-level rebill rates
+                  if ((src.reorder_mode || "global") === "per_variant") {
+                    const srcVariants = (allVariantSplits || []).filter(v => v.channel_id === srcId);
+                    const myVariants = variantSplits || [];
+                    myVariants.forEach((mv, i) => {
+                      const sv = srcVariants.find(sv => sv.variant_label === mv.variant_label) || srcVariants[i];
+                      if (sv && sv.rebill_rates) {
+                        onUpdateVariantSplit(mv.id, { rebill_rates: sv.rebill_rates });
+                      }
+                    });
+                  }
                 }}
                   style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, border: `1px solid #0ea5e930`, borderRadius: 4, background: "transparent", color: "#0ea5e9", cursor: "pointer" }}>
                   <option value="" disabled>📋 Copy from…</option>
@@ -1652,6 +1667,9 @@ function LaunchPlannerView({ isMobile, orgId }) {
         org_id: orgId, channel_id: targetChannelId, variant_label: src.variant_label,
         units_per_variant: src.units_per_variant, take_rate_pct: src.take_rate_pct,
         first_purchase_price: src.first_purchase_price, subscription_price: src.subscription_price,
+        rebill_rates: src.rebill_rates,
+        reorder_frequency_weeks: src.reorder_frequency_weeks,
+        churn_m1: src.churn_m1, churn_m2: src.churn_m2, churn_m3: src.churn_m3, churn_m4_plus: src.churn_m4_plus,
         sort_order: src.sort_order,
       }).select().single();
       if (data) setVariantSplits(p => [...p, data]);
