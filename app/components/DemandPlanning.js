@@ -1229,7 +1229,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   const otherChannelsWithVariants = (allChannels || []).filter(oc => oc.id !== ch.id && (allVariantSplits || []).some(v => v.channel_id === oc.id));
                   if (otherChannelsWithVariants.length === 0) return null;
                   return (
-                    <select onChange={e => { if (e.target.value) { onCopyVariantsFrom(ch.id, e.target.value); e.target.value = ""; } }} defaultValue=""
+                    <select value="" onChange={e => { if (e.target.value) onCopyVariantsFrom(ch.id, e.target.value); }}
                       style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "transparent", color: "#8b5cf6", cursor: "pointer", appearance: "auto" }}>
                       <option value="" disabled>📋 Copy from…</option>
                       {otherChannelsWithVariants.map(oc => {
@@ -1367,10 +1367,17 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
               })}
             </div>
             {(() => {
-              const otherCh = (allChannels || []).filter(oc => oc.id !== ch.id && oc.rebill_rates);
+              const otherCh = (allChannels || []).filter(oc => oc.id !== ch.id);
               if (otherCh.length === 0) return null;
               return (
-                <select onChange={e => { if (e.target.value) { const src = allChannels.find(oc => oc.id === e.target.value); if (src) { onUpdateChannel(ch.id, { rebill_rates: src.rebill_rates, otp_reorder_rate: src.otp_reorder_rate }); } e.target.value = ""; } }} defaultValue=""
+                <select value="" onChange={e => {
+                  const srcId = e.target.value;
+                  if (!srcId) return;
+                  const src = allChannels.find(oc => oc.id === srcId);
+                  if (!src) return;
+                  const srcRates = Array.isArray(src.rebill_rates) ? src.rebill_rates : [52, 21, 15, 12, 10, 8];
+                  onUpdateChannel(ch.id, { rebill_rates: srcRates, otp_reorder_rate: src.otp_reorder_rate ?? 10 });
+                }}
                   style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, border: `1px solid #0ea5e930`, borderRadius: 4, background: "transparent", color: "#0ea5e9", cursor: "pointer" }}>
                   <option value="" disabled>📋 Copy from…</option>
                   {otherCh.map(oc => {
@@ -1409,7 +1416,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   {rates.map((rate, i) => {
                     const rebillOrders = subOrders > 0 ? Math.round(subOrders * (rate / 100)) : 0;
                     return (
-                      <tr key={i} style={{ borderBottom: `1px solid ${T.border}10` }}>
+                      <tr key={`${i}-${rate}`} style={{ borderBottom: `1px solid ${T.border}10` }}>
                         <td style={{ padding: "3px 6px", fontSize: 10, fontWeight: 600, color: T.text2 }}>Rebill {i + 1}</td>
                         <td style={{ padding: "3px 6px", width: 70 }}>
                           <FmtInput defaultValue={rate} onBlur={e => { const newRates = [...rates]; newRates[i] = Number(e.target.value) || 0; up("rebill_rates", newRates); }} style={inp6} />
