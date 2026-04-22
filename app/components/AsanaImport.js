@@ -81,6 +81,16 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
   // Map Asana GID → Helm task ID for dependency linking
   const gidToHelmId = {};
+  let importedComments = 0;
+  let importedAttachments = 0;
+
+  // Fetch comments + attachments for a single task on-demand
+  const fetchTaskExtras = async (taskGid) => {
+    if (!taskGid) return { comments: [], attachments: [] };
+    try {
+      return await callProxy({ action: "get_task_extras", task_gid: taskGid });
+    } catch { return { comments: [], attachments: [] }; }
+  };
 
   // Recursively insert tasks, subtasks, comments, attachments, tags
   const insertTaskTree = async (task, projectId, sectionId, sortOrder, parentTaskId = null) => {
@@ -102,24 +112,27 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
     if (task.gid) gidToHelmId[task.gid] = created.id;
 
-    // Import comments
-    for (const c of (task.comments || [])) {
+    // Fetch comments + attachments on-demand (not pre-loaded in preview)
+    const extras = await fetchTaskExtras(task.gid);
+
+    for (const c of (extras.comments || [])) {
       await supabase.from("comments").insert({
         org_id: orgId, entity_type: "task", entity_id: created.id,
         author_id: user?.id,
         content: `**${c.author_name}** (from Asana): ${c.text}`,
         created_at: c.created_at || new Date().toISOString(),
       }).catch(() => {});
+      importedComments++;
     }
 
-    // Import attachments
-    for (const att of (task.attachments || [])) {
+    for (const att of (extras.attachments || [])) {
       await supabase.from("attachments").insert({
         org_id: orgId, entity_type: "task", entity_id: created.id,
         filename: att.name, file_path: att.url,
         file_size: att.size || 0, mime_type: "link/external",
         uploaded_by: user?.id,
       }).catch(() => {});
+      importedAttachments++;
     }
 
     // Import labels/tags
@@ -188,10 +201,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
       setImportProgress("Linking dependencies...");
       await linkDependencies(projectDetail.sections);
 
-      const totalComments = (projectDetail.sections || []).reduce((s, sec) => s + (sec.tasks || []).reduce((s2, t) => s2 + (t.comments?.length || 0), 0), 0);
-      const totalAttachments = (projectDetail.sections || []).reduce((s, sec) => s + (sec.tasks || []).reduce((s2, t) => s2 + (t.attachments?.length || 0), 0), 0);
-
-      setImportResult({ projectId: proj.id, projectName: proj.name, sections: totalSections, tasks: totalTasks, comments: totalComments, attachments: totalAttachments });
+      setImportResult({ projectId: proj.id, projectName: proj.name, sections: totalSections, tasks: totalTasks, comments: importedComments, attachments: importedAttachments });
       setStep("done");
     } catch (err) {
       setError("Import failed: " + err.message);
@@ -346,9 +356,8 @@ export default function AsanaImportModal({ onClose, onImported }) {
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", paddingLeft: 8 + depth * 16, fontSize: depth === 0 ? 12 : 11, color: task.completed ? T.text3 : T.text, borderBottom: `1px solid ${T.border}08` }}>
               <span style={{ fontSize: 10, color: task.completed ? T.green : T.text3 }}>{task.completed ? "✓" : "○"}</span>
               <span style={{ flex: 1, textDecoration: task.completed ? "line-through" : "none" }}>{task.name}</span>
-              {task.comments?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>💬{task.comments.length}</span>}
-              {task.attachments?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>📎{task.attachments.length}</span>}
               {task.subtasks?.length > 0 && <span style={{ fontSize: 8, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3, fontWeight: 600 }}>{countTasks(task.subtasks)} sub</span>}
+              {task.tags?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>🏷{task.tags.length}</span>}
               {task.assignee_name && <span style={{ fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 3 }}>{task.assignee_name}</span>}
             </div>
             {task.subtasks?.length > 0 && renderTaskTree(task.subtasks, depth + 1, 999)}
