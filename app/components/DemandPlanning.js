@@ -711,7 +711,7 @@ function FmtInput({ defaultValue, onBlur, style }) {
   );
 }
 
-function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods, emailSends, onAddEmailSend, onUpdateEmailSend, onRemoveEmailSend, variantSplits, onAddVariantSplit, onUpdateVariantSplit, onRemoveVariantSplit, onInitDefaultVariants, gwpTiers, onAddGwpTier, onUpdateGwpTier, onRemoveGwpTier }) {
+function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods, emailSends, onAddEmailSend, onUpdateEmailSend, onRemoveEmailSend, variantSplits, allVariantSplits, onAddVariantSplit, onUpdateVariantSplit, onRemoveVariantSplit, onInitDefaultVariants, onCopyVariantsFrom, gwpTiers, onAddGwpTier, onUpdateGwpTier, onRemoveGwpTier }) {
   const up = (field, val) => onUpdateChannel(ch.id, { [field]: val });
   const c = ch.channel;
   const units = calcChannelUnits(ch, allChannels, allPeriods, emailSends);
@@ -1223,11 +1223,27 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
           <div style={{ marginTop: 10, padding: "10px 12px", background: "#8b5cf608", borderRadius: 8, border: `1px solid #8b5cf615` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#8b5cf6" }}>📦 Variant / Pack-Size Allocation</div>
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {/* Copy from another channel */}
+                {(() => {
+                  const otherChannelsWithVariants = (allChannels || []).filter(oc => oc.id !== ch.id && (allVariantSplits || []).some(v => v.channel_id === oc.id));
+                  if (otherChannelsWithVariants.length === 0) return null;
+                  return (
+                    <select onChange={e => { if (e.target.value) { onCopyVariantsFrom(ch.id, e.target.value); e.target.value = ""; } }} defaultValue=""
+                      style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "transparent", color: "#8b5cf6", cursor: "pointer", appearance: "auto" }}>
+                      <option value="" disabled>📋 Copy from…</option>
+                      {otherChannelsWithVariants.map(oc => {
+                        const def = CHANNEL_DEFS.find(d => d.key === oc.channel);
+                        const count = (allVariantSplits || []).filter(v => v.channel_id === oc.id).length;
+                        return <option key={oc.id} value={oc.id}>{def?.icon || ""} {oc.label || def?.label} ({count} variants)</option>;
+                      })}
+                    </select>
+                  );
+                })()}
                 {splits.length === 0 && (
-                  <button onClick={() => onInitDefaultVariants(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "#8b5cf610", color: "#8b5cf6", cursor: "pointer" }}>Load Defaults (1-4 Pack)</button>
+                  <button onClick={() => onInitDefaultVariants(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "#8b5cf610", color: "#8b5cf6", cursor: "pointer" }}>Load Defaults</button>
                 )}
-                <button onClick={() => onAddVariantSplit(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "transparent", color: "#8b5cf6", cursor: "pointer" }}>+ Add Variant</button>
+                <button onClick={() => onAddVariantSplit(ch.id)} style={{ padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #8b5cf630`, borderRadius: 4, background: "transparent", color: "#8b5cf6", cursor: "pointer" }}>+ Add</button>
               </div>
             </div>
             
@@ -1488,6 +1504,28 @@ function LaunchPlannerView({ isMobile, orgId }) {
     setVariantSplits(p => p.filter(s => s.id !== id));
   };
 
+  const copyVariantsFrom = async (targetChannelId, sourceChannelId) => {
+    // Get source variants
+    const sourceVariants = variantSplits.filter(v => v.channel_id === sourceChannelId);
+    if (sourceVariants.length === 0) return;
+    // Remove existing variants on target
+    const existing = variantSplits.filter(v => v.channel_id === targetChannelId);
+    for (const v of existing) {
+      await supabase.from("dp_launch_variant_splits").delete().eq("id", v.id);
+    }
+    setVariantSplits(p => p.filter(v => v.channel_id !== targetChannelId));
+    // Copy each variant
+    for (const src of sourceVariants) {
+      const { data } = await supabase.from("dp_launch_variant_splits").insert({
+        org_id: orgId, channel_id: targetChannelId, variant_label: src.variant_label,
+        units_per_variant: src.units_per_variant, take_rate_pct: src.take_rate_pct,
+        first_purchase_price: src.first_purchase_price, subscription_price: src.subscription_price,
+        sort_order: src.sort_order,
+      }).select().single();
+      if (data) setVariantSplits(p => [...p, data]);
+    }
+  };
+
   const initDefaultVariants = async (channelId) => {
     const defaults = [
       { label: "1-Pack", units: 1, pct: 18 },
@@ -1683,7 +1721,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                       </div>
                     </div>
                     <div style={{ padding: "10px 14px" }}>
-                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} allPeriods={launchPeriods} onAddPeriod={addPeriod} onUpdatePeriod={updatePeriod} onRemovePeriod={removePeriod} onInitPeriods={initPeriods} emailSends={emailSends.filter(s => s.channel_id === ch.id)} onAddEmailSend={addEmailSend} onUpdateEmailSend={updateEmailSend} onRemoveEmailSend={removeEmailSend} variantSplits={variantSplits.filter(s => s.channel_id === ch.id)} onAddVariantSplit={addVariantSplit} onUpdateVariantSplit={updateVariantSplit} onRemoveVariantSplit={removeVariantSplit} onInitDefaultVariants={initDefaultVariants} gwpTiers={gwpTiers.filter(t => t.channel_id === ch.id)} onAddGwpTier={addGwpTier} onUpdateGwpTier={updateGwpTier} onRemoveGwpTier={removeGwpTier} />
+                      <ChannelInputs ch={ch} onUpdateChannel={updateChannel} allChannels={launchChannels} allPeriods={launchPeriods} onAddPeriod={addPeriod} onUpdatePeriod={updatePeriod} onRemovePeriod={removePeriod} onInitPeriods={initPeriods} emailSends={emailSends.filter(s => s.channel_id === ch.id)} onAddEmailSend={addEmailSend} onUpdateEmailSend={updateEmailSend} onRemoveEmailSend={removeEmailSend} variantSplits={variantSplits.filter(s => s.channel_id === ch.id)} allVariantSplits={variantSplits} onAddVariantSplit={addVariantSplit} onUpdateVariantSplit={updateVariantSplit} onRemoveVariantSplit={removeVariantSplit} onInitDefaultVariants={initDefaultVariants} onCopyVariantsFrom={copyVariantsFrom} gwpTiers={gwpTiers.filter(t => t.channel_id === ch.id)} onAddGwpTier={addGwpTier} onUpdateGwpTier={updateGwpTier} onRemoveGwpTier={removeGwpTier} />
                     </div>
                   </div>
                 );
