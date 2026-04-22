@@ -66,8 +66,12 @@ export default function AsanaImportModal({ onClose, onImported }) {
     }
   };
 
-  // Recursively insert tasks and subtasks
+  // Map Asana GID → Helm task ID for dependency linking
+  const gidToHelmId = {};
+
+  // Recursively insert tasks, subtasks, comments, attachments, tags
   const insertTaskTree = async (task, projectId, sectionId, sortOrder, parentTaskId = null) => {
+    const tags = (task.tags || []).filter(t => t);
     const { data: created, error: taskErr } = await supabase.from("tasks").insert({
       org_id: orgId, project_id: projectId, section_id: parentTaskId ? null : sectionId,
       parent_task_id: parentTaskId,
@@ -76,15 +80,64 @@ export default function AsanaImportModal({ onClose, onImported }) {
       completed_at: task.completed ? new Date().toISOString() : null,
       start_date: task.start_on || null, due_date: task.due_on || null,
       sort_order: sortOrder, created_by: user?.id,
-      metadata: { asana_assignee: task.assignee_name || null },
+      tags: tags.length > 0 ? tags : null,
+      metadata: { asana_assignee: task.assignee_name || null, asana_gid: task.gid || null },
     }).select().single();
+    
     let count = taskErr ? 0 : 1;
-    if (created && task.subtasks && task.subtasks.length > 0) {
-      for (let si = 0; si < task.subtasks.length; si++) {
-        count += await insertTaskTree(task.subtasks[si], projectId, sectionId, si, created.id);
+    if (!created) return count;
+
+    if (task.gid) gidToHelmId[task.gid] = created.id;
+
+    // Import comments
+    for (const c of (task.comments || [])) {
+      await supabase.from("comments").insert({
+        org_id: orgId, entity_type: "task", entity_id: created.id,
+        author_id: user?.id,
+        content: `**${c.author_name}** (from Asana): ${c.text}`,
+        created_at: c.created_at || new Date().toISOString(),
+      }).catch(() => {});
+    }
+
+    // Import attachments
+    for (const att of (task.attachments || [])) {
+      await supabase.from("attachments").insert({
+        org_id: orgId, entity_type: "task", entity_id: created.id,
+        filename: att.name, file_path: att.url,
+        file_size: att.size || 0, mime_type: "link/external",
+        uploaded_by: user?.id,
+      }).catch(() => {});
+    }
+
+    // Import labels/tags
+    for (const tagName of tags) {
+      let { data: existing } = await supabase.from("task_labels").select("id").eq("org_id", orgId).eq("name", tagName).maybeSingle();
+      if (!existing) {
+        const { data: nl } = await supabase.from("task_labels").insert({ org_id: orgId, name: tagName, color: "#6366f1" }).select().single();
+        existing = nl;
       }
+      if (existing) await supabase.from("task_label_assignments").insert({ task_id: created.id, label_id: existing.id }).catch(() => {});
+    }
+
+    // Recurse subtasks
+    for (let si = 0; si < (task.subtasks || []).length; si++) {
+      count += await insertTaskTree(task.subtasks[si], projectId, sectionId, si, created.id);
     }
     return count;
+  };
+
+  // Link dependencies after all tasks imported (needs GID→ID map complete)
+  const linkDependencies = async (sections) => {
+    for (const sec of (sections || [])) {
+      for (const task of (sec.tasks || [])) {
+        const helmId = task.gid ? gidToHelmId[task.gid] : null;
+        if (!helmId) continue;
+        for (const depGid of (task.dependencies || [])) {
+          const predId = gidToHelmId[depGid];
+          if (predId) await supabase.from("task_dependencies").insert({ org_id: orgId, predecessor_id: predId, successor_id: helmId, dependency_type: "finish_to_start" }).catch(() => {});
+        }
+      }
+    }
   };
 
   const runImport = async () => {
@@ -118,7 +171,14 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
       await supabase.from("project_members").insert({ project_id: proj.id, user_id: user?.id, role: "owner" });
 
-      setImportResult({ projectId: proj.id, projectName: proj.name, sections: totalSections, tasks: totalTasks });
+      // Link dependencies (needs all tasks imported first for GID→ID mapping)
+      setImportProgress("Linking dependencies...");
+      await linkDependencies(projectDetail.sections);
+
+      const totalComments = (projectDetail.sections || []).reduce((s, sec) => s + (sec.tasks || []).reduce((s2, t) => s2 + (t.comments?.length || 0), 0), 0);
+      const totalAttachments = (projectDetail.sections || []).reduce((s, sec) => s + (sec.tasks || []).reduce((s2, t) => s2 + (t.attachments?.length || 0), 0), 0);
+
+      setImportResult({ projectId: proj.id, projectName: proj.name, sections: totalSections, tasks: totalTasks, comments: totalComments, attachments: totalAttachments });
       setStep("done");
     } catch (err) {
       setError("Import failed: " + err.message);
@@ -141,6 +201,8 @@ export default function AsanaImportModal({ onClose, onImported }) {
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", paddingLeft: 8 + depth * 16, fontSize: depth === 0 ? 12 : 11, color: task.completed ? T.text3 : T.text, borderBottom: `1px solid ${T.border}08` }}>
               <span style={{ fontSize: 10, color: task.completed ? T.green : T.text3 }}>{task.completed ? "✓" : "○"}</span>
               <span style={{ flex: 1, textDecoration: task.completed ? "line-through" : "none" }}>{task.name}</span>
+              {task.comments?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>💬{task.comments.length}</span>}
+              {task.attachments?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>📎{task.attachments.length}</span>}
               {task.subtasks?.length > 0 && <span style={{ fontSize: 8, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3, fontWeight: 600 }}>{countTasks(task.subtasks)} sub</span>}
               {task.assignee_name && <span style={{ fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 3 }}>{task.assignee_name}</span>}
             </div>
@@ -253,6 +315,13 @@ export default function AsanaImportModal({ onClose, onImported }) {
               <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Import Complete</div>
               <div style={{ fontSize: 13, color: T.text2, textAlign: "center", lineHeight: 1.6 }}>
                 <strong>{importResult.projectName}</strong> imported with {importResult.sections} sections and {importResult.tasks} tasks.
+                {(importResult.comments > 0 || importResult.attachments > 0) && (
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>
+                    {importResult.comments > 0 && `💬 ${importResult.comments} comments`}
+                    {importResult.comments > 0 && importResult.attachments > 0 && " · "}
+                    {importResult.attachments > 0 && `📎 ${importResult.attachments} attachments`}
+                  </div>
+                )}
               </div>
               <button onClick={() => { onImported?.(importResult.projectId); onClose(); }}
                 style={{ marginTop: 8, padding: "10px 24px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
