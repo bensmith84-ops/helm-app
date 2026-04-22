@@ -66,6 +66,27 @@ export default function AsanaImportModal({ onClose, onImported }) {
     }
   };
 
+  // Recursively insert tasks and subtasks
+  const insertTaskTree = async (task, projectId, sectionId, sortOrder, parentTaskId = null) => {
+    const { data: created, error: taskErr } = await supabase.from("tasks").insert({
+      org_id: orgId, project_id: projectId, section_id: parentTaskId ? null : sectionId,
+      parent_task_id: parentTaskId,
+      title: task.name, description: task.notes || "",
+      status: task.completed ? "done" : "todo",
+      completed_at: task.completed ? new Date().toISOString() : null,
+      start_date: task.start_on || null, due_date: task.due_on || null,
+      sort_order: sortOrder, created_by: user?.id,
+      metadata: { asana_assignee: task.assignee_name || null },
+    }).select().single();
+    let count = taskErr ? 0 : 1;
+    if (created && task.subtasks && task.subtasks.length > 0) {
+      for (let si = 0; si < task.subtasks.length; si++) {
+        count += await insertTaskTree(task.subtasks[si], projectId, sectionId, si, created.id);
+      }
+    }
+    return count;
+  };
+
   const runImport = async () => {
     if (!projectDetail || !orgId) return;
     setStep("importing");
@@ -90,20 +111,11 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
         for (let ti = 0; ti < (sec.tasks || []).length; ti++) {
           const task = sec.tasks[ti];
-          const { error: taskErr } = await supabase.from("tasks").insert({
-            org_id: orgId, project_id: proj.id, section_id: section.id,
-            title: task.name, description: task.notes || "",
-            status: task.completed ? "done" : "todo",
-            completed_at: task.completed ? new Date().toISOString() : null,
-            start_date: task.start_on || null, due_date: task.due_on || null,
-            sort_order: ti, created_by: user?.id,
-            metadata: { asana_assignee: task.assignee_name || null },
-          });
-          if (!taskErr) totalTasks++;
+          setImportProgress(`${sec.name}: ${task.name}`);
+          totalTasks += await insertTaskTree(task, proj.id, section.id, ti);
         }
       }
 
-      // Add current user as project member
       await supabase.from("project_members").insert({ project_id: proj.id, user_id: user?.id, role: "owner" });
 
       setImportResult({ projectId: proj.id, projectName: proj.name, sections: totalSections, tasks: totalTasks });
@@ -115,7 +127,30 @@ export default function AsanaImportModal({ onClose, onImported }) {
   };
 
   const filtered = asanaProjects.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
-  const totalPreviewTasks = (projectDetail?.sections || []).reduce((s, sec) => s + (sec.tasks?.length || 0), 0);
+  // Count all tasks including nested subtasks
+  const countTasks = (tasks) => (tasks || []).reduce((s, t) => s + 1 + countTasks(t.subtasks), 0);
+  const totalPreviewTasks = (projectDetail?.sections || []).reduce((s, sec) => s + countTasks(sec.tasks), 0);
+
+  const renderTaskTree = (tasks, depth, maxItems) => {
+    const items = depth === 0 ? (tasks || []).slice(0, maxItems) : (tasks || []);
+    const remaining = depth === 0 ? Math.max(0, (tasks || []).length - maxItems) : 0;
+    return (
+      <>
+        {items.map((task, ti) => (
+          <div key={ti}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", paddingLeft: 8 + depth * 16, fontSize: depth === 0 ? 12 : 11, color: task.completed ? T.text3 : T.text, borderBottom: `1px solid ${T.border}08` }}>
+              <span style={{ fontSize: 10, color: task.completed ? T.green : T.text3 }}>{task.completed ? "✓" : "○"}</span>
+              <span style={{ flex: 1, textDecoration: task.completed ? "line-through" : "none" }}>{task.name}</span>
+              {task.subtasks?.length > 0 && <span style={{ fontSize: 8, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3, fontWeight: 600 }}>{countTasks(task.subtasks)} sub</span>}
+              {task.assignee_name && <span style={{ fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 3 }}>{task.assignee_name}</span>}
+            </div>
+            {task.subtasks?.length > 0 && renderTaskTree(task.subtasks, depth + 1, 999)}
+          </div>
+        ))}
+        {remaining > 0 && <div style={{ fontSize: 10, color: T.text3, padding: "4px 8px", fontStyle: "italic" }}>+ {remaining} more top-level tasks</div>}
+      </>
+    );
+  };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
@@ -190,23 +225,15 @@ export default function AsanaImportModal({ onClose, onImported }) {
                 {projectDetail.notes && <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.5 }}>{projectDetail.notes.slice(0, 300)}</div>}
                 <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: T.text2 }}>
                   <span>📋 {projectDetail.sections?.length || 0} sections</span>
-                  <span>✅ {totalPreviewTasks} tasks</span>
+                  <span>✅ {totalPreviewTasks} tasks (incl. subtasks)</span>
                 </div>
               </div>
               {(projectDetail.sections || []).map((sec, si) => (
                 <div key={si} style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    {sec.name} ({sec.tasks?.length || 0})
+                    {sec.name} ({countTasks(sec.tasks)})
                   </div>
-                  {(sec.tasks || []).slice(0, 15).map((task, ti) => (
-                    <div key={ti} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", fontSize: 12, color: task.completed ? T.text3 : T.text, borderBottom: `1px solid ${T.border}08` }}>
-                      <span style={{ fontSize: 10, color: task.completed ? T.green : T.text3 }}>{task.completed ? "✓" : "○"}</span>
-                      <span style={{ flex: 1, textDecoration: task.completed ? "line-through" : "none" }}>{task.name}</span>
-                      {task.assignee_name && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 6px", borderRadius: 4 }}>{task.assignee_name}</span>}
-                      {task.due_on && <span style={{ fontSize: 10, color: T.text3 }}>{task.due_on}</span>}
-                    </div>
-                  ))}
-                  {(sec.tasks?.length || 0) > 15 && <div style={{ fontSize: 10, color: T.text3, padding: "4px 8px", fontStyle: "italic" }}>+ {sec.tasks.length - 15} more</div>}
+                  {renderTaskTree(sec.tasks, 0, 20)}
                 </div>
               ))}
             </div>
