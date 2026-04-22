@@ -543,6 +543,7 @@ const CHANNEL_DEFS = [
   { key: "hero_gwp", label: "Hero GWP", icon: "🎁", group: "primary", desc: "Primary new customer acquisition — ad spend drives this product as the hero GWP offer" },
   { key: "upsell", label: "Upsell", icon: "⬆️", group: "dtc", desc: "Upsell at checkout to existing + new customers. Can be halo from hero ad spend." },
   { key: "email", label: "Email", icon: "📧", group: "dtc", desc: "Email campaign to existing subscriber list" },
+  { key: "sms", label: "SMS", icon: "💬", group: "dtc", desc: "SMS/MMS campaign to opted-in subscriber list" },
   { key: "free_gift", label: "Free Gift", icon: "🎀", group: "dtc", desc: "Free gift at spend tier threshold (e.g. free with $50+ order)" },
   { key: "amazon", label: "Amazon", icon: "📦", group: "marketplace", desc: "Amazon sales — can be direct PPC or halo from DTC brand awareness" },
   { key: "retail", label: "Retail", icon: "🏬", group: "offline", desc: "Brick & mortar retail distribution" },
@@ -601,6 +602,20 @@ function calcChannelUnits(ch, allChannels, allPeriods, chEmailSends) {
       const sent = (ch.email_list_size || 0) * ((ch.email_send_pct || 100) / 100);
       const opened = sent * ((ch.email_open_rate || 25) / 100);
       const clicked = opened * ((ch.email_click_rate || 3) / 100);
+      return Math.round(clicked * ((ch.email_conversion_rate || 5) / 100));
+    }
+    if (c === "sms") {
+      // SMS multi-send mode (reuses emailSends table)
+      if (chEmailSends && chEmailSends.length > 0) {
+        return chEmailSends.reduce((sum, send) => {
+          const sent = (send.list_size || 0) * ((send.send_pct || 100) / 100);
+          const clicked = sent * ((send.click_rate || 8) / 100);
+          return sum + Math.round(clicked * ((send.conversion_rate || 5) / 100));
+        }, 0);
+      }
+      // Legacy single fields
+      const sent = (ch.email_list_size || 0) * ((ch.email_send_pct || 100) / 100);
+      const clicked = sent * ((ch.email_click_rate || 8) / 100);
       return Math.round(clicked * ((ch.email_conversion_rate || 5) / 100));
     }
     if (c === "upsell") {
@@ -947,6 +962,85 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                     <tr style={{ borderTop: `2px solid ${T.border}` }}>
                       <td colSpan={7} style={{ padding: "5px 4px", fontWeight: 700, fontSize: 10, color: T.text }}>Total ({sends.length} sends)</td>
                       <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>{fmt(totalSendUnits)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+              
+              <button onClick={() => onAddEmailSend(ch.id)} style={{ marginTop: 6, padding: "4px 12px", fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 4, background: "transparent", color: T.text3, cursor: "pointer" }}>+ Add Send</button>
+            </div>;
+          })()}
+
+          {/* SMS — Multi-Send Table (like email but no open rate) */}
+          {c === "sms" && (() => {
+            const sends = emailSends || [];
+            const hasSends = sends.length > 0;
+            
+            const calcSmsOrders = (s) => {
+              const sent = (s.list_size || 0) * ((s.send_pct || 100) / 100);
+              const clicked = sent * ((s.click_rate || 8) / 100);
+              return Math.round(clicked * ((s.conversion_rate || 5) / 100));
+            };
+            
+            const totalSmsOrders = sends.reduce((s, send) => s + calcSmsOrders(send), 0);
+            
+            return <div style={{ gridColumn: "1 / -1" }}>
+              {/* Legacy single-send (backward compat) */}
+              {!hasSends && <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <I label="SMS List Size" value={ch.email_list_size} onChange={v => up("email_list_size", v)} type="number" />
+                  <I label="Send % of List" value={ch.email_send_pct} onChange={v => up("email_send_pct", v)} type="number" suffix="%" />
+                  <I label="Click Rate" value={ch.email_click_rate} onChange={v => up("email_click_rate", v)} type="number" suffix="%" />
+                  <I label="Conversion Rate" value={ch.email_conversion_rate} onChange={v => up("email_conversion_rate", v)} type="number" suffix="%" />
+                </div>
+              </>}
+              
+              {/* Multi-send table */}
+              {hasSends && (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <th style={{ textAlign: "left", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Send</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>List Size</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Send %</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Click %</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.text3 }}>CVR %</th>
+                      <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 9, fontWeight: 700, color: T.accent }}>Orders</th>
+                      <th style={{ width: 20 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sends.map((s) => {
+                      const sOrders = calcSmsOrders(s);
+                      const inp2 = { width: "100%", padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
+                      return (
+                        <tr key={s.id} style={{ borderBottom: `1px solid ${T.border}08` }}>
+                          <td style={{ padding: "3px 4px" }}>
+                            <input defaultValue={s.label} onBlur={e => onUpdateEmailSend(s.id, { label: e.target.value })} style={{ ...inp2, textAlign: "left", width: 70 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <FmtInput defaultValue={s.list_size ?? ""} onBlur={e => onUpdateEmailSend(s.id, { list_size: e.target.value === "" ? null : Number(e.target.value) })} style={inp2} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <FmtInput defaultValue={s.send_pct ?? 100} onBlur={e => onUpdateEmailSend(s.id, { send_pct: Number(e.target.value) || 100 })} style={{ ...inp2, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <FmtInput defaultValue={s.click_rate ?? 8} onBlur={e => onUpdateEmailSend(s.id, { click_rate: Number(e.target.value) || 8 })} style={{ ...inp2, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 2px" }}>
+                            <FmtInput defaultValue={s.conversion_rate ?? 5} onBlur={e => onUpdateEmailSend(s.id, { conversion_rate: Number(e.target.value) || 5 })} style={{ ...inp2, width: 50 }} />
+                          </td>
+                          <td style={{ padding: "3px 4px", textAlign: "right", fontWeight: 700, color: T.accent, fontSize: 11 }}>{fmt(sOrders)}</td>
+                          <td><button onClick={() => onRemoveEmailSend(s.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                      <td colSpan={5} style={{ padding: "5px 4px", fontWeight: 700, fontSize: 10, color: T.text }}>Total ({sends.length} sends)</td>
+                      <td style={{ padding: "5px 4px", textAlign: "right", fontWeight: 800, fontSize: 12, color: T.accent }}>{fmt(totalSmsOrders)}</td>
                       <td></td>
                     </tr>
                   </tfoot>
