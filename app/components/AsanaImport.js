@@ -13,12 +13,20 @@ export default function AsanaImportModal({ onClose, onImported }) {
   const [asanaProjects, setAsanaProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectDetail, setProjectDetail] = useState(null);
+  const [existingHelmProject, setExistingHelmProject] = useState(null); // if already imported
   const [search, setSearch] = useState("");
   const [error, setError] = useState(null);
   const [importProgress, setImportProgress] = useState("");
   const [importResult, setImportResult] = useState(null);
+  const [importedGids, setImportedGids] = useState(new Set());
 
-  useEffect(() => { fetchAsanaProjects(); }, []);
+  useEffect(() => { fetchAsanaProjects(); loadImportedGids(); }, []);
+
+  const loadImportedGids = async () => {
+    const { data } = await supabase.from("projects").select("metadata").eq("org_id", orgId).not("metadata", "is", null);
+    const gids = new Set((data || []).map(p => p.metadata?.asana_gid).filter(Boolean));
+    setImportedGids(gids);
+  };
 
   const callProxy = async (body) => {
     const res = await fetch(PROXY_URL, {
@@ -52,6 +60,11 @@ export default function AsanaImportModal({ onClose, onImported }) {
     try {
       setSelectedProject(project);
       setStep("loading");
+      
+      // Check if already imported
+      const { data: existing } = await supabase.from("projects").select("id, name").eq("org_id", orgId).filter("metadata->>asana_gid", "eq", project.gid).maybeSingle();
+      setExistingHelmProject(existing || null);
+      
       const detail = await callProxy({ action: "get_project_detail", project_id: project.gid });
       if (detail && detail.sections) {
         setProjectDetail(detail);
@@ -186,6 +199,138 @@ export default function AsanaImportModal({ onClose, onImported }) {
     }
   };
 
+  // Update/sync an already-imported project
+  const runUpdate = async () => {
+    if (!projectDetail || !orgId || !existingHelmProject) return;
+    setStep("importing");
+    const projId = existingHelmProject.id;
+    try {
+      // Update project name/description
+      setImportProgress("Updating project...");
+      await supabase.from("projects").update({
+        name: projectDetail.name, description: projectDetail.notes || "",
+        metadata: { asana_gid: selectedProject.gid, imported_from: "asana", imported_at: new Date().toISOString(), last_sync: new Date().toISOString() },
+      }).eq("id", projId);
+
+      // Get existing sections and tasks
+      const { data: existingSections } = await supabase.from("sections").select("id, name").eq("project_id", projId);
+      const { data: existingTasks } = await supabase.from("tasks").select("id, metadata").eq("project_id", projId);
+      const existingGids = new Set((existingTasks || []).map(t => t.metadata?.asana_gid).filter(Boolean));
+      const sectionMap = {};
+      (existingSections || []).forEach(s => { sectionMap[s.name] = s.id; });
+
+      let newTasks = 0, updatedTasks = 0, newSections = 0, newComments = 0;
+
+      // Recursive upsert: create new tasks, update existing ones
+      const upsertTaskTree = async (task, sectionId, sortOrder, parentTaskId = null) => {
+        const taskGid = task.gid;
+        const tags = (task.tags || []).filter(t => t);
+        let helmTaskId = null;
+        
+        // Check if task already exists by GID
+        const existingTask = (existingTasks || []).find(t => t.metadata?.asana_gid === taskGid);
+        
+        if (existingTask) {
+          // Update existing task
+          helmTaskId = existingTask.id;
+          await supabase.from("tasks").update({
+            title: task.name, description: task.notes || "",
+            status: task.completed ? "done" : "todo",
+            completed_at: task.completed ? new Date().toISOString() : null,
+            start_date: task.start_on || null, due_date: task.due_on || null,
+            tags: tags.length > 0 ? tags : null,
+          }).eq("id", helmTaskId);
+          updatedTasks++;
+        } else {
+          // Create new task
+          const { data: created } = await supabase.from("tasks").insert({
+            org_id: orgId, project_id: projId, section_id: parentTaskId ? null : sectionId,
+            parent_task_id: parentTaskId,
+            title: task.name, description: task.notes || "",
+            status: task.completed ? "done" : "todo",
+            completed_at: task.completed ? new Date().toISOString() : null,
+            start_date: task.start_on || null, due_date: task.due_on || null,
+            sort_order: sortOrder, created_by: user?.id,
+            tags: tags.length > 0 ? tags : null,
+            metadata: { asana_assignee: task.assignee_name || null, asana_gid: taskGid },
+          }).select().single();
+          if (created) { helmTaskId = created.id; newTasks++; }
+        }
+
+        if (!helmTaskId) return;
+        if (taskGid) gidToHelmId[taskGid] = helmTaskId;
+
+        // Import NEW comments only (check by content match)
+        const { data: existingComments } = await supabase.from("comments").select("content").eq("entity_id", helmTaskId).eq("entity_type", "task");
+        const existingContents = new Set((existingComments || []).map(c => c.content));
+        for (const c of (task.comments || [])) {
+          const content = `**${c.author_name}** (from Asana): ${c.text}`;
+          if (!existingContents.has(content)) {
+            await supabase.from("comments").insert({
+              org_id: orgId, entity_type: "task", entity_id: helmTaskId,
+              author_id: user?.id, content,
+              created_at: c.created_at || new Date().toISOString(),
+            }).catch(() => {});
+            newComments++;
+          }
+        }
+
+        // Import NEW attachments (check by filename)
+        const { data: existingAtts } = await supabase.from("attachments").select("filename").eq("entity_id", helmTaskId).eq("entity_type", "task");
+        const existingFilenames = new Set((existingAtts || []).map(a => a.filename));
+        for (const att of (task.attachments || [])) {
+          if (!existingFilenames.has(att.name)) {
+            await supabase.from("attachments").insert({
+              org_id: orgId, entity_type: "task", entity_id: helmTaskId,
+              filename: att.name, file_path: att.url,
+              file_size: att.size || 0, mime_type: "link/external",
+              uploaded_by: user?.id,
+            }).catch(() => {});
+          }
+        }
+
+        // Recurse subtasks
+        for (let si = 0; si < (task.subtasks || []).length; si++) {
+          await upsertTaskTree(task.subtasks[si], sectionId, si, helmTaskId);
+        }
+      };
+
+      // Process sections
+      for (let si = 0; si < (projectDetail.sections || []).length; si++) {
+        const sec = projectDetail.sections[si];
+        setImportProgress(`Syncing: ${sec.name} (${si + 1}/${projectDetail.sections.length})`);
+        
+        let sectionId = sectionMap[sec.name];
+        if (!sectionId) {
+          const { data: newSec } = await supabase.from("sections").insert({
+            org_id: orgId, project_id: projId, name: sec.name, sort_order: si,
+          }).select().single();
+          if (newSec) { sectionId = newSec.id; newSections++; }
+        }
+        if (!sectionId) continue;
+
+        for (let ti = 0; ti < (sec.tasks || []).length; ti++) {
+          setImportProgress(`${sec.name}: ${sec.tasks[ti].name}`);
+          await upsertTaskTree(sec.tasks[ti], sectionId, ti);
+        }
+      }
+
+      // Re-link dependencies
+      setImportProgress("Linking dependencies...");
+      await linkDependencies(projectDetail.sections);
+
+      setImportResult({
+        projectId: projId, projectName: projectDetail.name,
+        sections: newSections, tasks: newTasks, updated: updatedTasks, comments: newComments,
+        isUpdate: true,
+      });
+      setStep("done");
+    } catch (err) {
+      setError("Update failed: " + err.message);
+      setStep("error");
+    }
+  };
+
   const filtered = asanaProjects.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
   // Count all tasks including nested subtasks
   const countTasks = (tasks) => (tasks || []).reduce((s, t) => s + 1 + countTasks(t.subtasks), 0);
@@ -266,13 +411,16 @@ export default function AsanaImportModal({ onClose, onImported }) {
                     onMouseEnter={e => e.currentTarget.style.background = T.surface2}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
+                        {importedGids.has(p.gid) && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: "#0ea5e920", color: "#0ea5e9" }}>IMPORTED</span>}
+                      </div>
                       <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
                         {p.num_tasks != null ? `${fmt(p.num_tasks)} tasks` : ""}
                         {p.num_incomplete_tasks != null ? ` · ${fmt(p.num_incomplete_tasks)} open` : ""}
                       </div>
                     </div>
-                    <span style={{ fontSize: 12, color: T.accent }}>→</span>
+                    <span style={{ fontSize: 12, color: importedGids.has(p.gid) ? "#0ea5e9" : T.accent }}>{importedGids.has(p.gid) ? "🔄" : "→"}</span>
                   </div>
                 ))}
                 {filtered.length === 0 && <div style={{ textAlign: "center", padding: 20, color: T.text3, fontSize: 13 }}>No projects match</div>}
@@ -311,13 +459,20 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
           {step === "done" && importResult && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: 30, gap: 12 }}>
-              <div style={{ fontSize: 48 }}>✅</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Import Complete</div>
+              <div style={{ fontSize: 48 }}>{importResult.isUpdate ? "🔄" : "✅"}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{importResult.isUpdate ? "Sync Complete" : "Import Complete"}</div>
               <div style={{ fontSize: 13, color: T.text2, textAlign: "center", lineHeight: 1.6 }}>
-                <strong>{importResult.projectName}</strong> imported with {importResult.sections} sections and {importResult.tasks} tasks.
+                <strong>{importResult.projectName}</strong>
+                {importResult.isUpdate ? (
+                  <span> synced: {importResult.updated || 0} tasks updated, {importResult.tasks || 0} new tasks added
+                    {importResult.sections > 0 && `, ${importResult.sections} new sections`}
+                  </span>
+                ) : (
+                  <span> imported with {importResult.sections} sections and {importResult.tasks} tasks.</span>
+                )}
                 {(importResult.comments > 0 || importResult.attachments > 0) && (
                   <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>
-                    {importResult.comments > 0 && `💬 ${importResult.comments} comments`}
+                    {importResult.comments > 0 && `💬 ${importResult.comments} new comments`}
                     {importResult.comments > 0 && importResult.attachments > 0 && " · "}
                     {importResult.attachments > 0 && `📎 ${importResult.attachments} attachments`}
                   </div>
@@ -333,13 +488,31 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
         {/* Footer */}
         {step === "preview" && (
-          <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
-            <button onClick={() => { setProjectDetail(null); setSelectedProject(null); setStep("list"); }}
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <button onClick={() => { setProjectDetail(null); setSelectedProject(null); setExistingHelmProject(null); setStep("list"); }}
               style={{ padding: "8px 16px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>← Back</button>
-            <button onClick={runImport}
-              style={{ padding: "8px 24px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              Import {totalPreviewTasks} Tasks →
-            </button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {existingHelmProject && (
+                <div style={{ fontSize: 10, color: "#f59e0b", marginRight: 4 }}>⚠ Already imported as "{existingHelmProject.name}"</div>
+              )}
+              {existingHelmProject ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={runUpdate}
+                    style={{ padding: "8px 20px", borderRadius: 8, background: "#0ea5e9", color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                    🔄 Update Existing
+                  </button>
+                  <button onClick={runImport}
+                    style={{ padding: "8px 20px", borderRadius: 8, background: T.surface3, color: T.text2, border: `1px solid ${T.border}`, fontSize: 12, cursor: "pointer" }}>
+                    Import as New
+                  </button>
+                </div>
+              ) : (
+                <button onClick={runImport}
+                  style={{ padding: "8px 24px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  Import {totalPreviewTasks} Tasks →
+                </button>
+              )}
+            </div>
           </div>
         )}
         {step === "list" && (
