@@ -83,17 +83,22 @@ export default function AsanaImportModal({ onClose, onImported }) {
   const gidToHelmId = {};
   let importedComments = 0;
   let importedAttachments = 0;
+  const allDependencies = []; // { taskGid, depGids[] }
 
-  // Fetch comments + attachments for a single task on-demand
-  const fetchTaskExtras = async (taskGid) => {
-    if (!taskGid) return { comments: [], attachments: [] };
+  // Fetch full task detail (subtasks, comments, attachments) one at a time
+  const fetchTaskFull = async (taskGid) => {
     try {
-      return await callProxy({ action: "get_task_extras", task_gid: taskGid });
-    } catch { return { comments: [], attachments: [] }; }
+      return await callProxy({ action: "get_task_full", task_gid: taskGid });
+    } catch { return null; }
   };
 
-  // Recursively insert tasks, subtasks, comments, attachments, tags
-  const insertTaskTree = async (task, projectId, sectionId, sortOrder, parentTaskId = null) => {
+  // Import a single task + its subtasks recursively
+  const importTask = async (taskGid, projectId, sectionId, sortOrder, parentTaskId = null, previewData = null) => {
+    // Fetch full details from Asana
+    const full = await fetchTaskFull(taskGid);
+    const task = full || previewData || {};
+    if (!task.name) return 0;
+
     const tags = (task.tags || []).filter(t => t);
     const { data: created, error: taskErr } = await supabase.from("tasks").insert({
       org_id: orgId, project_id: projectId, section_id: parentTaskId ? null : sectionId,
@@ -104,18 +109,21 @@ export default function AsanaImportModal({ onClose, onImported }) {
       start_date: task.start_on || null, due_date: task.due_on || null,
       sort_order: sortOrder, created_by: user?.id,
       tags: tags.length > 0 ? tags : null,
-      metadata: { asana_assignee: task.assignee_name || null, asana_gid: task.gid || null },
+      metadata: { asana_assignee: task.assignee_name || null, asana_gid: taskGid },
     }).select().single();
     
     let count = taskErr ? 0 : 1;
     if (!created) return count;
 
-    if (task.gid) gidToHelmId[task.gid] = created.id;
+    gidToHelmId[taskGid] = created.id;
 
-    // Fetch comments + attachments on-demand (not pre-loaded in preview)
-    const extras = await fetchTaskExtras(task.gid);
+    // Track dependencies for later linking
+    if (task.dependencies?.length > 0) {
+      allDependencies.push({ taskGid, depGids: task.dependencies });
+    }
 
-    for (const c of (extras.comments || [])) {
+    // Import comments
+    for (const c of (task.comments || [])) {
       await supabase.from("comments").insert({
         org_id: orgId, entity_type: "task", entity_id: created.id,
         author_id: user?.id,
@@ -125,7 +133,8 @@ export default function AsanaImportModal({ onClose, onImported }) {
       importedComments++;
     }
 
-    for (const att of (extras.attachments || [])) {
+    // Import attachments
+    for (const att of (task.attachments || [])) {
       await supabase.from("attachments").insert({
         org_id: orgId, entity_type: "task", entity_id: created.id,
         filename: att.name, file_path: att.url,
@@ -135,7 +144,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
       importedAttachments++;
     }
 
-    // Import labels/tags
+    // Import tags
     for (const tagName of tags) {
       let { data: existing } = await supabase.from("task_labels").select("id").eq("org_id", orgId).eq("name", tagName).maybeSingle();
       if (!existing) {
@@ -145,23 +154,40 @@ export default function AsanaImportModal({ onClose, onImported }) {
       if (existing) await supabase.from("task_label_assignments").insert({ task_id: created.id, label_id: existing.id }).catch(() => {});
     }
 
-    // Recurse subtasks
-    for (let si = 0; si < (task.subtasks || []).length; si++) {
-      count += await insertTaskTree(task.subtasks[si], projectId, sectionId, si, created.id);
+    // Recurse into subtasks (each fetched individually)
+    const subtasks = task.subtasks || [];
+    for (let si = 0; si < subtasks.length; si++) {
+      const st = subtasks[si];
+      if (st.num_subtasks > 0 || true) {
+        // Fetch full detail for subtask too (gets its own subtasks, comments, etc.)
+        count += await importTask(st.gid, projectId, sectionId, si, created.id, st);
+      } else {
+        // Leaf subtask — just insert from preview data
+        const stTags = (st.tags || []).filter(t => t);
+        const { data: stCreated } = await supabase.from("tasks").insert({
+          org_id: orgId, project_id: projectId, parent_task_id: created.id,
+          title: st.name, description: st.notes || "",
+          status: st.completed ? "done" : "todo",
+          completed_at: st.completed ? new Date().toISOString() : null,
+          start_date: st.start_on || null, due_date: st.due_on || null,
+          sort_order: si, created_by: user?.id,
+          tags: stTags.length > 0 ? stTags : null,
+          metadata: { asana_assignee: st.assignee_name || null, asana_gid: st.gid },
+        }).select().single();
+        if (stCreated) { count++; if (st.gid) gidToHelmId[st.gid] = stCreated.id; }
+      }
     }
     return count;
   };
 
-  // Link dependencies after all tasks imported (needs GID→ID map complete)
-  const linkDependencies = async (sections) => {
-    for (const sec of (sections || [])) {
-      for (const task of (sec.tasks || [])) {
-        const helmId = task.gid ? gidToHelmId[task.gid] : null;
-        if (!helmId) continue;
-        for (const depGid of (task.dependencies || [])) {
-          const predId = gidToHelmId[depGid];
-          if (predId) await supabase.from("task_dependencies").insert({ org_id: orgId, predecessor_id: predId, successor_id: helmId, dependency_type: "finish_to_start" }).catch(() => {});
-        }
+  // Link dependencies after all tasks imported
+  const linkAllDependencies = async () => {
+    for (const { taskGid, depGids } of allDependencies) {
+      const helmId = gidToHelmId[taskGid];
+      if (!helmId) continue;
+      for (const depGid of depGids) {
+        const predId = gidToHelmId[depGid];
+        if (predId) await supabase.from("task_dependencies").insert({ org_id: orgId, predecessor_id: predId, successor_id: helmId, dependency_type: "finish_to_start" }).catch(() => {});
       }
     }
   };
@@ -191,15 +217,14 @@ export default function AsanaImportModal({ onClose, onImported }) {
         for (let ti = 0; ti < (sec.tasks || []).length; ti++) {
           const task = sec.tasks[ti];
           setImportProgress(`${sec.name}: ${task.name}`);
-          totalTasks += await insertTaskTree(task, proj.id, section.id, ti);
+          totalTasks += await importTask(task.gid, proj.id, section.id, ti, null, task);
         }
       }
 
       await supabase.from("project_members").insert({ project_id: proj.id, user_id: user?.id, role: "owner" });
 
-      // Link dependencies (needs all tasks imported first for GID→ID mapping)
       setImportProgress("Linking dependencies...");
-      await linkDependencies(projectDetail.sections);
+      await linkAllDependencies();
 
       setImportResult({ projectId: proj.id, projectName: proj.name, sections: totalSections, tasks: totalTasks, comments: importedComments, attachments: importedAttachments });
       setStep("done");
@@ -342,28 +367,25 @@ export default function AsanaImportModal({ onClose, onImported }) {
   };
 
   const filtered = asanaProjects.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
-  // Count all tasks including nested subtasks
-  const countTasks = (tasks) => (tasks || []).reduce((s, t) => s + 1 + countTasks(t.subtasks), 0);
+  // Count tasks — preview data is flat with num_subtasks count, not nested
+  const countTasks = (tasks) => (tasks || []).reduce((s, t) => s + 1 + (t.num_subtasks || 0), 0);
   const totalPreviewTasks = (projectDetail?.sections || []).reduce((s, sec) => s + countTasks(sec.tasks), 0);
 
-  const renderTaskTree = (tasks, depth, maxItems) => {
-    const items = depth === 0 ? (tasks || []).slice(0, maxItems) : (tasks || []);
-    const remaining = depth === 0 ? Math.max(0, (tasks || []).length - maxItems) : 0;
+  const renderTaskTree = (tasks, maxItems) => {
+    const items = (tasks || []).slice(0, maxItems);
+    const remaining = Math.max(0, (tasks || []).length - maxItems);
     return (
       <>
         {items.map((task, ti) => (
-          <div key={ti}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", paddingLeft: 8 + depth * 16, fontSize: depth === 0 ? 12 : 11, color: task.completed ? T.text3 : T.text, borderBottom: `1px solid ${T.border}08` }}>
-              <span style={{ fontSize: 10, color: task.completed ? T.green : T.text3 }}>{task.completed ? "✓" : "○"}</span>
-              <span style={{ flex: 1, textDecoration: task.completed ? "line-through" : "none" }}>{task.name}</span>
-              {task.subtasks?.length > 0 && <span style={{ fontSize: 8, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3, fontWeight: 600 }}>{countTasks(task.subtasks)} sub</span>}
-              {task.tags?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>🏷{task.tags.length}</span>}
-              {task.assignee_name && <span style={{ fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 3 }}>{task.assignee_name}</span>}
-            </div>
-            {task.subtasks?.length > 0 && renderTaskTree(task.subtasks, depth + 1, 999)}
+          <div key={ti} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", fontSize: 12, color: task.completed ? T.text3 : T.text, borderBottom: `1px solid ${T.border}08` }}>
+            <span style={{ fontSize: 10, color: task.completed ? T.green : T.text3 }}>{task.completed ? "✓" : "○"}</span>
+            <span style={{ flex: 1, textDecoration: task.completed ? "line-through" : "none" }}>{task.name}</span>
+            {task.num_subtasks > 0 && <span style={{ fontSize: 8, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3, fontWeight: 600 }}>{task.num_subtasks} sub</span>}
+            {task.tags?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>🏷{task.tags.length}</span>}
+            {task.assignee_name && <span style={{ fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 3 }}>{task.assignee_name}</span>}
           </div>
         ))}
-        {remaining > 0 && <div style={{ fontSize: 10, color: T.text3, padding: "4px 8px", fontStyle: "italic" }}>+ {remaining} more top-level tasks</div>}
+        {remaining > 0 && <div style={{ fontSize: 10, color: T.text3, padding: "4px 8px", fontStyle: "italic" }}>+ {remaining} more tasks</div>}
       </>
     );
   };
@@ -452,7 +474,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                     {sec.name} ({countTasks(sec.tasks)})
                   </div>
-                  {renderTaskTree(sec.tasks, 0, 20)}
+                  {renderTaskTree(sec.tasks, 20)}
                 </div>
               ))}
             </div>
