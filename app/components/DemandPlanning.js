@@ -1353,6 +1353,99 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
           </div>
         );
       })()}
+
+      {/* Subscription & Reorder Model — per channel */}
+      <div style={{ marginTop: 10, padding: "10px 12px", background: "#0ea5e908", borderRadius: 8, border: `1px solid #0ea5e915` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#0ea5e9" }}>🔄 Subscription & Reorder</div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {/* Mode toggle */}
+            <div style={{ display: "flex", gap: 2, background: T.surface3, borderRadius: 4, padding: 2 }}>
+              {[{ v: "global", l: "All Variants" }, { v: "per_variant", l: "Per Variant" }].map(opt => {
+                const active = (ch.reorder_mode || "global") === opt.v;
+                return <button key={opt.v} onClick={() => up("reorder_mode", opt.v)}
+                  style={{ padding: "2px 8px", fontSize: 9, fontWeight: 600, borderRadius: 3, border: "none", background: active ? "#0ea5e920" : "transparent", color: active ? "#0ea5e9" : T.text3, cursor: "pointer" }}>{opt.l}</button>;
+              })}
+            </div>
+            {/* Copy from another channel */}
+            {(() => {
+              const otherChWithReorder = (allChannels || []).filter(oc => oc.id !== ch.id && oc.reorder_frequency_weeks);
+              if (otherChWithReorder.length === 0) return null;
+              return (
+                <select onChange={e => { if (e.target.value) { const src = allChannels.find(oc => oc.id === e.target.value); if (src) up("reorder_frequency_weeks", src.reorder_frequency_weeks); up("forecast_months", src.forecast_months); up("churn_m1", src.churn_m1); up("churn_m2", src.churn_m2); up("churn_m3", src.churn_m3); up("churn_m4_plus", src.churn_m4_plus); up("otp_reorder_rate", src.otp_reorder_rate); up("otp_reorder_frequency_weeks", src.otp_reorder_frequency_weeks); e.target.value = ""; } }} defaultValue=""
+                  style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, border: `1px solid #0ea5e930`, borderRadius: 4, background: "transparent", color: "#0ea5e9", cursor: "pointer" }}>
+                  <option value="" disabled>📋 Copy from…</option>
+                  {otherChWithReorder.map(oc => {
+                    const def = CHANNEL_DEFS.find(d => d.key === oc.channel);
+                    return <option key={oc.id} value={oc.id}>{def?.icon || ""} {oc.label || def?.label}</option>;
+                  })}
+                </select>
+              );
+            })()}
+          </div>
+        </div>
+
+        {(ch.reorder_mode || "global") === "global" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <I label="Reorder Every" value={ch.reorder_frequency_weeks} onChange={v => up("reorder_frequency_weeks", v)} type="number" suffix="wks" small />
+            <I label="Forecast Months" value={ch.forecast_months} onChange={v => up("forecast_months", v)} type="number" small />
+            <I label="M1 Churn" value={ch.churn_m1} onChange={v => up("churn_m1", v)} type="number" suffix="%" small />
+            <I label="M2 Churn" value={ch.churn_m2} onChange={v => up("churn_m2", v)} type="number" suffix="%" small />
+            <I label="M3 Churn" value={ch.churn_m3} onChange={v => up("churn_m3", v)} type="number" suffix="%" small />
+            <I label="M4+ Churn" value={ch.churn_m4_plus} onChange={v => up("churn_m4_plus", v)} type="number" suffix="%" small />
+            <I label="OTP Reorder Rate" value={ch.otp_reorder_rate} onChange={v => up("otp_reorder_rate", v)} type="number" suffix="%" small />
+            <I label="OTP Reorder Every" value={ch.otp_reorder_frequency_weeks} onChange={v => up("otp_reorder_frequency_weeks", v)} type="number" suffix="wks" small />
+          </div>
+        ) : (
+          /* Per-variant reorder settings */
+          <div>
+            <div style={{ fontSize: 9, color: T.text3, marginBottom: 6 }}>Set reorder frequency and churn per variant. Global OTP reorder settings still apply.</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+              <I label="OTP Reorder Rate" value={ch.otp_reorder_rate} onChange={v => up("otp_reorder_rate", v)} type="number" suffix="%" small />
+              <I label="Forecast Months" value={ch.forecast_months} onChange={v => up("forecast_months", v)} type="number" small />
+            </div>
+            {(variantSplits || []).length > 0 ? (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
+                <colgroup>
+                  <col style={{ width: "25%" }} />
+                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "15%" }} />
+                </colgroup>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                    <th style={{ textAlign: "left", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Variant</th>
+                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Reorder (wks)</th>
+                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>M1 Churn %</th>
+                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>M2 Churn %</th>
+                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>M3 Churn %</th>
+                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>M4+ Churn %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(variantSplits || []).map(v => {
+                    const inp5 = { width: "100%", padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
+                    return (
+                      <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
+                        <td style={{ padding: "4px 4px", fontSize: 10, fontWeight: 600, color: T.text }}>{v.variant_label}</td>
+                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.reorder_frequency_weeks ?? ch.reorder_frequency_weeks ?? 8} onBlur={e => onUpdateVariantSplit(v.id, { reorder_frequency_weeks: Number(e.target.value) || 8 })} style={inp5} /></td>
+                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.churn_m1 ?? ch.churn_m1 ?? 15} onBlur={e => onUpdateVariantSplit(v.id, { churn_m1: Number(e.target.value) || 15 })} style={inp5} /></td>
+                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.churn_m2 ?? ch.churn_m2 ?? 8} onBlur={e => onUpdateVariantSplit(v.id, { churn_m2: Number(e.target.value) || 8 })} style={inp5} /></td>
+                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.churn_m3 ?? ch.churn_m3 ?? 6} onBlur={e => onUpdateVariantSplit(v.id, { churn_m3: Number(e.target.value) || 6 })} style={inp5} /></td>
+                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.churn_m4_plus ?? ch.churn_m4_plus ?? 4} onBlur={e => onUpdateVariantSplit(v.id, { churn_m4_plus: Number(e.target.value) || 4 })} style={inp5} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>Add variants above first to set per-variant reorder settings.</div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
