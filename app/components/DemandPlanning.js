@@ -1354,12 +1354,11 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
         );
       })()}
 
-      {/* Subscription & Reorder Model — per channel */}
+      {/* Subscription & Reorder — Rebill Rate Model */}
       <div style={{ marginTop: 10, padding: "10px 12px", background: "#0ea5e908", borderRadius: 8, border: `1px solid #0ea5e915` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#0ea5e9" }}>🔄 Subscription & Reorder</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#0ea5e9" }}>🔄 Rebill / Reorder Curve</div>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {/* Mode toggle */}
             <div style={{ display: "flex", gap: 2, background: T.surface3, borderRadius: 4, padding: 2 }}>
               {[{ v: "global", l: "All Variants" }, { v: "per_variant", l: "Per Variant" }].map(opt => {
                 const active = (ch.reorder_mode || "global") === opt.v;
@@ -1367,15 +1366,14 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   style={{ padding: "2px 8px", fontSize: 9, fontWeight: 600, borderRadius: 3, border: "none", background: active ? "#0ea5e920" : "transparent", color: active ? "#0ea5e9" : T.text3, cursor: "pointer" }}>{opt.l}</button>;
               })}
             </div>
-            {/* Copy from another channel */}
             {(() => {
-              const otherChWithReorder = (allChannels || []).filter(oc => oc.id !== ch.id && oc.reorder_frequency_weeks);
-              if (otherChWithReorder.length === 0) return null;
+              const otherCh = (allChannels || []).filter(oc => oc.id !== ch.id && oc.rebill_rates);
+              if (otherCh.length === 0) return null;
               return (
-                <select onChange={e => { if (e.target.value) { const src = allChannels.find(oc => oc.id === e.target.value); if (src) up("reorder_frequency_weeks", src.reorder_frequency_weeks); up("forecast_months", src.forecast_months); up("churn_m1", src.churn_m1); up("churn_m2", src.churn_m2); up("churn_m3", src.churn_m3); up("churn_m4_plus", src.churn_m4_plus); up("otp_reorder_rate", src.otp_reorder_rate); up("otp_reorder_frequency_weeks", src.otp_reorder_frequency_weeks); e.target.value = ""; } }} defaultValue=""
+                <select onChange={e => { if (e.target.value) { const src = allChannels.find(oc => oc.id === e.target.value); if (src) { up("rebill_rates", src.rebill_rates); up("otp_reorder_rate", src.otp_reorder_rate); } e.target.value = ""; } }} defaultValue=""
                   style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, border: `1px solid #0ea5e930`, borderRadius: 4, background: "transparent", color: "#0ea5e9", cursor: "pointer" }}>
                   <option value="" disabled>📋 Copy from…</option>
-                  {otherChWithReorder.map(oc => {
+                  {otherCh.map(oc => {
                     const def = CHANNEL_DEFS.find(d => d.key === oc.channel);
                     return <option key={oc.id} value={oc.id}>{def?.icon || ""} {oc.label || def?.label}</option>;
                   })}
@@ -1385,63 +1383,96 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
           </div>
         </div>
 
-        {(ch.reorder_mode || "global") === "global" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            <I label="Reorder Every" value={ch.reorder_frequency_weeks} onChange={v => up("reorder_frequency_weeks", v)} type="number" suffix="wks" small />
-            <I label="Forecast Months" value={ch.forecast_months} onChange={v => up("forecast_months", v)} type="number" small />
-            <I label="M1 Churn" value={ch.churn_m1} onChange={v => up("churn_m1", v)} type="number" suffix="%" small />
-            <I label="M2 Churn" value={ch.churn_m2} onChange={v => up("churn_m2", v)} type="number" suffix="%" small />
-            <I label="M3 Churn" value={ch.churn_m3} onChange={v => up("churn_m3", v)} type="number" suffix="%" small />
-            <I label="M4+ Churn" value={ch.churn_m4_plus} onChange={v => up("churn_m4_plus", v)} type="number" suffix="%" small />
-            <I label="OTP Reorder Rate" value={ch.otp_reorder_rate} onChange={v => up("otp_reorder_rate", v)} type="number" suffix="%" small />
-            <I label="OTP Reorder Every" value={ch.otp_reorder_frequency_weeks} onChange={v => up("otp_reorder_frequency_weeks", v)} type="number" suffix="wks" small />
-          </div>
-        ) : (
-          /* Per-variant reorder settings */
-          <div>
-            <div style={{ fontSize: 9, color: T.text3, marginBottom: 6 }}>Set reorder frequency and churn per variant. Global OTP reorder settings still apply.</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
-              <I label="OTP Reorder Rate" value={ch.otp_reorder_rate} onChange={v => up("otp_reorder_rate", v)} type="number" suffix="%" small />
-              <I label="Forecast Months" value={ch.forecast_months} onChange={v => up("forecast_months", v)} type="number" small />
-            </div>
-            {(variantSplits || []).length > 0 ? (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
-                <colgroup>
-                  <col style={{ width: "25%" }} />
-                  <col style={{ width: "15%" }} />
-                  <col style={{ width: "15%" }} />
-                  <col style={{ width: "15%" }} />
-                  <col style={{ width: "15%" }} />
-                  <col style={{ width: "15%" }} />
-                </colgroup>
+        <div style={{ fontSize: 9, color: T.text3, marginBottom: 8, lineHeight: 1.5 }}>
+          Each rebill % is based on the <strong>original cohort size</strong>. E.g. if cohort = 2,000 and Rebill 1 = 52%, that's 1,040 rebill orders.
+        </div>
+
+        {(ch.reorder_mode || "global") === "global" ? (() => {
+          const rates = Array.isArray(ch.rebill_rates) ? ch.rebill_rates : [52, 21, 15, 12, 10, 8];
+          const subOrders = Math.round(units * ((ch.sub_take_rate_pct || 70) / 100));
+          const inp6 = { padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" };
+          return (
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                <I label="OTP Reorder Rate (% of OTP who rebuy)" value={ch.otp_reorder_rate} onChange={v => up("otp_reorder_rate", v)} type="number" suffix="%" small />
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                 <thead>
                   <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                    <th style={{ textAlign: "left", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Variant</th>
-                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Reorder (wks)</th>
-                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>M1 Churn %</th>
-                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>M2 Churn %</th>
-                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>M3 Churn %</th>
-                    <th style={{ textAlign: "right", padding: "4px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>M4+ Churn %</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Rebill #</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Rate %</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: "#0ea5e9" }}>Orders</th>
+                    <th style={{ width: 20 }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(variantSplits || []).map(v => {
-                    const inp5 = { width: "100%", padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
+                  {rates.map((rate, i) => {
+                    const rebillOrders = subOrders > 0 ? Math.round(subOrders * (rate / 100)) : 0;
                     return (
-                      <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
-                        <td style={{ padding: "4px 4px", fontSize: 10, fontWeight: 600, color: T.text }}>{v.variant_label}</td>
-                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.reorder_frequency_weeks ?? ch.reorder_frequency_weeks ?? 8} onBlur={e => onUpdateVariantSplit(v.id, { reorder_frequency_weeks: Number(e.target.value) || 8 })} style={inp5} /></td>
-                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.churn_m1 ?? ch.churn_m1 ?? 15} onBlur={e => onUpdateVariantSplit(v.id, { churn_m1: Number(e.target.value) || 15 })} style={inp5} /></td>
-                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.churn_m2 ?? ch.churn_m2 ?? 8} onBlur={e => onUpdateVariantSplit(v.id, { churn_m2: Number(e.target.value) || 8 })} style={inp5} /></td>
-                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.churn_m3 ?? ch.churn_m3 ?? 6} onBlur={e => onUpdateVariantSplit(v.id, { churn_m3: Number(e.target.value) || 6 })} style={inp5} /></td>
-                        <td style={{ padding: "4px 4px" }}><FmtInput defaultValue={v.churn_m4_plus ?? ch.churn_m4_plus ?? 4} onBlur={e => onUpdateVariantSplit(v.id, { churn_m4_plus: Number(e.target.value) || 4 })} style={inp5} /></td>
+                      <tr key={i} style={{ borderBottom: `1px solid ${T.border}10` }}>
+                        <td style={{ padding: "3px 6px", fontSize: 10, fontWeight: 600, color: T.text2 }}>Rebill {i + 1}</td>
+                        <td style={{ padding: "3px 6px", width: 70 }}>
+                          <FmtInput defaultValue={rate} onBlur={e => { const newRates = [...rates]; newRates[i] = Number(e.target.value) || 0; up("rebill_rates", newRates); }} style={inp6} />
+                        </td>
+                        <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 600, fontSize: 10, color: "#0ea5e9" }}>{subOrders > 0 ? fmt(rebillOrders) : "—"}</td>
+                        <td style={{ padding: "3px 2px" }}>
+                          {rates.length > 1 && <button onClick={() => { const newRates = rates.filter((_, j) => j !== i); up("rebill_rates", newRates); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button>}
+                        </td>
                       </tr>
                     );
                   })}
                 </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                    <td style={{ padding: "5px 6px", fontWeight: 700, fontSize: 10, color: T.text }}>Total Rebills</td>
+                    <td style={{ padding: "5px 6px", textAlign: "right", fontSize: 9, color: T.text3 }}>{rates.reduce((s, r) => s + r, 0)}% cum.</td>
+                    <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 800, fontSize: 12, color: "#0ea5e9" }}>{subOrders > 0 ? fmt(rates.reduce((s, r) => s + Math.round(subOrders * (r / 100)), 0)) : "—"}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
               </table>
+              <button onClick={() => { const newRates = [...rates, Math.max(2, Math.round((rates[rates.length - 1] || 10) * 0.8))]; up("rebill_rates", newRates); }}
+                style={{ marginTop: 4, padding: "3px 10px", fontSize: 9, fontWeight: 600, border: `1px solid #0ea5e930`, borderRadius: 4, background: "transparent", color: "#0ea5e9", cursor: "pointer" }}>+ Add Rebill</button>
+              {subOrders > 0 && <div style={{ marginTop: 6, fontSize: 9, color: T.text3 }}>Sub cohort: {fmt(subOrders)} orders → {fmt(rates.reduce((s, r) => s + Math.round(subOrders * (r / 100)), 0))} total rebill orders over {rates.length} cycles</div>}
+            </div>
+          );
+        })() : (
+          /* Per-variant rebill rates */
+          <div>
+            <div style={{ fontSize: 9, color: T.text3, marginBottom: 6 }}>Set rebill curve per variant. Each variant can have different retention behavior.</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+              <I label="OTP Reorder Rate" value={ch.otp_reorder_rate} onChange={v => up("otp_reorder_rate", v)} type="number" suffix="%" small />
+            </div>
+            {(variantSplits || []).length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {(variantSplits || []).map(v => {
+                  const vRates = Array.isArray(v.rebill_rates) ? v.rebill_rates : (Array.isArray(ch.rebill_rates) ? ch.rebill_rates : [52, 21, 15, 12, 10, 8]);
+                  const vOrders = units > 0 ? Math.round(units * ((v.take_rate_pct || 0) / 100) * ((ch.sub_take_rate_pct || 70) / 100)) : 0;
+                  const inp6 = { padding: "2px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box", width: 45 };
+                  const totalRebill = vRates.reduce((s, r) => s + Math.round(vOrders * (r / 100)), 0);
+                  return (
+                    <div key={v.id} style={{ background: T.surface2, borderRadius: 6, padding: "6px 8px", border: `1px solid ${T.border}` }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: T.text }}>{v.variant_label}</span>
+                        <span style={{ fontSize: 9, color: T.text3 }}>Cohort: {fmt(vOrders)} sub orders → {fmt(totalRebill)} rebills</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                        {vRates.map((rate, i) => (
+                          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                            <span style={{ fontSize: 7, color: T.text3 }}>R{i + 1}</span>
+                            <FmtInput defaultValue={rate} onBlur={e => { const nr = [...vRates]; nr[i] = Number(e.target.value) || 0; onUpdateVariantSplit(v.id, { rebill_rates: nr }); }} style={inp6} />
+                            <span style={{ fontSize: 7, color: "#0ea5e9" }}>{vOrders > 0 ? fmt(Math.round(vOrders * (rate / 100))) : "—"}</span>
+                          </div>
+                        ))}
+                        <button onClick={() => { const nr = [...vRates, Math.max(2, Math.round((vRates[vRates.length - 1] || 10) * 0.8))]; onUpdateVariantSplit(v.id, { rebill_rates: nr }); }}
+                          style={{ padding: "2px 6px", fontSize: 8, border: `1px solid ${T.border}`, borderRadius: 3, background: "transparent", color: T.text3, cursor: "pointer", alignSelf: "center" }}>+</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
-              <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>Add variants above first to set per-variant reorder settings.</div>
+              <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>Add variants above to set per-variant rebill rates.</div>
             )}
           </div>
         )}
