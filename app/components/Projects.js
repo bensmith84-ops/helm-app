@@ -197,6 +197,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   // Templates & copy
   const [showTemplates, setShowTemplates] = useState(false);
   const [showAsanaImport, setShowAsanaImport] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [copyingProject, setCopyingProject] = useState(null);
   // Status updates
@@ -257,9 +258,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           supabase.from("project_members").select("project_id, user_id, role").eq("org_id", orgId),
         ]);
         // Filter projects by visibility: public visible to all, private only to members/owner/admin
-        const isAdmin = permR.data?.is_admin === true;
+        const isAdminVal = permR.data?.is_admin === true;
+        setIsAdmin(isAdminVal);
         const myMemberProjects = new Set((pmR.data || []).map(pm => pm.project_id));
-        const visibleProjects = isAdmin ? (pR.data || []) : (pR.data || []).filter(p => 
+        const visibleProjects = isAdminVal ? (pR.data || []) : (pR.data || []).filter(p => 
           p.visibility === "public" || p.owner_id === user?.id || p.created_by === user?.id || myMemberProjects.has(p.id)
         );
         setProjects(visibleProjects); setSections(sR.data || []); setTasks(tR.data || []);
@@ -918,7 +920,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Projects</span>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setShowAsanaImport(true)} title="Import from Asana" style={{ ...S.iconBtn, fontSize: 11, padding: "3px 6px", borderRadius: 5, color: T.text3 }}>📥</button>
+          {isAdmin && <button onClick={() => setShowAsanaImport(true)} title="Import from Asana" style={{ ...S.iconBtn, fontSize: 11, padding: "3px 6px", borderRadius: 5, color: T.text3 }}>📥</button>}
           <button onClick={() => setShowTemplates(true)} title="From template" style={{ ...S.iconBtn, fontSize: 12, padding: "3px 6px", borderRadius: 5, color: T.accent }}>⊞</button>
           <button onClick={openNewProject} style={{ ...S.iconBtn, background: T.accent, color: "#fff", borderRadius: 6, width: 24, height: 24, fontSize: 16 }}>+</button>
         </div>
