@@ -1396,6 +1396,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
 
         {(ch.reorder_mode || "global") === "global" ? (() => {
           const rates = Array.isArray(ch.rebill_rates) ? ch.rebill_rates : [52, 21, 15, 12, 10, 8];
+          const ratesKey = JSON.stringify(rates);
           const subOrders = Math.round(units * ((ch.sub_take_rate_pct || 70) / 100));
           const inp6 = { padding: "3px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box", width: "100%" };
           return (
@@ -1403,7 +1404,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
                 <I label="OTP Reorder Rate (% of OTP who rebuy)" value={ch.otp_reorder_rate} onChange={v => up("otp_reorder_rate", v)} type="number" suffix="%" small />
               </div>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <table key={ratesKey} style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                 <thead>
                   <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                     <th style={{ textAlign: "left", padding: "4px 6px", fontSize: 9, fontWeight: 700, color: T.text3 }}>Rebill #</th>
