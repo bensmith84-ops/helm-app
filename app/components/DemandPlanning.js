@@ -1738,8 +1738,41 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const launchChannels = selected ? channels.filter(c => c.launch_id === selected.id) : [];
   const launchPeriods = periods.filter(p => launchChannels.some(c => c.id === p.channel_id));
   const launchPos = selected ? pos.filter(p => p.launch_id === selected.id) : [];
-  const totalUnits = launchChannels.reduce((s, c) => s + calcChannelUnits(c, launchChannels, launchPeriods), 0);
-  const totalRevenue = totalUnits * (selected?.retail_price || 0);
+  
+  // Calculate totals from orders → variant splits → units/revenue
+  const totalOrders = launchChannels.reduce((s, c) => s + calcChannelUnits(c, launchChannels, launchPeriods, emailSends.filter(es => es.channel_id === c.id)), 0);
+  
+  // Sum units + revenue across all channels and their variant splits
+  let totalUnits = 0;
+  let totalRevenue = 0;
+  let totalRebillOrders = 0;
+  launchChannels.forEach(ch => {
+    const chOrders = calcChannelUnits(ch, launchChannels, launchPeriods, emailSends.filter(es => es.channel_id === ch.id));
+    const chSplits = variantSplits.filter(v => v.channel_id === ch.id);
+    if (chSplits.length > 0) {
+      chSplits.forEach(v => {
+        const vOrders = Math.round(chOrders * ((v.take_rate_pct || 0) / 100));
+        const vUnits = Math.round(vOrders * (v.units_per_variant || 1));
+        totalUnits += vUnits;
+        // Revenue: OTP orders × OTP price + Sub orders × Sub price
+        const otpOrders = Math.round(vOrders * ((ch.otp_pct || 30) / 100));
+        const subOrders = vOrders - otpOrders;
+        totalRevenue += otpOrders * (v.first_purchase_price || 0) + subOrders * (v.subscription_price || 0);
+        // Rebill revenue
+        const vRates = Array.isArray(v.rebill_rates) ? v.rebill_rates : (Array.isArray(ch.rebill_rates) ? ch.rebill_rates : []);
+        vRates.forEach(rate => {
+          const rebillOrders = Math.round(subOrders * (rate / 100));
+          totalRebillOrders += rebillOrders;
+          totalRevenue += rebillOrders * (v.subscription_price || 0);
+          totalUnits += Math.round(rebillOrders * (v.units_per_variant || 1));
+        });
+      });
+    } else {
+      // No variants — orders = units (qty 1)
+      totalUnits += chOrders;
+      totalRevenue += chOrders * (selected?.retail_price || 0);
+    }
+  });
   const totalCost = totalUnits * (selected?.unit_cost || 0);
 
   // I and ChannelInputs are defined outside this function (above) to avoid re-creation on render
@@ -1769,8 +1802,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
         {/* KPI Cards */}
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(5,1fr)", gap: 8, marginBottom: 20 }}>
           {[
-            { label: "Total Forecast", value: fmt(totalUnits), sub: "units", color: T.accent },
-            { label: "Revenue", value: "$" + fmt(Math.round(totalRevenue)), sub: "at retail", color: "#22c55e" },
+            { label: "Total Units", value: fmt(totalUnits), sub: `${fmt(totalOrders)} orders + rebills`, color: T.accent },
+            { label: "Revenue", value: "$" + fmt(Math.round(totalRevenue)), sub: "first + rebills", color: "#22c55e" },
             { label: "COGS", value: "$" + fmt(Math.round(totalCost)), sub: "total", color: "#f59e0b" },
             { label: "Margin", value: totalRevenue > 0 ? ((1 - totalCost / totalRevenue) * 100).toFixed(1) + "%" : "—", sub: "gross", color: "#10b981" },
             { label: "Channels", value: launchChannels.length, sub: "active", color: "#8b5cf6" },
@@ -1850,8 +1883,13 @@ function LaunchPlannerView({ isMobile, orgId }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {launchChannels.map(ch => {
                 const def = CHANNEL_DEFS.find(d => d.key === ch.channel);
-                const units = calcChannelUnits(ch, launchChannels, launchPeriods);
-                const pct = totalUnits > 0 ? ((units / totalUnits) * 100).toFixed(1) : 0;
+                const chOrders = calcChannelUnits(ch, launchChannels, launchPeriods, emailSends.filter(es => es.channel_id === ch.id));
+                const chSplits = variantSplits.filter(v => v.channel_id === ch.id);
+                let chUnits = 0;
+                if (chSplits.length > 0) {
+                  chSplits.forEach(v => { chUnits += Math.round(Math.round(chOrders * ((v.take_rate_pct || 0) / 100)) * (v.units_per_variant || 1)); });
+                } else { chUnits = chOrders; }
+                const pct = totalOrders > 0 ? ((chOrders / totalOrders) * 100).toFixed(1) : 0;
                 return (
                   <div key={ch.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
                     <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.border}` }}>
@@ -1864,8 +1902,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 15, fontWeight: 800, color: T.accent }}>{fmt(units)}</div>
-                          <div style={{ fontSize: 9, color: T.text3 }}>{pct}% of total</div>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: T.accent }}>{fmt(chOrders)} orders</div>
+                          <div style={{ fontSize: 9, color: T.text3 }}>{fmt(chUnits)} units · {pct}% of orders</div>
                         </div>
                         <button onClick={() => removeChannel(ch.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>
                       </div>
