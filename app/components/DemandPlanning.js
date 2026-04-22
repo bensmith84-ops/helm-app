@@ -1370,7 +1370,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
               const otherCh = (allChannels || []).filter(oc => oc.id !== ch.id && oc.rebill_rates);
               if (otherCh.length === 0) return null;
               return (
-                <select onChange={e => { if (e.target.value) { const src = allChannels.find(oc => oc.id === e.target.value); if (src) { up("rebill_rates", src.rebill_rates); up("otp_reorder_rate", src.otp_reorder_rate); } e.target.value = ""; } }} defaultValue=""
+                <select onChange={e => { if (e.target.value) { const src = allChannels.find(oc => oc.id === e.target.value); if (src) { onUpdateChannel(ch.id, { rebill_rates: src.rebill_rates, otp_reorder_rate: src.otp_reorder_rate }); } e.target.value = ""; } }} defaultValue=""
                   style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, border: `1px solid #0ea5e930`, borderRadius: 4, background: "transparent", color: "#0ea5e9", cursor: "pointer" }}>
                   <option value="" disabled>📋 Copy from…</option>
                   {otherCh.map(oc => {
