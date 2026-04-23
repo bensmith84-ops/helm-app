@@ -100,16 +100,25 @@ export default function AsanaImportModal({ onClose, onImported }) {
     if (!task.name) return 0;
 
     const tags = (task.tags || []).filter(t => t);
+    const customFields = (task.custom_fields || []).reduce((acc, cf) => { if (cf.name && cf.value) acc[cf.name] = cf.value; return acc; }, {});
     const { data: created, error: taskErr } = await supabase.from("tasks").insert({
       org_id: orgId, project_id: projectId, section_id: parentTaskId ? null : sectionId,
       parent_task_id: parentTaskId,
-      title: task.name, description: task.notes || "",
+      title: task.name, 
+      description: task.notes || "",
+      html_description: task.html_notes || null,
       status: task.completed ? "done" : "todo",
-      completed_at: task.completed ? new Date().toISOString() : null,
+      completed_at: task.completed_at || (task.completed ? new Date().toISOString() : null),
       start_date: task.start_on || null, due_date: task.due_on || null,
       sort_order: sortOrder, created_by: user?.id,
       tags: tags.length > 0 ? tags : null,
-      metadata: { asana_assignee: task.assignee_name || null, asana_gid: taskGid },
+      custom_fields: Object.keys(customFields).length > 0 ? customFields : null,
+      metadata: { 
+        asana_gid: taskGid,
+        asana_assignee: task.assignee_name || null, 
+        asana_followers: task.followers || [],
+        asana_section: task.section_name || null,
+      },
     }).select().single();
     
     let count = taskErr ? 0 : 1;
@@ -162,17 +171,19 @@ export default function AsanaImportModal({ onClose, onImported }) {
         // Has deeper subtasks — fetch full detail to get them
         count += await importTask(st.gid, projectId, sectionId, si, created.id, st);
       } else {
-        // Leaf subtask — insert directly from data we already have, plus fetch comments/attachments
+        // Leaf subtask — insert from data we already have, plus fetch comments/attachments
         const stTags = (st.tags || []).filter(t => t);
+        const stCf = (st.custom_fields || []).reduce((acc, cf) => { if (cf.name && cf.value) acc[cf.name] = cf.value; return acc; }, {});
         const { data: stCreated } = await supabase.from("tasks").insert({
           org_id: orgId, project_id: projectId, parent_task_id: created.id,
           title: st.name, description: st.notes || "",
           status: st.completed ? "done" : "todo",
-          completed_at: st.completed ? new Date().toISOString() : null,
+          completed_at: st.completed_at || (st.completed ? new Date().toISOString() : null),
           start_date: st.start_on || null, due_date: st.due_on || null,
           sort_order: si, created_by: user?.id,
           tags: stTags.length > 0 ? stTags : null,
-          metadata: { asana_assignee: st.assignee_name || null, asana_gid: st.gid },
+          custom_fields: Object.keys(stCf).length > 0 ? stCf : null,
+          metadata: { asana_gid: st.gid, asana_assignee: st.assignee_name || null },
         }).select().single();
         if (stCreated) {
           count++;
@@ -225,7 +236,12 @@ export default function AsanaImportModal({ onClose, onImported }) {
       const { data: proj, error: projErr } = await supabase.from("projects").insert({
         org_id: orgId, name: projectDetail.name, description: projectDetail.notes || "",
         status: "active", color: "#3b82f6", owner_id: user?.id, created_by: user?.id,
-        metadata: { asana_gid: selectedProject.gid, imported_from: "asana", imported_at: new Date().toISOString() },
+        metadata: { 
+          asana_gid: selectedProject.gid, imported_from: "asana", imported_at: new Date().toISOString(),
+          asana_owner: projectDetail.owner_name || null,
+          asana_members: projectDetail.members || [],
+          asana_custom_fields: projectDetail.custom_fields || [],
+        },
       }).select().single();
       if (projErr) throw new Error("Project create failed: " + projErr.message);
 
@@ -402,12 +418,18 @@ export default function AsanaImportModal({ onClose, onImported }) {
     return (
       <>
         {items.map((task, ti) => (
-          <div key={ti} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", fontSize: 12, color: task.completed ? T.text3 : T.text, borderBottom: `1px solid ${T.border}08` }}>
-            <span style={{ fontSize: 10, color: task.completed ? T.green : T.text3 }}>{task.completed ? "✓" : "○"}</span>
-            <span style={{ flex: 1, textDecoration: task.completed ? "line-through" : "none" }}>{task.name}</span>
-            {task.num_subtasks > 0 && <span style={{ fontSize: 8, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3, fontWeight: 600 }}>{task.num_subtasks} sub</span>}
-            {task.tags?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>🏷{task.tags.length}</span>}
-            {task.assignee_name && <span style={{ fontSize: 9, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 3 }}>{task.assignee_name}</span>}
+          <div key={ti} style={{ padding: "4px 8px", fontSize: 12, color: task.completed ? T.text3 : T.text, borderBottom: `1px solid ${T.border}08` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, color: task.completed ? T.green : T.text3 }}>{task.completed ? "✓" : "○"}</span>
+              <span style={{ flex: 1, textDecoration: task.completed ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.name}</span>
+              {task.num_subtasks > 0 && <span style={{ fontSize: 8, color: T.accent, background: T.accentDim, padding: "1px 4px", borderRadius: 3, fontWeight: 600 }}>{task.num_subtasks} sub</span>}
+              {task.custom_fields?.length > 0 && task.custom_fields.map((cf, i) => (
+                <span key={i} style={{ fontSize: 7, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>{cf.name}: {cf.value}</span>
+              ))}
+              {task.tags?.length > 0 && <span style={{ fontSize: 8, color: T.text3, background: T.surface3, padding: "1px 4px", borderRadius: 3 }}>🏷{task.tags.length}</span>}
+              {task.assignee_name && <span style={{ fontSize: 9, color: "#a855f7", background: "#a855f710", padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>👤 {task.assignee_name}</span>}
+              {task.due_on && <span style={{ fontSize: 8, color: T.text3 }}>{task.due_on}</span>}
+            </div>
           </div>
         ))}
         {remaining > 0 && <div style={{ fontSize: 10, color: T.text3, padding: "4px 8px", fontStyle: "italic" }}>+ {remaining} more tasks</div>}
@@ -488,11 +510,25 @@ export default function AsanaImportModal({ onClose, onImported }) {
             <div>
               <div style={{ padding: "12px 16px", background: T.surface2, borderRadius: 10, marginBottom: 16 }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>{projectDetail.name}</div>
-                {projectDetail.notes && <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.5 }}>{projectDetail.notes.slice(0, 300)}</div>}
-                <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: T.text2 }}>
+                {projectDetail.notes && <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.5, marginBottom: 6 }}>{projectDetail.notes.slice(0, 300)}</div>}
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: T.text2 }}>
                   <span>📋 {projectDetail.sections?.length || 0} sections</span>
                   <span>✅ {totalPreviewTasks} tasks (incl. subtasks)</span>
+                  {projectDetail.owner_name && <span>👤 Owner: {projectDetail.owner_name}</span>}
+                  {projectDetail.members?.length > 0 && <span>👥 {projectDetail.members.length} members</span>}
                 </div>
+                {projectDetail.custom_fields?.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                    {projectDetail.custom_fields.map((cf, i) => (
+                      <span key={i} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: T.surface, border: `1px solid ${T.border}`, color: T.text3 }}>{cf.name}: {cf.value}</span>
+                    ))}
+                  </div>
+                )}
+                {projectDetail.members?.length > 0 && (
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>
+                    Members: {projectDetail.members.join(", ")}
+                  </div>
+                )}
               </div>
               {(projectDetail.sections || []).map((sec, si) => (
                 <div key={si} style={{ marginBottom: 12 }}>
