@@ -101,12 +101,11 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
     const tags = (task.tags || []).filter(t => t);
     const customFields = (task.custom_fields || []).reduce((acc, cf) => { if (cf.name && cf.value) acc[cf.name] = cf.value; return acc; }, {});
-    const { data: created, error: taskErr } = await supabase.from("tasks").insert({
+    const insertPayload = {
       org_id: orgId, project_id: projectId, section_id: parentTaskId ? null : sectionId,
       parent_task_id: parentTaskId,
       title: task.name, 
       description: task.notes || "",
-      html_description: task.html_notes || null,
       status: task.completed ? "done" : "todo",
       completed_at: task.completed_at || (task.completed ? new Date().toISOString() : null),
       start_date: task.start_on || null, due_date: task.due_on || null,
@@ -118,8 +117,11 @@ export default function AsanaImportModal({ onClose, onImported }) {
         asana_assignee: task.assignee_name || null, 
         asana_followers: task.followers || [],
         asana_section: task.section_name || null,
+        asana_html_notes: task.html_notes ? true : false,
       },
-    }).select().single();
+    };
+    const { data: created, error: taskErr } = await supabase.from("tasks").insert(insertPayload).select().single();
+    if (taskErr) console.error("Task insert error:", taskErr.message, taskErr.code, task.name);
     
     let count = taskErr ? 0 : 1;
     if (!created) return count;
@@ -174,7 +176,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
         // Leaf subtask — insert from data we already have, plus fetch comments/attachments
         const stTags = (st.tags || []).filter(t => t);
         const stCf = (st.custom_fields || []).reduce((acc, cf) => { if (cf.name && cf.value) acc[cf.name] = cf.value; return acc; }, {});
-        const { data: stCreated } = await supabase.from("tasks").insert({
+        const { data: stCreated, error: stErr } = await supabase.from("tasks").insert({
           org_id: orgId, project_id: projectId, parent_task_id: created.id,
           title: st.name, description: st.notes || "",
           status: st.completed ? "done" : "todo",
@@ -185,6 +187,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
           custom_fields: Object.keys(stCf).length > 0 ? stCf : null,
           metadata: { asana_gid: st.gid, asana_assignee: st.assignee_name || null },
         }).select().single();
+        if (stErr) console.error("Subtask insert error:", stErr.message, stErr.code, st.name);
         if (stCreated) {
           count++;
           if (st.gid) gidToHelmId[st.gid] = stCreated.id;
@@ -596,6 +599,16 @@ export default function AsanaImportModal({ onClose, onImported }) {
                   <button onClick={async () => {
                     if (!confirm(`Delete "${existingHelmProject.name}" and all its tasks, then reimport fresh from Asana?`)) return;
                     setStep("importing"); setImportProgress("Deleting old project...");
+                    // Get all task IDs for this project
+                    const { data: oldTasks } = await supabase.from("tasks").select("id").eq("project_id", existingHelmProject.id);
+                    const taskIds = (oldTasks || []).map(t => t.id);
+                    if (taskIds.length > 0) {
+                      // Delete related data first
+                      for (const tid of taskIds) {
+                        await supabase.from("comments").delete().eq("entity_type", "task").eq("entity_id", tid).catch(() => {});
+                        await supabase.from("attachments").delete().eq("entity_type", "task").eq("entity_id", tid).catch(() => {});
+                      }
+                    }
                     await supabase.from("tasks").delete().eq("project_id", existingHelmProject.id);
                     await supabase.from("sections").delete().eq("project_id", existingHelmProject.id);
                     await supabase.from("project_members").delete().eq("project_id", existingHelmProject.id);
