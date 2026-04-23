@@ -154,15 +154,15 @@ export default function AsanaImportModal({ onClose, onImported }) {
       if (existing) await supabase.from("task_label_assignments").insert({ task_id: created.id, label_id: existing.id }).catch(() => {});
     }
 
-    // Recurse into subtasks (each fetched individually)
+    // Recurse into subtasks
     const subtasks = task.subtasks || [];
     for (let si = 0; si < subtasks.length; si++) {
       const st = subtasks[si];
-      if (st.num_subtasks > 0 || true) {
-        // Fetch full detail for subtask too (gets its own subtasks, comments, etc.)
+      if (st.num_subtasks > 0) {
+        // Has deeper subtasks — fetch full detail to get them
         count += await importTask(st.gid, projectId, sectionId, si, created.id, st);
       } else {
-        // Leaf subtask — just insert from preview data
+        // Leaf subtask — insert directly from data we already have, plus fetch comments/attachments
         const stTags = (st.tags || []).filter(t => t);
         const { data: stCreated } = await supabase.from("tasks").insert({
           org_id: orgId, project_id: projectId, parent_task_id: created.id,
@@ -174,7 +174,32 @@ export default function AsanaImportModal({ onClose, onImported }) {
           tags: stTags.length > 0 ? stTags : null,
           metadata: { asana_assignee: st.assignee_name || null, asana_gid: st.gid },
         }).select().single();
-        if (stCreated) { count++; if (st.gid) gidToHelmId[st.gid] = stCreated.id; }
+        if (stCreated) {
+          count++;
+          if (st.gid) gidToHelmId[st.gid] = stCreated.id;
+          // Fetch comments/attachments for leaf subtask
+          try {
+            const stExtras = await callProxy({ action: "get_task_full", task_gid: st.gid });
+            for (const c of (stExtras?.comments || [])) {
+              await supabase.from("comments").insert({
+                org_id: orgId, entity_type: "task", entity_id: stCreated.id,
+                author_id: user?.id,
+                content: `**${c.author_name}** (from Asana): ${c.text}`,
+                created_at: c.created_at || new Date().toISOString(),
+              }).catch(() => {});
+              importedComments++;
+            }
+            for (const att of (stExtras?.attachments || [])) {
+              await supabase.from("attachments").insert({
+                org_id: orgId, entity_type: "task", entity_id: stCreated.id,
+                filename: att.name, file_path: att.url,
+                file_size: att.size || 0, mime_type: "link/external",
+                uploaded_by: user?.id,
+              }).catch(() => {});
+              importedAttachments++;
+            }
+          } catch {}
+        }
       }
     }
     return count;
@@ -529,11 +554,24 @@ export default function AsanaImportModal({ onClose, onImported }) {
               {existingHelmProject ? (
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={runUpdate}
-                    style={{ padding: "8px 20px", borderRadius: 8, background: "#0ea5e9", color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                    🔄 Update Existing
+                    style={{ padding: "8px 16px", borderRadius: 8, background: "#0ea5e9", color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    🔄 Update
+                  </button>
+                  <button onClick={async () => {
+                    if (!confirm(`Delete "${existingHelmProject.name}" and all its tasks, then reimport fresh from Asana?`)) return;
+                    setStep("importing"); setImportProgress("Deleting old project...");
+                    await supabase.from("tasks").delete().eq("project_id", existingHelmProject.id);
+                    await supabase.from("sections").delete().eq("project_id", existingHelmProject.id);
+                    await supabase.from("project_members").delete().eq("project_id", existingHelmProject.id);
+                    await supabase.from("projects").delete().eq("id", existingHelmProject.id);
+                    setExistingHelmProject(null);
+                    runImport();
+                  }}
+                    style={{ padding: "8px 16px", borderRadius: 8, background: "#ef4444", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    🗑 Delete & Reimport
                   </button>
                   <button onClick={runImport}
-                    style={{ padding: "8px 20px", borderRadius: 8, background: T.surface3, color: T.text2, border: `1px solid ${T.border}`, fontSize: 12, cursor: "pointer" }}>
+                    style={{ padding: "8px 16px", borderRadius: 8, background: T.surface3, color: T.text2, border: `1px solid ${T.border}`, fontSize: 11, cursor: "pointer" }}>
                     Import as New
                   </button>
                 </div>
