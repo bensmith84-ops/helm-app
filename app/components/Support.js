@@ -1155,6 +1155,40 @@ export default function SupportView() {
                 }} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #01010130`, background: "#01010108", color: T.text2, cursor: "pointer", whiteSpace: "nowrap" }}>
                   🎵 Connect TikTok
                 </button>
+                <button onClick={async () => {
+                  const testComments = [
+                    { platform: "instagram", author: "@eco_mama_jane", content: "I LOVE these laundry sheets!! Been using them for 6 months and my clothes have never been cleaner 🌿💚", type: "praise" },
+                    { platform: "instagram", author: "@skeptical_steve", content: "These didn't dissolve properly and left white residue all over my dark clothes. Pretty disappointed.", type: "complaint" },
+                    { platform: "facebook", author: "Karen M.", content: "How do I cancel my subscription? I've been trying for weeks and keep getting charged. This feels like a scam.", type: "cancel" },
+                    { platform: "instagram", author: "@cleanlivingco", content: "Check out our new detergent pods! Way better than sheets 👉 link in bio", type: "spam" },
+                    { platform: "tiktok", author: "@laundry_hack_queen", content: "omg has anyone tried earth breeze?? where can i buy these? are they worth it?", type: "question" },
+                    { platform: "facebook", author: "Mike D.", content: "Just switched from Tide Pods and these are amazing. Better for the environment too!", type: "competitor" },
+                    { platform: "instagram", author: "@angry_customer99", content: "This company is a total ripoff. Charged me $72 without my consent. Contacting my lawyer.", type: "legal_threat" },
+                    { platform: "tiktok", author: "@sustainablesarah", content: "Made a whole video about my zero-waste laundry routine featuring Earth Breeze! 🌍✨", type: "ugc" },
+                    { platform: "instagram", author: "@bot_follower_123", content: "Great post! 🔥 Follow me for FREE followers! tap link in bio 💰💰", type: "spam_bot" },
+                    { platform: "facebook", author: "Lisa T.", content: "The fresh scent is SO good. Are these really made in the USA?", type: "question" },
+                    { platform: "instagram", author: "@wellness_influencer", content: "Partnering with brands that care about the planet 🌿 @earthbreeze is one of my faves", type: "influencer" },
+                    { platform: "tiktok", author: "@broke_college_kid", content: "bro these cost way too much just use regular detergent lmao what a waste of money 💀", type: "negative" },
+                  ];
+                  const btn = document.activeElement; if (btn) { btn.textContent = "⏳ Creating..."; btn.disabled = true; }
+                  for (const tc of testComments) {
+                    await supabase.from("cx_social_mentions").insert({
+                      org_id: orgId, platform: tc.platform, mention_type: "comment",
+                      author_handle: tc.author, author_name: tc.author.replace("@", ""),
+                      content: tc.content, status: "new", moderation_status: "pending",
+                      posted_at: new Date(Date.now() - Math.random() * 86400000).toISOString(),
+                      likes: Math.floor(Math.random() * 500), comments: Math.floor(Math.random() * 30),
+                      author_follower_count: tc.type === "influencer" ? 45000 : Math.floor(Math.random() * 5000),
+                      is_ugc: tc.type === "ugc", is_influencer: tc.type === "influencer",
+                      post_url: tc.platform === "instagram" ? "https://instagram.com/p/test" : tc.platform === "facebook" ? "https://facebook.com/post/test" : "https://tiktok.com/@test/video/test",
+                    });
+                  }
+                  const { data } = await supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(200);
+                  setSocialMentions(data || []);
+                  if (btn) { btn.textContent = `✅ Added ${testComments.length}`; setTimeout(() => { btn.textContent = "🧪 Test Data"; btn.disabled = false; }, 2000); }
+                }} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #a855f730`, background: "#a855f710", color: "#a855f7", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  🧪 Test Data
+                </button>
               </div>
               {/* Filters */}
               <div style={{ display: "flex", gap: 6, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
