@@ -1284,20 +1284,26 @@ export default function SupportView() {
                   const unmoderated = socialMentions.filter(m => m.moderation_status === "pending" || !m.moderation_status);
                   if (unmoderated.length === 0) return;
                   setModeratingId("bulk");
+                  let done = 0;
                   for (const m of unmoderated) {
                     try {
+                      done++;
+                      setModeratingId(`bulk_${done}/${unmoderated.length}`);
                       const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/cx-moderate", {
                         method: "POST", headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ action: "moderate", org_id: orgId, mention_id: m.id, content: m.content, platform: m.platform, author_handle: m.author_handle }),
                       });
                       const result = await res.json();
-                      setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, moderation_status: result.action === "flag" ? "flagged" : "reviewed", moderation_risk: result.risk, moderation_categories: result.categories, is_hidden: result.action === "hide", status: result.action === "escalate" ? "escalated" : result.action === "hide" ? "ignored" : x.status, ai_reply_draft: result.suggested_reply || x.ai_reply_draft, sentiment: result.sentiment || x.sentiment } : x));
+                      setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, moderation_status: result.action === "flag" ? "flagged" : "reviewed", moderation_risk: result.risk, moderation_categories: result.categories, is_hidden: result.action === "hide", status: result.action === "escalate" ? "escalated" : result.action === "hide" ? "ignored" : x.status, ai_reply_draft: result.suggested_reply || x.ai_reply_draft, sentiment: result.sentiment || x.sentiment, intent: result.intent || x.intent, auto_responded: result.auto_replied || false } : x));
                     } catch {}
                   }
+                  // Reload full data to catch any auto-reply drafts
+                  const { data: fresh } = await supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(200);
+                  if (fresh) setSocialMentions(fresh);
                   setModeratingId(null);
-                }} disabled={moderatingId === "bulk"}
-                  style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #0ea5e940`, background: "#0ea5e910", color: "#0ea5e9", cursor: moderatingId === "bulk" ? "wait" : "pointer" }}>
-                  {moderatingId === "bulk" ? "🔄 Moderating..." : `🛡 Moderate All (${socialMentions.filter(m => !m.moderation_status || m.moderation_status === "pending").length})`}
+                }} disabled={moderatingId && String(moderatingId).startsWith("bulk")}
+                  style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #0ea5e940`, background: "#0ea5e910", color: "#0ea5e9", cursor: moderatingId && String(moderatingId).startsWith("bulk") ? "wait" : "pointer" }}>
+                  {moderatingId && String(moderatingId).startsWith("bulk") ? `🔄 ${String(moderatingId).replace("bulk_", "")}` : `🛡 Moderate All (${socialMentions.filter(m => !m.moderation_status || m.moderation_status === "pending").length})`}
                 </button>
                 <span style={{ fontSize: 10, color: T.text3 }}>{socialMentions.filter(m => m.status === "new").length} new</span>
               </div>
