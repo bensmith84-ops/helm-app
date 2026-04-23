@@ -73,6 +73,9 @@ export default function SupportView() {
   const [socialRules, setSocialRules] = useState([]);
   const [socialFilter, setSocialFilter] = useState({ platform: "all", status: "new", sentiment: "all" });
   const [selectedMention, setSelectedMention] = useState(null);
+  const [moderationRules, setModerationRules] = useState([]);
+  const [moderatingId, setModeratingId] = useState(null);
+  const [aiReplyLoading, setAiReplyLoading] = useState(null);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const chatEndRef = useRef(null);
@@ -89,7 +92,7 @@ export default function SupportView() {
 
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -98,8 +101,9 @@ export default function SupportView() {
         supabase.from("cx_contacts").select("*").eq("org_id", orgId).order("last_contact_at", { ascending: false }).limit(50),
         supabase.from("cx_ai_config").select("*").eq("org_id", orgId).single(),
         supabase.from("cx_social_accounts").select("*").eq("org_id", orgId).order("platform"),
-        supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(50),
+        supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(200),
         supabase.from("cx_social_rules").select("*").eq("org_id", orgId).order("name"),
+        supabase.from("cx_moderation_rules").select("*").eq("org_id", orgId).order("priority", { ascending: false }),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -112,6 +116,7 @@ export default function SupportView() {
       setSocialAccounts(socialAcctRes.data || []);
       setSocialMentions(socialMentRes.data || []);
       setSocialRules(socialRuleRes.data || []);
+      setModerationRules(modRuleRes.data || []);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -258,6 +263,7 @@ export default function SupportView() {
     { key: "macros", label: "Macros", icon: "⚡" },
     { key: "contacts", label: "Contacts", icon: "👥" },
     { key: "social", label: "Social", icon: "📱" },
+    { key: "moderation", label: "Moderation", icon: "🛡" },
     { key: "analytics", label: "Analytics", icon: "📊" },
   ];
 
@@ -999,7 +1005,26 @@ export default function SupportView() {
                   <option value="neutral">😐 Neutral</option><option value="negative">😠 Negative</option>
                 </select>
                 <div style={{ flex: 1 }} />
-                <span style={{ fontSize: 10, color: T.text3 }}>{socialMentions.filter(m => m.status === "new").length} new mentions</span>
+                <button onClick={async () => {
+                  const unmoderated = socialMentions.filter(m => m.moderation_status === "pending" || !m.moderation_status);
+                  if (unmoderated.length === 0) return;
+                  setModeratingId("bulk");
+                  for (const m of unmoderated) {
+                    try {
+                      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/cx-moderate", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "moderate", org_id: orgId, mention_id: m.id, content: m.content, platform: m.platform, author_handle: m.author_handle }),
+                      });
+                      const result = await res.json();
+                      setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, moderation_status: result.action === "flag" ? "flagged" : "reviewed", moderation_risk: result.risk, moderation_categories: result.categories, is_hidden: result.action === "hide", status: result.action === "escalate" ? "escalated" : result.action === "hide" ? "ignored" : x.status, ai_reply_draft: result.suggested_reply || x.ai_reply_draft, sentiment: result.sentiment || x.sentiment } : x));
+                    } catch {}
+                  }
+                  setModeratingId(null);
+                }} disabled={moderatingId === "bulk"}
+                  style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #0ea5e940`, background: "#0ea5e910", color: "#0ea5e9", cursor: moderatingId === "bulk" ? "wait" : "pointer" }}>
+                  {moderatingId === "bulk" ? "🔄 Moderating..." : `🛡 Moderate All (${socialMentions.filter(m => !m.moderation_status || m.moderation_status === "pending").length})`}
+                </button>
+                <span style={{ fontSize: 10, color: T.text3 }}>{socialMentions.filter(m => m.status === "new").length} new</span>
               </div>
               {/* Mention list */}
               <div style={{ flex: 1, overflow: "auto", padding: 0 }}>
@@ -1040,20 +1065,47 @@ export default function SupportView() {
                             </div>
                             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                               <span style={{ fontSize: 10, color: T.text3, textTransform: "capitalize", padding: "1px 6px", borderRadius: 3, background: T.surface2 }}>{m.mention_type}</span>
+                              {m.moderation_risk && m.moderation_risk !== "safe" && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: m.moderation_risk === "critical" ? "#ef444420" : m.moderation_risk === "high" ? "#f5920b20" : "#f59e0b10", color: m.moderation_risk === "critical" ? "#ef4444" : m.moderation_risk === "high" ? "#f97316" : "#f59e0b" }}>⚠ {m.moderation_risk}</span>}
+                              {m.is_hidden && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#6b728020", color: "#6b7280" }}>🚫 Hidden</span>}
+                              {m.moderation_status === "flagged" && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#f59e0b20", color: "#f59e0b" }}>🚩 Flagged</span>}
                               {m.likes > 0 && <span style={{ fontSize: 10, color: T.text3 }}>❤️ {m.likes > 1000 ? (m.likes / 1000).toFixed(1) + "K" : m.likes}</span>}
                               {m.comments > 0 && <span style={{ fontSize: 10, color: T.text3 }}>💬 {m.comments}</span>}
                               {m.shares > 0 && <span style={{ fontSize: 10, color: T.text3 }}>🔄 {m.shares > 1000 ? (m.shares / 1000).toFixed(1) + "K" : m.shares}</span>}
                             </div>
+                            {/* AI Reply Draft */}
+                            {m.ai_reply_draft && selectedMention?.id === m.id && (
+                              <div style={{ marginTop: 8, padding: "8px 10px", background: "#a855f708", borderRadius: 6, border: `1px solid #a855f715` }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>✨ AI Draft Reply</div>
+                                <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>{m.ai_reply_draft}</div>
+                                <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                                  <button onClick={async (e) => { e.stopPropagation(); await navigator.clipboard.writeText(m.ai_reply_draft); }}
+                                    style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>📋 Copy</button>
+                                  <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ ai_reply_sent: true, status: "replied", responded_at: new Date().toISOString(), response_text: m.ai_reply_draft }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, ai_reply_sent: true, status: "replied" } : x)); }}
+                                    style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, borderRadius: 4, border: `1px solid #22c55e40`, background: "#22c55e10", color: "#22c55e", cursor: "pointer" }}>✅ Mark Sent</button>
+                                </div>
+                              </div>
+                            )}
                             {/* Action buttons when expanded */}
                             {selectedMention?.id === m.id && (
-                              <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                              <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+                                <button onClick={async (e) => { e.stopPropagation(); setModeratingId(m.id); try { const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/cx-moderate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "moderate", org_id: orgId, mention_id: m.id, content: m.content, platform: m.platform, author_handle: m.author_handle }) }); const result = await res.json(); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, moderation_status: result.action === "flag" ? "flagged" : "reviewed", moderation_risk: result.risk, moderation_categories: result.categories, is_hidden: result.action === "hide", status: result.action === "escalate" ? "escalated" : result.action === "hide" ? "ignored" : x.status, ai_reply_draft: result.suggested_reply || x.ai_reply_draft } : x)); } catch {} setModeratingId(null); }}
+                                  disabled={moderatingId === m.id}
+                                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #0ea5e940`, background: "#0ea5e910", color: "#0ea5e9", cursor: moderatingId === m.id ? "wait" : "pointer" }}>
+                                  {moderatingId === m.id ? "🔄 Analyzing..." : "🛡 AI Moderate"}
+                                </button>
+                                <button onClick={async (e) => { e.stopPropagation(); setAiReplyLoading(m.id); try { const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/cx-moderate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate_reply", org_id: orgId, mention_id: m.id, content: m.content, platform: m.platform }) }); const result = await res.json(); if (result.reply) setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, ai_reply_draft: result.reply } : x)); } catch {} setAiReplyLoading(null); }}
+                                  disabled={aiReplyLoading === m.id}
+                                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #a855f740`, background: "#a855f710", color: "#a855f7", cursor: aiReplyLoading === m.id ? "wait" : "pointer" }}>
+                                  {aiReplyLoading === m.id ? "✨ Generating..." : "✨ AI Reply"}
+                                </button>
                                 <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "replied" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "replied" } : x)); }}
-                                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #22c55e40`, background: "#22c55e10", color: "#22c55e", cursor: "pointer" }}>✅ Mark Replied</button>
+                                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #22c55e40`, background: "#22c55e10", color: "#22c55e", cursor: "pointer" }}>✅ Replied</button>
                                 <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "escalated" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "escalated" } : x)); }}
                                   style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", cursor: "pointer" }}>🔴 Escalate</button>
+                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ is_hidden: true, status: "ignored" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, is_hidden: true, status: "ignored" } : x)); }}
+                                  style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>🚫 Hide</button>
                                 <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "ignored" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "ignored" } : x)); }}
                                   style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>⚫ Ignore</button>
-                                <button style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #a855f740`, background: "#a855f710", color: "#a855f7", cursor: "pointer" }}>✨ AI Reply</button>
                                 {m.post_url && <a href={m.post_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.accent, cursor: "pointer", textDecoration: "none" }}>↗ Open</a>}
                               </div>
                             )}
@@ -1069,6 +1121,109 @@ export default function SupportView() {
         )}
 
         {/* Analytics tab */}
+        {tab === "moderation" && (
+          <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>🛡 Moderation Rules</h2>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Keyword-based rules run first (instant), then AI classifies for deeper analysis.</div>
+              </div>
+              <button onClick={async () => {
+                const { data } = await supabase.from("cx_moderation_rules").insert({
+                  org_id: orgId, name: "New Rule", rule_type: "keyword", match_mode: "contains",
+                  keywords: [], action: "flag", is_active: true, priority: 50,
+                }).select().single();
+                if (data) setModerationRules(p => [data, ...p]);
+              }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, cursor: "pointer" }}>+ Add Rule</button>
+            </div>
+
+            {/* Stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
+              {[
+                { label: "Active Rules", value: moderationRules.filter(r => r.is_active).length, color: "#22c55e" },
+                { label: "Total Fires", value: moderationRules.reduce((s, r) => s + (r.fire_count || 0), 0), color: T.accent },
+                { label: "Pending Review", value: socialMentions.filter(m => m.moderation_status === "flagged").length, color: "#f59e0b" },
+                { label: "Auto-Hidden", value: socialMentions.filter(m => m.is_hidden).length, color: "#ef4444" },
+              ].map(k => (
+                <div key={k.label} style={{ padding: 12, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, textAlign: "center" }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: k.color }}>{k.value}</div>
+                  <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{k.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Rules list */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {moderationRules.map(rule => (
+                <div key={rule.id} style={{ padding: "14px 16px", borderRadius: 10, border: `1px solid ${rule.is_active ? T.border : T.border + "50"}`, background: rule.is_active ? T.surface : T.surface + "80", opacity: rule.is_active ? 1 : 0.6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div onClick={async () => {
+                        await supabase.from("cx_moderation_rules").update({ is_active: !rule.is_active }).eq("id", rule.id);
+                        setModerationRules(p => p.map(r => r.id === rule.id ? { ...r, is_active: !r.is_active } : r));
+                      }} style={{ width: 36, height: 20, borderRadius: 10, background: rule.is_active ? "#22c55e" : T.surface3, cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
+                        <div style={{ width: 16, height: 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: rule.is_active ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }} />
+                      </div>
+                      <input defaultValue={rule.name} onBlur={async e => {
+                        await supabase.from("cx_moderation_rules").update({ name: e.target.value }).eq("id", rule.id);
+                        setModerationRules(p => p.map(r => r.id === rule.id ? { ...r, name: e.target.value } : r));
+                      }} style={{ fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none" }} />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 9, color: T.text3 }}>Fired {rule.fire_count || 0}×</span>
+                      <select value={rule.action} onChange={async e => {
+                        await supabase.from("cx_moderation_rules").update({ action: e.target.value }).eq("id", rule.id);
+                        setModerationRules(p => p.map(r => r.id === rule.id ? { ...r, action: e.target.value } : r));
+                      }} style={{ padding: "3px 8px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, cursor: "pointer" }}>
+                        <option value="flag">🚩 Flag</option>
+                        <option value="hide">🚫 Hide</option>
+                        <option value="escalate">🔴 Escalate</option>
+                        <option value="tag">🏷 Tag</option>
+                        <option value="auto_reply">💬 Auto Reply</option>
+                      </select>
+                      <select value={rule.priority} onChange={async e => {
+                        await supabase.from("cx_moderation_rules").update({ priority: Number(e.target.value) }).eq("id", rule.id);
+                        setModerationRules(p => p.map(r => r.id === rule.id ? { ...r, priority: Number(e.target.value) } : r));
+                      }} style={{ padding: "3px 8px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, cursor: "pointer", width: 55 }}>
+                        {[100, 90, 80, 70, 60, 50, 40, 30, 20, 10].map(p => <option key={p} value={p}>P{p}</option>)}
+                      </select>
+                      <button onClick={async () => {
+                        if (!confirm("Delete this rule?")) return;
+                        await supabase.from("cx_moderation_rules").delete().eq("id", rule.id);
+                        setModerationRules(p => p.filter(r => r.id !== rule.id));
+                      }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>
+                    </div>
+                  </div>
+                  {/* Keywords */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+                    {(rule.keywords || []).map((kw, i) => (
+                      <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.surface2, color: T.text2, border: `1px solid ${T.border}` }}>
+                        {kw}
+                        <span onClick={async () => {
+                          const newKw = rule.keywords.filter((_, j) => j !== i);
+                          await supabase.from("cx_moderation_rules").update({ keywords: newKw }).eq("id", rule.id);
+                          setModerationRules(p => p.map(r => r.id === rule.id ? { ...r, keywords: newKw } : r));
+                        }} style={{ cursor: "pointer", color: T.text3, fontWeight: 700 }}>×</span>
+                      </span>
+                    ))}
+                    <input placeholder="+ add keyword" onKeyDown={async e => {
+                      if (e.key !== "Enter" || !e.target.value.trim()) return;
+                      const newKw = [...(rule.keywords || []), e.target.value.trim()];
+                      await supabase.from("cx_moderation_rules").update({ keywords: newKw }).eq("id", rule.id);
+                      setModerationRules(p => p.map(r => r.id === rule.id ? { ...r, keywords: newKw } : r));
+                      e.target.value = "";
+                    }} style={{ fontSize: 10, padding: "2px 8px", border: `1px dashed ${T.border}`, borderRadius: 4, background: "transparent", color: T.text3, outline: "none", width: 100 }} />
+                  </div>
+                  <div style={{ fontSize: 9, color: T.text3 }}>
+                    Match: {rule.match_mode} · Priority: {rule.priority} · {rule.last_fired_at ? `Last: ${new Date(rule.last_fired_at).toLocaleDateString()}` : "Never fired"}
+                  </div>
+                </div>
+              ))}
+              {moderationRules.length === 0 && <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 13 }}>No moderation rules configured yet.</div>}
+            </div>
+          </div>
+        )}
+
         {tab === "analytics" && (
           <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
