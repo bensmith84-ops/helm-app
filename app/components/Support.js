@@ -939,35 +939,68 @@ export default function SupportView() {
 
               {/* Auto-Moderation Settings */}
               <div style={{ padding: 20, borderRadius: 12, border: `1px solid #0ea5e930`, background: "#0ea5e905", marginBottom: 16 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>🛡 Auto-Moderation</div>
-                <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>When enabled, new social mentions are automatically classified by AI and keyword rules take action instantly.</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>🛡 Auto-Moderation & Auto-Reply</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>Configure what happens automatically when new comments arrive.</div>
+                
+                {/* Model Selection */}
+                <div style={{ padding: "10px 14px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>🧠 AI Models</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {S("Classification Model", "Used for risk analysis & sentiment detection",
+                      <Sel value={aiConfig.classification_model || "haiku"} onChange={v => updateAiConfig("classification_model", v)}
+                        options={[{value:"haiku",label:"⚡ Haiku ($1/M) — fast + cheap"},{value:"sonnet",label:"🧠 Sonnet ($3/M) — more accurate"}]} />
+                    )}
+                    {S("Reply Model", "Used for generating customer-facing replies",
+                      <Sel value={aiConfig.reply_model || "sonnet"} onChange={v => updateAiConfig("reply_model", v)}
+                        options={[{value:"sonnet",label:"🧠 Sonnet ($3/$15M) — best quality"},{value:"haiku",label:"⚡ Haiku ($1/$5M) — faster + cheaper"}]} />
+                    )}
+                  </div>
+                  <div style={{ fontSize: 9, color: T.text3, marginTop: 4 }}>
+                    Est. cost: ~${aiConfig.classification_model === "haiku" ? "0.001" : "0.004"}/classify + ${aiConfig.reply_model === "haiku" ? "$0.002" : "$0.005"}/reply = ~${aiConfig.classification_model === "haiku" && aiConfig.reply_model === "haiku" ? "$0.003" : aiConfig.classification_model === "haiku" ? "$0.006" : "$0.009"}/comment
+                  </div>
+                </div>
+
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                   <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Moderation</div>
                     <Toggle value={aiConfig.auto_resolve_enabled} onChange={v => updateAiConfig("auto_resolve_enabled", v)} label="Auto-moderate new mentions" />
+                    <Toggle value={aiConfig.auto_hide_spam !== false} onChange={v => updateAiConfig("auto_hide_spam", v)} label="Auto-hide spam (keyword + AI)" />
                     <Toggle value={!aiConfig.business_hours_only} onChange={v => updateAiConfig("business_hours_only", !v)} label="Run 24/7 (not just business hours)" />
-                    <Toggle value={aiConfig.can_offer_discounts} onChange={v => updateAiConfig("can_offer_discounts", v)} label="AI can suggest discounts in replies" />
+                    {S("Max auto-responses", "Per conversation thread",
+                      <Sel value={String(aiConfig.max_auto_responses || 3)} onChange={v => updateAiConfig("max_auto_responses", Number(v))}
+                        options={[{value:"1",label:"1"},{value:"3",label:"3"},{value:"5",label:"5"},{value:"10",label:"10"}]} />
+                    )}
                   </div>
                   <div>
-                    {S("Auto-hide threshold", "Hide comments with risk above this level",
-                      <Sel value={aiConfig.auto_resolve_confidence_threshold > 0.9 ? "critical" : aiConfig.auto_resolve_confidence_threshold > 0.7 ? "high" : "medium"}
-                        onChange={v => updateAiConfig("auto_resolve_confidence_threshold", v === "critical" ? 0.95 : v === "high" ? 0.85 : 0.7)}
-                        options={[{value:"critical",label:"Critical only"},{value:"high",label:"High + Critical"},{value:"medium",label:"Medium + High + Critical"}]} />
-                    )}
-                    {S("Max auto-responses", "Per conversation",
-                      <Sel value={String(aiConfig.max_auto_responses || 3)} onChange={v => updateAiConfig("max_auto_responses", Number(v))}
-                        options={[{value:"1",label:"1 response"},{value:"3",label:"3 responses"},{value:"5",label:"5 responses"},{value:"10",label:"10 responses"}]} />
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Auto-Reply</div>
+                    <Toggle value={aiConfig.auto_reply_enabled || false} onChange={v => updateAiConfig("auto_reply_enabled", v)} label="🟢 Enable fully automatic replies" />
+                    {aiConfig.auto_reply_enabled && <>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, margin: "8px 0 4px" }}>Auto-reply to these comment types:</div>
+                      <Toggle value={aiConfig.auto_reply_positive !== false} onChange={v => updateAiConfig("auto_reply_positive", v)} label="😊 Positive comments (praise, thanks)" />
+                      <Toggle value={aiConfig.auto_reply_questions !== false} onChange={v => updateAiConfig("auto_reply_questions", v)} label="❓ Questions (where to buy, pricing)" />
+                      <Toggle value={aiConfig.auto_reply_purchase_intent !== false} onChange={v => updateAiConfig("auto_reply_purchase_intent", v)} label="🛒 Purchase intent" />
+                      <Toggle value={aiConfig.auto_reply_neutral || false} onChange={v => updateAiConfig("auto_reply_neutral", v)} label="😐 Neutral comments" />
+                      <Toggle value={aiConfig.auto_reply_negative || false} onChange={v => updateAiConfig("auto_reply_negative", v)} label="😠 Negative comments (risky)" />
+                      <Toggle value={aiConfig.require_review_for_negative !== false} onChange={v => updateAiConfig("require_review_for_negative", v)} label="🛑 Always hold negative for review" />
+                    </>}
+                    {!aiConfig.auto_reply_enabled && (
+                      <div style={{ fontSize: 10, color: T.text3, padding: "8px 0", lineHeight: 1.5 }}>When off, AI generates draft replies that you review before sending. Turn on to let AI post replies automatically for selected comment types.</div>
                     )}
                   </div>
                 </div>
-                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>Active Moderation Rules</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+
+                {/* Status summary */}
+                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: aiConf?.auto_reply_enabled ? "#22c55e08" : T.surface, border: `1px solid ${aiConf?.auto_reply_enabled ? "#22c55e30" : T.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: aiConfig.auto_reply_enabled ? "#22c55e" : T.text }}>
+                    {aiConfig.auto_reply_enabled ? "🟢 FULLY AUTOMATIC — " : "🟡 SEMI-AUTOMATIC — "}
+                    {aiConfig.auto_reply_enabled ? "AI will classify, generate, and post replies for selected comment types." : "AI classifies and drafts replies. You review and send manually."}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
                     {moderationRules.filter(r => r.is_active).map(r => (
-                      <span key={r.id} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: r.action === "hide" ? "#ef444415" : r.action === "escalate" ? "#f59e0b15" : T.surface2, color: r.action === "hide" ? "#ef4444" : r.action === "escalate" ? "#f59e0b" : T.text2, fontWeight: 600 }}>
-                        {r.action === "hide" ? "🚫" : r.action === "escalate" ? "🔴" : r.action === "flag" ? "🚩" : "🏷"} {r.name} ({r.keywords?.length || 0} keywords)
+                      <span key={r.id} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: r.action === "hide" ? "#ef444415" : r.action === "escalate" ? "#f59e0b15" : T.surface2, color: r.action === "hide" ? "#ef4444" : r.action === "escalate" ? "#f59e0b" : T.text3, fontWeight: 600 }}>
+                        {r.action === "hide" ? "🚫" : r.action === "escalate" ? "🔴" : "🚩"} {r.name}
                       </span>
                     ))}
-                    {moderationRules.filter(r => r.is_active).length === 0 && <span style={{ fontSize: 10, color: T.text3 }}>No active rules. Go to the Moderation tab to set up rules.</span>}
                   </div>
                 </div>
               </div>
