@@ -377,7 +377,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
       // Re-link dependencies
       setImportProgress("Linking dependencies...");
-      await linkDependencies(projectDetail.sections);
+      await linkAllDependencies();
 
       setImportResult({
         projectId: projId, projectName: projectDetail.name,
