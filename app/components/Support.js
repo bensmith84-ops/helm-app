@@ -990,7 +990,7 @@ export default function SupportView() {
                 </div>
 
                 {/* Status summary */}
-                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: aiConf?.auto_reply_enabled ? "#22c55e08" : T.surface, border: `1px solid ${aiConf?.auto_reply_enabled ? "#22c55e30" : T.border}` }}>
+                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: aiConfig?.auto_reply_enabled ? "#22c55e08" : T.surface, border: `1px solid ${aiConfig?.auto_reply_enabled ? "#22c55e30" : T.border}` }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: aiConfig.auto_reply_enabled ? "#22c55e" : T.text }}>
                     {aiConfig.auto_reply_enabled ? "🟢 FULLY AUTOMATIC — " : "🟡 SEMI-AUTOMATIC — "}
                     {aiConfig.auto_reply_enabled ? "AI will classify, generate, and post replies for selected comment types." : "AI classifies and drafts replies. You review and send manually."}
