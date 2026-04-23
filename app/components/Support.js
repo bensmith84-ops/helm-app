@@ -1019,15 +1019,42 @@ export default function SupportView() {
             {/* Mention feed */}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               {/* Connected accounts strip */}
-              <div style={{ display: "flex", gap: 8, padding: "10px 16px", borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0 }}>
+              <div style={{ display: "flex", gap: 8, padding: "10px 16px", borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0, alignItems: "center" }}>
                 {socialAccounts.map(a => (
                   <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: a.is_connected ? T.accentDim : T.surface2, border: `1px solid ${a.is_connected ? T.accent + "30" : T.border}`, flexShrink: 0 }}>
                     <span style={{ fontSize: 14 }}>{CHANNEL_ICONS["social_" + a.platform] || CHANNEL_ICONS[a.platform] || "📱"}</span>
                     <span style={{ fontSize: 11, fontWeight: 600, color: a.is_connected ? T.accent : T.text3 }}>{a.account_handle}</span>
                     {a.follower_count > 0 && <span style={{ fontSize: 9, color: T.text3 }}>{a.follower_count > 1000 ? (a.follower_count / 1000).toFixed(0) + "K" : a.follower_count}</span>}
                     <span style={{ width: 6, height: 6, borderRadius: 3, background: a.is_connected ? "#22c55e" : "#ef4444" }} />
+                    {a.is_connected && (
+                      <button onClick={async (e) => {
+                        e.stopPropagation();
+                        const btn = e.currentTarget; btn.textContent = "🔄"; btn.disabled = true;
+                        try {
+                          const action = a.platform === "instagram" ? "sync_ig_comments" : a.platform === "facebook" ? "sync_fb_comments" : null;
+                          if (action) {
+                            const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/meta-social", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, account_id: a.id, org_id: orgId }) });
+                            const r = await res.json();
+                            if (r.synced > 0) { const { data } = await supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(200); setSocialMentions(data || []); }
+                            btn.textContent = `✓ ${r.synced || 0}`;
+                          }
+                        } catch { btn.textContent = "✕"; }
+                        setTimeout(() => { btn.textContent = "↻"; btn.disabled = false; }, 2000);
+                      }} style={{ fontSize: 10, padding: "1px 4px", borderRadius: 3, border: `1px solid ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer" }} title="Sync comments">↻</button>
+                    )}
                   </div>
                 ))}
+                <div style={{ flex: 1 }} />
+                <button onClick={async () => {
+                  try {
+                    const redirectUri = window.location.origin + "/api/meta-callback";
+                    const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/meta-social", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "get_oauth_url", redirect_uri: redirectUri }) });
+                    const data = await res.json();
+                    if (data.url) window.open(data.url, "_blank", "width=600,height=700");
+                  } catch (e) { console.error("Meta OAuth error:", e); }
+                }} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #1877F230`, background: "#1877F210", color: "#1877F2", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  📘 Connect Meta
+                </button>
               </div>
               {/* Filters */}
               <div style={{ display: "flex", gap: 6, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
@@ -1123,6 +1150,22 @@ export default function SupportView() {
                                 <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
                                   <button onClick={async (e) => { e.stopPropagation(); await navigator.clipboard.writeText(m.ai_reply_draft); }}
                                     style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>📋 Copy</button>
+                                  {m.external_id && m.social_account_id && (
+                                    <button onClick={async (e) => {
+                                      e.stopPropagation(); const btn = e.currentTarget; btn.textContent = "⏳ Sending..."; btn.disabled = true;
+                                      try {
+                                        const action = m.platform === "instagram" ? "reply_ig_comment" : "reply_fb_comment";
+                                        const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/meta-social", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, account_id: m.social_account_id, comment_id: m.external_id, reply_text: m.ai_reply_draft, org_id: orgId }) });
+                                        const result = await res.json();
+                                        if (result.success) {
+                                          await supabase.from("cx_social_mentions").update({ ai_reply_sent: true, status: "replied", responded_at: new Date().toISOString(), response_text: m.ai_reply_draft, auto_responded: true }).eq("id", m.id);
+                                          setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, ai_reply_sent: true, status: "replied" } : x));
+                                          btn.textContent = "✅ Sent!";
+                                        } else { btn.textContent = "❌ " + (result.error || "Failed"); }
+                                      } catch (err) { btn.textContent = "❌ Error"; }
+                                      setTimeout(() => { btn.disabled = false; }, 3000);
+                                    }} style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, borderRadius: 4, border: `1px solid #1877F240`, background: "#1877F210", color: "#1877F2", cursor: "pointer" }}>📤 Send Reply</button>
+                                  )}
                                   <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ ai_reply_sent: true, status: "replied", responded_at: new Date().toISOString(), response_text: m.ai_reply_draft }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, ai_reply_sent: true, status: "replied" } : x)); }}
                                     style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, borderRadius: 4, border: `1px solid #22c55e40`, background: "#22c55e10", color: "#22c55e", cursor: "pointer" }}>✅ Mark Sent</button>
                                 </div>
@@ -1145,7 +1188,15 @@ export default function SupportView() {
                                   style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #22c55e40`, background: "#22c55e10", color: "#22c55e", cursor: "pointer" }}>✅ Replied</button>
                                 <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "escalated" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "escalated" } : x)); }}
                                   style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", cursor: "pointer" }}>🔴 Escalate</button>
-                                <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ is_hidden: true, status: "ignored" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, is_hidden: true, status: "ignored" } : x)); }}
+                                <button onClick={async (e) => {
+                                  e.stopPropagation();
+                                  // Hide via Meta API if connected
+                                  if (m.external_id && m.social_account_id) {
+                                    try { await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/meta-social", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "hide_comment", account_id: m.social_account_id, comment_id: m.external_id }) }); } catch {}
+                                  }
+                                  await supabase.from("cx_social_mentions").update({ is_hidden: true, status: "ignored" }).eq("id", m.id);
+                                  setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, is_hidden: true, status: "ignored" } : x));
+                                }}
                                   style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>🚫 Hide</button>
                                 <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "ignored" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "ignored" } : x)); }}
                                   style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>⚫ Ignore</button>
