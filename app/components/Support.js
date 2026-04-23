@@ -1057,23 +1057,54 @@ export default function SupportView() {
 
         {/* Macros tab */}
         {tab === "macros" && (
-          <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
               <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>⚡ Macros & Templates</h2>
+              <button onClick={async () => {
+                const { data } = await supabase.from("cx_macros").insert({
+                  org_id: orgId, name: "New Macro", content: "Hi {customer_name},\n\nThank you for reaching out!\n\nBest,\n{agent_name}",
+                  shortcut: "", category: "general", is_active: true, usage_count: 0,
+                }).select().single();
+                if (data) setMacros(p => [data, ...p]);
+              }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, cursor: "pointer" }}>+ Add Macro</button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {macros.map(m => (
-                <div key={m.id} style={{ padding: 14, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{m.name}</span>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      {m.shortcut && <span style={{ fontSize: 10, color: T.text3, fontFamily: "monospace", background: T.surface2, padding: "2px 6px", borderRadius: 3 }}>{m.shortcut}</span>}
-                      <span style={{ fontSize: 10, color: T.text3 }}>{m.category}</span>
+            <div style={{ flex: 1, overflow: "auto", padding: 20 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {macros.map(m => (
+                  <div key={m.id} style={{ padding: 14, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <input defaultValue={m.name} onBlur={async e => {
+                        await supabase.from("cx_macros").update({ name: e.target.value }).eq("id", m.id);
+                        setMacros(p => p.map(x => x.id === m.id ? { ...x, name: e.target.value } : x));
+                      }} style={{ fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", flex: 1 }} />
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                        <input defaultValue={m.shortcut || ""} placeholder="shortcut" onBlur={async e => {
+                          await supabase.from("cx_macros").update({ shortcut: e.target.value }).eq("id", m.id);
+                          setMacros(p => p.map(x => x.id === m.id ? { ...x, shortcut: e.target.value } : x));
+                        }} style={{ width: 70, fontSize: 10, color: T.text3, fontFamily: "monospace", background: T.surface2, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, outline: "none", textAlign: "center" }} />
+                        <select defaultValue={m.category || "general"} onChange={async e => {
+                          await supabase.from("cx_macros").update({ category: e.target.value }).eq("id", m.id);
+                          setMacros(p => p.map(x => x.id === m.id ? { ...x, category: e.target.value } : x));
+                        }} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text3, cursor: "pointer" }}>
+                          {["general", "greeting", "closing", "shipping", "subscription", "refund", "troubleshooting", "escalation"].map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <span style={{ fontSize: 9, color: T.text3 }}>{m.usage_count || 0}× used</span>
+                        <button onClick={async () => {
+                          if (!confirm(`Delete macro "${m.name}"?`)) return;
+                          await supabase.from("cx_macros").delete().eq("id", m.id);
+                          setMacros(p => p.filter(x => x.id !== m.id));
+                        }} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: "0 2px" }}>×</button>
+                      </div>
                     </div>
+                    <textarea defaultValue={m.content || ""} onBlur={async e => {
+                      await supabase.from("cx_macros").update({ content: e.target.value }).eq("id", m.id);
+                      setMacros(p => p.map(x => x.id === m.id ? { ...x, content: e.target.value } : x));
+                    }} rows={3} style={{ width: "100%", fontSize: 12, color: T.text2, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", outline: "none", resize: "vertical", lineHeight: 1.5, fontFamily: "inherit", boxSizing: "border-box" }} />
+                    <div style={{ fontSize: 9, color: T.text3, marginTop: 4 }}>Variables: {"{customer_name}"}, {"{agent_name}"}, {"{ticket_number}"}, {"{order_id}"}</div>
                   </div>
-                  <div style={{ fontSize: 12, color: T.text2, whiteSpace: "pre-wrap", lineHeight: 1.5, maxHeight: 80, overflow: "hidden" }}>{m.content}</div>
-                </div>
-              ))}
+                ))}
+                {macros.length === 0 && <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 13 }}>No macros yet. Click + Add Macro to create one.</div>}
+              </div>
             </div>
           </div>
         )}
