@@ -76,6 +76,7 @@ export default function SupportView() {
   const [moderationRules, setModerationRules] = useState([]);
   const [moderatingId, setModeratingId] = useState(null);
   const [aiReplyLoading, setAiReplyLoading] = useState(null);
+  const [slaPolicies, setSlaPolicies] = useState([]);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const chatEndRef = useRef(null);
@@ -92,7 +93,7 @@ export default function SupportView() {
 
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -104,6 +105,7 @@ export default function SupportView() {
         supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(200),
         supabase.from("cx_social_rules").select("*").eq("org_id", orgId).order("name"),
         supabase.from("cx_moderation_rules").select("*").eq("org_id", orgId).order("priority", { ascending: false }),
+        supabase.from("cx_sla_policies").select("*").eq("org_id", orgId).order("priority"),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -117,6 +119,7 @@ export default function SupportView() {
       setSocialMentions(socialMentRes.data || []);
       setSocialRules(socialRuleRes.data || []);
       setModerationRules(modRuleRes.data || []);
+      setSlaPolicies(slaRes.data || []);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -284,6 +287,7 @@ export default function SupportView() {
     { key: "contacts", label: "Contacts", icon: "👥" },
     { key: "social", label: "Social", icon: "📱" },
     { key: "moderation", label: "Moderation", icon: "🛡" },
+    { key: "sla", label: "SLA", icon: "⏱" },
     { key: "analytics", label: "Analytics", icon: "📊" },
   ];
 
@@ -1112,9 +1116,10 @@ export default function SupportView() {
                         e.stopPropagation();
                         const btn = e.currentTarget; btn.textContent = "🔄"; btn.disabled = true;
                         try {
-                          const action = a.platform === "instagram" ? "sync_ig_comments" : a.platform === "facebook" ? "sync_fb_comments" : null;
-                          if (action) {
-                            const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/meta-social", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, account_id: a.id, org_id: orgId }) });
+                          const syncAction = a.platform === "instagram" ? "sync_ig_comments" : a.platform === "facebook" ? "sync_fb_comments" : a.platform === "tiktok" ? "sync_comments" : null;
+                          const syncEndpoint = a.platform === "tiktok" ? "tiktok-social" : "meta-social";
+                          if (syncAction) {
+                            const res = await fetch(`https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/${syncEndpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: syncAction, account_id: a.id, org_id: orgId }) });
                             const r = await res.json();
                             if (r.synced > 0) { const { data } = await supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(200); setSocialMentions(data || []); }
                             btn.textContent = `✓ ${r.synced || 0}`;
@@ -1135,6 +1140,16 @@ export default function SupportView() {
                   } catch (e) { console.error("Meta OAuth error:", e); }
                 }} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #1877F230`, background: "#1877F210", color: "#1877F2", cursor: "pointer", whiteSpace: "nowrap" }}>
                   📘 Connect Meta
+                </button>
+                <button onClick={async () => {
+                  try {
+                    const redirectUri = window.location.origin + "/api/tiktok-callback";
+                    const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/tiktok-social", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "get_oauth_url", redirect_uri: redirectUri }) });
+                    const data = await res.json();
+                    if (data.url) window.open(data.url, "_blank", "width=600,height=700");
+                  } catch (e) { console.error("TikTok OAuth error:", e); }
+                }} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #01010130`, background: "#01010108", color: T.text2, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  🎵 Connect TikTok
                 </button>
               </div>
               {/* Filters */}
@@ -1395,6 +1410,92 @@ export default function SupportView() {
                 </div>
               ))}
               {moderationRules.length === 0 && <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 13 }}>No moderation rules configured yet.</div>}
+            </div>
+          </div>
+        )}
+
+        {tab === "sla" && (
+          <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>⏱ SLA Policies</h2>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Set response and resolution time targets by priority level.</div>
+              </div>
+              <button onClick={async () => {
+                const { data } = await supabase.from("cx_sla_policies").insert({
+                  org_id: orgId, name: "New Policy", priority: "medium",
+                  first_response_minutes: 60, resolution_minutes: 480,
+                  business_hours_only: true, is_active: true,
+                }).select().single();
+                if (data) setSlaPolicies(p => [...p, data]);
+              }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, cursor: "pointer" }}>+ Add Policy</button>
+            </div>
+
+            {/* Current breach stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+              {[
+                { label: "Active Breaches", value: tickets.filter(t => t.sla_breached && t.status !== "resolved" && t.status !== "closed").length, color: "#ef4444" },
+                { label: "Avg First Response", value: (() => { const responded = tickets.filter(t => t.first_response_at && t.created_at); if (!responded.length) return "—"; const avg = responded.reduce((s, t) => s + (new Date(t.first_response_at) - new Date(t.created_at)) / 60000, 0) / responded.length; return avg < 60 ? Math.round(avg) + "m" : (avg / 60).toFixed(1) + "h"; })(), color: T.accent },
+                { label: "Active Policies", value: slaPolicies.filter(p => p.is_active).length, color: "#22c55e" },
+              ].map(k => (
+                <div key={k.label} style={{ padding: 14, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, textAlign: "center" }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: k.color }}>{k.value}</div>
+                  <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{k.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Policy cards */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {slaPolicies.map(p => (
+                <div key={p.id} style={{ padding: "14px 16px", borderRadius: 10, border: `1px solid ${p.is_active ? T.border : T.border + "50"}`, background: T.surface, opacity: p.is_active ? 1 : 0.6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div onClick={async () => { await supabase.from("cx_sla_policies").update({ is_active: !p.is_active }).eq("id", p.id); setSlaPolicies(ps => ps.map(x => x.id === p.id ? { ...x, is_active: !x.is_active } : x)); }}
+                        style={{ width: 36, height: 20, borderRadius: 10, background: p.is_active ? "#22c55e" : T.surface3, cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
+                        <div style={{ width: 16, height: 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: p.is_active ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }} />
+                      </div>
+                      <input defaultValue={p.name} onBlur={async e => { await supabase.from("cx_sla_policies").update({ name: e.target.value }).eq("id", p.id); setSlaPolicies(ps => ps.map(x => x.id === p.id ? { ...x, name: e.target.value } : x)); }}
+                        style={{ fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none" }} />
+                    </div>
+                    <button onClick={async () => { if (!confirm("Delete?")) return; await supabase.from("cx_sla_policies").delete().eq("id", p.id); setSlaPolicies(ps => ps.filter(x => x.id !== p.id)); }}
+                      style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>Priority</div>
+                      <select value={p.priority} onChange={async e => { await supabase.from("cx_sla_policies").update({ priority: e.target.value }).eq("id", p.id); setSlaPolicies(ps => ps.map(x => x.id === p.id ? { ...x, priority: e.target.value } : x)); }}
+                        style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, cursor: "pointer", width: "100%" }}>
+                        <option value="urgent">🔥 Urgent</option><option value="high">🔴 High</option><option value="medium">🟡 Medium</option><option value="low">🟢 Low</option>
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>First Response</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <input type="number" value={p.first_response_minutes} onChange={async e => { const v = Number(e.target.value); await supabase.from("cx_sla_policies").update({ first_response_minutes: v }).eq("id", p.id); setSlaPolicies(ps => ps.map(x => x.id === p.id ? { ...x, first_response_minutes: v } : x)); }}
+                          style={{ width: 50, padding: "4px 6px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, textAlign: "center" }} />
+                        <span style={{ fontSize: 10, color: T.text3 }}>min</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>Resolution</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <input type="number" value={p.resolution_minutes} onChange={async e => { const v = Number(e.target.value); await supabase.from("cx_sla_policies").update({ resolution_minutes: v }).eq("id", p.id); setSlaPolicies(ps => ps.map(x => x.id === p.id ? { ...x, resolution_minutes: v } : x)); }}
+                          style={{ width: 60, padding: "4px 6px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, textAlign: "center" }} />
+                        <span style={{ fontSize: 10, color: T.text3 }}>min</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>Hours</div>
+                      <select value={p.business_hours_only ? "business" : "24x7"} onChange={async e => { const v = e.target.value === "business"; await supabase.from("cx_sla_policies").update({ business_hours_only: v }).eq("id", p.id); setSlaPolicies(ps => ps.map(x => x.id === p.id ? { ...x, business_hours_only: v } : x)); }}
+                        style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, cursor: "pointer", width: "100%" }}>
+                        <option value="24x7">24/7</option><option value="business">Business Hours</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {slaPolicies.length === 0 && <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 13 }}>No SLA policies configured. Add one to start tracking response times.</div>}
             </div>
           </div>
         )}
