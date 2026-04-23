@@ -200,9 +200,29 @@ export default function SupportView() {
 
   const updateTicket = async (field, value) => {
     if (!selected) return;
-    await supabase.from("cx_tickets").update({ [field]: value, updated_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", selected.id);
-    setSelected(s => ({ ...s, [field]: value }));
-    setTickets(p => p.map(t => t.id === selected.id ? { ...t, [field]: value } : t));
+    const updates = { [field]: value, updated_at: new Date().toISOString() };
+    
+    // When resolving, set resolved_at and trigger CSAT
+    if (field === "status" && value === "resolved") {
+      updates.resolved_at = new Date().toISOString();
+      // Show CSAT notification
+      if (selected.customer_email) {
+        setTimeout(() => {
+          if (confirm(`Send CSAT survey to ${selected.customer_name || selected.customer_email}?`)) {
+            supabase.from("cx_tickets").update({ 
+              csat_submitted_at: null // mark as pending survey
+            }).eq("id", selected.id);
+          }
+        }, 500);
+      }
+    }
+    if (field === "status" && value === "closed") {
+      updates.closed_at = new Date().toISOString();
+    }
+    
+    await supabase.from("cx_tickets").update(updates).eq("org_id", orgId).eq("id", selected.id);
+    setSelected(s => ({ ...s, ...updates }));
+    setTickets(p => p.map(t => t.id === selected.id ? { ...t, ...updates } : t));
   };
 
   const createTicket = async (form) => {
@@ -284,6 +304,37 @@ export default function SupportView() {
           </button>
         ))}
       </div>
+
+      {/* Brand Risk Alert Banner */}
+      {(() => {
+        const criticals = socialMentions.filter(m => (m.moderation_risk === "critical" || m.moderation_risk === "high") && m.status === "new");
+        const slaBreached = tickets.filter(t => t.sla_breached && t.status !== "resolved" && t.status !== "closed");
+        const escalated = socialMentions.filter(m => m.status === "escalated");
+        if (criticals.length === 0 && slaBreached.length === 0 && escalated.length === 0) return null;
+        return (
+          <div style={{ padding: "6px 16px", background: "#ef444410", borderBottom: `1px solid #ef444430`, display: "flex", gap: 12, alignItems: "center", flexShrink: 0, overflowX: "auto" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#ef4444" }}>🚨 Alerts</span>
+            {criticals.length > 0 && (
+              <button onClick={() => { setTab("social"); setSocialFilter(f => ({ ...f, status: "new" })); }}
+                style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, border: `1px solid #ef444440`, background: "#ef444415", color: "#ef4444", fontWeight: 600, cursor: "pointer" }}>
+                {criticals.length} high-risk comment{criticals.length !== 1 ? "s" : ""} need review
+              </button>
+            )}
+            {escalated.length > 0 && (
+              <button onClick={() => { setTab("social"); setSocialFilter(f => ({ ...f, status: "escalated" })); }}
+                style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, border: `1px solid #f5920b40`, background: "#f5920b15", color: "#f97316", fontWeight: 600, cursor: "pointer" }}>
+                {escalated.length} escalated mention{escalated.length !== 1 ? "s" : ""}
+              </button>
+            )}
+            {slaBreached.length > 0 && (
+              <button onClick={() => { setTab("inbox"); setFilter(f => ({ ...f, status: ["open", "pending"] })); }}
+                style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, border: `1px solid #ef444440`, background: "#ef444415", color: "#ef4444", fontWeight: 600, cursor: "pointer" }}>
+                {slaBreached.length} SLA breach{slaBreached.length !== 1 ? "es" : ""}
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* KPI strip */}
       {tab === "inbox" && (
@@ -391,9 +442,12 @@ export default function SupportView() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   {isMobile && <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.accent, fontSize: 12, cursor: "pointer", marginBottom: 4 }}>← Back</button>}
                   <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.subject}</div>
-                  <div style={{ fontSize: 11, color: T.text3, display: "flex", gap: 8, alignItems: "center", marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: T.text3, display: "flex", gap: 8, alignItems: "center", marginTop: 2, flexWrap: "wrap" }}>
                     <span>{CHANNEL_ICONS[selected.channel]} {selected.customer_name || selected.customer_email}</span>
                     <span>#{selected.ticket_number}</span>
+                    {selected.customer_ltv > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#22c55e15", color: "#22c55e", fontWeight: 600 }}>LTV ${Number(selected.customer_ltv).toFixed(0)}</span>}
+                    {selected.customer_subscription_status && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.surface2, color: T.text3 }}>{selected.customer_subscription_status}</span>}
+                    {selected.csat_score && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: selected.csat_score >= 4 ? "#22c55e15" : selected.csat_score >= 3 ? "#f59e0b15" : "#ef444415", color: selected.csat_score >= 4 ? "#22c55e" : selected.csat_score >= 3 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>⭐ {selected.csat_score}/5</span>}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -431,6 +485,33 @@ export default function SupportView() {
                 ))}
                 <div ref={chatEndRef} />
               </div>
+
+              {/* CSAT Rating - show when resolved without score */}
+              {(selected.status === "resolved" || selected.status === "closed") && !selected.csat_score && (
+                <div style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}`, background: "#f59e0b08", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>⭐ Rate this interaction:</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {[1,2,3,4,5].map(score => (
+                      <button key={score} onClick={async () => {
+                        await supabase.from("cx_tickets").update({ csat_score: score, csat_submitted_at: new Date().toISOString() }).eq("id", selected.id);
+                        setSelected(s => ({ ...s, csat_score: score }));
+                        setTickets(p => p.map(t => t.id === selected.id ? { ...t, csat_score: score } : t));
+                      }} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#f59e0b20"}
+                        onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+                        {score <= 2 ? "😟" : score === 3 ? "😐" : score === 4 ? "😊" : "🤩"}
+                      </button>
+                    ))}
+                  </div>
+                  <span style={{ fontSize: 9, color: T.text3 }}>1-5 scale</span>
+                </div>
+              )}
+              {selected.csat_score && (
+                <div style={{ padding: "6px 16px", borderTop: `1px solid ${T.border}`, background: selected.csat_score >= 4 ? "#22c55e08" : "#f59e0b08", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, color: T.text2 }}>CSAT: {["😟","😟","😐","😊","🤩"][selected.csat_score - 1]} {selected.csat_score}/5</span>
+                  {selected.csat_comment && <span style={{ fontSize: 10, color: T.text3 }}>— "{selected.csat_comment}"</span>}
+                </div>
+              )}
 
               {/* Reply box */}
               <div style={{ borderTop: `1px solid ${T.border}`, padding: 12, flexShrink: 0 }}>
