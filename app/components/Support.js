@@ -77,6 +77,7 @@ export default function SupportView() {
   const [moderatingId, setModeratingId] = useState(null);
   const [aiReplyLoading, setAiReplyLoading] = useState(null);
   const [slaPolicies, setSlaPolicies] = useState([]);
+  const [automations, setAutomations] = useState([]);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const chatEndRef = useRef(null);
@@ -93,7 +94,7 @@ export default function SupportView() {
 
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -106,6 +107,7 @@ export default function SupportView() {
         supabase.from("cx_social_rules").select("*").eq("org_id", orgId).order("name"),
         supabase.from("cx_moderation_rules").select("*").eq("org_id", orgId).order("priority", { ascending: false }),
         supabase.from("cx_sla_policies").select("*").eq("org_id", orgId).order("priority"),
+        supabase.from("cx_automations").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -120,6 +122,7 @@ export default function SupportView() {
       setSocialRules(socialRuleRes.data || []);
       setModerationRules(modRuleRes.data || []);
       setSlaPolicies(slaRes.data || []);
+      setAutomations(autoRes.data || []);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -288,6 +291,7 @@ export default function SupportView() {
     { key: "social", label: "Social", icon: "📱" },
     { key: "moderation", label: "Moderation", icon: "🛡" },
     { key: "sla", label: "SLA", icon: "⏱" },
+    { key: "automations", label: "Automations", icon: "⚡" },
     { key: "analytics", label: "Analytics", icon: "📊" },
   ];
 
@@ -1496,6 +1500,103 @@ export default function SupportView() {
                 </div>
               ))}
               {slaPolicies.length === 0 && <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 13 }}>No SLA policies configured. Add one to start tracking response times.</div>}
+            </div>
+          </div>
+        )}
+
+        {tab === "automations" && (
+          <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>⚡ Automation Rules</h2>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Auto-assign, auto-tag, auto-escalate, and auto-respond based on ticket conditions.</div>
+              </div>
+              <button onClick={async () => {
+                const { data } = await supabase.from("cx_automations").insert({
+                  org_id: orgId, name: "New Automation", trigger_type: "ticket_created",
+                  conditions: { match: "any", rules: [{ field: "priority", operator: "equals", value: "urgent" }] },
+                  actions: { type: "assign", value: "" },
+                  is_active: true, created_by: user?.id,
+                }).select().single();
+                if (data) setAutomations(p => [data, ...p]);
+              }} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, cursor: "pointer" }}>+ Add Rule</button>
+            </div>
+
+            {/* Preset automations */}
+            {automations.length === 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 8 }}>Quick Start — click to add:</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[
+                    { name: "Escalate urgent tickets", trigger: "ticket_created", conditions: { match: "all", rules: [{ field: "priority", operator: "equals", value: "urgent" }] }, actions: { type: "notify", value: "Urgent ticket needs attention" } },
+                    { name: "Auto-tag subscription issues", trigger: "ticket_created", conditions: { match: "any", rules: [{ field: "subject", operator: "contains", value: "cancel" }, { field: "subject", operator: "contains", value: "subscription" }] }, actions: { type: "tag", value: "subscription" } },
+                    { name: "AI auto-reply to emails", trigger: "ticket_created", conditions: { match: "all", rules: [{ field: "channel", operator: "equals", value: "email" }] }, actions: { type: "ai_draft", value: "" } },
+                    { name: "Flag negative sentiment", trigger: "ticket_created", conditions: { match: "all", rules: [{ field: "ai_sentiment", operator: "equals", value: "negative" }] }, actions: { type: "priority", value: "high" } },
+                  ].map((preset, i) => (
+                    <button key={i} onClick={async () => {
+                      const { data } = await supabase.from("cx_automations").insert({
+                        org_id: orgId, name: preset.name, trigger_type: preset.trigger,
+                        conditions: preset.conditions, actions: preset.actions,
+                        is_active: true, created_by: user?.id,
+                      }).select().single();
+                      if (data) setAutomations(p => [data, ...p]);
+                    }} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 500, borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.text2, cursor: "pointer" }}>
+                      + {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Automation cards */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {automations.map(auto => (
+                <div key={auto.id} style={{ padding: "14px 16px", borderRadius: 10, border: `1px solid ${auto.is_active ? T.border : T.border + "50"}`, background: T.surface, opacity: auto.is_active ? 1 : 0.6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div onClick={async () => { await supabase.from("cx_automations").update({ is_active: !auto.is_active }).eq("id", auto.id); setAutomations(p => p.map(a => a.id === auto.id ? { ...a, is_active: !a.is_active } : a)); }}
+                        style={{ width: 36, height: 20, borderRadius: 10, background: auto.is_active ? "#22c55e" : T.surface3, cursor: "pointer", position: "relative" }}>
+                        <div style={{ width: 16, height: 16, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: auto.is_active ? 18 : 2, transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }} />
+                      </div>
+                      <input defaultValue={auto.name} onBlur={async e => { await supabase.from("cx_automations").update({ name: e.target.value }).eq("id", auto.id); setAutomations(p => p.map(a => a.id === auto.id ? { ...a, name: e.target.value } : a)); }}
+                        style={{ fontSize: 14, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none" }} />
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 9, color: T.text3 }}>Ran {auto.run_count || 0}×</span>
+                      <button onClick={async () => { if (!confirm("Delete?")) return; await supabase.from("cx_automations").delete().eq("id", auto.id); setAutomations(p => p.filter(a => a.id !== auto.id)); }}
+                        style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4 }}>WHEN</div>
+                      <select value={auto.trigger_type} onChange={async e => { await supabase.from("cx_automations").update({ trigger_type: e.target.value }).eq("id", auto.id); setAutomations(p => p.map(a => a.id === auto.id ? { ...a, trigger_type: e.target.value } : a)); }}
+                        style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, cursor: "pointer", width: "100%", marginBottom: 6 }}>
+                        <option value="ticket_created">Ticket Created</option>
+                        <option value="ticket_updated">Ticket Updated</option>
+                        <option value="mention_received">Social Mention Received</option>
+                        <option value="sla_breach">SLA About to Breach</option>
+                      </select>
+                      <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>
+                        Conditions: {auto.conditions?.rules?.length || 0} rule(s) — {auto.conditions?.match || "any"} match
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4 }}>THEN</div>
+                      <select value={auto.actions?.type || "notify"} onChange={async e => { const actions = { ...auto.actions, type: e.target.value }; await supabase.from("cx_automations").update({ actions }).eq("id", auto.id); setAutomations(p => p.map(a => a.id === auto.id ? { ...a, actions } : a)); }}
+                        style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, cursor: "pointer", width: "100%" }}>
+                        <option value="assign">Assign to team member</option>
+                        <option value="tag">Add tag</option>
+                        <option value="priority">Change priority</option>
+                        <option value="ai_draft">Generate AI draft</option>
+                        <option value="notify">Send notification</option>
+                        <option value="escalate">Escalate to manager</option>
+                        <option value="auto_resolve">Auto-resolve (AI)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
