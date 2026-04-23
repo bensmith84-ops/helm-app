@@ -364,11 +364,19 @@ export default function SupportView() {
                     <span style={{ fontSize: 11, color: T.text2 }}>{ticket.customer_name || ticket.customer_email || "Unknown"}</span>
                     <span style={{ fontSize: 9, color: T.text3 }}>#{ticket.ticket_number}</span>
                   </div>
-                  <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: STATUS_COLORS[ticket.status] + "20", color: STATUS_COLORS[ticket.status], fontWeight: 700, textTransform: "capitalize" }}>{ticket.status}</span>
                     <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: PRIORITY_COLORS[ticket.priority] + "20", color: PRIORITY_COLORS[ticket.priority], fontWeight: 700, textTransform: "capitalize" }}>{ticket.priority}</span>
                     {ticket.ai_auto_resolved && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "#a855f720", color: "#a855f7", fontWeight: 700 }}>🤖 AI</span>}
-                    {ticket.sla_breached && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "#ef444420", color: "#ef4444", fontWeight: 700 }}>⚠️ SLA</span>}
+                    {ticket.sla_breached && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "#ef444420", color: "#ef4444", fontWeight: 700 }}>⚠️ SLA Breached</span>}
+                    {!ticket.sla_breached && ticket.sla_first_response_due && !ticket.first_response_at && (() => {
+                      const due = new Date(ticket.sla_first_response_due);
+                      const mins = Math.round((due - new Date()) / 60000);
+                      if (mins < 0) return <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "#ef444420", color: "#ef4444", fontWeight: 700 }}>⏰ {Math.abs(mins)}m overdue</span>;
+                      if (mins < 30) return <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "#f59e0b20", color: "#f59e0b", fontWeight: 700 }}>⏰ {mins}m left</span>;
+                      return null;
+                    })()}
+                    {ticket.category && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: T.surface2, color: T.text3, textTransform: "capitalize" }}>{ticket.category.replace("_", " ")}</span>}
                   </div>
                 </div>
               ))}
@@ -823,12 +831,12 @@ export default function SupportView() {
                 <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>📈 Agent Performance</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
                   {[
-                    { label: "AI Resolution Rate", value: "—", target: ">60%", icon: "🤖" },
-                    { label: "Avg Response Time", value: "—", target: "<2 min", icon: "⚡" },
-                    { label: "Customer Satisfaction", value: "—", target: ">4.5", icon: "⭐" },
-                    { label: "Escalation Rate", value: "—", target: "<15%", icon: "🔄" },
-                    { label: "Tickets Handled", value: "0", target: "", icon: "🎫" },
-                    { label: "Cost per Ticket", value: "—", target: "<$0.10", icon: "💰" },
+                    { label: "AI Resolution Rate", value: stats.ai_resolved > 0 ? Math.round(stats.ai_resolved / Math.max(1, tickets.length) * 100) + "%" : "—", target: ">60%", icon: "🤖" },
+                    { label: "Avg Response Time", value: stats.avg_response > 0 ? stats.avg_response + "m" : "—", target: "<2 min", icon: "⚡" },
+                    { label: "Customer Satisfaction", value: stats.csat > 0 ? stats.csat.toFixed(1) : "—", target: ">4.5", icon: "⭐" },
+                    { label: "Escalation Rate", value: tickets.filter(t => t.status === "escalated").length > 0 ? Math.round(tickets.filter(t => t.status === "escalated").length / Math.max(1, tickets.length) * 100) + "%" : "—", target: "<15%", icon: "🔄" },
+                    { label: "Tickets Handled", value: String(tickets.length), target: "", icon: "🎫" },
+                    { label: "Mentions Moderated", value: String(socialMentions.filter(m => m.moderation_status === "reviewed" || m.moderation_status === "flagged").length), target: "", icon: "🛡" },
                   ].map(k => (
                     <div key={k.label} style={{ padding: 12, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, textAlign: "center" }}>
                       <div style={{ fontSize: 20, marginBottom: 4 }}>{k.icon}</div>
@@ -837,6 +845,41 @@ export default function SupportView() {
                       {k.target && <div style={{ fontSize: 9, color: T.accent, marginTop: 2 }}>Target: {k.target}</div>}
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Auto-Moderation Settings */}
+              <div style={{ padding: 20, borderRadius: 12, border: `1px solid #0ea5e930`, background: "#0ea5e905", marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>🛡 Auto-Moderation</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>When enabled, new social mentions are automatically classified by AI and keyword rules take action instantly.</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <div>
+                    <Toggle value={aiConfig.auto_resolve_enabled} onChange={v => updateAiConfig("auto_resolve_enabled", v)} label="Auto-moderate new mentions" />
+                    <Toggle value={!aiConfig.business_hours_only} onChange={v => updateAiConfig("business_hours_only", !v)} label="Run 24/7 (not just business hours)" />
+                    <Toggle value={aiConfig.can_offer_discounts} onChange={v => updateAiConfig("can_offer_discounts", v)} label="AI can suggest discounts in replies" />
+                  </div>
+                  <div>
+                    {S("Auto-hide threshold", "Hide comments with risk above this level",
+                      <Sel value={aiConfig.auto_resolve_confidence_threshold > 0.9 ? "critical" : aiConfig.auto_resolve_confidence_threshold > 0.7 ? "high" : "medium"}
+                        onChange={v => updateAiConfig("auto_resolve_confidence_threshold", v === "critical" ? 0.95 : v === "high" ? 0.85 : 0.7)}
+                        options={[{value:"critical",label:"Critical only"},{value:"high",label:"High + Critical"},{value:"medium",label:"Medium + High + Critical"}]} />
+                    )}
+                    {S("Max auto-responses", "Per conversation",
+                      <Sel value={String(aiConfig.max_auto_responses || 3)} onChange={v => updateAiConfig("max_auto_responses", Number(v))}
+                        options={[{value:"1",label:"1 response"},{value:"3",label:"3 responses"},{value:"5",label:"5 responses"},{value:"10",label:"10 responses"}]} />
+                    )}
+                  </div>
+                </div>
+                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>Active Moderation Rules</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {moderationRules.filter(r => r.is_active).map(r => (
+                      <span key={r.id} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: r.action === "hide" ? "#ef444415" : r.action === "escalate" ? "#f59e0b15" : T.surface2, color: r.action === "hide" ? "#ef4444" : r.action === "escalate" ? "#f59e0b" : T.text2, fontWeight: 600 }}>
+                        {r.action === "hide" ? "🚫" : r.action === "escalate" ? "🔴" : r.action === "flag" ? "🚩" : "🏷"} {r.name} ({r.keywords?.length || 0} keywords)
+                      </span>
+                    ))}
+                    {moderationRules.filter(r => r.is_active).length === 0 && <span style={{ fontSize: 10, color: T.text3 }}>No active rules. Go to the Moderation tab to set up rules.</span>}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1353,6 +1396,55 @@ export default function SupportView() {
                 </div>
               </div>
             )}
+            {/* Moderation stats */}
+            <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>🛡 Moderation Overview</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 10, marginBottom: 12 }}>
+                {[
+                  { label: "Reviewed", value: socialMentions.filter(m => m.moderation_status === "reviewed").length, color: "#22c55e" },
+                  { label: "Flagged", value: socialMentions.filter(m => m.moderation_status === "flagged").length, color: "#f59e0b" },
+                  { label: "Hidden", value: socialMentions.filter(m => m.is_hidden).length, color: "#ef4444" },
+                  { label: "Escalated", value: socialMentions.filter(m => m.status === "escalated").length, color: "#f97316" },
+                  { label: "AI Replied", value: socialMentions.filter(m => m.ai_reply_sent).length, color: "#a855f7" },
+                  { label: "Pending", value: socialMentions.filter(m => !m.moderation_status || m.moderation_status === "pending").length, color: T.text3 },
+                ].map(k => (
+                  <div key={k.label} style={{ textAlign: "center", padding: 8 }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: k.color }}>{k.value}</div>
+                    <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{k.label}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Sentiment breakdown from moderated mentions */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {["positive", "neutral", "negative", "mixed"].map(s => {
+                  const count = socialMentions.filter(m => m.sentiment === s).length;
+                  const icons = { positive: "😊", neutral: "😐", negative: "😠", mixed: "🤔" };
+                  const colors = { positive: "#22c55e", neutral: "#f59e0b", negative: "#ef4444", mixed: "#8b5cf6" };
+                  return count > 0 ? (
+                    <div key={s} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, background: colors[s] + "10", border: `1px solid ${colors[s]}20` }}>
+                      <span style={{ fontSize: 12 }}>{icons[s]}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: colors[s] }}>{count}</span>
+                      <span style={{ fontSize: 9, color: T.text3, textTransform: "capitalize" }}>{s}</span>
+                    </div>
+                  ) : null;
+                })}
+              </div>
+              {/* Rules fire rate */}
+              {moderationRules.filter(r => r.fire_count > 0).length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginBottom: 6 }}>Top Firing Rules</div>
+                  {moderationRules.filter(r => r.fire_count > 0).sort((a, b) => b.fire_count - a.fire_count).slice(0, 5).map(r => (
+                    <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: T.text, flex: 1 }}>{r.name}</span>
+                      <div style={{ width: 80, height: 6, borderRadius: 3, background: T.surface2, overflow: "hidden" }}>
+                        <div style={{ width: `${Math.min(100, (r.fire_count / Math.max(...moderationRules.map(r => r.fire_count || 0), 1)) * 100)}%`, height: "100%", background: r.action === "hide" ? "#ef4444" : r.action === "escalate" ? "#f59e0b" : T.accent, borderRadius: 3 }} />
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: T.text2, minWidth: 24, textAlign: "right" }}>{r.fire_count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             {/* KB stats */}
             <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>📖 Knowledge Base</div>
