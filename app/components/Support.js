@@ -71,7 +71,7 @@ export default function SupportView() {
   const [socialMentions, setSocialMentions] = useState([]);
   const [socialAccounts, setSocialAccounts] = useState([]);
   const [socialRules, setSocialRules] = useState([]);
-  const [socialFilter, setSocialFilter] = useState({ platform: "all", status: "new", sentiment: "all" });
+  const [socialFilter, setSocialFilter] = useState({ platform: "all", status: "all", sentiment: "all" });
   const [selectedMention, setSelectedMention] = useState(null);
   const [moderationRules, setModerationRules] = useState([]);
   const [moderatingId, setModeratingId] = useState(null);
@@ -1253,6 +1253,13 @@ export default function SupportView() {
                 }} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #a855f730`, background: "#a855f710", color: "#a855f7", cursor: "pointer", whiteSpace: "nowrap" }}>
                   🧪 Test Data
                 </button>
+                <button onClick={async () => {
+                  if (!confirm("Delete all test mentions?")) return;
+                  await supabase.from("cx_social_mentions").delete().eq("org_id", orgId).is("external_id", null);
+                  setSocialMentions([]);
+                }} style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid #ef444430`, background: "#ef444408", color: "#ef4444", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  🗑
+                </button>
               </div>
               {/* Filters */}
               <div style={{ display: "flex", gap: 6, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
@@ -1304,42 +1311,49 @@ export default function SupportView() {
                     const PLAT = { instagram: { icon: "📸", color: "#E1306C" }, facebook: { icon: "📘", color: "#1877F2" }, tiktok: { icon: "🎵", color: "#010101" }, twitter: { icon: "🐦", color: "#1DA1F2" }, youtube: { icon: "📺", color: "#FF0000" } };
                     const p = PLAT[m.platform] || { icon: "📱", color: T.text3 };
                     const SENT = { positive: { icon: "😊", color: "#22c55e" }, neutral: { icon: "😐", color: "#f59e0b" }, negative: { icon: "😠", color: "#ef4444" }, mixed: { icon: "🤔", color: "#8b5cf6" } };
-                    const s = SENT[m.sentiment] || SENT.neutral;
+                    const s = m.sentiment ? (SENT[m.sentiment] || SENT.neutral) : { icon: "⚪", color: T.text3 };
+                    const STATUS_BADGE = { new: { bg: "#3b82f615", color: "#3b82f6", label: "New" }, replied: { bg: "#22c55e15", color: "#22c55e", label: "Replied" }, escalated: { bg: "#ef444415", color: "#ef4444", label: "Escalated" }, ignored: { bg: "#6b728015", color: "#6b7280", label: "Ignored" } };
+                    const stb = STATUS_BADGE[m.status] || STATUS_BADGE.new;
+                    const isExpanded = selectedMention?.id === m.id;
+                    const borderLeft = m.is_hidden ? "#6b7280" : m.moderation_risk === "critical" ? "#ef4444" : m.moderation_risk === "high" ? "#f97316" : m.status === "escalated" ? "#ef4444" : m.sentiment === "positive" ? "#22c55e" : m.sentiment === "negative" ? "#ef4444" : "transparent";
                     return (
-                      <div key={m.id} onClick={() => setSelectedMention(selectedMention?.id === m.id ? null : m)}
-                        style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer",
-                          background: selectedMention?.id === m.id ? T.accentDim : m.status === "new" ? T.surface : "transparent" }}
-                        onMouseEnter={e => { if (selectedMention?.id !== m.id) e.currentTarget.style.background = T.surface2; }}
-                        onMouseLeave={e => { if (selectedMention?.id !== m.id) e.currentTarget.style.background = m.status === "new" ? T.surface : "transparent"; }}>
-                        <div style={{ display: "flex", gap: 10, alignItems: "start" }}>
-                          <div style={{ width: 36, height: 36, borderRadius: 18, background: p.color + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
-                            {p.icon}
+                      <div key={m.id} onClick={() => setSelectedMention(isExpanded ? null : m)}
+                        style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer",
+                          borderLeft: `3px solid ${borderLeft}`,
+                          background: isExpanded ? T.accentDim : m.is_hidden ? T.surface + "60" : "transparent",
+                          opacity: m.is_hidden ? 0.5 : 1 }}
+                        onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = T.surface2; }}
+                        onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = m.is_hidden ? T.surface + "60" : "transparent"; }}>
+                        {/* Row 1: Author + platform + time */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 13 }}>{p.icon}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{m.author_name || m.author_handle}</span>
+                            {m.is_influencer || m.author_follower_count > 10000 ? <span style={{ fontSize: 8, padding: "1px 4px", borderRadius: 3, background: "#f59e0b20", color: "#f59e0b", fontWeight: 700 }}>⭐ {(m.author_follower_count / 1000).toFixed(0)}K</span> : null}
                           </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{m.author_name || m.author_handle}</span>
-                                {m.author_handle && <span style={{ fontSize: 10, color: T.text3 }}>{m.author_handle}</span>}
-                                {m.is_influencer || m.author_follower_count > 10000 ? <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#f59e0b20", color: "#f59e0b", fontWeight: 700 }}>⭐ {(m.author_follower_count / 1000).toFixed(0)}K</span> : null}
-                                {m.is_ugc && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#a855f720", color: "#a855f7", fontWeight: 700 }}>UGC</span>}
-                              </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                <span style={{ fontSize: 12 }}>{s.icon}</span>
-                                <span style={{ fontSize: 10, color: T.text3 }}>{timeAgo(m.posted_at)}</span>
-                              </div>
-                            </div>
-                            <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 6, display: "-webkit-box", WebkitLineClamp: selectedMention?.id === m.id ? 99 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                              {m.content}
-                            </div>
-                            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                              <span style={{ fontSize: 10, color: T.text3, textTransform: "capitalize", padding: "1px 6px", borderRadius: 3, background: T.surface2 }}>{m.mention_type}</span>
-                              {m.moderation_risk && m.moderation_risk !== "safe" && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: m.moderation_risk === "critical" ? "#ef444420" : m.moderation_risk === "high" ? "#f5920b20" : "#f59e0b10", color: m.moderation_risk === "critical" ? "#ef4444" : m.moderation_risk === "high" ? "#f97316" : "#f59e0b" }}>⚠ {m.moderation_risk}</span>}
-                              {m.is_hidden && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#6b728020", color: "#6b7280" }}>🚫 Hidden</span>}
-                              {m.moderation_status === "flagged" && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#f59e0b20", color: "#f59e0b" }}>🚩 Flagged</span>}
-                              {m.likes > 0 && <span style={{ fontSize: 10, color: T.text3 }}>❤️ {m.likes > 1000 ? (m.likes / 1000).toFixed(1) + "K" : m.likes}</span>}
-                              {m.comments > 0 && <span style={{ fontSize: 10, color: T.text3 }}>💬 {m.comments}</span>}
-                              {m.shares > 0 && <span style={{ fontSize: 10, color: T.text3 }}>🔄 {m.shares > 1000 ? (m.shares / 1000).toFixed(1) + "K" : m.shares}</span>}
-                            </div>
+                          <span style={{ fontSize: 10, color: T.text3 }}>{timeAgo(m.posted_at)}</span>
+                        </div>
+                        {/* Row 2: Comment text */}
+                        <div style={{ fontSize: 12, color: m.is_hidden ? T.text3 : T.text, lineHeight: 1.5, marginBottom: 6, textDecoration: m.is_hidden ? "line-through" : "none" }}>
+                          {m.content}
+                        </div>
+                        {/* Row 3: Status badges — always visible */}
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                          <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: stb.bg, color: stb.color, textTransform: "uppercase" }}>{stb.label}</span>
+                          {m.sentiment && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: s.color + "12", color: s.color }}>{s.icon} {m.sentiment}</span>}
+                          {m.intent && m.intent !== "general" && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: T.surface2, color: T.text3, textTransform: "capitalize" }}>{m.intent.replace("_", " ")}</span>}
+                          {m.moderation_risk && m.moderation_risk !== "safe" && <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: m.moderation_risk === "critical" ? "#ef444420" : "#f97316" + "20", color: m.moderation_risk === "critical" ? "#ef4444" : "#f97316" }}>⚠ {m.moderation_risk}</span>}
+                          {m.is_hidden && <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "#6b728020", color: "#6b7280" }}>🚫 HIDDEN</span>}
+                          {m.auto_responded && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: "#22c55e15", color: "#22c55e" }}>🤖 Auto-replied</span>}
+                          {m.ai_reply_draft && !m.auto_responded && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: "#a855f715", color: "#a855f7" }}>✨ Draft ready</span>}
+                          {m.moderation_status === "pending" && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: T.surface2, color: T.text3 }}>⏳ Unmoderated</span>}
+                        </div>
+                        {/* Row 4: AI draft preview — show first line without expanding */}
+                        {m.ai_reply_draft && !isExpanded && (
+                          <div style={{ marginTop: 6, padding: "4px 8px", background: "#a855f706", borderRadius: 4, borderLeft: `2px solid #a855f730`, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            💬 {m.ai_reply_draft}
+                          </div>
+                        )}
                             {/* AI Reply Draft */}
                             {m.ai_reply_draft && selectedMention?.id === m.id && (
                               <div style={{ marginTop: 8, padding: "8px 10px", background: "#a855f708", borderRadius: 6, border: `1px solid #a855f715` }}>
@@ -1401,8 +1415,6 @@ export default function SupportView() {
                                 {m.post_url && <a href={m.post_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.accent, cursor: "pointer", textDecoration: "none" }}>↗ Open</a>}
                               </div>
                             )}
-                          </div>
-                        </div>
                       </div>
                     );
                   })}
