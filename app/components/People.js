@@ -37,6 +37,28 @@ const MODULE_TREE = [
   { key: "okrs", label: "OKRs", icon: "◎" },
   { key: "projects", label: "Projects", icon: "◫" },
   { key: "launches", label: "Launches", icon: "🚀" },
+  { key: "demand_planning", label: "Demand Planning", icon: "📊", children: [
+    { key: "demand_planning.view", label: "View Plans" },
+    { key: "demand_planning.edit", label: "Edit Plans" },
+    { key: "demand_planning.create", label: "Create Launches" },
+    { key: "demand_planning.channels", label: "Manage Channels" },
+    { key: "demand_planning.variants", label: "Manage Variants" },
+    { key: "demand_planning.rebill", label: "Rebill/Reorder Curves" },
+  ]},
+  { key: "supply_chain", label: "Supply Chain", icon: "🔗", children: [
+    { key: "supply_chain.forecasting", label: "Forecasting" },
+    { key: "supply_chain.procurement", label: "Procurement" },
+    { key: "supply_chain.logistics", label: "Logistics" },
+    { key: "supply_chain.quality", label: "Quality Control" },
+  ]},
+  { key: "finance", label: "Finance", icon: "💰", children: [
+    { key: "finance.ap", label: "Accounts Payable" },
+    { key: "finance.ar", label: "Accounts Receivable" },
+    { key: "finance.budgets", label: "Budget Planner" },
+    { key: "finance.expenses", label: "Expense Reports" },
+    { key: "finance.invoices", label: "Invoice Management" },
+    { key: "finance.approvals", label: "Approval Workflows" },
+  ]},
   { key: "scorecard", label: "Scorecard", icon: "▣" },
   { key: "learning", label: "Learning", icon: "📚", children: [
     { key: "learning.take_courses", label: "Take Courses" },
@@ -105,6 +127,7 @@ const MODULE_TREE = [
   { key: "reports", label: "Reports", icon: "▥" },
   { key: "people", label: "Team", icon: "◔" },
   { key: "activity", label: "Activity", icon: "◑" },
+  { key: "ai-builder", label: "AI Builder", icon: "🧠" },
   { key: "settings", label: "Settings", icon: "⚙" },
 ];
 const MODULES = MODULE_TREE.map(m => m.key);
