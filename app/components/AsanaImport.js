@@ -140,7 +140,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
         author_id: user?.id,
         content: `**${c.author_name}** (from Asana): ${c.text}`,
         created_at: c.created_at || new Date().toISOString(),
-      }).catch(() => {});
+      });
       importedComments++;
     }
 
@@ -151,7 +151,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
         filename: att.name, file_path: att.url,
         file_size: att.size || 0, mime_type: "link/external",
         uploaded_by: user?.id,
-      }).catch(() => {});
+      });
       importedAttachments++;
     }
 
@@ -162,7 +162,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
         const { data: nl } = await supabase.from("task_labels").insert({ org_id: orgId, name: tagName, color: "#6366f1" }).select().single();
         existing = nl;
       }
-      if (existing) await supabase.from("task_label_assignments").insert({ task_id: created.id, label_id: existing.id }).catch(() => {});
+      if (existing) await supabase.from("task_label_assignments").insert({ task_id: created.id, label_id: existing.id });
     }
 
     // Recurse into subtasks
@@ -200,7 +200,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
                 author_id: user?.id,
                 content: `**${c.author_name}** (from Asana): ${c.text}`,
                 created_at: c.created_at || new Date().toISOString(),
-              }).catch(() => {});
+              });
               importedComments++;
             }
             for (const att of (stExtras?.attachments || [])) {
@@ -209,7 +209,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
                 filename: att.name, file_path: att.url,
                 file_size: att.size || 0, mime_type: "link/external",
                 uploaded_by: user?.id,
-              }).catch(() => {});
+              });
               importedAttachments++;
             }
           } catch {}
@@ -226,7 +226,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
       if (!helmId) continue;
       for (const depGid of depGids) {
         const predId = gidToHelmId[depGid];
-        if (predId) await supabase.from("task_dependencies").insert({ org_id: orgId, predecessor_id: predId, successor_id: helmId, dependency_type: "finish_to_start" }).catch(() => {});
+        if (predId) await supabase.from("task_dependencies").insert({ org_id: orgId, predecessor_id: predId, successor_id: helmId, dependency_type: "finish_to_start" });
       }
     }
   };
@@ -349,7 +349,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
               org_id: orgId, entity_type: "task", entity_id: helmTaskId,
               author_id: user?.id, content,
               created_at: c.created_at || new Date().toISOString(),
-            }).catch(() => {});
+            });
             newComments++;
           }
         }
@@ -364,7 +364,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
               filename: att.name, file_path: att.url,
               file_size: att.size || 0, mime_type: "link/external",
               uploaded_by: user?.id,
-            }).catch(() => {});
+            });
           }
         }
 
@@ -605,8 +605,8 @@ export default function AsanaImportModal({ onClose, onImported }) {
                     if (taskIds.length > 0) {
                       // Delete related data first
                       for (const tid of taskIds) {
-                        await supabase.from("comments").delete().eq("entity_type", "task").eq("entity_id", tid).catch(() => {});
-                        await supabase.from("attachments").delete().eq("entity_type", "task").eq("entity_id", tid).catch(() => {});
+                        await supabase.from("comments").delete().eq("entity_type", "task").eq("entity_id", tid);
+                        await supabase.from("attachments").delete().eq("entity_type", "task").eq("entity_id", tid);
                       }
                     }
                     await supabase.from("tasks").delete().eq("project_id", existingHelmProject.id);
