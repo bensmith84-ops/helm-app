@@ -163,24 +163,11 @@ export default function MetabaseSync({ onClose }) {
                     for (const mapping of DASHBOARD_SYNC_MAP) {
                       setError(`Syncing ${mapping.icon} ${mapping.label}...`);
                       try {
-                        const r = await mb("run_question", { question_id: mapping.card_id });
-                        if (r.data && r.data.length > 0) {
-                          // Clean column names to match DB
-                          const cleanData = r.data.map(row => {
-                            const clean = { org_id: orgId, imported_at: new Date().toISOString() };
-                            for (const [key, val] of Object.entries(row)) {
-                              clean[key.toLowerCase().replace(/[^a-z0-9_]/g, "_")] = val;
-                            }
-                            return clean;
-                          });
-                          await supabase.from(mapping.table).delete().eq("org_id", orgId);
-                          // Batch insert
-                          for (let i = 0; i < cleanData.length; i += 100) {
-                            await supabase.from(mapping.table).insert(cleanData.slice(i, i + 100));
-                          }
-                          results.push({ ...mapping, rows: cleanData.length, status: "ok" });
+                        const r = await mb("sync_question_to_table", { question_id: mapping.card_id, table_name: mapping.table, org_id: orgId });
+                        if (r.error) {
+                          results.push({ ...mapping, rows: 0, status: "error", error: r.error });
                         } else {
-                          results.push({ ...mapping, rows: 0, status: "empty" });
+                          results.push({ ...mapping, rows: r.synced || 0, total: r.total || 0, status: r.synced > 0 ? "ok" : "empty", errors: r.errors });
                         }
                       } catch (e) {
                         results.push({ ...mapping, rows: 0, status: "error", error: e.message });
@@ -334,7 +321,7 @@ export default function MetabaseSync({ onClose }) {
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, marginBottom: 4, background: T.surface }}>
                       <span style={{ fontSize: 12, color: T.text }}>{r.icon} {r.label}</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: r.status === "ok" ? "#22c55e" : r.status === "empty" ? T.text3 : "#ef4444" }}>
-                        {r.status === "ok" ? `✅ ${r.rows} rows` : r.status === "empty" ? "— empty" : `❌ ${r.error}`}
+                        {r.status === "ok" ? `✅ ${r.rows}${r.total && r.total !== r.rows ? `/${r.total}` : ""} rows` : r.status === "empty" ? "— empty" : `❌ ${r.error?.substring(0, 60)}`}
                       </span>
                     </div>
                   ))}
