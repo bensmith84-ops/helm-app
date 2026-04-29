@@ -79,157 +79,310 @@ function MiniBar({ data, maxH = 40, barW = 6, gap = 2, color = T.accent }) {
 // SUPPLY CHAIN VIEW — Inventory planning, PO recommendations, stockout risk
 // ═══════════════════════════════════════════════════════════════════════════════
 function SupplyChainView({ isMobile, orgId }) {
-  const EB_ORG = "a0000000-0000-0000-0000-000000000001";
-  const isEB = orgId === EB_ORG;
-  
-  // Only show mock data for Earth Breeze; other orgs get empty state until data sources are connected
-  if (!isEB) {
+  const [weeklySales, setWeeklySales] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [offers, setOffers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [subTab, setSubTab] = useState("overview");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const [wsR, invR, offR] = await Promise.all([
+        supabase.from("dp_weekly_sales").select("*").eq("org_id", orgId).order("week_start", { ascending: false }).limit(2000),
+        supabase.from("dp_inventory").select("*").eq("org_id", orgId).limit(1000),
+        supabase.from("dp_offer_performance").select("*").eq("org_id", orgId).limit(100),
+      ]);
+      setWeeklySales(wsR.data || []);
+      setInventory(invR.data || []);
+      setOffers(offR.data || []);
+      setLoading(false);
+    })();
+  }, [orgId]);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading demand data...</div>;
+  if (weeklySales.length === 0 && inventory.length === 0) {
     return (
       <div style={{ padding: 60, textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>📦</div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>No Supply Chain Data Yet</div>
-        <div style={{ fontSize: 12, color: T.text3, marginTop: 6, maxWidth: 400, margin: "6px auto 0", lineHeight: 1.6 }}>Connect your data sources in the Data Sources tab to start tracking inventory health, demand forecasts, and PO recommendations for this workspace.</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>No Demand Data Yet</div>
+        <div style={{ fontSize: 12, color: T.text3, marginTop: 6, maxWidth: 400, margin: "6px auto 0", lineHeight: 1.6 }}>Click "📊 Sync from Metabase" above to pull in Weekly Sales, Inventory, and SKU data.</div>
       </div>
     );
   }
-  const sortedInv = [...MOCK_INVENTORY].sort((a, b) => {
-    const aWos = a.on_hand / Math.max(a.weekly_demand, 1);
-    const bWos = b.on_hand / Math.max(b.weekly_demand, 1);
-    return aWos - bWos;
-  });
-
-  const totalOnHand = MOCK_INVENTORY.reduce((s, i) => s + i.on_hand, 0);
-  const totalIncoming = MOCK_INVENTORY.reduce((s, i) => s + i.incoming, 0);
-  const totalWeeklyDemand = MOCK_INVENTORY.reduce((s, i) => s + i.weekly_demand, 0);
-  const avgWos = totalOnHand / Math.max(totalWeeklyDemand, 1);
-  const criticalCount = sortedInv.filter(i => (i.on_hand / Math.max(i.weekly_demand, 1)) < 4).length;
 
   const getRisk = (wos) => wos < 3 ? "critical" : wos < 5 ? "red" : wos < 8 ? "yellow" : "green";
   const getRiskLabel = (wos) => wos < 3 ? "CRITICAL" : wos < 5 ? "LOW" : wos < 8 ? "WATCH" : "OK";
 
+  // Aggregate weekly sales by SKU
+  const weeks = [...new Set(weeklySales.map(r => r.week_start))].sort().reverse();
+  const latestWeek = weeks[0];
+  const latestSales = weeklySales.filter(r => r.week_start === latestWeek);
+  const totalUnits = latestSales.reduce((s, r) => s + (r.units_sold || 0), 0);
+  const totalRevenue = latestSales.reduce((s, r) => s + Number(r.gross_revenue || 0), 0);
+  const totalOrders = latestSales.reduce((s, r) => s + (r.orders_count || 0), 0);
+  const subUnits = latestSales.filter(r => r.is_subscription).reduce((s, r) => s + (r.units_sold || 0), 0);
+  const subPct = totalUnits > 0 ? subUnits / totalUnits : 0;
+
+  // Top products by units
+  const byProduct = {};
+  latestSales.forEach(r => {
+    const key = r.sku || r.product_title || "Unknown";
+    if (!byProduct[key]) byProduct[key] = { sku: r.sku, name: r.product_title || r.sku, units: 0, revenue: 0, orders: 0, subUnits: 0 };
+    byProduct[key].units += r.units_sold || 0;
+    byProduct[key].revenue += Number(r.gross_revenue || 0);
+    byProduct[key].orders += r.orders_count || 0;
+    if (r.is_subscription) byProduct[key].subUnits += r.units_sold || 0;
+  });
+  const topProducts = Object.values(byProduct).sort((a, b) => b.units - a.units);
+
+  // By channel
+  const byChannel = {};
+  latestSales.forEach(r => {
+    const ch = r.channel || "Unknown";
+    if (!byChannel[ch]) byChannel[ch] = { channel: ch, units: 0, revenue: 0, orders: 0 };
+    byChannel[ch].units += r.units_sold || 0;
+    byChannel[ch].revenue += Number(r.gross_revenue || 0);
+    byChannel[ch].orders += r.orders_count || 0;
+  });
+  const channels = Object.values(byChannel).sort((a, b) => b.units - a.units);
+
+  // By country
+  const byCountry = {};
+  latestSales.forEach(r => {
+    const co = r.country || "Unknown";
+    if (!byCountry[co]) byCountry[co] = { country: co, units: 0, revenue: 0 };
+    byCountry[co].units += r.units_sold || 0;
+    byCountry[co].revenue += Number(r.gross_revenue || 0);
+  });
+  const countries = Object.values(byCountry).sort((a, b) => b.units - a.units);
+
+  // Inventory aggregated by SKU
+  const invBySku = {};
+  inventory.forEach(r => {
+    const key = r.sku || "Unknown";
+    if (!invBySku[key]) invBySku[key] = { sku: key, warehouse: r.warehouse_location || "—", on_hand: 0, reserved: 0, incoming: 0, arrival: r.expected_arrival_date, lead_time: r.lead_time_days || 0 };
+    invBySku[key].on_hand += r.quantity_on_hand || 0;
+    invBySku[key].reserved += r.quantity_reserved || 0;
+    invBySku[key].incoming += r.quantity_incoming || 0;
+  });
+  // Match inventory to weekly demand
+  const invItems = Object.values(invBySku).map(inv => {
+    const salesMatch = byProduct[inv.sku];
+    const weeklyDemand = salesMatch ? salesMatch.units : 0;
+    const wos = weeklyDemand > 0 ? inv.on_hand / weeklyDemand : inv.on_hand > 0 ? 99 : 0;
+    return { ...inv, weeklyDemand, wos, name: salesMatch?.name || inv.sku };
+  }).sort((a, b) => a.wos - b.wos);
+
+  const totalOnHand = invItems.reduce((s, i) => s + i.on_hand, 0);
+  const totalIncoming = invItems.reduce((s, i) => s + i.incoming, 0);
+  const totalWeeklyDemand = invItems.reduce((s, i) => s + i.weeklyDemand, 0);
+  const avgWos = totalWeeklyDemand > 0 ? totalOnHand / totalWeeklyDemand : 0;
+  const criticalCount = invItems.filter(i => i.wos < 4 && i.weeklyDemand > 0).length;
+
+  const SUB_TABS = [
+    { id: "overview", label: "Overview", icon: "📊" },
+    { id: "products", label: "By Product", icon: "📦" },
+    { id: "inventory", label: "Inventory", icon: "🏭" },
+    { id: "channels", label: "By Channel", icon: "📡" },
+  ];
+
   return (
     <div>
-      {/* KPI Strip */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
-        <KPI label="Total On-Hand" value={fmt(totalOnHand)} sub="units across all warehouses" icon="📦" />
-        <KPI label="Incoming" value={fmt(totalIncoming)} sub="on open POs / in transit" icon="🚢" color={T.accent} />
-        <KPI label="Avg Weeks of Supply" value={avgWos.toFixed(1)} sub={`at ${fmt(totalWeeklyDemand)} units/week`} icon="⏱" color={avgWos < 6 ? "#f59e0b" : "#22c55e"} />
-        <KPI label="At Risk SKUs" value={criticalCount} sub="below 4 weeks supply" icon="⚠️" color={criticalCount > 0 ? "#ef4444" : "#22c55e"} />
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {SUB_TABS.map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)}
+            style={{ padding: "6px 14px", fontSize: 11, fontWeight: subTab === t.id ? 700 : 500, borderRadius: 6, border: `1px solid ${subTab === t.id ? T.accent + "40" : T.border}`, background: subTab === t.id ? T.accentDim : "transparent", color: subTab === t.id ? T.accent : T.text3, cursor: "pointer" }}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 10, color: T.text3, alignSelf: "center" }}>Week of {latestWeek} · {fmt(weeklySales.length)} records · {weeks.length} week(s)</span>
       </div>
 
-      {/* Inventory Health Table */}
-      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 20 }}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Inventory Health by Product</div>
-            <div style={{ fontSize: 11, color: T.text3 }}>Sorted by weeks of supply — most urgent first</div>
+      {/* KPI Strip */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10, marginBottom: 20 }}>
+        <KPI label="Weekly Units" value={fmt(totalUnits)} sub={`week of ${latestWeek}`} icon="📦" />
+        <KPI label="Weekly Revenue" value={fmtD(totalRevenue)} sub={`${fmt(totalOrders)} orders`} icon="💰" color="#22c55e" />
+        <KPI label="Sub Mix" value={`${(subPct * 100).toFixed(0)}%`} sub={`${fmt(subUnits)} sub units`} icon="🔄" color={T.accent} />
+        <KPI label="Avg WoS" value={avgWos > 0 ? avgWos.toFixed(1) : "—"} sub={inventory.length > 0 ? `${fmt(totalOnHand)} on hand` : "No inventory data"} icon="⏱" color={avgWos > 0 && avgWos < 6 ? "#f59e0b" : "#22c55e"} />
+        <KPI label="At Risk" value={criticalCount} sub="SKUs < 4 weeks" icon="⚠️" color={criticalCount > 0 ? "#ef4444" : "#22c55e"} />
+      </div>
+
+      {/* OVERVIEW TAB */}
+      {subTab === "overview" && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+          {/* Top Products */}
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top Products by Units</div>
+            {topProducts.slice(0, 10).map((p, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < 9 ? `1px solid ${T.border}08` : "none" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.text3, width: 20, textAlign: "right" }}>#{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || p.sku}</div>
+                  <div style={{ fontSize: 9, color: T.text3 }}>{p.sku}</div>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{fmt(p.units)}</span>
+                <span style={{ fontSize: 10, color: "#22c55e" }}>{fmtD(p.revenue)}</span>
+              </div>
+            ))}
           </div>
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: T.surface2 }}>
-                {["Product", "Warehouse", "On Hand", "Incoming", "Weekly Demand", "Weeks of Supply", "Risk", "Reorder By"].map(h => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedInv.map((inv, i) => {
-                const wos = inv.on_hand / Math.max(inv.weekly_demand, 1);
-                const risk = getRisk(wos);
-                const reorderBy = new Date();
-                reorderBy.setDate(reorderBy.getDate() + Math.max(0, (wos - (inv.lead_time / 7)) * 7));
+
+          {/* Channel + Country breakdown */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>By Channel</div>
+              {channels.map((ch, i) => {
+                const pct = totalUnits > 0 ? ch.units / totalUnits : 0;
                 return (
-                  <tr key={i} style={{ borderBottom: `1px solid ${T.border}`, background: risk === "critical" ? "#fef2f210" : risk === "red" ? "#fef2f208" : "transparent" }}>
-                    <td style={{ padding: "10px 12px", fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.base_product}</td>
-                    <td style={{ padding: "10px 12px", color: T.text2 }}>{inv.warehouse}</td>
-                    <td style={{ padding: "10px 12px", fontWeight: 700, fontFamily: "monospace" }}>{fmt(inv.on_hand)}</td>
-                    <td style={{ padding: "10px 12px", fontFamily: "monospace", color: inv.incoming > 0 ? T.accent : T.text3 }}>{inv.incoming > 0 ? `+${fmt(inv.incoming)}` : "—"}{inv.arrival ? <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>({inv.arrival})</span> : ""}</td>
-                    <td style={{ padding: "10px 12px", fontFamily: "monospace" }}>{fmt(inv.weekly_demand)}/wk</td>
-                    <td style={{ padding: "10px 12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <div style={{ width: 60, height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${Math.min(100, (wos / 12) * 100)}%`, background: RISK_COLORS[risk], borderRadius: 3 }} />
-                        </div>
-                        <span style={{ fontWeight: 700, fontFamily: "monospace", color: RISK_COLORS[risk] }}>{wos.toFixed(1)}</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: RISK_COLORS[risk] + "18", color: RISK_COLORS[risk] }}>{getRiskLabel(wos)}</span>
-                    </td>
-                    <td style={{ padding: "10px 12px", fontSize: 11, color: T.text3, whiteSpace: "nowrap" }}>{reorderBy.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
-                  </tr>
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: T.text, width: 80 }}>{ch.channel}</span>
+                    <div style={{ flex: 1, height: 8, borderRadius: 4, background: T.surface2, overflow: "hidden" }}>
+                      <div style={{ width: `${pct * 100}%`, height: "100%", background: T.accent, borderRadius: 4 }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: T.text2, minWidth: 50, textAlign: "right" }}>{fmt(ch.units)}</span>
+                    <span style={{ fontSize: 9, color: T.text3, minWidth: 35, textAlign: "right" }}>{(pct * 100).toFixed(0)}%</span>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>By Country</div>
+              {countries.map((co, i) => {
+                const pct = totalUnits > 0 ? co.units / totalUnits : 0;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: T.text, width: 40 }}>{co.country}</span>
+                    <div style={{ flex: 1, height: 8, borderRadius: 4, background: T.surface2, overflow: "hidden" }}>
+                      <div style={{ width: `${pct * 100}%`, height: "100%", background: "#22c55e", borderRadius: 4 }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: T.text2, minWidth: 50, textAlign: "right" }}>{fmt(co.units)}</span>
+                    <span style={{ fontSize: 9, color: T.text3, minWidth: 35, textAlign: "right" }}>{(pct * 100).toFixed(0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* PO Recommendations */}
-      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 20 }}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>PO Recommendations</div>
-          <div style={{ fontSize: 11, color: T.text3 }}>Auto-generated based on forecast + lead times + safety stock</div>
+      {/* PRODUCTS TAB */}
+      {subTab === "products" && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, fontSize: 13, fontWeight: 700, color: T.text }}>
+            All Products — Week of {latestWeek} ({topProducts.length} SKUs)
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead><tr>
+                {["#", "SKU", "Product", "Units", "Revenue", "Orders", "Sub %", "Share"].map(h => (
+                  <th key={h} style={{ textAlign: h === "#" ? "center" : "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{topProducts.map((p, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
+                  <td style={{ padding: "6px 10px", color: T.text3, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
+                  <td style={{ padding: "6px 10px", color: T.text, fontFamily: "monospace", fontSize: 10 }}>{p.sku}</td>
+                  <td style={{ padding: "6px 10px", color: T.text, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</td>
+                  <td style={{ padding: "6px 10px", color: T.text, fontWeight: 700 }}>{fmt(p.units)}</td>
+                  <td style={{ padding: "6px 10px", color: "#22c55e" }}>{fmtD(p.revenue)}</td>
+                  <td style={{ padding: "6px 10px", color: T.text2 }}>{fmt(p.orders)}</td>
+                  <td style={{ padding: "6px 10px", color: T.accent }}>{p.units > 0 ? `${(p.subUnits / p.units * 100).toFixed(0)}%` : "—"}</td>
+                  <td style={{ padding: "6px 10px", color: T.text3 }}>{totalUnits > 0 ? `${(p.units / totalUnits * 100).toFixed(1)}%` : "—"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
         </div>
-        <div style={{ padding: 16 }}>
-          {sortedInv.filter(i => (i.on_hand / Math.max(i.weekly_demand, 1)) < 8).map((inv, i) => {
-            const wos = inv.on_hand / Math.max(inv.weekly_demand, 1);
-            const targetWos = 10;
-            const needed = Math.max(0, Math.ceil((targetWos * inv.weekly_demand) - inv.on_hand - inv.incoming));
-            if (needed <= 0) return null;
-            const orderBy = new Date();
-            orderBy.setDate(orderBy.getDate() + Math.max(0, (wos * 7) - inv.lead_time));
-            return (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: T.surface2, borderRadius: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 18 }}>📋</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{inv.base_product} — {inv.warehouse}</div>
-                  <div style={{ fontSize: 11, color: T.text3 }}>Order <span style={{ fontWeight: 700, color: T.accent }}>{fmt(needed)} units</span> by {orderBy.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ({inv.lead_time}d lead time)</div>
-                </div>
-                <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 10px", borderRadius: 6, background: RISK_COLORS[getRisk(wos)] + "18", color: RISK_COLORS[getRisk(wos)] }}>{getRiskLabel(wos)}</span>
-              </div>
-            );
-          }).filter(Boolean)}
-          {sortedInv.filter(i => (i.on_hand / Math.max(i.weekly_demand, 1)) < 8).length === 0 && (
-            <div style={{ padding: 20, textAlign: "center", color: T.text3, fontSize: 12 }}>All products above 8 weeks supply — no POs needed right now</div>
-          )}
-        </div>
-      </div>
+      )}
 
-      {/* International Split */}
-      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Demand by Region</div>
-          <div style={{ fontSize: 11, color: T.text3 }}>Weekly base-unit demand split by geography</div>
+      {/* INVENTORY TAB */}
+      {subTab === "inventory" && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Inventory Health — Sorted by Weeks of Supply</div>
+            <span style={{ fontSize: 10, color: T.text3 }}>{inventory.length} inventory records</span>
+          </div>
+          <div style={{ overflowX: "auto", maxHeight: 500 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead><tr>
+                {["SKU", "Product", "On Hand", "Reserved", "Incoming", "Weekly Demand", "WoS", "Status"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{invItems.filter(i => i.on_hand > 0 || i.weeklyDemand > 0).map((inv, i) => {
+                const risk = getRisk(inv.wos);
+                return (
+                  <tr key={i} style={{ background: risk === "critical" ? "#ef444408" : risk === "red" ? "#f9731608" : i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
+                    <td style={{ padding: "6px 10px", fontFamily: "monospace", fontSize: 10, color: T.text }}>{inv.sku}</td>
+                    <td style={{ padding: "6px 10px", color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.name}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, color: T.text }}>{fmt(inv.on_hand)}</td>
+                    <td style={{ padding: "6px 10px", color: T.text3 }}>{fmt(inv.reserved)}</td>
+                    <td style={{ padding: "6px 10px", color: inv.incoming > 0 ? T.accent : T.text3 }}>{fmt(inv.incoming)}</td>
+                    <td style={{ padding: "6px 10px", color: T.text2 }}>{fmt(inv.weeklyDemand)}/wk</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, color: RISK_COLORS[risk] }}>{inv.wos < 99 ? inv.wos.toFixed(1) : "99+"}</td>
+                    <td style={{ padding: "6px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: RISK_COLORS[risk] + "15", color: RISK_COLORS[risk] }}>{getRiskLabel(inv.wos)}</span></td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, padding: 16 }}>
-          {[
-            { region: "United States", pct: 0.82, units: Math.round(totalWeeklyDemand * 0.82), flag: "🇺🇸", trend: "+3.1%" },
-            { region: "Canada", pct: 0.08, units: Math.round(totalWeeklyDemand * 0.08), flag: "🇨🇦", trend: "+5.2%" },
-            { region: "United Kingdom", pct: 0.06, units: Math.round(totalWeeklyDemand * 0.06), flag: "🇬🇧", trend: "+8.7%" },
-            { region: "Australia", pct: 0.025, units: Math.round(totalWeeklyDemand * 0.025), flag: "🇦🇺", trend: "+12.1%" },
-            { region: "Europe (Other)", pct: 0.01, units: Math.round(totalWeeklyDemand * 0.01), flag: "🇪🇺", trend: "+15.3%" },
-            { region: "Rest of World", pct: 0.005, units: Math.round(totalWeeklyDemand * 0.005), flag: "🌏", trend: "+9.4%" },
-          ].map(r => (
-            <div key={r.region} style={{ padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <span style={{ fontSize: 16 }}>{r.flag}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{r.region}</span>
+      )}
+
+      {/* CHANNELS TAB */}
+      {subTab === "channels" && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+          {channels.map((ch, ci) => (
+            <div key={ci} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{ch.channel}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#22c55e" }}>{fmtD(ch.revenue)}</div>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: T.text, marginBottom: 2 }}>{fmt(r.units)}<span style={{ fontSize: 10, fontWeight: 400, color: T.text3 }}> units/wk</span></div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ flex: 1, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${r.pct * 100}%`, background: T.accent, borderRadius: 2 }} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                <div><div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmt(ch.units)}</div><div style={{ fontSize: 9, color: T.text3 }}>units</div></div>
+                <div><div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmt(ch.orders)}</div><div style={{ fontSize: 9, color: T.text3 }}>orders</div></div>
+                <div><div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{totalUnits > 0 ? `${(ch.units / totalUnits * 100).toFixed(0)}%` : "—"}</div><div style={{ fontSize: 9, color: T.text3 }}>share</div></div>
+              </div>
+              {/* Top SKUs for this channel */}
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Top SKUs</div>
+              {latestSales.filter(r => r.channel === ch.channel).sort((a, b) => (b.units_sold || 0) - (a.units_sold || 0)).slice(0, 5).map((r, ri) => (
+                <div key={ri} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 10, color: T.text2 }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.product_title || r.sku}</span>
+                  <span style={{ fontWeight: 700, color: T.text, marginLeft: 8 }}>{fmt(r.units_sold)}</span>
                 </div>
-                <span style={{ fontSize: 10, fontWeight: 600, color: "#22c55e" }}>{r.trend}</span>
-                <span style={{ fontSize: 10, color: T.text3 }}>{(r.pct * 100).toFixed(1)}%</span>
-              </div>
+              ))}
             </div>
           ))}
         </div>
-      </div>
+      )}
+
+      {/* Offer Performance */}
+      {offers.length > 0 && subTab === "overview" && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>🎯 Offer Performance</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead><tr>
+                {["Offer", "Month", "Shown", "Accepted", "Take Rate", "Revenue Impact"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "6px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700 }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{offers.map((o, i) => (
+                <tr key={i}>
+                  <td style={{ padding: "5px 10px", fontWeight: 600, color: T.text }}>{o.offer_name}</td>
+                  <td style={{ padding: "5px 10px", color: T.text3 }}>{o.month}</td>
+                  <td style={{ padding: "5px 10px", color: T.text2 }}>{fmt(o.times_shown)}</td>
+                  <td style={{ padding: "5px 10px", color: T.text2 }}>{fmt(o.times_accepted)}</td>
+                  <td style={{ padding: "5px 10px", fontWeight: 700, color: T.accent }}>{o.take_rate ? `${(Number(o.take_rate) * 100).toFixed(1)}%` : "—"}</td>
+                  <td style={{ padding: "5px 10px", color: "#22c55e" }}>{fmtD(o.revenue_impact)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
