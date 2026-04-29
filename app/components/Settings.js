@@ -7,6 +7,7 @@ import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { notifySlack } from "../lib/slack";
 import { NAV_ITEMS, NAV_GROUPS } from "./Sidebar";
+import MetabaseBrowser from "./MetabaseBrowser";
 
 const ALL_TABS = ["Profile","Organization","Organizations","Integrations","Notifications","About"];
 const MEMBER_TABS = ["Profile","Notifications"];
@@ -45,6 +46,7 @@ export default function SettingsView({ isAdmin }) {
   const { user, profile, signOut, orgId, orgs, switchOrg } = useAuth();
   const { mode, toggle, accentKey, setAccent, ACCENT_PRESETS } = useTheme();
   const [activeTab, setActiveTab] = useState("Profile");
+  const [showMetabase, setShowMetabase] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -536,6 +538,7 @@ export default function SettingsView({ isAdmin }) {
               { name:"Meta Ads", desc:"Sync ad spend and ROAS from Meta", icon:"🎯", status:"available", detail:"Ad performance data" },
               { name:"Google Analytics", desc:"Website traffic and conversion data", icon:"📈", status:"available", detail:"Marketing analytics" },
               { name:"Zapier", desc:"Connect with 5,000+ apps via webhooks", icon:"⚡", status:"available", detail:"Custom automations" },
+              { name:"Metabase", desc:"Pull dashboards, saved questions, and raw data into Helm", icon:"📊", status:"metabase", detail:"metabase.earthbreezedev.com" },
             ].map(integ => (
               <div key={integ.name} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 20px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, marginBottom:10 }}>
                 <div style={{ fontSize:28, flexShrink:0 }}>{integ.icon}</div>
@@ -547,12 +550,40 @@ export default function SettingsView({ isAdmin }) {
                   </div>}
                 </div>
                 <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                  {integ.status === "metabase" ? (
+                    <>
+                    <button onClick={() => setShowMetabase(true)} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", background:T.accentDim, color:T.accent, border:`1px solid ${T.border}` }}>
+                      Browse Data
+                    </button>
+                    <button onClick={async (e) => {
+                      const btn = e.currentTarget; btn.textContent = "⏳ Testing..."; btn.disabled = true;
+                      try {
+                        const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/metabase-sync", {
+                          method: "POST", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "test" }),
+                        });
+                        const data = await res.json();
+                        if (data.connected) {
+                          btn.textContent = `✅ ${data.user?.name} · ${data.databases} DBs · ${data.collections} collections`;
+                          btn.style.color = "#22c55e";
+                        } else {
+                          btn.textContent = "❌ " + (data.error || "Failed");
+                          btn.style.color = "#ef4444";
+                        }
+                      } catch (err) { btn.textContent = "❌ Error"; btn.style.color = "#ef4444"; }
+                      setTimeout(() => { btn.textContent = "Test Connection"; btn.disabled = false; btn.style.color = T.accent; }, 5000);
+                    }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", background:T.accentDim, color:T.accent, border:`1px solid ${T.border}` }}>
+                      Test Connection
+                    </button>
+                    </>
+                  ) : (
                   <button style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer",
                     background: (integ.status==="connected"||integ.status==="qbo_connected")?"#22c55e15":integ.status==="qbo"?T.surface2:T.accentDim,
                     color: (integ.status==="connected"||integ.status==="qbo_connected")?"#22c55e":integ.status==="qbo"?T.text3:T.accent,
                     border: `1px solid ${(integ.status==="connected"||integ.status==="qbo_connected")?"#22c55e40":T.border}` }}>
                     {(integ.status==="connected"||integ.status==="qbo_connected")?"Connected":integ.status==="qbo"?"Connect QBO":"Connect"}
                   </button>
+                  )}
                   {integ.status==="qbo" && (
                     <button onClick={async ()=>{
                       // reCAPTCHA v3 + edge function: fetches endpoint from Intuit discovery doc + stores CSRF state server-side
@@ -745,6 +776,7 @@ export default function SettingsView({ isAdmin }) {
           </>
         )}
       </div>
+      {showMetabase && <MetabaseBrowser onClose={() => setShowMetabase(false)} />}
     </div>
   );
 }
