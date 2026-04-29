@@ -11,6 +11,15 @@ async function mb(action, extra = {}) {
   return await res.json();
 }
 
+// Dashboard 56 — Demand Planning — card-to-table mapping
+const DASHBOARD_SYNC_MAP = [
+  { card_id: 526, table: "dp_weekly_sales", label: "Weekly Unit Sales", icon: "📈" },
+  { card_id: 527, table: "dp_sku_master", label: "SKU Master", icon: "📦" },
+  { card_id: 528, table: "dp_inventory", label: "Inventory", icon: "🏭" },
+  { card_id: 529, table: "dp_offer_performance", label: "Offer Performance", icon: "🎯" },
+  { card_id: 530, table: "dp_subscription_cohorts", label: "Subscription Cohorts", icon: "🔄" },
+];
+
 const TARGET_TABLES = [
   { key: "dp_weekly_sales", label: "Weekly Sales", icon: "📈", desc: "Weekly sales by SKU, channel, country", fields: "week_start, sku, product_title, variant_title, units_sold, gross_revenue, net_revenue, orders_count, channel, country, is_subscription" },
   { key: "dp_subscription_cohorts", label: "Subscription Cohorts", icon: "🔄", desc: "Monthly cohort retention + churn", fields: "cohort_month, months_since_signup, active_subscribers, churned, paused, revenue, pack_size_1-4, frequency_monthly/bimonthly/quarterly" },
@@ -140,7 +149,60 @@ export default function MetabaseSync({ onClose }) {
 
           {/* Step 1: Select target table */}
           {step === "select_target" && !loading && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div>
+              {/* Quick sync all from Dashboard 56 */}
+              <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.accent}30`, background: T.accent + "05", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>🚀 Sync All from Metabase Dashboard</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Pull all 5 datasets from the Demand Planning dashboard in one click.</div>
+                  </div>
+                  <button onClick={async () => {
+                    setStep("syncing"); setLoading(true); setError(null);
+                    const results = [];
+                    for (const mapping of DASHBOARD_SYNC_MAP) {
+                      setError(`Syncing ${mapping.icon} ${mapping.label}...`);
+                      try {
+                        const r = await mb("run_question", { question_id: mapping.card_id });
+                        if (r.data && r.data.length > 0) {
+                          // Clean column names to match DB
+                          const cleanData = r.data.map(row => {
+                            const clean = { org_id: orgId, imported_at: new Date().toISOString() };
+                            for (const [key, val] of Object.entries(row)) {
+                              clean[key.toLowerCase().replace(/[^a-z0-9_]/g, "_")] = val;
+                            }
+                            return clean;
+                          });
+                          await supabase.from(mapping.table).delete().eq("org_id", orgId);
+                          // Batch insert
+                          for (let i = 0; i < cleanData.length; i += 100) {
+                            await supabase.from(mapping.table).insert(cleanData.slice(i, i + 100));
+                          }
+                          results.push({ ...mapping, rows: cleanData.length, status: "ok" });
+                        } else {
+                          results.push({ ...mapping, rows: 0, status: "empty" });
+                        }
+                      } catch (e) {
+                        results.push({ ...mapping, rows: 0, status: "error", error: e.message });
+                      }
+                    }
+                    setError(null);
+                    setSyncResult({ bulk: true, results });
+                    setStep("done");
+                    setLoading(false);
+                  }} style={{ padding: "10px 20px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    🔄 Sync All (5 tables)
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                  {DASHBOARD_SYNC_MAP.map(m => (
+                    <span key={m.card_id} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: T.surface, border: `1px solid ${T.border}`, color: T.text2 }}>{m.icon} {m.label}</span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 8 }}>Or sync individual tables:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {TARGET_TABLES.map(t => (
                 <div key={t.key} onClick={() => { setTarget(t); setStep("browse_questions"); loadQuestions(); loadCollections(); }}
                   style={{ display: "flex", alignItems: "center", gap: 14, padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer" }}
@@ -158,6 +220,7 @@ export default function MetabaseSync({ onClose }) {
                   </div>
                 </div>
               ))}
+              </div>
             </div>
           )}
 
@@ -265,9 +328,22 @@ export default function MetabaseSync({ onClose }) {
             <div style={{ textAlign: "center", padding: 30 }}>
               <div style={{ fontSize: 48 }}>✅</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: T.text, marginTop: 8 }}>Sync Complete</div>
-              <div style={{ fontSize: 13, color: T.text2, marginTop: 4 }}>
-                <strong>{syncResult.rows}</strong> rows from <strong>{syncResult.question}</strong> → <strong>{syncResult.table}</strong>
-              </div>
+              {syncResult.bulk ? (
+                <div style={{ marginTop: 12, textAlign: "left", maxWidth: 400, margin: "12px auto" }}>
+                  {syncResult.results.map((r, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, marginBottom: 4, background: T.surface }}>
+                      <span style={{ fontSize: 12, color: T.text }}>{r.icon} {r.label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: r.status === "ok" ? "#22c55e" : r.status === "empty" ? T.text3 : "#ef4444" }}>
+                        {r.status === "ok" ? `✅ ${r.rows} rows` : r.status === "empty" ? "— empty" : `❌ ${r.error}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: T.text2, marginTop: 4 }}>
+                  <strong>{syncResult.rows}</strong> rows from <strong>{syncResult.question}</strong> → <strong>{syncResult.table}</strong>
+                </div>
+              )}
               <button onClick={onClose} style={{ marginTop: 20, padding: "10px 24px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Done</button>
             </div>
           )}
