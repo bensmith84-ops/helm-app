@@ -163,12 +163,44 @@ export default function MetabaseSync({ onClose }) {
                     for (const mapping of DASHBOARD_SYNC_MAP) {
                       setError(`Syncing ${mapping.icon} ${mapping.label}...`);
                       try {
-                        const r = await mb("sync_question_to_table", { question_id: mapping.card_id, table_name: mapping.table, org_id: orgId });
-                        if (r.error) {
-                          results.push({ ...mapping, rows: 0, status: "error", error: r.error });
-                        } else {
-                          results.push({ ...mapping, rows: r.synced || 0, total: r.total || 0, status: r.synced > 0 ? "ok" : "empty", errors: r.errors });
+                        // Fetch data from Metabase
+                        const r = await mb("run_question", { question_id: mapping.card_id });
+                        if (!r.data || r.data.length === 0) {
+                          results.push({ ...mapping, rows: 0, status: "empty" });
+                          continue;
                         }
+
+                        // Column rename map
+                        const COL_RENAMES = { churn: "churned" };
+                        const cleanCol = (c) => { const l = c.toLowerCase().replace(/[^a-z0-9_]/g, "_"); return COL_RENAMES[l] || l; };
+
+                        // Transform rows
+                        const data = r.data.map(row => {
+                          const obj = { org_id: orgId, imported_at: new Date().toISOString() };
+                          for (const [key, val] of Object.entries(row)) { obj[cleanCol(key)] = val; }
+                          return obj;
+                        });
+
+                        // Clear existing
+                        await supabase.from(mapping.table).delete().eq("org_id", orgId);
+
+                        // Batch insert from client (no edge function timeout)
+                        let synced = 0;
+                        for (let i = 0; i < data.length; i += 200) {
+                          setError(`${mapping.icon} ${mapping.label}: inserting ${i}/${data.length}...`);
+                          const batch = data.slice(i, i + 200);
+                          const { error: insErr } = await supabase.from(mapping.table).insert(batch);
+                          if (insErr) {
+                            // Fallback: row by row
+                            for (const row of batch) {
+                              const { error: rErr } = await supabase.from(mapping.table).insert(row);
+                              if (!rErr) synced++;
+                            }
+                          } else {
+                            synced += batch.length;
+                          }
+                        }
+                        results.push({ ...mapping, rows: synced, total: data.length, status: synced > 0 ? "ok" : "error" });
                       } catch (e) {
                         results.push({ ...mapping, rows: 0, status: "error", error: e.message });
                       }
