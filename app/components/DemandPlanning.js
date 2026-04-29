@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
+import MetabaseSync from "./MetabaseSync";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DEMAND PLANNING MODULE
@@ -2035,6 +2036,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function DemandPlanningView({ isMobile, orgId }) {
   const [tab, setTab] = useState("supply");
+  const [showMetabaseSync, setShowMetabaseSync] = useState(false);
   const tabs = [
     { id: "supply", label: "Supply Chain", icon: "📦" },
     { id: "launches", label: "New Product Launch", icon: "🚀" },
@@ -2045,9 +2047,15 @@ export default function DemandPlanningView({ isMobile, orgId }) {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: T.text, letterSpacing: "-0.3px" }}>Demand Planning</div>
-        <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Forecast demand, plan inventory, and model growth scenarios</div>
+      <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text, letterSpacing: "-0.3px" }}>Demand Planning</div>
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Forecast demand, plan inventory, and model growth scenarios</div>
+        </div>
+        <button onClick={() => setShowMetabaseSync(true)}
+          style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${T.accent}30`, background: T.accent + "10", color: T.accent, cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+          📊 Sync from Metabase
+        </button>
       </div>
 
       {/* Tabs */}
@@ -2066,6 +2074,7 @@ export default function DemandPlanningView({ isMobile, orgId }) {
       {tab === "launches" && <LaunchPlannerView isMobile={isMobile} orgId={orgId} />}
       {tab === "growth" && <GrowthPlannerView isMobile={isMobile} orgId={orgId} />}
       {tab === "sources" && <DataSourcesView isMobile={isMobile} orgId={orgId} />}
+      {showMetabaseSync && <MetabaseSync onClose={() => setShowMetabaseSync(false)} />}
     </div>
   );
 }
