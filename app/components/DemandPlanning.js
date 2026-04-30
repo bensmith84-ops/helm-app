@@ -1243,6 +1243,56 @@ const STATUS_OPTS = [
   { value: "cancelled", label: "Cancelled", color: "#ef4444" },
 ];
 
+// Marketing channel type definitions — defines which inputs apply per channel type
+const MARKETING_TYPES = [
+  { key: "email", label: "Email", icon: "📧", color: "#8b5cf6", inputs: ["sends", "open_rate_pct", "ctr_pct", "conversion_rate_pct"], desc: "Email campaign with full funnel" },
+  { key: "sms", label: "SMS", icon: "💬", color: "#f59e0b", inputs: ["sends", "ctr_pct", "conversion_rate_pct"], desc: "SMS / MMS campaign with click + convert" },
+  { key: "paid_ads", label: "Paid Ads", icon: "📱", color: "#ef4444", inputs: ["spend", "cpa"], desc: "Paid media (Meta, Google, TikTok, etc.) — budget and target CPA" },
+  { key: "influencer", label: "Influencer", icon: "🎬", color: "#ec4899", inputs: ["spend", "cpa", "direct_orders"], desc: "Paid influencer or affiliate" },
+  { key: "organic", label: "Organic / PR", icon: "🌿", color: "#22c55e", inputs: ["direct_orders"], desc: "Organic traffic, PR, earned media" },
+  { key: "other", label: "Other", icon: "➕", color: "#6b7280", inputs: ["spend", "cpa", "direct_orders"], desc: "Custom marketing source" },
+];
+
+// Compute orders for a single marketing channel period based on its channel type
+function calcMarketingPeriodOrders(channelType, period) {
+  if (!period) return 0;
+  if (period.override_orders != null && period.override_orders !== "") return parseInt(period.override_orders) || 0;
+  switch (channelType) {
+    case "email": {
+      const s = parseFloat(period.sends) || 0;
+      const o = (parseFloat(period.open_rate_pct) || 0) / 100;
+      const c = (parseFloat(period.ctr_pct) || 0) / 100;
+      const cv = (parseFloat(period.conversion_rate_pct) || 0) / 100;
+      return Math.round(s * o * c * cv);
+    }
+    case "sms": {
+      const s = parseFloat(period.sends) || 0;
+      const c = (parseFloat(period.ctr_pct) || 0) / 100;
+      const cv = (parseFloat(period.conversion_rate_pct) || 0) / 100;
+      return Math.round(s * c * cv);
+    }
+    case "paid_ads":
+    case "influencer": {
+      const sp = parseFloat(period.spend) || 0;
+      const cpa = parseFloat(period.cpa) || 0;
+      const fromSpend = cpa > 0 ? Math.round(sp / cpa) : 0;
+      const direct = parseInt(period.direct_orders) || 0;
+      return fromSpend + direct;
+    }
+    case "organic": {
+      return parseInt(period.direct_orders) || 0;
+    }
+    case "other":
+    default: {
+      const sp = parseFloat(period.spend) || 0;
+      const cpa = parseFloat(period.cpa) || 0;
+      const fromSpend = cpa > 0 ? Math.round(sp / cpa) : 0;
+      const direct = parseInt(period.direct_orders) || 0;
+      return fromSpend + direct;
+    }
+  }
+}
+
 function calcChannelUnits(ch, allChannels, allPeriods, chEmailSends) {
   const c = ch.channel;
 
@@ -2191,6 +2241,212 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
 // (used both for the main GWP funnel and for individual upsells with custom rates)
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
+// MarketingChannelsSection — per-channel, per-period acquisition driver inputs
+// Each launch can have multiple marketing channels (Email, SMS, Paid Ads, etc.)
+// Each channel has period inputs (W1, W2, ... or M1, M2, ...) configured by type.
+// ─────────────────────────────────────────────────────────────────────────────
+function MarketingChannelsSection({ launch, launchMarketingChannels, launchMarketingPeriods, updateLaunch, addMarketingChannel, updateMarketingChannel, deleteMarketingChannel, upsertMarketingPeriod, T, isMobile }) {
+  const periodType = launch.period_type || "week";
+  const periodCount = parseInt(launch.forecast_periods) || 12;
+  const periodLabel = periodType === "month" ? "M" : "W";
+  const periods = Array.from({ length: periodCount }, (_, i) => i + 1);
+
+  // Sum orders across all marketing channels & periods (for footer)
+  const totalOrders = launchMarketingChannels.reduce((sum, ch) => {
+    const cps = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
+    return sum + cps.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
+  }, 0);
+  const totalSpend = launchMarketingChannels.reduce((sum, ch) => {
+    const cps = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
+    return sum + cps.reduce((s, p) => s + (parseFloat(p.spend) || 0), 0);
+  }, 0);
+  const blendedCpa = totalOrders > 0 ? totalSpend / totalOrders : 0;
+
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>📣 Marketing Channels</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ fontSize: 10, color: T.text3 }}>Period:</div>
+          <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 5, overflow: "hidden" }}>
+            {["week", "month"].map(pt => (
+              <button key={pt} onClick={() => updateLaunch(launch.id, "period_type", pt)}
+                style={{ padding: "4px 12px", fontSize: 10, fontWeight: 600, background: periodType === pt ? T.accent : "transparent", color: periodType === pt ? "#fff" : T.text3, border: "none", cursor: "pointer", textTransform: "capitalize" }}>
+                {pt}ly
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, color: T.text3 }}>×</div>
+          <input type="number" value={periodCount} min={1} max={52}
+            onChange={e => updateLaunch(launch.id, "forecast_periods", Math.max(1, Math.min(52, parseInt(e.target.value) || 1)))}
+            style={{ width: 60, padding: "4px 6px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, outline: "none", textAlign: "center" }} />
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, lineHeight: 1.5 }}>
+        Add channels and define spend, conversion, or send/CTR/conv per period. Orders flow into the Acquisition Funnel below.
+      </div>
+
+      {/* Add channel buttons */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        {MARKETING_TYPES.map(mt => (
+          <button key={mt.key} onClick={() => addMarketingChannel(launch.id, mt.key, mt.label)}
+            title={mt.desc}
+            style={{ padding: "5px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${mt.color}40`, background: mt.color + "10", color: mt.color, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <span>{mt.icon}</span> + {mt.label}
+          </button>
+        ))}
+      </div>
+
+      {launchMarketingChannels.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 11, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: 8 }}>
+          No marketing channels yet. Click a channel type above to add one.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {launchMarketingChannels.map(ch => (
+            <MarketingChannelRow
+              key={ch.id}
+              channel={ch}
+              periods={periods}
+              periodLabel={periodLabel}
+              launchPeriods={launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id)}
+              updateMarketingChannel={updateMarketingChannel}
+              deleteMarketingChannel={deleteMarketingChannel}
+              upsertMarketingPeriod={(periodIndex, updates) => upsertMarketingPeriod(launch.id, ch.id, periodIndex, updates)}
+              T={T}
+              isMobile={isMobile}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Footer summary */}
+      {launchMarketingChannels.length > 0 && (
+        <div style={{ marginTop: 14, padding: 12, background: T.accent + "08", border: `1px solid ${T.accent}30`, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: T.text2 }}>Total across all marketing channels:</div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <div><span style={{ fontSize: 10, color: T.text3 }}>Spend: </span><span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>${fmt(Math.round(totalSpend))}</span></div>
+            <div><span style={{ fontSize: 10, color: T.text3 }}>Orders: </span><span style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{fmt(totalOrders)}</span></div>
+            <div><span style={{ fontSize: 10, color: T.text3 }}>Blended CPA: </span><span style={{ fontSize: 14, fontWeight: 800, color: "#f59e0b" }}>${blendedCpa > 0 ? blendedCpa.toFixed(2) : "—"}</span></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MarketingChannelRow({ channel, periods, periodLabel, launchPeriods, updateMarketingChannel, deleteMarketingChannel, upsertMarketingPeriod, T, isMobile }) {
+  const def = MARKETING_TYPES.find(m => m.key === channel.channel_type) || MARKETING_TYPES[5];
+  const inputs = def.inputs;
+
+  // Map periods by index for quick lookup
+  const byIdx = {};
+  launchPeriods.forEach(p => { byIdx[p.period_index] = p; });
+
+  // Sum across periods for footer
+  const channelOrders = periods.reduce((s, idx) => s + calcMarketingPeriodOrders(channel.channel_type, byIdx[idx]), 0);
+  const channelSpend = periods.reduce((s, idx) => s + (parseFloat(byIdx[idx]?.spend) || 0), 0);
+
+  // Each input row needs a label + display props
+  const inputRow = (key) => {
+    const labels = {
+      spend: { label: "Spend", prefix: "$", step: 100, type: "spend" },
+      cpa: { label: "Target CPA", prefix: "$", step: 1, type: "cpa" },
+      sends: { label: "Sends", suffix: "", step: 1000, type: "count" },
+      open_rate_pct: { label: "Open Rate", suffix: "%", step: 1, type: "pct" },
+      ctr_pct: { label: "CTR", suffix: "%", step: 0.1, type: "pct" },
+      conversion_rate_pct: { label: "Conv Rate", suffix: "%", step: 0.1, type: "pct" },
+      direct_orders: { label: "Direct Orders", suffix: "", step: 100, type: "count" },
+    };
+    return labels[key];
+  };
+
+  return (
+    <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+          <span style={{ fontSize: 18 }}>{def.icon}</span>
+          <input value={channel.name || ""} onChange={e => updateMarketingChannel(channel.id, { name: e.target.value })}
+            placeholder={def.label}
+            style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", padding: "2px 0" }} />
+          <span style={{ fontSize: 9, fontWeight: 600, color: def.color, textTransform: "uppercase", padding: "2px 6px", background: def.color + "15", borderRadius: 4 }}>{def.label}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 10, color: T.text3 }}>
+            {channelSpend > 0 && <span>Spend: <strong style={{ color: T.text }}>${fmt(Math.round(channelSpend))}</strong> · </span>}
+            Orders: <strong style={{ color: def.color }}>{fmt(channelOrders)}</strong>
+          </div>
+          <button onClick={() => deleteMarketingChannel(channel.id)} title="Remove channel"
+            style={{ background: "transparent", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 4px" }}>×</button>
+        </div>
+      </div>
+
+      {/* Period table — periods as columns, input metrics as rows */}
+      <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 6 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: periods.length * 60 + 120 }}>
+          <thead>
+            <tr style={{ background: T.surface }}>
+              <th style={{ padding: "6px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 10, borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 1, minWidth: 110 }}>Metric</th>
+              {periods.map(idx => (
+                <th key={idx} style={{ padding: "6px 4px", textAlign: "center", fontWeight: 700, color: T.text3, fontSize: 10, borderBottom: `1px solid ${T.border}`, minWidth: 60 }}>{periodLabel}{idx}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {inputs.map(key => {
+              const ir = inputRow(key);
+              if (!ir) return null;
+              return (
+                <tr key={key}>
+                  <td style={{ padding: "6px 8px", color: T.text2, fontWeight: 600, borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>
+                    {ir.label}{ir.suffix ? ` (${ir.suffix})` : ""}{ir.prefix ? ` (${ir.prefix})` : ""}
+                  </td>
+                  {periods.map(idx => {
+                    const p = byIdx[idx] || {};
+                    return (
+                      <td key={idx} style={{ padding: "3px 2px", textAlign: "center", borderBottom: `1px solid ${T.border}` }}>
+                        <input
+                          type="number"
+                          step={ir.step}
+                          defaultValue={p[key] ?? ""}
+                          onBlur={e => {
+                            const val = e.target.value;
+                            const parsed = val === "" ? null : (ir.type === "count" ? parseInt(val) : parseFloat(val));
+                            upsertMarketingPeriod(idx, { [key]: parsed });
+                          }}
+                          placeholder="0"
+                          style={{
+                            width: "100%", padding: "4px 2px", fontSize: 11, textAlign: "center",
+                            border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface,
+                            color: T.text, outline: "none",
+                          }}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {/* Computed orders row (read-only) */}
+            <tr style={{ background: def.color + "08" }}>
+              <td style={{ padding: "6px 8px", color: def.color, fontWeight: 700, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>Orders →</td>
+              {periods.map(idx => {
+                const orders = calcMarketingPeriodOrders(channel.channel_type, byIdx[idx]);
+                return (
+                  <td key={idx} style={{ padding: "6px 4px", textAlign: "center", color: def.color, fontWeight: 700, fontSize: 11 }}>
+                    {orders > 0 ? fmt(orders) : "—"}
+                  </td>
+                );
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GeographySection — toggle/% UI for AU/CA/UK/US + add custom geo
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_GEOS = [
@@ -2495,12 +2751,14 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const [upsells, setUpsells] = useState([]);
   const [geoSplit, setGeoSplit] = useState([]);
   const [rebillRates, setRebillRates] = useState([]);
+  const [marketingChannels, setMarketingChannels] = useState([]);
+  const [marketingPeriods, setMarketingPeriods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: "", product_name: "", launch_date: "", moq: 5000, lead_time_days: 45, unit_cost: "", retail_price: "", target_margin_pct: 65, forecast_period_weeks: 12, supplier: "", max_monthly_capacity: "", target_days_of_supply: 60 });
 
   const load = async () => {
-    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }, { data: gt }, { data: us }, { data: gs }, { data: rr }] = await Promise.all([
+    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }, { data: gt }, { data: us }, { data: gs }, { data: rr }, { data: mc }, { data: mp }] = await Promise.all([
       supabase.from("dp_launches").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
       supabase.from("dp_launch_channels").select("*").eq("org_id", orgId),
       supabase.from("dp_launch_pos").select("*").eq("org_id", orgId),
@@ -2511,10 +2769,13 @@ function LaunchPlannerView({ isMobile, orgId }) {
       supabase.from("dp_launch_upsells").select("*").eq("org_id", orgId).order("sort_order"),
       supabase.from("dp_launch_geo_split").select("*").eq("org_id", orgId).order("sort_order"),
       supabase.from("dp_launch_rebill_rates").select("*").eq("org_id", orgId).order("month_index"),
+      supabase.from("dp_launch_marketing_channels").select("*").eq("org_id", orgId).order("sort_order"),
+      supabase.from("dp_launch_marketing_periods").select("*").eq("org_id", orgId).order("period_index"),
     ]);
     setLaunches(l || []); setChannels(c || []); setPos(p || []); setPeriods(pr || []);
     setEmailSends(es || []); setVariantSplits(vs || []); setGwpTiers(gt || []);
     setUpsells(us || []); setGeoSplit(gs || []); setRebillRates(rr || []);
+    setMarketingChannels(mc || []); setMarketingPeriods(mp || []);
     setLoading(false);
   };
   useEffect(() => { if (orgId) load(); }, [orgId]);
@@ -2571,6 +2832,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
       supabase.from("dp_launch_upsells").delete().eq("launch_id", id),
       supabase.from("dp_launch_geo_split").delete().eq("launch_id", id),
       supabase.from("dp_launch_rebill_rates").delete().eq("launch_id", id),
+      supabase.from("dp_launch_marketing_periods").delete().eq("launch_id", id),
+      supabase.from("dp_launch_marketing_channels").delete().eq("launch_id", id),
     ]);
     const { error } = await supabase.from("dp_launches").delete().eq("id", id);
     if (error) { alert(`Failed to delete launch: ${error.message}`); return; }
@@ -2584,10 +2847,44 @@ function LaunchPlannerView({ isMobile, orgId }) {
     setUpsells(p => p.filter(u => u.launch_id !== id));
     setGeoSplit(p => p.filter(g => g.launch_id !== id));
     setRebillRates(p => p.filter(r => r.launch_id !== id));
+    setMarketingChannels(p => p.filter(m => m.launch_id !== id));
+    setMarketingPeriods(p => p.filter(mp => mp.launch_id !== id));
     if (selected?.id === id) setSelected(null);
   };
 
-  // ── Upsells (multiple per launch, named) ──
+  // ── Marketing Channels (Email, SMS, Paid Ads, Influencer, Organic, Other) ──
+  const addMarketingChannel = async (launchId, channelType, name) => {
+    const max = marketingChannels.filter(m => m.launch_id === launchId).reduce((m, x) => Math.max(m, x.sort_order || 0), -1);
+    const { data } = await supabase.from("dp_launch_marketing_channels").insert({
+      org_id: orgId, launch_id: launchId, channel_type: channelType, name, sort_order: max + 1,
+    }).select().single();
+    if (data) setMarketingChannels(p => [...p, data]);
+    return data;
+  };
+  const updateMarketingChannel = async (id, updates) => {
+    await supabase.from("dp_launch_marketing_channels").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", id);
+    setMarketingChannels(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
+  };
+  const deleteMarketingChannel = async (id) => {
+    if (!confirm("Delete this marketing channel and all of its periods?")) return;
+    await supabase.from("dp_launch_marketing_periods").delete().eq("marketing_channel_id", id);
+    await supabase.from("dp_launch_marketing_channels").delete().eq("id", id);
+    setMarketingChannels(p => p.filter(m => m.id !== id));
+    setMarketingPeriods(p => p.filter(mp => mp.marketing_channel_id !== id));
+  };
+  const upsertMarketingPeriod = async (launchId, marketingChannelId, periodIndex, updates) => {
+    const existing = marketingPeriods.find(mp => mp.marketing_channel_id === marketingChannelId && mp.period_index === periodIndex);
+    if (existing) {
+      await supabase.from("dp_launch_marketing_periods").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", existing.id);
+      setMarketingPeriods(p => p.map(mp => mp.id === existing.id ? { ...mp, ...updates } : mp));
+    } else {
+      const { data } = await supabase.from("dp_launch_marketing_periods").insert({
+        org_id: orgId, launch_id: launchId, marketing_channel_id: marketingChannelId, period_index: periodIndex, ...updates,
+      }).select().single();
+      if (data) setMarketingPeriods(p => [...p, data]);
+    }
+  };
+
   const addUpsell = async (launchId, name = "New Upsell") => {
     const max = upsells.filter(u => u.launch_id === launchId).reduce((m, u) => Math.max(m, u.sort_order || 0), -1);
     const { data } = await supabase.from("dp_launch_upsells").insert({
@@ -2836,6 +3133,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const launchPos = selected ? pos.filter(p => p.launch_id === selected.id) : [];
   const launchUpsells = selected ? upsells.filter(u => u.launch_id === selected.id) : [];
   const launchGeoSplit = selected ? geoSplit.filter(g => g.launch_id === selected.id) : [];
+  const launchMarketingChannels = selected ? marketingChannels.filter(m => m.launch_id === selected.id) : [];
+  const launchMarketingPeriods = selected ? marketingPeriods.filter(mp => mp.launch_id === selected.id) : [];
   
   // Calculate totals from orders → variant splits → units/revenue
   const totalOrders = launchChannels.reduce((s, c) => s + calcChannelUnits(c, launchChannels, launchPeriods, emailSends.filter(es => es.channel_id === c.id)), 0);
@@ -2949,39 +3248,71 @@ function LaunchPlannerView({ isMobile, orgId }) {
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* MARKETING CHANNELS — drive orders through Email, SMS, Paid Ads, etc. */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <MarketingChannelsSection
+          launch={selected}
+          launchMarketingChannels={launchMarketingChannels}
+          launchMarketingPeriods={launchMarketingPeriods}
+          updateLaunch={updateLaunch}
+          addMarketingChannel={addMarketingChannel}
+          updateMarketingChannel={updateMarketingChannel}
+          deleteMarketingChannel={deleteMarketingChannel}
+          upsertMarketingPeriod={upsertMarketingPeriod}
+          T={T}
+          isMobile={isMobile}
+        />
+
         {/* ACQUISITION FUNNEL — GWP-driven (replaces multi-channel acquisition) */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
         <div style={{ background: "linear-gradient(135deg, " + T.surface + " 0%, " + T.accent + "08 100%)", border: `1px solid ${T.accent}40`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>🎁 Acquisition Funnel (Hero GWP)</div>
-            <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>All marketing channels (email, SMS, ads, organic) funnel into this offer</div>
+            <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>Total orders sum from marketing channels above</div>
           </div>
-          <div style={{ fontSize: 11, color: T.text3, marginBottom: 14, lineHeight: 1.5 }}>Set total acquisition orders for the launch window, then split between OTP and Subscription cohorts. Each cohort has its own rebill curve.</div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 14, lineHeight: 1.5 }}>Acquisition orders flow from marketing channels above. Split between OTP and Subscription cohorts here — each cohort has its own rebill curve.</div>
 
-          {/* Top-level inputs */}
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1.5fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
-            <I label="Total Acquisition Orders" value={selected.total_acquisition_orders} onChange={v => updateLaunch(selected.id, "total_acquisition_orders", parseInt(v) || 0)} type="number" placeholder="e.g. 50000" />
-            <I label="OTP %" value={selected.gwp_otp_pct} onChange={v => {
-              const otp = Math.max(0, Math.min(100, parseFloat(v) || 0));
-              updateLaunch(selected.id, "gwp_otp_pct", otp);
-              updateLaunch(selected.id, "gwp_sub_pct", 100 - otp);
-            }} type="number" suffix="%" />
-            <I label="Sub %" value={selected.gwp_sub_pct} onChange={v => {
-              const sub = Math.max(0, Math.min(100, parseFloat(v) || 0));
-              updateLaunch(selected.id, "gwp_sub_pct", sub);
-              updateLaunch(selected.id, "gwp_otp_pct", 100 - sub);
-            }} type="number" suffix="%" />
-          </div>
+          {/* Top stats: computed total + OTP/Sub split */}
+          {(() => {
+            const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
+              const channelPeriods = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
+              return sum + channelPeriods.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
+            }, 0);
+            const otpOrders = Math.round(totalAcqOrders * (selected.gwp_otp_pct || 0) / 100);
+            const subOrders = Math.round(totalAcqOrders * (selected.gwp_sub_pct || 0) / 100);
+            return (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1.5fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+                  <div style={{ padding: "10px 12px", background: T.accent + "10", borderRadius: 8, border: `1px solid ${T.accent}30` }}>
+                    <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Total Acquisition Orders</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: T.accent }}>{fmt(totalAcqOrders)}</div>
+                    <div style={{ fontSize: 9, color: T.text3 }}>computed from marketing channels</div>
+                  </div>
+                  <I label="OTP %" value={selected.gwp_otp_pct} onChange={v => {
+                    const otp = Math.max(0, Math.min(100, parseFloat(v) || 0));
+                    updateLaunch(selected.id, "gwp_otp_pct", otp);
+                    updateLaunch(selected.id, "gwp_sub_pct", 100 - otp);
+                  }} type="number" suffix="%" />
+                  <I label="Sub %" value={selected.gwp_sub_pct} onChange={v => {
+                    const sub = Math.max(0, Math.min(100, parseFloat(v) || 0));
+                    updateLaunch(selected.id, "gwp_sub_pct", sub);
+                    updateLaunch(selected.id, "gwp_otp_pct", 100 - sub);
+                  }} type="number" suffix="%" />
+                </div>
 
-          {/* Computed split badges */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-            <div style={{ padding: "6px 12px", background: "#f59e0b15", borderRadius: 6, fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>
-              OTP cohort: {fmt(Math.round((selected.total_acquisition_orders || 0) * (selected.gwp_otp_pct || 0) / 100))} orders
-            </div>
-            <div style={{ padding: "6px 12px", background: "#22c55e15", borderRadius: 6, fontSize: 11, color: "#22c55e", fontWeight: 600 }}>
-              Sub cohort: {fmt(Math.round((selected.total_acquisition_orders || 0) * (selected.gwp_sub_pct || 0) / 100))} orders
-            </div>
-          </div>
+                {/* Computed split badges */}
+                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                  <div style={{ padding: "6px 12px", background: "#f59e0b15", borderRadius: 6, fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>
+                    OTP cohort: {fmt(otpOrders)} orders
+                  </div>
+                  <div style={{ padding: "6px 12px", background: "#22c55e15", borderRadius: 6, fontSize: 11, color: "#22c55e", fontWeight: 600 }}>
+                    Sub cohort: {fmt(subOrders)} orders
+                  </div>
+                </div>
+              </>
+            );
+          })()}
 
           {/* Rebill rate tables — OTP and Sub side by side */}
           <RebillRatesEditor
@@ -3014,7 +3345,12 @@ function LaunchPlannerView({ isMobile, orgId }) {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {launchUpsells.map(u => {
-                const upTotalOrders = Math.round((selected.total_acquisition_orders || 0) * (u.take_rate_pct || 0) / 100);
+                // Compute total acq orders the same way as the funnel
+                const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
+                  const cps = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
+                  return sum + cps.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
+                }, 0);
+                const upTotalOrders = Math.round(totalAcqOrders * (u.take_rate_pct || 0) / 100);
                 return (
                   <div key={u.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -3081,15 +3417,23 @@ function LaunchPlannerView({ isMobile, orgId }) {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* GEOGRAPHY — distribution split for shipping/demand allocation     */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        <GeographySection
-          launchId={selected.id}
-          launchGeoSplit={launchGeoSplit}
-          totalAcquisitionOrders={selected.total_acquisition_orders || 0}
-          upsertGeo={upsertGeo}
-          deleteGeo={deleteGeo}
-          T={T}
-          isMobile={isMobile}
-        />
+        {(() => {
+          const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
+            const cps = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
+            return sum + cps.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
+          }, 0);
+          return (
+            <GeographySection
+              launchId={selected.id}
+              launchGeoSplit={launchGeoSplit}
+              totalAcquisitionOrders={totalAcqOrders}
+              upsertGeo={upsertGeo}
+              deleteGeo={deleteGeo}
+              T={T}
+              isMobile={isMobile}
+            />
+          );
+        })()}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* CAPACITY & DAYS OF SUPPLY — production guardrails                 */}
