@@ -215,32 +215,78 @@ export default function MetabaseSync({ onClose }) {
                           console.log(`[Sync] Weekly sales: ${before} → ${data.length} rows (last ${weeksToSync} weeks, cutoff ${cutoffStr})`);
                         }
 
-                        // Clear existing
-                        await supabase.from(mapping.table).delete().eq("org_id", orgId);
+                        // Drop rows where the unique-key dimension that would matter is missing.
+                        // SKU master with no SKU is useless data — keeping them would all collapse to "UNKNOWN"
+                        // and cause unique constraint conflicts.
+                        if (mapping.table === "dp_sku_master") {
+                          const before = data.length;
+                          data = data.filter(row => row.sku && row.sku !== "UNKNOWN" && String(row.sku).trim() !== "");
+                          if (before !== data.length) {
+                            console.log(`[Sync] dp_sku_master: dropped ${before - data.length} rows with missing SKU`);
+                          }
+                        }
 
-                        // Batch insert from client (no edge function timeout)
+                        // Natural-key dedupe (matches DB unique constraints) — last write wins,
+                        // but prefer the row with the most informative product_title (longest non-empty)
+                        const NATURAL_KEYS = {
+                          dp_weekly_sales: ["org_id","week_start","sku","channel","country","is_subscription"],
+                          dp_sku_master: ["org_id","sku"],
+                          dp_inventory: ["org_id","sku","warehouse_location","snapshot_date"],
+                          dp_offer_performance: ["org_id","month","offer_name"],
+                          dp_subscription_cohorts: ["org_id","cohort_month","months_since_signup"],
+                        };
+                        const natKey = NATURAL_KEYS[mapping.table];
+                        if (natKey) {
+                          const dedupeMap = new Map();
+                          for (const row of data) {
+                            const k = natKey.map(c => String(row[c] ?? "")).join("|");
+                            const existing = dedupeMap.get(k);
+                            if (!existing) {
+                              dedupeMap.set(k, row);
+                            } else {
+                              // Prefer row with longer product_title (more informative)
+                              const newTitle = (row.product_title || "").length;
+                              const oldTitle = (existing.product_title || "").length;
+                              if (newTitle > oldTitle) dedupeMap.set(k, row);
+                            }
+                          }
+                          const before = data.length;
+                          data = Array.from(dedupeMap.values());
+                          if (before !== data.length) {
+                            console.log(`[Sync] ${mapping.table}: deduped ${before} → ${data.length} rows on (${natKey.join(",")})`);
+                          }
+                        }
+
+                        // Upsert (no need to delete first — onConflict handles it)
+                        const onConflict = natKey ? natKey.join(",") : undefined;
+
+                        // Batch upsert from client (no edge function timeout)
                         let synced = 0;
                         let syncErrors = [];
                         let aborted = false;
                         for (let i = 0; i < data.length; i += 200) {
                           if (aborted) break;
-                          setError(`${mapping.icon} ${mapping.label}: inserting ${i}/${data.length}...`);
+                          setError(`${mapping.icon} ${mapping.label}: upserting ${i}/${data.length}...`);
                           const batch = data.slice(i, i + 200);
-                          const { error: insErr } = await supabase.from(mapping.table).insert(batch);
+                          const { error: insErr } = onConflict
+                            ? await supabase.from(mapping.table).upsert(batch, { onConflict, ignoreDuplicates: false })
+                            : await supabase.from(mapping.table).insert(batch);
                           if (insErr) {
                             console.error(`[Sync] Batch error for ${mapping.table}:`, insErr.message);
                             syncErrors.push(insErr.message);
-                            // Schema/structural errors won't resolve row-by-row — abort this table
-                            const isSchemaErr = /schema cache|column .* does not exist|violates not-null|invalid input syntax/i.test(insErr.message || "");
-                            if (isSchemaErr) {
-                              console.error(`[Sync] Aborting ${mapping.table} — schema mismatch, will not retry rows`);
+                            // Structural errors won't resolve row-by-row — abort this table
+                            const isFatalErr = /schema cache|column .* does not exist|violates not-null|invalid input syntax|duplicate key value|violates unique constraint/i.test(insErr.message || "");
+                            if (isFatalErr) {
+                              console.error(`[Sync] Aborting ${mapping.table} — fatal error, will not retry rows`);
                               aborted = true;
                               break;
                             }
                             // Fallback: row by row (only for transient/data errors)
                             let rowErrCount = 0;
                             for (const row of batch) {
-                              const { error: rErr } = await supabase.from(mapping.table).insert(row);
+                              const { error: rErr } = onConflict
+                                ? await supabase.from(mapping.table).upsert(row, { onConflict, ignoreDuplicates: false })
+                                : await supabase.from(mapping.table).insert(row);
                               if (!rErr) synced++;
                               else {
                                 rowErrCount++;
