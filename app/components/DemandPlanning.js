@@ -99,14 +99,31 @@ function SupplyChainView({ isMobile, orgId }) {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [wsR, invR, offR, skuR, ovR] = await Promise.all([
-        supabase.from("dp_weekly_sales").select("*").eq("org_id", orgId).order("week_start", { ascending: false }).limit(5000),
+      // Fetch daily sales from new table; fall back to weekly if daily is empty
+      // (so this works during the migration period before the first daily sync runs)
+      const [dailyR, invR, offR, skuR, ovR] = await Promise.all([
+        supabase.from("dp_daily_sales").select("*").eq("org_id", orgId).order("sale_date", { ascending: false }).limit(20000),
         supabase.from("dp_inventory").select("*").eq("org_id", orgId).limit(3000),
         supabase.from("dp_offer_performance").select("*").eq("org_id", orgId).limit(100),
         supabase.from("dp_sku_master").select("*").eq("org_id", orgId).limit(1000),
         supabase.from("dp_sku_overrides").select("*").eq("org_id", orgId).limit(2000),
       ]);
-      setWeeklySales(wsR.data || []);
+      let salesData = dailyR.data || [];
+      if (salesData.length === 0) {
+        // Migration fallback: read from legacy weekly table
+        const wsR = await supabase.from("dp_weekly_sales").select("*").eq("org_id", orgId).order("week_start", { ascending: false }).limit(5000);
+        salesData = (wsR.data || []).map(r => ({ ...r, sale_date: r.week_start }));
+      } else {
+        // Add week_start derived from sale_date so existing weekly-aggregation code still works
+        salesData = salesData.map(r => {
+          const d = new Date(r.sale_date);
+          // Find Monday of the week (ISO week start)
+          const day = d.getUTCDay() || 7;
+          if (day !== 1) d.setUTCDate(d.getUTCDate() - (day - 1));
+          return { ...r, week_start: d.toISOString().split("T")[0] };
+        });
+      }
+      setWeeklySales(salesData);
       setInventory(invR.data || []);
       setOffers(offR.data || []);
       setSkuMaster(skuR.data || []);

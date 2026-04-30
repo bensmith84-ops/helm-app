@@ -13,7 +13,7 @@ async function mb(action, extra = {}) {
 
 // Dashboard 56 — Demand Planning — card-to-table mapping
 const DASHBOARD_SYNC_MAP = [
-  { card_id: 526, table: "dp_weekly_sales", label: "Weekly Unit Sales", icon: "📈" },
+  { card_id: 526, table: "dp_daily_sales", label: "Daily Unit Sales", icon: "📈" },
   { card_id: 527, table: "dp_sku_master", label: "SKU Master", icon: "📦" },
   { card_id: 528, table: "dp_inventory", label: "Inventory", icon: "🏭" },
   { card_id: 529, table: "dp_offer_performance", label: "Offer Performance", icon: "🎯" },
@@ -21,7 +21,7 @@ const DASHBOARD_SYNC_MAP = [
 ];
 
 const TARGET_TABLES = [
-  { key: "dp_weekly_sales", label: "Weekly Sales", icon: "📈", desc: "Weekly sales by SKU, channel, country", fields: "week_start, sku, product_title, variant_title, units_sold, gross_revenue, net_revenue, orders_count, channel, country, is_subscription" },
+  { key: "dp_daily_sales", label: "Daily Sales", icon: "📈", desc: "Daily sales by SKU, channel, country", fields: "sale_date, sku, product_title, variant_title, base_product, units_sold, gross_revenue, net_revenue, orders_count, channel, country, is_subscription" },
   { key: "dp_subscription_cohorts", label: "Subscription Cohorts", icon: "🔄", desc: "Monthly cohort retention + churn", fields: "cohort_month, months_since_signup, active_subscribers, churned, paused, revenue, pack_size_1-4, frequency_monthly/bimonthly/quarterly" },
   { key: "dp_sku_master", label: "SKU Master", icon: "📦", desc: "Product catalog with pricing + COGS", fields: "sku, product_title, variant_title, base_product, product_category, units_per_sku, is_gwp/sub/otp, current_price, cogs_per_unit, status" },
   { key: "dp_inventory", label: "Inventory", icon: "🏭", desc: "Current stock levels + incoming", fields: "sku, warehouse_location, qty_on_hand/reserved/incoming, expected_arrival_date, reorder_point, lead_time_days, snapshot_date" },
@@ -177,6 +177,7 @@ export default function MetabaseSync({ onClose }) {
 
                         // Known columns per table — strip anything not in this list
                         const TABLE_COLUMNS = {
+                          dp_daily_sales: ["org_id","sale_date","sku","product_title","variant_title","base_product","units_sold","gross_revenue","net_revenue","orders_count","channel","country","is_subscription","units_per_sku","imported_at"],
                           dp_weekly_sales: ["org_id","week_start","sku","product_title","variant_title","units_sold","gross_revenue","net_revenue","orders_count","channel","country","is_subscription","base_product","units_per_sku","imported_at"],
                           dp_sku_master: ["org_id","sku","product_title","variant_title","base_product","product_category","units_per_sku","is_gwp","is_subscription","is_one_time","current_price","cogs_per_unit","status","imported_at"],
                           dp_inventory: ["org_id","sku","warehouse_location","quantity_on_hand","quantity_reserved","quantity_incoming","expected_arrival_date","reorder_point","lead_time_days","snapshot_date","imported_at"],
@@ -205,14 +206,20 @@ export default function MetabaseSync({ onClose }) {
                           return obj;
                         });
 
-                        // Date filter for weekly sales
-                        if (mapping.table === "dp_weekly_sales" && data.length > 0 && data[0].week_start) {
-                          const cutoff = new Date();
-                          cutoff.setDate(cutoff.getDate() - (weeksToSync * 7));
-                          const cutoffStr = cutoff.toISOString().split("T")[0];
-                          const before = data.length;
-                          data = data.filter(row => row.week_start >= cutoffStr);
-                          console.log(`[Sync] Weekly sales: ${before} → ${data.length} rows (last ${weeksToSync} weeks, cutoff ${cutoffStr})`);
+                        // Date filter for sales tables (daily or weekly)
+                        const isDailySales = mapping.table === "dp_daily_sales";
+                        const isWeeklySales = mapping.table === "dp_weekly_sales";
+                        if ((isDailySales || isWeeklySales) && data.length > 0) {
+                          const dateField = isDailySales ? "sale_date" : "week_start";
+                          if (data[0][dateField]) {
+                            const cutoff = new Date();
+                            cutoff.setDate(cutoff.getDate() - (weeksToSync * 7));
+                            const cutoffStr = cutoff.toISOString().split("T")[0];
+                            const before = data.length;
+                            data = data.filter(row => row[dateField] >= cutoffStr);
+                            const labelName = isDailySales ? "Daily sales" : "Weekly sales";
+                            console.log(`[Sync] ${labelName}: ${before} → ${data.length} rows (last ${weeksToSync} weeks, cutoff ${cutoffStr})`);
+                          }
                         }
 
                         // Drop rows where the unique-key dimension that would matter is missing.
@@ -229,6 +236,7 @@ export default function MetabaseSync({ onClose }) {
                         // Natural-key dedupe (matches DB unique constraints) — last write wins,
                         // but prefer the row with the most informative product_title (longest non-empty)
                         const NATURAL_KEYS = {
+                          dp_daily_sales: ["org_id","sale_date","sku","channel","country","is_subscription"],
                           dp_weekly_sales: ["org_id","week_start","sku","channel","country","is_subscription"],
                           dp_sku_master: ["org_id","sku"],
                           dp_inventory: ["org_id","sku","warehouse_location","snapshot_date"],
