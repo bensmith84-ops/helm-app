@@ -1227,15 +1227,10 @@ function DataSourcesView({ isMobile, orgId }) {
 // NEW PRODUCT LAUNCH PLANNER
 // ═══════════════════════════════════════════════════════════════════════════════
 const CHANNEL_DEFS = [
-  { key: "hero_gwp", label: "Hero GWP", icon: "🎁", group: "primary", desc: "Primary new customer acquisition — ad spend drives this product as the hero GWP offer" },
-  { key: "upsell", label: "Upsell", icon: "⬆️", group: "dtc", desc: "Upsell at checkout to existing + new customers. Can be halo from hero ad spend." },
-  { key: "email", label: "Email", icon: "📧", group: "dtc", desc: "Email campaign to existing subscriber list" },
-  { key: "sms", label: "SMS", icon: "💬", group: "dtc", desc: "SMS/MMS campaign to opted-in subscriber list" },
-  { key: "free_gift", label: "Free Gift", icon: "🎀", group: "dtc", desc: "Free gift at spend tier threshold (e.g. free with $50+ order)" },
-  { key: "amazon", label: "Amazon", icon: "📦", group: "marketplace", desc: "Amazon sales — can be direct PPC or halo from DTC brand awareness" },
+  { key: "hero_gwp", label: "Hero GWP", icon: "🎁", group: "primary", desc: "Primary acquisition funnel — ALL marketing channels (email, SMS, ads, organic, TikTok, etc.) drive traffic into this GWP offer" },
+  { key: "amazon", label: "Amazon", icon: "📦", group: "marketplace", desc: "Amazon sales — direct PPC or halo from DTC brand awareness" },
+  { key: "tiktok", label: "TikTok", icon: "🎵", group: "marketplace", desc: "TikTok Shop sales" },
   { key: "retail", label: "Retail", icon: "🏬", group: "offline", desc: "Brick & mortar retail distribution" },
-  { key: "dtc_paid", label: "DTC Paid (Non-Hero)", icon: "📱", group: "dtc", desc: "Paid media driving this product directly (not as GWP)" },
-  { key: "organic", label: "Organic / PR", icon: "🌿", group: "dtc", desc: "Organic traffic, PR, influencer seeding" },
   { key: "wholesale", label: "Wholesale", icon: "🏢", group: "offline", desc: "Wholesale / B2B distribution" },
   { key: "other", label: "Other", icon: "➕", group: "other", desc: "Other channel" },
 ];
@@ -2202,12 +2197,15 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const [emailSends, setEmailSends] = useState([]);
   const [variantSplits, setVariantSplits] = useState([]);
   const [gwpTiers, setGwpTiers] = useState([]);
+  const [upsells, setUpsells] = useState([]);
+  const [geoSplit, setGeoSplit] = useState([]);
+  const [rebillRates, setRebillRates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
-  const [form, setForm] = useState({ name: "", product_name: "", launch_date: "", moq: 5000, lead_time_days: 45, unit_cost: "", retail_price: "", target_margin_pct: 65, forecast_period_weeks: 12, supplier: "" });
+  const [form, setForm] = useState({ name: "", product_name: "", launch_date: "", moq: 5000, lead_time_days: 45, unit_cost: "", retail_price: "", target_margin_pct: 65, forecast_period_weeks: 12, supplier: "", max_monthly_capacity: "", target_days_of_supply: 60 });
 
   const load = async () => {
-    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }, { data: gt }] = await Promise.all([
+    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }, { data: gt }, { data: us }, { data: gs }, { data: rr }] = await Promise.all([
       supabase.from("dp_launches").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
       supabase.from("dp_launch_channels").select("*").eq("org_id", orgId),
       supabase.from("dp_launch_pos").select("*").eq("org_id", orgId),
@@ -2215,9 +2213,14 @@ function LaunchPlannerView({ isMobile, orgId }) {
       supabase.from("dp_launch_email_sends").select("*").eq("org_id", orgId).order("sort_order"),
       supabase.from("dp_launch_variant_splits").select("*").eq("org_id", orgId).order("sort_order"),
       supabase.from("dp_launch_gwp_tiers").select("*").eq("org_id", orgId).order("sort_order"),
+      supabase.from("dp_launch_upsells").select("*").eq("org_id", orgId).order("sort_order"),
+      supabase.from("dp_launch_geo_split").select("*").eq("org_id", orgId).order("sort_order"),
+      supabase.from("dp_launch_rebill_rates").select("*").eq("org_id", orgId).order("month_index"),
     ]);
     setLaunches(l || []); setChannels(c || []); setPos(p || []); setPeriods(pr || []);
-    setEmailSends(es || []); setVariantSplits(vs || []); setGwpTiers(gt || []); setLoading(false);
+    setEmailSends(es || []); setVariantSplits(vs || []); setGwpTiers(gt || []);
+    setUpsells(us || []); setGeoSplit(gs || []); setRebillRates(rr || []);
+    setLoading(false);
   };
   useEffect(() => { if (orgId) load(); }, [orgId]);
 
@@ -2230,9 +2233,28 @@ function LaunchPlannerView({ isMobile, orgId }) {
       unit_cost: parseFloat(form.unit_cost) || null, retail_price: parseFloat(form.retail_price) || null,
       target_margin_pct: parseFloat(form.target_margin_pct) || null,
       forecast_period_weeks: parseInt(form.forecast_period_weeks) || 12,
-      supplier: form.supplier || null, created_by: user?.id,
+      supplier: form.supplier || null,
+      max_monthly_capacity: parseInt(form.max_monthly_capacity) || null,
+      target_days_of_supply: parseInt(form.target_days_of_supply) || 60,
+      gwp_otp_pct: 50, gwp_sub_pct: 50, total_acquisition_orders: 0,
+      org_id: orgId, created_by: user?.id,
     }).select().single();
-    if (data) { setLaunches(p => [data, ...p]); setSelected(data); setShowNew(false); }
+    if (data) {
+      // Auto-seed default geos for new launches
+      const defaultGeos = [
+        { code: "US", label: "United States", pct: 70 },
+        { code: "CA", label: "Canada", pct: 10 },
+        { code: "UK", label: "United Kingdom", pct: 10 },
+        { code: "AU", label: "Australia", pct: 10 },
+      ];
+      const geoRows = defaultGeos.map((g, i) => ({
+        org_id: orgId, launch_id: data.id, geo_code: g.code, geo_label: g.label,
+        pct: g.pct, enabled: true, sort_order: i,
+      }));
+      const { data: newGeos } = await supabase.from("dp_launch_geo_split").insert(geoRows).select();
+      if (newGeos) setGeoSplit(p => [...p, ...newGeos]);
+      setLaunches(p => [data, ...p]); setSelected(data); setShowNew(false);
+    }
   };
 
   const updateLaunch = async (id, field, value) => {
@@ -2242,8 +2264,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
   };
 
   const deleteLaunch = async (id, productName) => {
-    if (!confirm(`Delete launch "${productName}"? This will also remove all channels, periods, POs, email sends, variants, and GWP tiers tied to it. This cannot be undone.`)) return;
-    // Cascade deletes for child tables (in case DB doesn't have ON DELETE CASCADE)
+    if (!confirm(`Delete launch "${productName}"? This will also remove all channels, periods, POs, email sends, variants, GWP tiers, upsells, geo splits, and rebill rates tied to it. This cannot be undone.`)) return;
+    // Cascade deletes for child tables (FK ON DELETE CASCADE handles new ones, but explicit for old)
     await Promise.all([
       supabase.from("dp_launch_channels").delete().eq("launch_id", id),
       supabase.from("dp_launch_pos").delete().eq("launch_id", id),
@@ -2251,10 +2273,12 @@ function LaunchPlannerView({ isMobile, orgId }) {
       supabase.from("dp_launch_email_sends").delete().eq("launch_id", id),
       supabase.from("dp_launch_variant_splits").delete().eq("launch_id", id),
       supabase.from("dp_launch_gwp_tiers").delete().eq("launch_id", id),
+      supabase.from("dp_launch_upsells").delete().eq("launch_id", id),
+      supabase.from("dp_launch_geo_split").delete().eq("launch_id", id),
+      supabase.from("dp_launch_rebill_rates").delete().eq("launch_id", id),
     ]);
     const { error } = await supabase.from("dp_launches").delete().eq("id", id);
     if (error) { alert(`Failed to delete launch: ${error.message}`); return; }
-    // Update local state
     setLaunches(p => p.filter(l => l.id !== id));
     setChannels(p => p.filter(c => c.launch_id !== id));
     setPos(p => p.filter(po => po.launch_id !== id));
@@ -2262,7 +2286,73 @@ function LaunchPlannerView({ isMobile, orgId }) {
     setEmailSends(p => p.filter(e => e.launch_id !== id));
     setVariantSplits(p => p.filter(v => v.launch_id !== id));
     setGwpTiers(p => p.filter(g => g.launch_id !== id));
+    setUpsells(p => p.filter(u => u.launch_id !== id));
+    setGeoSplit(p => p.filter(g => g.launch_id !== id));
+    setRebillRates(p => p.filter(r => r.launch_id !== id));
     if (selected?.id === id) setSelected(null);
+  };
+
+  // ── Upsells (multiple per launch, named) ──
+  const addUpsell = async (launchId, name = "New Upsell") => {
+    const max = upsells.filter(u => u.launch_id === launchId).reduce((m, u) => Math.max(m, u.sort_order || 0), -1);
+    const { data } = await supabase.from("dp_launch_upsells").insert({
+      org_id: orgId, launch_id: launchId, name,
+      take_rate_pct: 20, units_per_order: 1, otp_pct: 50, sub_pct: 50,
+      rebill_mode: "inherit", sort_order: max + 1,
+    }).select().single();
+    if (data) setUpsells(p => [...p, data]);
+    return data;
+  };
+  const updateUpsell = async (id, updates) => {
+    await supabase.from("dp_launch_upsells").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", id);
+    setUpsells(p => p.map(u => u.id === id ? { ...u, ...updates } : u));
+  };
+  const deleteUpsell = async (id) => {
+    if (!confirm("Delete this upsell?")) return;
+    // Also delete any custom rebill rates scoped to this upsell
+    await supabase.from("dp_launch_rebill_rates").delete().eq("scope_type", "upsell").eq("scope_id", id);
+    await supabase.from("dp_launch_upsells").delete().eq("id", id);
+    setUpsells(p => p.filter(u => u.id !== id));
+    setRebillRates(p => p.filter(r => !(r.scope_type === "upsell" && r.scope_id === id)));
+  };
+
+  // ── Geo split ──
+  const upsertGeo = async (launchId, geoCode, updates) => {
+    const existing = geoSplit.find(g => g.launch_id === launchId && g.geo_code === geoCode);
+    if (existing) {
+      await supabase.from("dp_launch_geo_split").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", existing.id);
+      setGeoSplit(p => p.map(g => g.id === existing.id ? { ...g, ...updates } : g));
+    } else {
+      const max = geoSplit.filter(g => g.launch_id === launchId).reduce((m, g) => Math.max(m, g.sort_order || 0), -1);
+      const { data } = await supabase.from("dp_launch_geo_split").insert({
+        org_id: orgId, launch_id: launchId, geo_code: geoCode, geo_label: updates.geo_label || geoCode,
+        pct: updates.pct ?? 0, enabled: updates.enabled ?? true, sort_order: max + 1,
+      }).select().single();
+      if (data) setGeoSplit(p => [...p, data]);
+    }
+  };
+  const deleteGeo = async (id) => {
+    await supabase.from("dp_launch_geo_split").delete().eq("id", id);
+    setGeoSplit(p => p.filter(g => g.id !== id));
+  };
+
+  // ── Rebill rates (per launch, scoped to GWP or specific upsell, per cohort, per month) ──
+  const upsertRebillRate = async (launchId, scopeType, scopeId, cohort, monthIndex, ratePct) => {
+    const existing = rebillRates.find(r =>
+      r.launch_id === launchId && r.scope_type === scopeType &&
+      (r.scope_id || null) === (scopeId || null) &&
+      r.cohort === cohort && r.month_index === monthIndex
+    );
+    if (existing) {
+      await supabase.from("dp_launch_rebill_rates").update({ rate_pct: ratePct, updated_at: new Date().toISOString() }).eq("id", existing.id);
+      setRebillRates(p => p.map(r => r.id === existing.id ? { ...r, rate_pct: ratePct } : r));
+    } else {
+      const { data } = await supabase.from("dp_launch_rebill_rates").insert({
+        org_id: orgId, launch_id: launchId, scope_type: scopeType, scope_id: scopeId,
+        cohort, month_index: monthIndex, rate_pct: ratePct,
+      }).select().single();
+      if (data) setRebillRates(p => [...p, data]);
+    }
   };
 
   const addChannel = async (launchId, channelKey) => {
