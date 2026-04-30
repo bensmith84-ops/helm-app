@@ -85,6 +85,9 @@ function SupplyChainView({ isMobile, orgId }) {
   const [skuMaster, setSkuMaster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState("overview");
+  const [rangeWeeks, setRangeWeeks] = useState(4); // 1=latest week, 4=last 4 weeks, 12, 26, 52, 0=custom
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -124,7 +127,40 @@ function SupplyChainView({ isMobile, orgId }) {
   // Aggregate weekly sales by SKU
   const weeks = [...new Set(weeklySales.map(r => r.week_start))].sort().reverse();
   const latestWeek = weeks[0];
-  const latestSales = weeklySales.filter(r => r.week_start === latestWeek);
+
+  // Compute the active date range based on user selection
+  let rangeFrom = null;
+  let rangeTo = null;
+  let rangeLabel = "";
+  if (rangeWeeks === 0 && customFrom && customTo) {
+    rangeFrom = customFrom;
+    rangeTo = customTo;
+    rangeLabel = `${customFrom} → ${customTo}`;
+  } else if (rangeWeeks === 1) {
+    rangeFrom = latestWeek;
+    rangeTo = latestWeek;
+    rangeLabel = `Week of ${latestWeek}`;
+  } else if (rangeWeeks > 1 && weeks.length > 0) {
+    const sortedAsc = [...weeks].sort();
+    const startIdx = Math.max(0, sortedAsc.length - rangeWeeks);
+    rangeFrom = sortedAsc[startIdx];
+    rangeTo = sortedAsc[sortedAsc.length - 1];
+    rangeLabel = `Last ${rangeWeeks} weeks (${rangeFrom} → ${rangeTo})`;
+  } else {
+    rangeFrom = latestWeek;
+    rangeTo = latestWeek;
+    rangeLabel = latestWeek ? `Week of ${latestWeek}` : "No data";
+  }
+
+  const rangeSales = weeklySales.filter(r => {
+    if (!rangeFrom || !rangeTo) return false;
+    return r.week_start >= rangeFrom && r.week_start <= rangeTo;
+  });
+  const weeksInRange = new Set(rangeSales.map(r => r.week_start)).size || 1;
+  const isMultiWeek = weeksInRange > 1;
+
+  // Aliased for backward compatibility with downstream code that expects "latestSales"
+  const latestSales = rangeSales;
   const totalUnits = latestSales.reduce((s, r) => s + (r.units_sold || 0), 0);
   const totalRevenue = latestSales.reduce((s, r) => s + Number(r.gross_revenue || 0), 0);
   const totalOrders = latestSales.reduce((s, r) => s + (r.orders_count || 0), 0);
@@ -221,13 +257,36 @@ function SupplyChainView({ isMobile, orgId }) {
           </button>
         ))}
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 10, color: T.text3, alignSelf: "center" }}>Week of {latestWeek} · {fmt(weeklySales.length)} records · {weeks.length} week(s)</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10, color: T.text3 }}>Range:</span>
+          {[
+            { v: 1, l: "1w" },
+            { v: 4, l: "4w" },
+            { v: 12, l: "12w" },
+            { v: 26, l: "26w" },
+            { v: 52, l: "52w" },
+            { v: 0, l: "Custom" },
+          ].map(opt => (
+            <button key={opt.v} onClick={() => setRangeWeeks(opt.v)}
+              style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, border: rangeWeeks === opt.v ? `1px solid ${T.accent}` : `1px solid ${T.border}`, background: rangeWeeks === opt.v ? T.accent : "transparent", color: rangeWeeks === opt.v ? "white" : T.text2, borderRadius: 4, cursor: "pointer" }}>
+              {opt.l}
+            </button>
+          ))}
+          {rangeWeeks === 0 && (
+            <>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.cardBg, color: T.text }} />
+              <span style={{ fontSize: 10, color: T.text3 }}>→</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.cardBg, color: T.text }} />
+            </>
+          )}
+          <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>· {fmt(rangeSales.length)} records · {weeksInRange} {weeksInRange === 1 ? "week" : "weeks"}</span>
+        </div>
       </div>
 
       {/* KPI Strip */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10, marginBottom: 20 }}>
-        <KPI label="Weekly Units" value={fmt(totalUnits)} sub={`week of ${latestWeek}`} icon="📦" />
-        <KPI label="Weekly Revenue" value={fmtD(totalRevenue)} sub={`${fmt(totalOrders)} orders`} icon="💰" color="#22c55e" />
+        <KPI label={isMultiWeek ? "Total Units" : "Weekly Units"} value={fmt(totalUnits)} sub={isMultiWeek ? `${fmt(Math.round(totalUnits / weeksInRange))}/wk · ${rangeLabel}` : `week of ${latestWeek}`} icon="📦" />
+        <KPI label={isMultiWeek ? "Total Revenue" : "Weekly Revenue"} value={fmtD(totalRevenue)} sub={isMultiWeek ? `${fmtD(Math.round(totalRevenue / weeksInRange))}/wk · ${fmt(totalOrders)} orders` : `${fmt(totalOrders)} orders`} icon="💰" color="#22c55e" />
         <KPI label="Sub Mix" value={`${(subPct * 100).toFixed(0)}%`} sub={`${fmt(subUnits)} sub units`} icon="🔄" color={T.accent} />
         <KPI label="Avg WoS" value={avgWos > 0 ? avgWos.toFixed(1) : "—"} sub={inventory.length > 0 ? `${fmt(totalOnHand)} on hand` : "No inventory data"} icon="⏱" color={avgWos > 0 && avgWos < 6 ? "#f59e0b" : "#22c55e"} />
         <KPI label="At Risk" value={criticalCount} sub="SKUs < 4 weeks" icon="⚠️" color={criticalCount > 0 ? "#ef4444" : "#22c55e"} />
@@ -294,7 +353,7 @@ function SupplyChainView({ isMobile, orgId }) {
       {subTab === "products" && (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, fontSize: 13, fontWeight: 700, color: T.text }}>
-            Demand by Base Product — Week of {latestWeek} ({topBaseProducts.length} products, {topProducts.length} SKUs)
+            Demand by Base Product — {rangeLabel} ({topBaseProducts.length} products, {topProducts.length} SKUs)
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
