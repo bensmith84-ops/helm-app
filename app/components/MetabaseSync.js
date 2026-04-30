@@ -164,11 +164,25 @@ export default function MetabaseSync({ onClose }) {
                     for (const mapping of DASHBOARD_SYNC_MAP) {
                       setError(`Syncing ${mapping.icon} ${mapping.label}...`);
                       try {
-                        // Fetch data from Metabase
-                        const r = await mb("run_question", { question_id: mapping.card_id });
+                        // Build request — for daily sales card, pass an explicit date range
+                        // so the edge function chunks the call (Metabase caps single calls at 2000 rows)
+                        const reqArgs = { question_id: mapping.card_id };
+                        if (mapping.table === "dp_daily_sales") {
+                          const end = new Date();
+                          const start = new Date();
+                          start.setDate(start.getDate() - (weeksToSync * 7));
+                          reqArgs.start_date = start.toISOString().split("T")[0];
+                          reqArgs.end_date = end.toISOString().split("T")[0];
+                          reqArgs.chunk_days = 7;
+                        }
+                        const r = await mb("run_question", reqArgs);
                         if (!r.data || r.data.length === 0) {
                           results.push({ ...mapping, rows: 0, status: "empty" });
                           continue;
+                        }
+                        if (r.chunks) {
+                          console.log(`[Sync] ${mapping.label}: chunked fetch — ${r.chunks.length} chunks, ${r.row_count} total rows`);
+                          console.log(`[Sync] Chunk breakdown:`, r.chunks);
                         }
 
                         // Column rename map
