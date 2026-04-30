@@ -275,7 +275,7 @@ export default function MetabaseSync({ onClose }) {
                             console.error(`[Sync] Batch error for ${mapping.table}:`, insErr.message);
                             syncErrors.push(insErr.message);
                             // Structural errors won't resolve row-by-row — abort this table
-                            const isFatalErr = /schema cache|column .* does not exist|violates not-null|invalid input syntax|duplicate key value|violates unique constraint/i.test(insErr.message || "");
+                            const isFatalErr = /schema cache|column .* does not exist|violates not-null|invalid input syntax|duplicate key value|violates unique constraint|violates check constraint/i.test(insErr.message || "");
                             if (isFatalErr) {
                               console.error(`[Sync] Aborting ${mapping.table} — fatal error, will not retry rows`);
                               aborted = true;
