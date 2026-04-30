@@ -43,6 +43,7 @@ export default function MetabaseSync({ onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [existingCounts, setExistingCounts] = useState({});
+  const [weeksToSync, setWeeksToSync] = useState(12); // default 12 weeks
 
   useEffect(() => {
     // Load existing row counts
@@ -174,33 +175,53 @@ export default function MetabaseSync({ onClose }) {
                         const COL_RENAMES = { churn: "churned" };
                         const cleanCol = (c) => { const l = c.toLowerCase().replace(/[^a-z0-9_]/g, "_"); return COL_RENAMES[l] || l; };
 
-                        // Transform rows
-                        const data = r.data.map(row => {
+                        // Transform rows with null coercion for NOT NULL fields
+                        let data = r.data.map(row => {
                           const obj = { org_id: orgId, imported_at: new Date().toISOString() };
                           for (const [key, val] of Object.entries(row)) { obj[cleanCol(key)] = val; }
+                          // Coerce NOT NULL fields
+                          if (obj.sku === null || obj.sku === undefined) obj.sku = "UNKNOWN";
+                          if (obj.units_sold === null || obj.units_sold === undefined) obj.units_sold = 0;
+                          if (obj.base_product === null || obj.base_product === undefined) obj.base_product = obj.product_title || obj.sku || "";
+                          if (obj.product_title === null || obj.product_title === undefined) obj.product_title = obj.sku || "";
+                          if (obj.units_per_sku === null || obj.units_per_sku === undefined) obj.units_per_sku = 1;
                           return obj;
                         });
+
+                        // Date filter for weekly sales
+                        if (mapping.table === "dp_weekly_sales" && data.length > 0 && data[0].week_start) {
+                          const cutoff = new Date();
+                          cutoff.setDate(cutoff.getDate() - (weeksToSync * 7));
+                          const cutoffStr = cutoff.toISOString().split("T")[0];
+                          const before = data.length;
+                          data = data.filter(row => row.week_start >= cutoffStr);
+                          console.log(`[Sync] Weekly sales: ${before} → ${data.length} rows (last ${weeksToSync} weeks, cutoff ${cutoffStr})`);
+                        }
 
                         // Clear existing
                         await supabase.from(mapping.table).delete().eq("org_id", orgId);
 
                         // Batch insert from client (no edge function timeout)
                         let synced = 0;
+                        let syncErrors = [];
                         for (let i = 0; i < data.length; i += 200) {
                           setError(`${mapping.icon} ${mapping.label}: inserting ${i}/${data.length}...`);
                           const batch = data.slice(i, i + 200);
                           const { error: insErr } = await supabase.from(mapping.table).insert(batch);
                           if (insErr) {
+                            console.error(`[Sync] Batch error for ${mapping.table}:`, insErr.message);
+                            syncErrors.push(insErr.message);
                             // Fallback: row by row
                             for (const row of batch) {
                               const { error: rErr } = await supabase.from(mapping.table).insert(row);
                               if (!rErr) synced++;
+                              else console.error(`[Sync] Row error:`, rErr.message, JSON.stringify(row).substring(0, 200));
                             }
                           } else {
                             synced += batch.length;
                           }
                         }
-                        results.push({ ...mapping, rows: synced, total: data.length, status: synced > 0 ? "ok" : "error" });
+                        results.push({ ...mapping, rows: synced, total: data.length, status: synced > 0 ? "ok" : "error", errors: syncErrors.length > 0 ? syncErrors.slice(0, 3) : undefined });
                       } catch (e) {
                         results.push({ ...mapping, rows: 0, status: "error", error: e.message });
                       }
@@ -213,10 +234,23 @@ export default function MetabaseSync({ onClose }) {
                     🔄 Sync All (5 tables)
                   </button>
                 </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
                   {DASHBOARD_SYNC_MAP.map(m => (
                     <span key={m.card_id} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: T.surface, border: `1px solid ${T.border}`, color: T.text2 }}>{m.icon} {m.label}</span>
                   ))}
+                  <div style={{ flex: 1 }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, color: T.text3 }}>Weekly Sales:</span>
+                    <select value={weeksToSync} onChange={e => setWeeksToSync(Number(e.target.value))}
+                      style={{ padding: "3px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, cursor: "pointer" }}>
+                      <option value={4}>Last 4 weeks</option>
+                      <option value={8}>Last 8 weeks</option>
+                      <option value={12}>Last 12 weeks</option>
+                      <option value={26}>Last 26 weeks</option>
+                      <option value={52}>Last 52 weeks</option>
+                      <option value={999}>All time</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
