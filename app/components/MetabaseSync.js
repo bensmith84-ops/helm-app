@@ -177,7 +177,7 @@ export default function MetabaseSync({ onClose }) {
 
                         // Known columns per table — strip anything not in this list
                         const TABLE_COLUMNS = {
-                          dp_weekly_sales: ["org_id","week_start","sku","product_title","variant_title","units_sold","gross_revenue","net_revenue","orders_count","channel","country","is_subscription","imported_at"],
+                          dp_weekly_sales: ["org_id","week_start","sku","product_title","variant_title","units_sold","gross_revenue","net_revenue","orders_count","channel","country","is_subscription","base_product","units_per_sku","imported_at"],
                           dp_sku_master: ["org_id","sku","product_title","variant_title","base_product","product_category","units_per_sku","is_gwp","is_subscription","is_one_time","current_price","cogs_per_unit","status","imported_at"],
                           dp_inventory: ["org_id","sku","warehouse_location","quantity_on_hand","quantity_reserved","quantity_incoming","expected_arrival_date","reorder_point","lead_time_days","snapshot_date","imported_at"],
                           dp_offer_performance: ["org_id","month","offer_name","times_shown","times_accepted","take_rate","revenue_impact","imported_at"],
@@ -195,12 +195,13 @@ export default function MetabaseSync({ onClose }) {
                               obj[col] = val;
                             }
                           }
-                          // Coerce NOT NULL fields
-                          if (obj.sku === null || obj.sku === undefined) obj.sku = "UNKNOWN";
-                          if (obj.units_sold === null || obj.units_sold === undefined) obj.units_sold = 0;
-                          if (obj.base_product === null || obj.base_product === undefined) obj.base_product = obj.product_title || obj.sku || "";
-                          if (obj.product_title === null || obj.product_title === undefined) obj.product_title = obj.sku || "";
-                          if (obj.units_per_sku === null || obj.units_per_sku === undefined) obj.units_per_sku = 1;
+                          // Coerce NOT NULL fields (only if column exists on target table)
+                          const setIfAllowed = (k, v) => { if (!allowedCols || allowedCols.has(k)) obj[k] = v; };
+                          if (obj.sku === null || obj.sku === undefined) setIfAllowed("sku", "UNKNOWN");
+                          if (obj.units_sold === null || obj.units_sold === undefined) setIfAllowed("units_sold", 0);
+                          if (obj.base_product === null || obj.base_product === undefined) setIfAllowed("base_product", obj.product_title || obj.sku || "");
+                          if (obj.product_title === null || obj.product_title === undefined) setIfAllowed("product_title", obj.sku || "");
+                          if (obj.units_per_sku === null || obj.units_per_sku === undefined) setIfAllowed("units_per_sku", 1);
                           return obj;
                         });
 
@@ -220,24 +221,38 @@ export default function MetabaseSync({ onClose }) {
                         // Batch insert from client (no edge function timeout)
                         let synced = 0;
                         let syncErrors = [];
+                        let aborted = false;
                         for (let i = 0; i < data.length; i += 200) {
+                          if (aborted) break;
                           setError(`${mapping.icon} ${mapping.label}: inserting ${i}/${data.length}...`);
                           const batch = data.slice(i, i + 200);
                           const { error: insErr } = await supabase.from(mapping.table).insert(batch);
                           if (insErr) {
                             console.error(`[Sync] Batch error for ${mapping.table}:`, insErr.message);
                             syncErrors.push(insErr.message);
-                            // Fallback: row by row
+                            // Schema/structural errors won't resolve row-by-row — abort this table
+                            const isSchemaErr = /schema cache|column .* does not exist|violates not-null|invalid input syntax/i.test(insErr.message || "");
+                            if (isSchemaErr) {
+                              console.error(`[Sync] Aborting ${mapping.table} — schema mismatch, will not retry rows`);
+                              aborted = true;
+                              break;
+                            }
+                            // Fallback: row by row (only for transient/data errors)
+                            let rowErrCount = 0;
                             for (const row of batch) {
                               const { error: rErr } = await supabase.from(mapping.table).insert(row);
                               if (!rErr) synced++;
-                              else console.error(`[Sync] Row error:`, rErr.message, JSON.stringify(row).substring(0, 200));
+                              else {
+                                rowErrCount++;
+                                if (rowErrCount <= 3) console.error(`[Sync] Row error:`, rErr.message, JSON.stringify(row).substring(0, 200));
+                              }
                             }
+                            if (rowErrCount > 3) console.error(`[Sync] ...and ${rowErrCount - 3} more row errors suppressed`);
                           } else {
                             synced += batch.length;
                           }
                         }
-                        results.push({ ...mapping, rows: synced, total: data.length, status: synced > 0 ? "ok" : "error", errors: syncErrors.length > 0 ? syncErrors.slice(0, 3) : undefined });
+                        results.push({ ...mapping, rows: synced, total: data.length, status: aborted ? "error" : (synced > 0 ? "ok" : "error"), errors: syncErrors.length > 0 ? syncErrors.slice(0, 3) : undefined });
                       } catch (e) {
                         results.push({ ...mapping, rows: 0, status: "error", error: e.message });
                       }
