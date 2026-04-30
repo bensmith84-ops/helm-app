@@ -2190,6 +2190,232 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
 // RebillRatesEditor — separate OTP and Sub rebill rate tables for any scope
 // (used both for the main GWP funnel and for individual upsells with custom rates)
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// GeographySection — toggle/% UI for AU/CA/UK/US + add custom geo
+// ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_GEOS = [
+  { code: "US", label: "United States" },
+  { code: "CA", label: "Canada" },
+  { code: "UK", label: "United Kingdom" },
+  { code: "AU", label: "Australia" },
+];
+
+function GeographySection({ launchId, launchGeoSplit, totalAcquisitionOrders, upsertGeo, deleteGeo, T, isMobile }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [newCode, setNewCode] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+
+  // Merge defaults with stored — defaults always show as toggleable rows even if disabled
+  const stored = launchGeoSplit;
+  const defaultRows = DEFAULT_GEOS.map(g => {
+    const s = stored.find(x => x.geo_code === g.code);
+    return s || { geo_code: g.code, geo_label: g.label, pct: 0, enabled: false, _default: true };
+  });
+  const customRows = stored.filter(s => !DEFAULT_GEOS.some(g => g.code === s.geo_code));
+
+  const enabledRows = [...defaultRows.filter(g => g.enabled), ...customRows.filter(g => g.enabled)];
+  const totalPct = enabledRows.reduce((s, g) => s + (parseFloat(g.pct) || 0), 0);
+  const sumOk = Math.abs(totalPct - 100) < 0.01;
+
+  const toggleGeo = (geoCode, geoLabel, currentEnabled, currentPct) => {
+    upsertGeo(launchId, geoCode, { geo_label: geoLabel, enabled: !currentEnabled, pct: currentPct || 0 });
+  };
+  const updatePct = (geoCode, geoLabel, val) => {
+    const pct = Math.max(0, Math.min(100, parseFloat(val) || 0));
+    upsertGeo(launchId, geoCode, { geo_label: geoLabel, pct, enabled: true });
+  };
+  const addCustomGeo = () => {
+    if (!newCode.trim()) return;
+    upsertGeo(launchId, newCode.toUpperCase().trim(), { geo_label: newLabel.trim() || newCode.toUpperCase().trim(), pct: 0, enabled: true });
+    setNewCode(""); setNewLabel(""); setShowAdd(false);
+  };
+  const rebalance = () => {
+    // Auto-redistribute equally across enabled rows
+    const enabled = [...defaultRows.filter(g => g.enabled), ...customRows];
+    if (enabled.length === 0) return;
+    const each = Math.floor(10000 / enabled.length) / 100; // 2 decimal places
+    enabled.forEach((g, i) => {
+      const pct = i === enabled.length - 1 ? Math.round((100 - each * (enabled.length - 1)) * 100) / 100 : each;
+      upsertGeo(launchId, g.geo_code, { geo_label: g.geo_label, pct, enabled: true });
+    });
+  };
+
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>🌍 Geography Distribution</div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: sumOk ? "#22c55e15" : "#ef444415", color: sumOk ? "#22c55e" : "#ef4444" }}>
+            Total: {totalPct.toFixed(2)}% {sumOk ? "✓" : "✗"}
+          </div>
+          <button onClick={rebalance} title="Rebalance enabled geos to equal split"
+            style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, background: "transparent", color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, cursor: "pointer" }}>⚖️ Rebalance</button>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, lineHeight: 1.5 }}>
+        Set the % of total demand allocated to each market. Used by the demand-by-geography report below.
+      </div>
+
+      {/* Default geos row */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap: 8, marginBottom: 10 }}>
+        {defaultRows.map(g => {
+          const orders = Math.round(totalAcquisitionOrders * (parseFloat(g.pct) || 0) / 100);
+          return (
+            <div key={g.geo_code} style={{ padding: 10, background: g.enabled ? T.accent + "08" : T.surface2, border: `1px solid ${g.enabled ? T.accent + "40" : T.border}`, borderRadius: 8 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer", marginBottom: 6 }}>
+                <input type="checkbox" checked={!!g.enabled} onChange={() => toggleGeo(g.geo_code, g.geo_label, g.enabled, g.pct)} />
+                {g.geo_code} <span style={{ fontSize: 10, color: T.text3, fontWeight: 400 }}>{g.geo_label}</span>
+              </label>
+              {g.enabled && (
+                <>
+                  <input type="number" value={g.pct ?? 0}
+                    onChange={e => updatePct(g.geo_code, g.geo_label, e.target.value)}
+                    style={{ width: "100%", padding: "4px 6px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, outline: "none", textAlign: "right" }}
+                  />
+                  <div style={{ fontSize: 9, color: T.text3, marginTop: 3, textAlign: "right" }}>{fmt(orders)} orders</div>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Custom geos */}
+      {customRows.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginBottom: 6 }}>Custom Geos</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap: 8 }}>
+            {customRows.map(g => {
+              const orders = Math.round(totalAcquisitionOrders * (parseFloat(g.pct) || 0) / 100);
+              return (
+                <div key={g.geo_code} style={{ padding: 10, background: T.accent + "08", border: `1px solid ${T.accent}40`, borderRadius: 8, position: "relative" }}>
+                  <button onClick={() => deleteGeo(g.id)} title="Remove" style={{ position: "absolute", top: 4, right: 6, background: "transparent", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>{g.geo_code} <span style={{ fontSize: 10, color: T.text3, fontWeight: 400 }}>{g.geo_label}</span></div>
+                  <input type="number" value={g.pct ?? 0}
+                    onChange={e => updatePct(g.geo_code, g.geo_label, e.target.value)}
+                    style={{ width: "100%", padding: "4px 6px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, outline: "none", textAlign: "right" }}
+                  />
+                  <div style={{ fontSize: 9, color: T.text3, marginTop: 3, textAlign: "right" }}>{fmt(orders)} orders</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Add custom geo */}
+      {showAdd ? (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10 }}>
+          <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Code (e.g. NZ)" maxLength={4}
+            style={{ width: 80, padding: 6, fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, outline: "none" }} />
+          <input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Label (e.g. New Zealand)"
+            style={{ flex: 1, padding: 6, fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, outline: "none" }} />
+          <button onClick={addCustomGeo} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>Add</button>
+          <button onClick={() => { setShowAdd(false); setNewCode(""); setNewLabel(""); }} style={{ padding: "6px 10px", fontSize: 11, color: T.text3, background: "transparent", border: "none", cursor: "pointer" }}>Cancel</button>
+        </div>
+      ) : (
+        <button onClick={() => setShowAdd(true)} style={{ marginTop: 10, padding: "5px 12px", fontSize: 10, fontWeight: 600, background: "transparent", color: T.accent, border: `1px dashed ${T.accent}40`, borderRadius: 5, cursor: "pointer" }}>+ Add Custom Geo</button>
+      )}
+
+      {/* Demand by geography report (per geo, per month) */}
+      {enabledRows.length > 0 && totalAcquisitionOrders > 0 && (
+        <div style={{ marginTop: 16, padding: 12, background: T.surface2, borderRadius: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>📦 Demand Allocation by Geography</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 600, color: T.text3, fontSize: 10 }}>Geo</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 600, color: T.text3, fontSize: 10 }}>Split %</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 600, color: T.text3, fontSize: 10 }}>Orders</th>
+                </tr>
+              </thead>
+              <tbody>
+                {enabledRows.map(g => {
+                  const orders = Math.round(totalAcquisitionOrders * (parseFloat(g.pct) || 0) / 100);
+                  return (
+                    <tr key={g.geo_code} style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <td style={{ padding: "6px 8px", fontWeight: 700, color: T.text }}>{g.geo_code} <span style={{ fontWeight: 400, color: T.text3 }}>· {g.geo_label}</span></td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", color: T.text }}>{(parseFloat(g.pct) || 0).toFixed(2)}%</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", color: T.text }}>{fmt(orders)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CapacityDosSection — manufacturing capacity & days of supply
+// ─────────────────────────────────────────────────────────────────────────────
+function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos, forecastWeeks, updateLaunch, T, isMobile }) {
+  const monthCount = Math.max(1, Math.ceil(forecastWeeks / 4.33));
+  const monthlyDemand = totalUnits / monthCount;
+  const dailyDemand = monthlyDemand / 30;
+  const cap = parseInt(maxMonthlyCapacity) || 0;
+  const dos = parseInt(targetDos) || 60;
+  const overCap = cap > 0 && monthlyDemand > cap;
+  const targetInventory = Math.round(dos * dailyDemand);
+
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>📊 Capacity & Days of Supply</div>
+
+      {/* Capacity warning */}
+      {overCap && (
+        <div style={{ padding: 10, background: "#ef444415", border: `1px solid #ef4444`, borderRadius: 6, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 16 }}>⚠️</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444" }}>Capacity exceeded</div>
+            <div style={{ fontSize: 11, color: T.text2, marginTop: 2 }}>
+              Forecast monthly demand of <strong>{fmt(Math.round(monthlyDemand))}</strong> units exceeds your manufacturer's max capacity of <strong>{fmt(cap)}</strong>/mo by <strong>{fmt(Math.round(monthlyDemand - cap))}</strong> units.
+              You'll need additional production capacity, an extended lead time, or to reduce forecast demand.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
+        <div style={{ padding: "10px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Forecast / Mo</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{fmt(Math.round(monthlyDemand))}</div>
+          <div style={{ fontSize: 9, color: T.text3 }}>units / month</div>
+        </div>
+        <div style={{ padding: "10px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${overCap ? "#ef4444" : T.border}` }}>
+          <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Max Capacity</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: cap > 0 ? (overCap ? "#ef4444" : "#22c55e") : T.text3 }}>{cap > 0 ? fmt(cap) : "—"}</div>
+          <div style={{ fontSize: 9, color: T.text3 }}>{cap > 0 ? "units / month" : "not set"}</div>
+        </div>
+        <div style={{ padding: "10px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Target DOS</div>
+          <input type="number" value={dos} onChange={e => updateLaunch(launch.id, "target_days_of_supply", parseInt(e.target.value) || 60)}
+            style={{ width: "100%", fontSize: 18, fontWeight: 800, color: T.accent, background: "transparent", border: "none", outline: "none", padding: 0 }} />
+          <div style={{ fontSize: 9, color: T.text3 }}>days</div>
+        </div>
+        <div style={{ padding: "10px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Target Inventory</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{fmt(targetInventory)}</div>
+          <div style={{ fontSize: 9, color: T.text3 }}>= {dos} × daily demand</div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>
+        Daily demand = {fmt(Math.round(dailyDemand))} units/day. Target inventory of {fmt(targetInventory)} units gives you {dos} days of supply at current forecast pace.
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RebillRatesEditor — separate OTP and Sub rebill rate tables for any scope
+// (used both for the main GWP funnel and for individual upsells with custom rates)
+// ─────────────────────────────────────────────────────────────────────────────
 function RebillRatesEditor({ launchId, scopeType, scopeId, otpPct, subPct, rebillRates, upsertRebillRate, forecastWeeks, T, isMobile, compact }) {
   const monthCount = Math.max(1, Math.ceil(forecastWeeks / 4.33));
   const months = Array.from({ length: monthCount }, (_, i) => i + 1); // M1..Mn
@@ -2851,6 +3077,33 @@ function LaunchPlannerView({ isMobile, orgId }) {
             </div>
           )}
         </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* GEOGRAPHY — distribution split for shipping/demand allocation     */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <GeographySection
+          launchId={selected.id}
+          launchGeoSplit={launchGeoSplit}
+          totalAcquisitionOrders={selected.total_acquisition_orders || 0}
+          upsertGeo={upsertGeo}
+          deleteGeo={deleteGeo}
+          T={T}
+          isMobile={isMobile}
+        />
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* CAPACITY & DAYS OF SUPPLY — production guardrails                 */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <CapacityDosSection
+          launch={selected}
+          totalUnits={totalUnits}
+          maxMonthlyCapacity={selected.max_monthly_capacity}
+          targetDos={selected.target_days_of_supply}
+          forecastWeeks={selected.forecast_period_weeks || 12}
+          updateLaunch={updateLaunch}
+          T={T}
+          isMobile={isMobile}
+        />
 
         {/* Sales Channels (non-acquisition: Amazon, TikTok, Retail, etc.) */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
