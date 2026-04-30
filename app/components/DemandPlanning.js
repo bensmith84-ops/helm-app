@@ -83,25 +83,34 @@ function SupplyChainView({ isMobile, orgId }) {
   const [inventory, setInventory] = useState([]);
   const [offers, setOffers] = useState([]);
   const [skuMaster, setSkuMaster] = useState([]);
+  const [skuOverrides, setSkuOverrides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState("overview");
   const [rangeWeeks, setRangeWeeks] = useState(4); // 1=latest week, 4=last 4 weeks, 12, 26, 52, 0=custom
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [showOverrideManager, setShowOverrideManager] = useState(false);
+
+  const reloadOverrides = useCallback(async () => {
+    const r = await supabase.from("dp_sku_overrides").select("*").eq("org_id", orgId).limit(2000);
+    setSkuOverrides(r.data || []);
+  }, [orgId]);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [wsR, invR, offR, skuR] = await Promise.all([
+      const [wsR, invR, offR, skuR, ovR] = await Promise.all([
         supabase.from("dp_weekly_sales").select("*").eq("org_id", orgId).order("week_start", { ascending: false }).limit(5000),
         supabase.from("dp_inventory").select("*").eq("org_id", orgId).limit(3000),
         supabase.from("dp_offer_performance").select("*").eq("org_id", orgId).limit(100),
         supabase.from("dp_sku_master").select("*").eq("org_id", orgId).limit(1000),
+        supabase.from("dp_sku_overrides").select("*").eq("org_id", orgId).limit(2000),
       ]);
       setWeeklySales(wsR.data || []);
       setInventory(invR.data || []);
       setOffers(offR.data || []);
       setSkuMaster(skuR.data || []);
+      setSkuOverrides(ovR.data || []);
       setLoading(false);
     })();
   }, [orgId]);
@@ -120,9 +129,37 @@ function SupplyChainView({ isMobile, orgId }) {
   const getRisk = (wos) => wos < 3 ? "critical" : wos < 5 ? "red" : wos < 8 ? "yellow" : "green";
   const getRiskLabel = (wos) => wos < 3 ? "CRITICAL" : wos < 5 ? "LOW" : wos < 8 ? "WATCH" : "OK";
 
-  // Build SKU lookup from master
+  // Build SKU lookup from master + overrides (override fields win when present)
+  const overrideMap = {};
+  skuOverrides.forEach(o => { overrideMap[o.sku] = o; });
   const skuMap = {};
-  skuMaster.forEach(s => { skuMap[s.sku] = s; });
+  skuMaster.forEach(s => {
+    const ov = overrideMap[s.sku];
+    skuMap[s.sku] = ov ? {
+      ...s,
+      base_product: ov.base_product ?? s.base_product,
+      product_title: ov.product_title ?? s.product_title,
+      variant_title: ov.variant_title ?? s.variant_title,
+      product_category: ov.product_category ?? s.product_category,
+      units_per_sku: ov.units_per_sku ?? s.units_per_sku,
+      _has_override: true,
+    } : s;
+  });
+  // Overrides for SKUs not in master (orphans like FREESHIPPING) — still surface them
+  skuOverrides.forEach(o => {
+    if (!skuMap[o.sku]) {
+      skuMap[o.sku] = {
+        sku: o.sku,
+        base_product: o.base_product,
+        product_title: o.product_title,
+        variant_title: o.variant_title,
+        product_category: o.product_category,
+        units_per_sku: o.units_per_sku,
+        _has_override: true,
+        _orphan: true,
+      };
+    }
+  });
 
   // Aggregate weekly sales by SKU
   const weeks = [...new Set(weeklySales.map(r => r.week_start))].sort().reverse();
@@ -280,6 +317,10 @@ function SupplyChainView({ isMobile, orgId }) {
             </>
           )}
           <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>· {fmt(rangeSales.length)} records · {weeksInRange} {weeksInRange === 1 ? "week" : "weeks"}</span>
+          <button onClick={() => setShowOverrideManager(true)}
+            style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, background: skuOverrides.length > 0 ? "#f59e0b" : "transparent", color: skuOverrides.length > 0 ? "white" : T.text2, borderRadius: 4, cursor: "pointer", marginLeft: 8 }}>
+            🛠 SKU Mappings{skuOverrides.length > 0 ? ` (${skuOverrides.length})` : ""}
+          </button>
         </div>
       </div>
 
@@ -563,6 +604,275 @@ function SupplyChainView({ isMobile, orgId }) {
           </div>
         </div>
       )}
+
+      {showOverrideManager && (
+        <SkuOverrideManager
+          orgId={orgId}
+          weeklySales={weeklySales}
+          skuMaster={skuMaster}
+          overrides={skuOverrides}
+          onClose={() => setShowOverrideManager(false)}
+          onSaved={reloadOverrides}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SKU OVERRIDE MANAGER — Override base_product / variant / category for SKUs
+// when the upstream Metabase data is wrong or incomplete
+// ═══════════════════════════════════════════════════════════════════════════════
+function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose, onSaved }) {
+  const [filter, setFilter] = useState("issues"); // all | issues | overridden | unmapped
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState(null); // sku currently being edited
+  const [draft, setDraft] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  // Build per-SKU summary from weekly sales
+  const skuSummary = (() => {
+    const map = {};
+    weeklySales.forEach(r => {
+      if (!r.sku) return;
+      if (!map[r.sku]) {
+        map[r.sku] = {
+          sku: r.sku,
+          titles: new Set(),
+          variants: new Set(),
+          base_products: new Set(),
+          units: 0,
+          revenue: 0,
+        };
+      }
+      if (r.product_title) map[r.sku].titles.add(r.product_title);
+      if (r.variant_title) map[r.sku].variants.add(r.variant_title);
+      if (r.base_product) map[r.sku].base_products.add(r.base_product);
+      map[r.sku].units += r.units_sold || 0;
+      map[r.sku].revenue += Number(r.net_revenue || 0);
+    });
+    return Object.values(map);
+  })();
+
+  const masterMap = {};
+  skuMaster.forEach(s => { masterMap[s.sku] = s; });
+  const overrideMap = {};
+  overrides.forEach(o => { overrideMap[o.sku] = o; });
+
+  // Compute issue type for each SKU
+  const enriched = skuSummary.map(s => {
+    const master = masterMap[s.sku];
+    const ov = overrideMap[s.sku];
+    const titles = [...s.titles];
+    const variants = [...s.variants];
+    const baseProducts = [...s.base_products];
+    let issue = null;
+    if (!master && !ov) issue = "unmapped";
+    else if (titles.length > 1 || baseProducts.length > 1) issue = "multi_title";
+    else if (variants.length > 0 && baseProducts.length === 1 && !baseProducts[0].includes(variants[0]?.split(" / ")[0] || "_NEVER_MATCH_")) issue = "missing_variant";
+    return {
+      ...s,
+      titles,
+      variants,
+      baseProducts,
+      master,
+      override: ov,
+      issue,
+      effectiveBaseProduct: ov?.base_product ?? master?.base_product ?? baseProducts[0] ?? titles[0] ?? s.sku,
+    };
+  });
+
+  // Filter
+  let filtered = enriched;
+  if (filter === "issues") filtered = filtered.filter(e => e.issue);
+  if (filter === "overridden") filtered = filtered.filter(e => e.override);
+  if (filter === "unmapped") filtered = filtered.filter(e => e.issue === "unmapped");
+  if (search) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter(e => e.sku.toLowerCase().includes(q) || e.titles.join(" ").toLowerCase().includes(q) || e.effectiveBaseProduct.toLowerCase().includes(q));
+  }
+  filtered.sort((a, b) => b.units - a.units);
+
+  const startEdit = (s) => {
+    setEditing(s.sku);
+    setDraft({
+      base_product: s.override?.base_product ?? s.master?.base_product ?? s.baseProducts[0] ?? "",
+      product_title: s.override?.product_title ?? s.master?.product_title ?? s.titles[0] ?? "",
+      variant_title: s.override?.variant_title ?? s.master?.variant_title ?? s.variants[0] ?? "",
+      product_category: s.override?.product_category ?? s.master?.product_category ?? "",
+      units_per_sku: s.override?.units_per_sku ?? s.master?.units_per_sku ?? 1,
+      notes: s.override?.notes ?? "",
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setSaving(true);
+    const payload = {
+      org_id: orgId,
+      sku: editing,
+      base_product: draft.base_product || null,
+      product_title: draft.product_title || null,
+      variant_title: draft.variant_title || null,
+      product_category: draft.product_category || null,
+      units_per_sku: draft.units_per_sku ? Number(draft.units_per_sku) : null,
+      notes: draft.notes || null,
+    };
+    const { error } = await supabase.from("dp_sku_overrides").upsert(payload, { onConflict: "org_id,sku" });
+    setSaving(false);
+    if (error) {
+      alert("Save failed: " + error.message);
+    } else {
+      setSavedMsg(`Saved ${editing}`);
+      setTimeout(() => setSavedMsg(""), 2000);
+      setEditing(null);
+      setDraft({});
+      onSaved && onSaved();
+    }
+  };
+
+  const deleteOverride = async (sku) => {
+    if (!confirm(`Remove override for ${sku}?`)) return;
+    const { error } = await supabase.from("dp_sku_overrides").delete().eq("org_id", orgId).eq("sku", sku);
+    if (error) alert("Delete failed: " + error.message);
+    else {
+      setSavedMsg(`Removed override for ${sku}`);
+      setTimeout(() => setSavedMsg(""), 2000);
+      onSaved && onSaved();
+    }
+  };
+
+  const issueCount = enriched.filter(e => e.issue).length;
+  const overrideCount = overrides.length;
+  const unmappedCount = enriched.filter(e => e.issue === "unmapped").length;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardBg, borderRadius: 8, width: "100%", maxWidth: 1200, maxHeight: "90vh", display: "flex", flexDirection: "column", border: `1px solid ${T.border}` }}>
+        {/* Header */}
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>🛠 SKU Mapping Overrides</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Manually fix base_product, variant, category, and units-per-SKU when Metabase data is wrong. Overrides take precedence over the SKU master.</div>
+          </div>
+          <button onClick={onClose} style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, border: `1px solid ${T.border}`, background: "transparent", color: T.text2, borderRadius: 4, cursor: "pointer" }}>✕ Close</button>
+        </div>
+
+        {/* Filter bar */}
+        <div style={{ padding: "10px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {[
+            { v: "issues", l: `🚩 Issues (${issueCount})` },
+            { v: "unmapped", l: `❓ Unmapped (${unmappedCount})` },
+            { v: "overridden", l: `✅ Overridden (${overrideCount})` },
+            { v: "all", l: `All (${enriched.length})` },
+          ].map(opt => (
+            <button key={opt.v} onClick={() => setFilter(opt.v)}
+              style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, border: filter === opt.v ? `1px solid ${T.accent}` : `1px solid ${T.border}`, background: filter === opt.v ? T.accent : "transparent", color: filter === opt.v ? "white" : T.text2, borderRadius: 4, cursor: "pointer" }}>
+              {opt.l}
+            </button>
+          ))}
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search SKU, title, base product..."
+            style={{ flex: 1, minWidth: 200, padding: "6px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 4, background: T.bg, color: T.text }} />
+          {savedMsg && <span style={{ fontSize: 11, color: "#22c55e", fontWeight: 600 }}>{savedMsg}</span>}
+        </div>
+
+        {/* List */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 18px" }}>
+          {filtered.length === 0 && (
+            <div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 12 }}>
+              {filter === "issues" ? "🎉 No issues found — all SKUs look mapped correctly!" : "No SKUs match this filter."}
+            </div>
+          )}
+          {filtered.map(s => (
+            <div key={s.sku} style={{ padding: "10px 0", borderBottom: `1px solid ${T.border}`, fontSize: 12 }}>
+              {editing === s.sku ? (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <code style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>{s.sku}</code>
+                    <span style={{ fontSize: 10, color: T.text3 }}>{fmt(s.units)} units · ${fmt(Math.round(s.revenue))}</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
+                    <label style={{ fontSize: 10, color: T.text2 }}>
+                      base_product
+                      <input value={draft.base_product || ""} onChange={e => setDraft({ ...draft, base_product: e.target.value })}
+                        style={{ width: "100%", padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.bg, color: T.text, marginTop: 2 }} />
+                    </label>
+                    <label style={{ fontSize: 10, color: T.text2 }}>
+                      product_category
+                      <input value={draft.product_category || ""} onChange={e => setDraft({ ...draft, product_category: e.target.value })}
+                        placeholder="e.g. laundry_sheets"
+                        style={{ width: "100%", padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.bg, color: T.text, marginTop: 2 }} />
+                    </label>
+                    <label style={{ fontSize: 10, color: T.text2 }}>
+                      product_title
+                      <input value={draft.product_title || ""} onChange={e => setDraft({ ...draft, product_title: e.target.value })}
+                        style={{ width: "100%", padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.bg, color: T.text, marginTop: 2 }} />
+                    </label>
+                    <label style={{ fontSize: 10, color: T.text2 }}>
+                      variant_title
+                      <input value={draft.variant_title || ""} onChange={e => setDraft({ ...draft, variant_title: e.target.value })}
+                        style={{ width: "100%", padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.bg, color: T.text, marginTop: 2 }} />
+                    </label>
+                    <label style={{ fontSize: 10, color: T.text2 }}>
+                      units_per_sku
+                      <input type="number" value={draft.units_per_sku || ""} onChange={e => setDraft({ ...draft, units_per_sku: e.target.value })}
+                        style={{ width: "100%", padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.bg, color: T.text, marginTop: 2 }} />
+                    </label>
+                    <label style={{ fontSize: 10, color: T.text2 }}>
+                      notes
+                      <input value={draft.notes || ""} onChange={e => setDraft({ ...draft, notes: e.target.value })}
+                        placeholder="Why this override?"
+                        style={{ width: "100%", padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.bg, color: T.text, marginTop: 2 }} />
+                    </label>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                    <button onClick={saveEdit} disabled={saving}
+                      style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: "none", background: "#22c55e", color: "white", borderRadius: 4, cursor: saving ? "wait" : "pointer" }}>
+                      {saving ? "Saving..." : "💾 Save"}
+                    </button>
+                    <button onClick={() => { setEditing(null); setDraft({}); }}
+                      style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, border: `1px solid ${T.border}`, background: "transparent", color: T.text2, borderRadius: 4, cursor: "pointer" }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <code style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>{s.sku}</code>
+                      {s.issue === "multi_title" && <span style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700, background: "#f59e0b22", padding: "1px 5px", borderRadius: 3 }}>MULTI-TITLE</span>}
+                      {s.issue === "missing_variant" && <span style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700, background: "#f59e0b22", padding: "1px 5px", borderRadius: 3 }}>NO VARIANT</span>}
+                      {s.issue === "unmapped" && <span style={{ fontSize: 9, color: "#ef4444", fontWeight: 700, background: "#ef444422", padding: "1px 5px", borderRadius: 3 }}>UNMAPPED</span>}
+                      {s.override && <span style={{ fontSize: 9, color: "#22c55e", fontWeight: 700, background: "#22c55e22", padding: "1px 5px", borderRadius: 3 }}>OVERRIDDEN</span>}
+                      <span style={{ fontSize: 10, color: T.text3 }}>{fmt(s.units)} units · ${fmt(Math.round(s.revenue))}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text, fontWeight: 600 }}>→ {s.effectiveBaseProduct}</div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+                      Metabase: {s.titles.length > 1 ? <span style={{ color: "#f59e0b" }}>{s.titles.length} titles seen — </span> : null}
+                      {s.titles.slice(0, 2).join(" / ") || "(no title)"}
+                      {s.variants.length > 0 ? ` · ${s.variants.slice(0, 2).join(" / ")}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={() => startEdit(s)}
+                      style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, background: "transparent", color: T.text2, borderRadius: 4, cursor: "pointer" }}>
+                      ✏️ Edit
+                    </button>
+                    {s.override && (
+                      <button onClick={() => deleteOverride(s.sku)}
+                        style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, border: `1px solid #ef4444`, background: "transparent", color: "#ef4444", borderRadius: 4, cursor: "pointer" }}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
