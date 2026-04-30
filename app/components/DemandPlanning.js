@@ -2241,6 +2241,30 @@ function LaunchPlannerView({ isMobile, orgId }) {
     if (selected?.id === id) setSelected(s => ({ ...s, [field]: value }));
   };
 
+  const deleteLaunch = async (id, productName) => {
+    if (!confirm(`Delete launch "${productName}"? This will also remove all channels, periods, POs, email sends, variants, and GWP tiers tied to it. This cannot be undone.`)) return;
+    // Cascade deletes for child tables (in case DB doesn't have ON DELETE CASCADE)
+    await Promise.all([
+      supabase.from("dp_launch_channels").delete().eq("launch_id", id),
+      supabase.from("dp_launch_pos").delete().eq("launch_id", id),
+      supabase.from("dp_launch_periods").delete().eq("launch_id", id),
+      supabase.from("dp_launch_email_sends").delete().eq("launch_id", id),
+      supabase.from("dp_launch_variant_splits").delete().eq("launch_id", id),
+      supabase.from("dp_launch_gwp_tiers").delete().eq("launch_id", id),
+    ]);
+    const { error } = await supabase.from("dp_launches").delete().eq("id", id);
+    if (error) { alert(`Failed to delete launch: ${error.message}`); return; }
+    // Update local state
+    setLaunches(p => p.filter(l => l.id !== id));
+    setChannels(p => p.filter(c => c.launch_id !== id));
+    setPos(p => p.filter(po => po.launch_id !== id));
+    setPeriods(p => p.filter(pr => pr.launch_id !== id));
+    setEmailSends(p => p.filter(e => e.launch_id !== id));
+    setVariantSplits(p => p.filter(v => v.launch_id !== id));
+    setGwpTiers(p => p.filter(g => g.launch_id !== id));
+    if (selected?.id === id) setSelected(null);
+  };
+
   const addChannel = async (launchId, channelKey) => {
     const def = CHANNEL_DEFS.find(d => d.key === channelKey);
     const { data } = await supabase.from("dp_launch_channels").insert({
@@ -2483,6 +2507,13 @@ function LaunchPlannerView({ isMobile, orgId }) {
             <select value={selected.status} onChange={e => updateLaunch(selected.id, "status", e.target.value)} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, border: `1px solid ${st?.color || T.border}`, borderRadius: 6, background: (st?.color || T.accent) + "15", color: st?.color || T.accent, cursor: "pointer" }}>
               {STATUS_OPTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
+            <button onClick={() => deleteLaunch(selected.id, selected.product_name)}
+              title="Delete this launch"
+              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "transparent", color: "#ef4444", border: `1px solid #ef4444`, borderRadius: 6, cursor: "pointer" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#ef4444"; e.currentTarget.style.color = "white"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#ef4444"; }}>
+              🗑 Delete
+            </button>
           </div>
         </div>
 
@@ -2695,9 +2726,9 @@ function LaunchPlannerView({ isMobile, orgId }) {
             const tu = lc.reduce((s, c) => s + calcChannelUnits(c, lc, periods.filter(p => lc.some(ch => ch.id === p.channel_id))), 0);
             const st = STATUS_OPTS.find(s => s.value === l.status);
             return (
-              <div key={l.id} onClick={() => setSelected(l)} style={{ padding: "14px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.1s" }}
+              <div key={l.id} style={{ padding: "14px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, transition: "all 0.1s", display: "flex", alignItems: "center", gap: 12 }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "40"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div onClick={() => setSelected(l)} style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, cursor: "pointer" }}>
                   <div style={{ fontSize: 24 }}>🚀</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{l.product_name}</div>
@@ -2708,6 +2739,13 @@ function LaunchPlannerView({ isMobile, orgId }) {
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: (st?.color || T.text3) + "15", color: st?.color || T.text3 }}>{st?.label || l.status}</span>
                 </div>
+                <button onClick={(e) => { e.stopPropagation(); deleteLaunch(l.id, l.product_name); }}
+                  title="Delete launch"
+                  style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#ef4444"; e.currentTarget.style.color = "white"; e.currentTarget.style.borderColor = "#ef4444"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.text3; e.currentTarget.style.borderColor = T.border; }}>
+                  🗑 Delete
+                </button>
               </div>
             );
           })}
