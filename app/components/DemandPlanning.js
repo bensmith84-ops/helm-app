@@ -82,20 +82,23 @@ function SupplyChainView({ isMobile, orgId }) {
   const [weeklySales, setWeeklySales] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [offers, setOffers] = useState([]);
+  const [skuMaster, setSkuMaster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState("overview");
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [wsR, invR, offR] = await Promise.all([
-        supabase.from("dp_weekly_sales").select("*").eq("org_id", orgId).order("week_start", { ascending: false }).limit(2000),
-        supabase.from("dp_inventory").select("*").eq("org_id", orgId).limit(1000),
+      const [wsR, invR, offR, skuR] = await Promise.all([
+        supabase.from("dp_weekly_sales").select("*").eq("org_id", orgId).order("week_start", { ascending: false }).limit(5000),
+        supabase.from("dp_inventory").select("*").eq("org_id", orgId).limit(3000),
         supabase.from("dp_offer_performance").select("*").eq("org_id", orgId).limit(100),
+        supabase.from("dp_sku_master").select("*").eq("org_id", orgId).limit(1000),
       ]);
       setWeeklySales(wsR.data || []);
       setInventory(invR.data || []);
       setOffers(offR.data || []);
+      setSkuMaster(skuR.data || []);
       setLoading(false);
     })();
   }, [orgId]);
@@ -114,6 +117,10 @@ function SupplyChainView({ isMobile, orgId }) {
   const getRisk = (wos) => wos < 3 ? "critical" : wos < 5 ? "red" : wos < 8 ? "yellow" : "green";
   const getRiskLabel = (wos) => wos < 3 ? "CRITICAL" : wos < 5 ? "LOW" : wos < 8 ? "WATCH" : "OK";
 
+  // Build SKU lookup from master
+  const skuMap = {};
+  skuMaster.forEach(s => { skuMap[s.sku] = s; });
+
   // Aggregate weekly sales by SKU
   const weeks = [...new Set(weeklySales.map(r => r.week_start))].sort().reverse();
   const latestWeek = weeks[0];
@@ -124,7 +131,22 @@ function SupplyChainView({ isMobile, orgId }) {
   const subUnits = latestSales.filter(r => r.is_subscription).reduce((s, r) => s + (r.units_sold || 0), 0);
   const subPct = totalUnits > 0 ? subUnits / totalUnits : 0;
 
-  // Top products by units
+  // Group by base_product (from SKU master) to combine multi-packs
+  const byBaseProduct = {};
+  latestSales.forEach(r => {
+    const master = skuMap[r.sku];
+    const baseKey = master?.base_product || r.product_title || r.sku || "Unknown";
+    const category = master?.product_category || "other";
+    if (!byBaseProduct[baseKey]) byBaseProduct[baseKey] = { baseProduct: baseKey, category, skus: new Set(), units: 0, revenue: 0, orders: 0, subUnits: 0, variants: [] };
+    byBaseProduct[baseKey].skus.add(r.sku);
+    byBaseProduct[baseKey].units += r.units_sold || 0;
+    byBaseProduct[baseKey].revenue += Number(r.gross_revenue || 0);
+    byBaseProduct[baseKey].orders += r.orders_count || 0;
+    if (r.is_subscription) byBaseProduct[baseKey].subUnits += r.units_sold || 0;
+  });
+  const topBaseProducts = Object.values(byBaseProduct).sort((a, b) => b.units - a.units);
+
+  // Top products by individual SKU (for detail view)
   const byProduct = {};
   latestSales.forEach(r => {
     const key = r.sku || r.product_title || "Unknown";
@@ -184,6 +206,7 @@ function SupplyChainView({ isMobile, orgId }) {
     { id: "overview", label: "Overview", icon: "📊" },
     { id: "products", label: "By Product", icon: "📦" },
     { id: "inventory", label: "Inventory", icon: "🏭" },
+    { id: "warehouses", label: "By Location", icon: "📍" },
     { id: "channels", label: "By Channel", icon: "📡" },
   ];
 
@@ -213,15 +236,15 @@ function SupplyChainView({ isMobile, orgId }) {
       {/* OVERVIEW TAB */}
       {subTab === "overview" && (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-          {/* Top Products */}
+          {/* Top Base Products (grouped multi-packs) */}
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top Products by Units</div>
-            {topProducts.slice(0, 10).map((p, i) => (
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>Top Products by Units {skuMaster.length > 0 ? "(grouped by base product)" : ""}</div>
+            {topBaseProducts.slice(0, 10).map((p, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < 9 ? `1px solid ${T.border}08` : "none" }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: T.text3, width: 20, textAlign: "right" }}>#{i + 1}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || p.sku}</div>
-                  <div style={{ fontSize: 9, color: T.text3 }}>{p.sku}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.baseProduct}</div>
+                  <div style={{ fontSize: 9, color: T.text3 }}>{p.skus.size} SKU{p.skus.size !== 1 ? "s" : ""} · {p.category}</div>
                 </div>
                 <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{fmt(p.units)}</span>
                 <span style={{ fontSize: 10, color: "#22c55e" }}>{fmtD(p.revenue)}</span>
@@ -271,20 +294,21 @@ function SupplyChainView({ isMobile, orgId }) {
       {subTab === "products" && (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, fontSize: 13, fontWeight: 700, color: T.text }}>
-            All Products — Week of {latestWeek} ({topProducts.length} SKUs)
+            Demand by Base Product — Week of {latestWeek} ({topBaseProducts.length} products, {topProducts.length} SKUs)
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
               <thead><tr>
-                {["#", "SKU", "Product", "Units", "Revenue", "Orders", "Sub %", "Share"].map(h => (
+                {["#", "Base Product", "Category", "SKUs", "Units", "Revenue", "Orders", "Sub %", "Share"].map(h => (
                   <th key={h} style={{ textAlign: h === "#" ? "center" : "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
                 ))}
               </tr></thead>
-              <tbody>{topProducts.map((p, i) => (
+              <tbody>{topBaseProducts.map((p, i) => (
                 <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
                   <td style={{ padding: "6px 10px", color: T.text3, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
-                  <td style={{ padding: "6px 10px", color: T.text, fontFamily: "monospace", fontSize: 10 }}>{p.sku}</td>
-                  <td style={{ padding: "6px 10px", color: T.text, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</td>
+                  <td style={{ padding: "6px 10px", color: T.text, fontWeight: 600, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.baseProduct}</td>
+                  <td style={{ padding: "6px 10px", color: T.text3, fontSize: 10, textTransform: "capitalize" }}>{p.category?.replace("_", " ")}</td>
+                  <td style={{ padding: "6px 10px", color: T.accent, fontWeight: 600 }}>{p.skus.size}</td>
                   <td style={{ padding: "6px 10px", color: T.text, fontWeight: 700 }}>{fmt(p.units)}</td>
                   <td style={{ padding: "6px 10px", color: "#22c55e" }}>{fmtD(p.revenue)}</td>
                   <td style={{ padding: "6px 10px", color: T.text2 }}>{fmt(p.orders)}</td>
@@ -294,6 +318,36 @@ function SupplyChainView({ isMobile, orgId }) {
               ))}</tbody>
             </table>
           </div>
+          {/* SKU detail below */}
+          {skuMaster.length > 0 && (
+            <div style={{ borderTop: `2px solid ${T.border}`, padding: "12px 18px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>SKU Master ({skuMaster.length} SKUs)</div>
+              <div style={{ overflowX: "auto", maxHeight: 400 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                  <thead><tr>
+                    {["SKU", "Product", "Variant", "Pack Size", "GWP", "Sub", "OTP", "Price", "COGS", "Status", "Category"].map(h => (
+                      <th key={h} style={{ textAlign: "left", padding: "5px 8px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>{skuMaster.sort((a, b) => (a.base_product || "").localeCompare(b.base_product || "")).map((s, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "20", opacity: s.status === "discontinued" ? 0.5 : 1 }}>
+                      <td style={{ padding: "4px 8px", fontFamily: "monospace", fontSize: 9 }}>{s.sku}</td>
+                      <td style={{ padding: "4px 8px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.product_title}</td>
+                      <td style={{ padding: "4px 8px", color: T.text3 }}>{s.variant_title}</td>
+                      <td style={{ padding: "4px 8px", fontWeight: 700, textAlign: "center" }}>{s.units_per_sku || 1}×</td>
+                      <td style={{ padding: "4px 8px", textAlign: "center" }}>{s.is_gwp ? "🎁" : ""}</td>
+                      <td style={{ padding: "4px 8px", textAlign: "center" }}>{s.is_subscription ? "🔄" : ""}</td>
+                      <td style={{ padding: "4px 8px", textAlign: "center" }}>{s.is_one_time ? "1️⃣" : ""}</td>
+                      <td style={{ padding: "4px 8px", color: "#22c55e" }}>{s.current_price ? `$${Number(s.current_price).toFixed(0)}` : "—"}</td>
+                      <td style={{ padding: "4px 8px", color: T.text3 }}>{s.cogs_per_unit ? `$${Number(s.cogs_per_unit).toFixed(2)}` : "—"}</td>
+                      <td style={{ padding: "4px 8px" }}><span style={{ fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 3, background: s.status === "active" ? "#22c55e15" : "#ef444415", color: s.status === "active" ? "#22c55e" : "#ef4444" }}>{s.status}</span></td>
+                      <td style={{ padding: "4px 8px", fontSize: 9, color: T.text3, textTransform: "capitalize" }}>{s.product_category?.replace("_", " ")}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -330,6 +384,73 @@ function SupplyChainView({ isMobile, orgId }) {
           </div>
         </div>
       )}
+
+      {/* WAREHOUSES TAB — Inventory by Location */}
+      {subTab === "warehouses" && (() => {
+        const byWh = {};
+        inventory.forEach(r => {
+          const wh = r.warehouse_location || "Unknown";
+          if (!byWh[wh]) byWh[wh] = { warehouse: wh, skus: new Set(), on_hand: 0, reserved: 0, incoming: 0, items: [] };
+          byWh[wh].skus.add(r.sku);
+          byWh[wh].on_hand += r.quantity_on_hand || 0;
+          byWh[wh].reserved += r.quantity_reserved || 0;
+          byWh[wh].incoming += r.quantity_incoming || 0;
+          byWh[wh].items.push(r);
+        });
+        const warehouses = Object.values(byWh).sort((a, b) => b.on_hand - a.on_hand);
+        const grandTotal = warehouses.reduce((s, w) => s + w.on_hand, 0);
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Summary strip */}
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : `repeat(${Math.min(warehouses.length, 4)}, 1fr)`, gap: 8 }}>
+              {warehouses.slice(0, 4).map(w => (
+                <div key={w.warehouse} style={{ padding: 12, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, textAlign: "center" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>{w.warehouse}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{fmt(w.on_hand)}</div>
+                  <div style={{ fontSize: 9, color: T.text3 }}>{w.skus.size} SKUs · {grandTotal > 0 ? (w.on_hand / grandTotal * 100).toFixed(0) : 0}%</div>
+                  {w.incoming > 0 && <div style={{ fontSize: 9, color: T.accent, marginTop: 2 }}>+{fmt(w.incoming)} incoming</div>}
+                </div>
+              ))}
+            </div>
+            {/* Per-warehouse detail */}
+            {warehouses.map(w => (
+              <div key={w.warehouse} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>📍 {w.warehouse}</div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>{w.skus.size} SKUs · {fmt(w.on_hand)} on hand · {fmt(w.reserved)} reserved · {fmt(w.incoming)} incoming</div>
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.accent }}>{grandTotal > 0 ? (w.on_hand / grandTotal * 100).toFixed(1) : 0}% of total</div>
+                </div>
+                <div style={{ overflowX: "auto", maxHeight: 300 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead><tr>
+                      {["SKU", "Product", "On Hand", "Reserved", "Available", "Incoming", "Lead Time"].map(h => (
+                        <th key={h} style={{ textAlign: "left", padding: "6px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>{w.items.sort((a, b) => (b.quantity_on_hand || 0) - (a.quantity_on_hand || 0)).slice(0, 20).map((r, ri) => {
+                      const master = skuMap[r.sku];
+                      const available = (r.quantity_on_hand || 0) - (r.quantity_reserved || 0);
+                      return (
+                        <tr key={ri} style={{ background: ri % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
+                          <td style={{ padding: "5px 10px", fontFamily: "monospace", fontSize: 10, color: T.text }}>{r.sku}</td>
+                          <td style={{ padding: "5px 10px", color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{master?.product_title || r.sku}</td>
+                          <td style={{ padding: "5px 10px", fontWeight: 700, color: T.text }}>{fmt(r.quantity_on_hand)}</td>
+                          <td style={{ padding: "5px 10px", color: T.text3 }}>{fmt(r.quantity_reserved)}</td>
+                          <td style={{ padding: "5px 10px", color: available > 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmt(available)}</td>
+                          <td style={{ padding: "5px 10px", color: r.quantity_incoming > 0 ? T.accent : T.text3 }}>{r.quantity_incoming > 0 ? `+${fmt(r.quantity_incoming)}` : "—"}</td>
+                          <td style={{ padding: "5px 10px", color: T.text3 }}>{r.lead_time_days ? `${r.lead_time_days}d` : "—"}</td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* CHANNELS TAB */}
       {subTab === "channels" && (
