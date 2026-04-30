@@ -175,10 +175,26 @@ export default function MetabaseSync({ onClose }) {
                         const COL_RENAMES = { churn: "churned" };
                         const cleanCol = (c) => { const l = c.toLowerCase().replace(/[^a-z0-9_]/g, "_"); return COL_RENAMES[l] || l; };
 
+                        // Known columns per table — strip anything not in this list
+                        const TABLE_COLUMNS = {
+                          dp_weekly_sales: ["org_id","week_start","sku","product_title","variant_title","units_sold","gross_revenue","net_revenue","orders_count","channel","country","is_subscription","imported_at"],
+                          dp_sku_master: ["org_id","sku","product_title","variant_title","base_product","product_category","units_per_sku","is_gwp","is_subscription","is_one_time","current_price","cogs_per_unit","status","imported_at"],
+                          dp_inventory: ["org_id","sku","warehouse_location","quantity_on_hand","quantity_reserved","quantity_incoming","expected_arrival_date","reorder_point","lead_time_days","snapshot_date","imported_at"],
+                          dp_offer_performance: ["org_id","month","offer_name","times_shown","times_accepted","take_rate","revenue_impact","imported_at"],
+                          dp_subscription_cohorts: ["org_id","cohort_month","months_since_signup","active_subscribers","churned","paused","revenue","pack_size_1","pack_size_2","pack_size_3","pack_size_4","frequency_monthly","frequency_bimonthly","frequency_quarterly","imported_at"],
+                        };
+                        const allowedCols = TABLE_COLUMNS[mapping.table] ? new Set(TABLE_COLUMNS[mapping.table]) : null;
+
                         // Transform rows with null coercion for NOT NULL fields
                         let data = r.data.map(row => {
                           const obj = { org_id: orgId };
-                          for (const [key, val] of Object.entries(row)) { obj[cleanCol(key)] = val; }
+                          for (const [key, val] of Object.entries(row)) {
+                            const col = cleanCol(key);
+                            // Only include columns that exist on the target table
+                            if (!allowedCols || allowedCols.has(col)) {
+                              obj[col] = val;
+                            }
+                          }
                           // Coerce NOT NULL fields
                           if (obj.sku === null || obj.sku === undefined) obj.sku = "UNKNOWN";
                           if (obj.units_sold === null || obj.units_sold === undefined) obj.units_sold = 0;
