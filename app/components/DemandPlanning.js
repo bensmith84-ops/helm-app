@@ -99,16 +99,41 @@ function SupplyChainView({ isMobile, orgId }) {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      // Fetch daily sales from new table; fall back to weekly if daily is empty
-      // (so this works during the migration period before the first daily sync runs)
-      const [dailyR, invR, offR, skuR, ovR] = await Promise.all([
-        supabase.from("dp_daily_sales").select("*").eq("org_id", orgId).order("sale_date", { ascending: false }).limit(20000),
+
+      // Supabase PostgREST has a server-side max-rows cap (default 1000) that overrides
+      // .limit(). To get all daily rows, paginate using .range() until we get fewer than
+      // pageSize rows back.
+      async function fetchAllDaily() {
+        const pageSize = 1000;
+        const all = [];
+        for (let page = 0; page < 50; page++) { // hard cap at 50K rows
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
+          const { data, error } = await supabase
+            .from("dp_daily_sales")
+            .select("*")
+            .eq("org_id", orgId)
+            .order("sale_date", { ascending: false })
+            .range(from, to);
+          if (error) {
+            console.error("[DP] dp_daily_sales fetch error:", error.message);
+            break;
+          }
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < pageSize) break;
+        }
+        return all;
+      }
+
+      const [dailyData, invR, offR, skuR, ovR] = await Promise.all([
+        fetchAllDaily(),
         supabase.from("dp_inventory").select("*").eq("org_id", orgId).limit(3000),
         supabase.from("dp_offer_performance").select("*").eq("org_id", orgId).limit(100),
         supabase.from("dp_sku_master").select("*").eq("org_id", orgId).limit(1000),
         supabase.from("dp_sku_overrides").select("*").eq("org_id", orgId).limit(2000),
       ]);
-      let salesData = dailyR.data || [];
+      let salesData = dailyData;
       if (salesData.length === 0) {
         // Migration fallback: read from legacy weekly table
         const wsR = await supabase.from("dp_weekly_sales").select("*").eq("org_id", orgId).order("week_start", { ascending: false }).limit(5000);
@@ -123,6 +148,7 @@ function SupplyChainView({ isMobile, orgId }) {
           return { ...r, week_start: d.toISOString().split("T")[0] };
         });
       }
+      console.log(`[DP] Loaded ${salesData.length} daily sales rows, ${new Set(salesData.map(r => r.week_start)).size} distinct weeks`);
       setWeeklySales(salesData);
       setInventory(invR.data || []);
       setOffers(offR.data || []);
