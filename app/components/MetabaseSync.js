@@ -117,7 +117,7 @@ export default function MetabaseSync({ onClose }) {
       // Insert in batches of 100
       let synced = 0;
       for (let i = 0; i < rows.length; i += 100) {
-        const batch = rows.slice(i, i + 100).map(r => ({ ...r, imported_at: new Date().toISOString() }));
+        const batch = rows.slice(i, i + 100);
         const { error: insErr } = await supabase.from(target.key).insert(batch);
         if (insErr) { setError(`Batch ${i}: ${insErr.message}`); break; }
         synced += batch.length;
@@ -177,7 +177,7 @@ export default function MetabaseSync({ onClose }) {
 
                         // Transform rows with null coercion for NOT NULL fields
                         let data = r.data.map(row => {
-                          const obj = { org_id: orgId, imported_at: new Date().toISOString() };
+                          const obj = { org_id: orgId };
                           for (const [key, val] of Object.entries(row)) { obj[cleanCol(key)] = val; }
                           // Coerce NOT NULL fields
                           if (obj.sku === null || obj.sku === undefined) obj.sku = "UNKNOWN";
