@@ -164,25 +164,58 @@ export default function MetabaseSync({ onClose }) {
                     for (const mapping of DASHBOARD_SYNC_MAP) {
                       setError(`Syncing ${mapping.icon} ${mapping.label}...`);
                       try {
-                        // Build request — for daily sales card, pass an explicit date range
-                        // so the edge function chunks the call (Metabase caps single calls at 2000 rows)
-                        const reqArgs = { question_id: mapping.card_id };
+                        // For daily sales: chunk client-side so each edge function response stays small.
+                        // 12 weeks of daily data = ~150K rows = too big to return in one edge function response.
+                        let r;
                         if (mapping.table === "dp_daily_sales") {
                           const end = new Date();
                           const start = new Date();
                           start.setDate(start.getDate() - (weeksToSync * 7));
-                          reqArgs.start_date = start.toISOString().split("T")[0];
-                          reqArgs.end_date = end.toISOString().split("T")[0];
-                          reqArgs.chunk_days = 7;
+                          // Build 7-day windows
+                          const windows = [];
+                          let cursor = new Date(start);
+                          while (cursor <= end) {
+                            const ws = new Date(cursor);
+                            const we = new Date(cursor);
+                            we.setDate(we.getDate() + 6);
+                            if (we > end) we.setTime(end.getTime());
+                            windows.push({
+                              start: ws.toISOString().split("T")[0],
+                              end: we.toISOString().split("T")[0],
+                            });
+                            cursor.setDate(cursor.getDate() + 7);
+                          }
+                          // Fetch each chunk separately, accumulate
+                          const allData = [];
+                          let columns = [];
+                          const chunkLog = [];
+                          for (let ci = 0; ci < windows.length; ci++) {
+                            const w = windows[ci];
+                            setError(`${mapping.icon} ${mapping.label}: fetching ${w.start} → ${w.end} (${ci + 1}/${windows.length})...`);
+                            const cr = await mb("run_question", {
+                              question_id: mapping.card_id,
+                              start_date: w.start,
+                              end_date: w.end,
+                            });
+                            if (cr.error) {
+                              console.error(`[Sync] Chunk ${w.start}-${w.end} error:`, cr.error);
+                              chunkLog.push({ ...w, rows: 0, error: cr.error });
+                              continue;
+                            }
+                            if (cr.columns && columns.length === 0) columns = cr.columns;
+                            const chunkRows = cr.data || [];
+                            allData.push(...chunkRows);
+                            chunkLog.push({ ...w, rows: chunkRows.length });
+                          }
+                          r = { data: allData, columns, row_count: allData.length, chunks: chunkLog };
+                          console.log(`[Sync] ${mapping.label}: chunked fetch — ${chunkLog.length} chunks, ${allData.length} total rows`);
+                          console.log(`[Sync] Chunk breakdown:`, chunkLog);
+                        } else {
+                          r = await mb("run_question", { question_id: mapping.card_id });
                         }
-                        const r = await mb("run_question", reqArgs);
                         if (!r.data || r.data.length === 0) {
                           results.push({ ...mapping, rows: 0, status: "empty" });
                           continue;
-                        }
-                        if (r.chunks) {
-                          console.log(`[Sync] ${mapping.label}: chunked fetch — ${r.chunks.length} chunks, ${r.row_count} total rows`);
-                          console.log(`[Sync] Chunk breakdown:`, r.chunks);
                         }
 
                         // Column rename map
