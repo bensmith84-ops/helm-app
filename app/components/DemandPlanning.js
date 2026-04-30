@@ -2186,6 +2186,75 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RebillRatesEditor — separate OTP and Sub rebill rate tables for any scope
+// (used both for the main GWP funnel and for individual upsells with custom rates)
+// ─────────────────────────────────────────────────────────────────────────────
+function RebillRatesEditor({ launchId, scopeType, scopeId, otpPct, subPct, rebillRates, upsertRebillRate, forecastWeeks, T, isMobile, compact }) {
+  const monthCount = Math.max(1, Math.ceil(forecastWeeks / 4.33));
+  const months = Array.from({ length: monthCount }, (_, i) => i + 1); // M1..Mn
+
+  const rateFor = (cohort, monthIdx) => {
+    const r = rebillRates.find(x =>
+      x.launch_id === launchId &&
+      x.scope_type === scopeType &&
+      (x.scope_id || null) === (scopeId || null) &&
+      x.cohort === cohort &&
+      x.month_index === monthIdx
+    );
+    return r?.rate_pct ?? "";
+  };
+
+  const cohortRow = (cohort, label, color) => {
+    const enabled = cohort === "otp" ? otpPct > 0 : subPct > 0;
+    return (
+      <div style={{ marginBottom: compact ? 6 : 10, opacity: enabled ? 1 : 0.4 }}>
+        <div style={{ fontSize: compact ? 9 : 10, fontWeight: 700, color, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          {label} Cohort {!enabled && "(0% — not active)"}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${months.length}, 1fr)`, gap: 4 }}>
+          {months.map(m => (
+            <div key={m} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <div style={{ fontSize: 9, color: T.text3, textAlign: "center" }}>M{m}</div>
+              <input
+                type="number"
+                placeholder="0"
+                defaultValue={rateFor(cohort, m)}
+                onBlur={e => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val)) upsertRebillRate(launchId, scopeType, scopeId, cohort, m, val);
+                }}
+                style={{
+                  width: "100%",
+                  padding: "4px 2px",
+                  fontSize: 10,
+                  textAlign: "center",
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 4,
+                  background: T.surface,
+                  color: T.text,
+                  outline: "none",
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {!compact && <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>Monthly Rebill % by Cohort</div>}
+      {cohortRow("otp", "OTP", "#f59e0b")}
+      {cohortRow("sub", "Subscription", "#22c55e")}
+      <div style={{ fontSize: 9, color: T.text3, fontStyle: "italic", marginTop: 4 }}>
+        Enter the % of the cohort that purchases again in each month after acquisition. e.g., Sub M1 = 90% means 90% of subscribers rebill in their second month.
+      </div>
+    </div>
+  );
+}
+
 function LaunchPlannerView({ isMobile, orgId }) {
   const I = DebouncedInput;
   const { user } = useAuth();
@@ -2539,6 +2608,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const launchChannels = selected ? channels.filter(c => c.launch_id === selected.id) : [];
   const launchPeriods = periods.filter(p => launchChannels.some(c => c.id === p.channel_id));
   const launchPos = selected ? pos.filter(p => p.launch_id === selected.id) : [];
+  const launchUpsells = selected ? upsells.filter(u => u.launch_id === selected.id) : [];
+  const launchGeoSplit = selected ? geoSplit.filter(g => g.launch_id === selected.id) : [];
   
   // Calculate totals from orders → variant splits → units/revenue
   const totalOrders = launchChannels.reduce((s, c) => s + calcChannelUnits(c, launchChannels, launchPeriods, emailSends.filter(es => es.channel_id === c.id)), 0);
@@ -2642,6 +2713,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <I label="MOQ" value={selected.moq} onChange={v => updateLaunch(selected.id, "moq", v)} type="number" suffix="units" />
               <I label="Lead Time" value={selected.lead_time_days} onChange={v => updateLaunch(selected.id, "lead_time_days", v)} type="number" suffix="days" />
+              <I label="Max Monthly Capacity" value={selected.max_monthly_capacity} onChange={v => updateLaunch(selected.id, "max_monthly_capacity", v)} type="number" suffix="units/mo" placeholder="e.g. 200000" />
+              <I label="Target Days of Supply" value={selected.target_days_of_supply} onChange={v => updateLaunch(selected.id, "target_days_of_supply", v)} type="number" suffix="days" placeholder="e.g. 60" />
               <I label="Units per Case" value={selected.units_per_case} onChange={v => updateLaunch(selected.id, "units_per_case", v)} type="number" />
               <I label="Forecast Period" value={selected.forecast_period_weeks} onChange={v => updateLaunch(selected.id, "forecast_period_weeks", v)} type="number" suffix="weeks" />
             </div>
@@ -2649,17 +2722,145 @@ function LaunchPlannerView({ isMobile, orgId }) {
           </div>
         </div>
 
-        {/* Promotion Channels — Demand Drivers */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* ACQUISITION FUNNEL — GWP-driven (replaces multi-channel acquisition) */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <div style={{ background: "linear-gradient(135deg, " + T.surface + " 0%, " + T.accent + "08 100%)", border: `1px solid ${T.accent}40`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>🎁 Acquisition Funnel (Hero GWP)</div>
+            <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>All marketing channels (email, SMS, ads, organic) funnel into this offer</div>
+          </div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 14, lineHeight: 1.5 }}>Set total acquisition orders for the launch window, then split between OTP and Subscription cohorts. Each cohort has its own rebill curve.</div>
+
+          {/* Top-level inputs */}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1.5fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <I label="Total Acquisition Orders" value={selected.total_acquisition_orders} onChange={v => updateLaunch(selected.id, "total_acquisition_orders", parseInt(v) || 0)} type="number" placeholder="e.g. 50000" />
+            <I label="OTP %" value={selected.gwp_otp_pct} onChange={v => {
+              const otp = Math.max(0, Math.min(100, parseFloat(v) || 0));
+              updateLaunch(selected.id, "gwp_otp_pct", otp);
+              updateLaunch(selected.id, "gwp_sub_pct", 100 - otp);
+            }} type="number" suffix="%" />
+            <I label="Sub %" value={selected.gwp_sub_pct} onChange={v => {
+              const sub = Math.max(0, Math.min(100, parseFloat(v) || 0));
+              updateLaunch(selected.id, "gwp_sub_pct", sub);
+              updateLaunch(selected.id, "gwp_otp_pct", 100 - sub);
+            }} type="number" suffix="%" />
+          </div>
+
+          {/* Computed split badges */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ padding: "6px 12px", background: "#f59e0b15", borderRadius: 6, fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>
+              OTP cohort: {fmt(Math.round((selected.total_acquisition_orders || 0) * (selected.gwp_otp_pct || 0) / 100))} orders
+            </div>
+            <div style={{ padding: "6px 12px", background: "#22c55e15", borderRadius: 6, fontSize: 11, color: "#22c55e", fontWeight: 600 }}>
+              Sub cohort: {fmt(Math.round((selected.total_acquisition_orders || 0) * (selected.gwp_sub_pct || 0) / 100))} orders
+            </div>
+          </div>
+
+          {/* Rebill rate tables — OTP and Sub side by side */}
+          <RebillRatesEditor
+            launchId={selected.id}
+            scopeType="gwp"
+            scopeId={null}
+            otpPct={selected.gwp_otp_pct || 0}
+            subPct={selected.gwp_sub_pct || 0}
+            rebillRates={rebillRates}
+            upsertRebillRate={upsertRebillRate}
+            forecastWeeks={selected.forecast_period_weeks || 12}
+            T={T}
+            isMobile={isMobile}
+          />
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* UPSELLS — multiple named upsells per launch                       */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📣 Promotion Channels — Demand Drivers</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>⬆️ Post-Purchase Upsells ({launchUpsells.length})</div>
+            <button onClick={() => addUpsell(selected.id, `Upsell ${launchUpsells.length + 1}`)}
+              style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Add Upsell</button>
           </div>
-          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, lineHeight: 1.5 }}>The Hero GWP is your primary driver — ad spend and CPA determine new customer orders. Other channels can model demand directly or as <strong>halo sales</strong> (a % of orders driven by paid media that flow to that channel).</div>
+          {launchUpsells.length === 0 ? (
+            <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 11, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: 8 }}>
+              No upsells configured. Click "+ Add Upsell" to add one — e.g., a same-product upsell or cross-sell.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {launchUpsells.map(u => {
+                const upTotalOrders = Math.round((selected.total_acquisition_orders || 0) * (u.take_rate_pct || 0) / 100);
+                return (
+                  <div key={u.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <input value={u.name || ""} onChange={e => updateUpsell(u.id, { name: e.target.value })}
+                        placeholder="Upsell name (e.g., Same-product 2-pack upsell)"
+                        style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", padding: "2px 0" }} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ padding: "3px 8px", background: T.accent + "15", borderRadius: 5, fontSize: 10, color: T.accent, fontWeight: 600 }}>
+                          {fmt(upTotalOrders)} orders
+                        </div>
+                        <button onClick={() => deleteUpsell(u.id)} title="Remove" style={{ background: "transparent", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 4px" }}>×</button>
+                      </div>
+                    </div>
+                    <I label="Description (optional)" value={u.description || ""} onChange={v => updateUpsell(u.id, { description: v })} placeholder="e.g., Discount on additional pack at checkout" />
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+                      <I label="Take Rate" value={u.take_rate_pct} onChange={v => updateUpsell(u.id, { take_rate_pct: parseFloat(v) || 0 })} type="number" suffix="%" />
+                      <I label="Units / Order" value={u.units_per_order} onChange={v => updateUpsell(u.id, { units_per_order: parseInt(v) || 1 })} type="number" />
+                      <I label="Unit Price" value={u.unit_price} onChange={v => updateUpsell(u.id, { unit_price: parseFloat(v) || null })} type="number" prefix="$" />
+                      <I label="OTP %" value={u.otp_pct} onChange={v => {
+                        const otp = Math.max(0, Math.min(100, parseFloat(v) || 0));
+                        updateUpsell(u.id, { otp_pct: otp, sub_pct: 100 - otp });
+                      }} type="number" suffix="%" />
+                      <I label="Sub %" value={u.sub_pct} onChange={v => {
+                        const sub = Math.max(0, Math.min(100, parseFloat(v) || 0));
+                        updateUpsell(u.id, { sub_pct: sub, otp_pct: 100 - sub });
+                      }} type="number" suffix="%" />
+                    </div>
+                    {/* Rebill mode toggle */}
+                    <div style={{ marginTop: 10, padding: 10, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: u.rebill_mode === "custom" ? 10 : 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>Rebill Rates:</div>
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text2, cursor: "pointer" }}>
+                          <input type="radio" checked={u.rebill_mode === "inherit"} onChange={() => updateUpsell(u.id, { rebill_mode: "inherit" })} />
+                          Inherit from main GWP
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text2, cursor: "pointer" }}>
+                          <input type="radio" checked={u.rebill_mode === "custom"} onChange={() => updateUpsell(u.id, { rebill_mode: "custom" })} />
+                          Set custom rates
+                        </label>
+                      </div>
+                      {u.rebill_mode === "custom" && (
+                        <RebillRatesEditor
+                          launchId={selected.id}
+                          scopeType="upsell"
+                          scopeId={u.id}
+                          otpPct={u.otp_pct || 0}
+                          subPct={u.sub_pct || 0}
+                          rebillRates={rebillRates}
+                          upsertRebillRate={upsertRebillRate}
+                          forecastWeeks={selected.forecast_period_weeks || 12}
+                          T={T}
+                          isMobile={isMobile}
+                          compact
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Sales Channels (non-acquisition: Amazon, TikTok, Retail, etc.) */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>🛒 Other Sales Channels</div>
+          </div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, lineHeight: 1.5 }}>Non-acquisition channels with their own demand. Use these for marketplace sales (Amazon, TikTok), retail distribution, and wholesale.</div>
 
           {/* Add channel buttons — grouped */}
           {[
-            { group: "primary", label: "Primary Driver" },
-            { group: "dtc", label: "DTC Channels" },
             { group: "marketplace", label: "Marketplace" },
             { group: "offline", label: "Offline / Wholesale" },
             { group: "other", label: "Other" },
@@ -2674,7 +2875,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                     const exists = launchChannels.some(c => c.channel === cd.key);
                     return (
                       <button key={cd.key} onClick={() => !exists && addChannel(selected.id, cd.key)} disabled={exists}
-                        style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${exists ? T.border : (g.group === "primary" ? "#8b5cf6" : T.accent) + "40"}`, background: exists ? T.surface2 : (g.group === "primary" ? "#8b5cf6" : T.accent) + "08", color: exists ? T.text3 : (g.group === "primary" ? "#8b5cf6" : T.accent), cursor: exists ? "default" : "pointer", opacity: exists ? 0.5 : 1, display: "flex", alignItems: "center", gap: 4 }}>
+                        style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, border: `1px solid ${exists ? T.border : T.accent + "40"}`, background: exists ? T.surface2 : T.accent + "08", color: exists ? T.text3 : T.accent, cursor: exists ? "default" : "pointer", opacity: exists ? 0.5 : 1, display: "flex", alignItems: "center", gap: 4 }}>
                         <span>{cd.icon}</span> {cd.label} {exists && "✓"}
                       </button>
                     );
