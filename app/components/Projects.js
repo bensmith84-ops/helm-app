@@ -253,9 +253,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           supabase.from("teams").select("*").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("name"),
           supabase.from("objectives").select("*").eq("org_id", profile.org_id).is("deleted_at", null).order("title"),
           supabase.from("project_favorites").select("project_id").eq("user_id", user?.id),
-          supabase.from("project_members").select("project_id, user_id, role").eq("org_id", orgId).eq("user_id", user?.id),
+          supabase.from("project_members").select("id, project_id, user_id, role, access_scope, invited_as_external").eq("org_id", orgId).eq("user_id", user?.id),
           supabase.from("user_module_permissions").select("is_admin").eq("user_id", user?.id).maybeSingle(),
-          supabase.from("project_members").select("project_id, user_id, role").eq("org_id", orgId),
+          supabase.from("project_members").select("id, project_id, user_id, role, access_scope, invited_as_external").eq("org_id", orgId),
         ]);
         // Filter projects by visibility: public visible to all, private only to members/owner/admin
         const isAdminVal = permR.data?.is_admin === true;
@@ -3247,6 +3247,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           await supabase.from("project_members").delete().eq("org_id", orgId).eq("project_id", activeProject).eq("user_id", uid);
           setProjMembersList(p => p.filter(pm => !(pm.project_id === activeProject && pm.user_id === uid)));
         };
+        const updateMemberRole = async (uid, newRole) => {
+          await supabase.from("project_members").update({ role: newRole }).eq("project_id", activeProject).eq("user_id", uid);
+          setProjMembersList(p => p.map(pm => (pm.project_id === activeProject && pm.user_id === uid) ? { ...pm, role: newRole } : pm));
+        };
         return (
           <div onClick={() => setShowAddMember(false)} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
@@ -3271,12 +3275,43 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 })()}
                 {currentMembers.filter(m => m.user_id !== proj?.owner_id).map(m => {
                   const p = profiles[m.user_id]; const c = acol(m.user_id);
+                  const isExt = !!p?.is_external;
+                  const role = m.role || "member";
                   return <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
                     <div style={{ width: 30, height: 30, borderRadius: 15, background: `${c}20`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{ini(m.user_id)}</div>
-                    <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p?.display_name || "Unknown"}</div><div style={{ fontSize: 10, color: T.text3 }}>{p?.email}</div></div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.display_name || "Unknown"}</span>
+                        {isExt && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700, letterSpacing: 0.5 }}>EXTERNAL</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.email}</div>
+                    </div>
+                    <select value={role} onChange={e => updateMemberRole(m.user_id, e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface2, color: T.text, outline: "none", cursor: "pointer" }}>
+                      <option value="editor">Editor</option>
+                      <option value="commenter">Commenter</option>
+                      <option value="viewer">Viewer</option>
+                      <option value="member">Member</option>
+                    </select>
                     <button onClick={() => removeMember(m.user_id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11 }} title="Remove">✕</button>
                   </div>;
                 })}
+
+                {/* Invite external collaborator by email */}
+                <InviteExternalRow
+                  projectId={activeProject}
+                  orgId={orgId}
+                  invitedBy={user?.id}
+                  T={T}
+                  onInvited={(member) => {
+                    setProjMembersList(p => {
+                      const filtered = p.filter(pm => !(pm.project_id === member.project_id && pm.user_id === member.user_id));
+                      return [...filtered, member];
+                    });
+                    showToast("Invite sent", "success");
+                  }}
+                  onError={(msg) => showToast(msg)}
+                />
+
                 {/* Add new members */}
                 {availableProfiles.length > 0 && <>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 16, marginBottom: 8 }}>Add Members</div>
@@ -3336,6 +3371,132 @@ function PriorityPill({ task, onUpdate, S }) {
           ))}
         </Dropdown>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InviteExternalRow — collapsible invite-by-email form for the project members modal.
+// External collaborators have no org_memberships; access is scoped via project_members.
+// ─────────────────────────────────────────────────────────────────────────────
+function InviteExternalRow({ projectId, orgId, invitedBy, T, onInvited, onError }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("editor");
+  const [scope, setScope] = useState({ tasks: true, documents: true, messages: false, module_data: false });
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!email.trim()) return onError?.("Email required");
+    setSubmitting(true);
+    try {
+      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-external-collaborator", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4",
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          display_name: name.trim() || null,
+          project_id: projectId,
+          role,
+          access_scope: scope,
+          invited_by: invitedBy,
+          org_id: orgId,
+        }),
+      });
+      const result = await res.json();
+      if (result.error) {
+        onError?.("Invite failed: " + result.error);
+      } else {
+        onInvited?.({ project_id: projectId, user_id: result.user_id, role, access_scope: scope });
+        setEmail(""); setName(""); setOpen(false);
+      }
+    } catch (e) {
+      onError?.("Invite failed: " + String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        style={{ width: "100%", marginTop: 12, padding: "10px 12px", fontSize: 12, fontWeight: 600, background: T.accent + "10", color: T.accent, border: `1px dashed ${T.accent}50`, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        ✉️ Invite by email (external collaborator)
+      </button>
+    );
+  }
+
+  const scopeRow = (key, label, sub) => (
+    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 0", cursor: "pointer", fontSize: 11 }}>
+      <input type="checkbox" checked={!!scope[key]} disabled={key === "tasks"}
+        onChange={e => setScope(s => ({ ...s, [key]: e.target.checked }))}
+        style={{ marginTop: 2 }} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 600, color: T.text }}>{label}{key === "tasks" && <span style={{ marginLeft: 6, fontSize: 9, color: T.text3, fontWeight: 400 }}>(always on)</span>}</div>
+        {sub && <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{sub}</div>}
+      </div>
+    </label>
+  );
+
+  return (
+    <div style={{ marginTop: 12, padding: 12, background: T.accent + "06", border: `1px solid ${T.accent}30`, borderRadius: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.accent }}>✉️ Invite external collaborator</div>
+        <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14 }}>×</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 9, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Email *</div>
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="external@example.com"
+            type="email" autoFocus
+            style={{ width: "100%", padding: "6px 8px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+        </div>
+        <div>
+          <div style={{ fontSize: 9, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Display Name</div>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Optional"
+            style={{ width: "100%", padding: "6px 8px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 9, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Role</div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[
+            { v: "editor", l: "Editor", d: "Edit + comment" },
+            { v: "commenter", l: "Commenter", d: "View + comment" },
+            { v: "viewer", l: "Viewer", d: "Read-only" },
+          ].map(opt => (
+            <button key={opt.v} onClick={() => setRole(opt.v)}
+              style={{ flex: 1, padding: "6px 8px", fontSize: 11, fontWeight: 600, border: `1px solid ${role === opt.v ? T.accent : T.border}`, background: role === opt.v ? T.accent + "15" : "transparent", color: role === opt.v ? T.accent : T.text2, borderRadius: 5, cursor: "pointer" }}>
+              {opt.l}
+              <div style={{ fontSize: 9, fontWeight: 400, color: T.text3, marginTop: 1 }}>{opt.d}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 9, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Access Scope</div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px" }}>
+          {scopeRow("tasks", "Tasks", "Tasks, comments, attachments")}
+          {scopeRow("documents", "Documents", "Project-linked docs")}
+          {scopeRow("messages", "Messages", "Project messaging channel")}
+          {scopeRow("module_data", "Other module data", "Anything else tagged to this project (PLM, OKRs, etc.)")}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <button onClick={() => setOpen(false)} disabled={submitting}
+          style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, border: `1px solid ${T.border}`, background: "transparent", color: T.text2, borderRadius: 5, cursor: "pointer" }}>Cancel</button>
+        <button onClick={submit} disabled={submitting || !email.trim()}
+          style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, border: "none", background: T.accent, color: "#fff", borderRadius: 5, cursor: submitting ? "wait" : "pointer", opacity: !email.trim() ? 0.4 : 1 }}>
+          {submitting ? "Sending…" : "Send invite"}
+        </button>
+      </div>
     </div>
   );
 }
