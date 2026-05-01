@@ -2672,32 +2672,36 @@ function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos,
 // UpsellPeriodsEditor — per-period orders inputs for STANDALONE upsells
 // (separate funnel from Hero GWP — its own spend, CPA, or direct orders)
 // ─────────────────────────────────────────────────────────────────────────────
-function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod, T, isMobile }) {
+function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod, updateUpsell, T, isMobile }) {
   const periodType = launch.period_type || "week";
   const periodCount = parseInt(launch.forecast_periods) || 12;
   const periodLabel = periodType === "month" ? "M" : "W";
   const periods = Array.from({ length: periodCount }, (_, i) => i + 1);
-  const takeRate = parseFloat(upsell.take_rate_pct) || 100; // default 100% if not set
+  const takeRate = parseFloat(upsell.take_rate_pct) || 0;
+  const inputMode = upsell.input_mode || "spend_cpa"; // 'spend_cpa' | 'direct'
 
   const byIdx = {};
   upsellPeriods.forEach(p => { byIdx[p.period_index] = p; });
 
-  // Raw traffic orders before take-rate filter
-  const trafficFor = (p) => {
+  // Step 1: New orders for this upsell per period (before take rate)
+  // Spend+CPA mode: orders = spend / CPA
+  // Direct mode:    orders = direct_orders
+  const newOrdersFor = (p) => {
     if (!p) return 0;
-    if (p.override_orders != null && p.override_orders !== "") return parseInt(p.override_orders) || 0;
+    if (inputMode === "direct") {
+      return parseInt(p.direct_orders) || 0;
+    }
     const sp = parseFloat(p.spend) || 0;
     const cpa = parseFloat(p.cpa) || 0;
-    const fromSpend = cpa > 0 ? Math.round(sp / cpa) : 0;
-    const direct = parseInt(p.direct_orders) || 0;
-    return fromSpend + direct;
+    return cpa > 0 ? Math.round(sp / cpa) : 0;
   };
-  const orderFor = (p) => Math.round(trafficFor(p) * takeRate / 100);
+  // Step 2: Apply upsell take rate → final upsell orders
+  const upsellOrdersFor = (p) => Math.round(newOrdersFor(p) * takeRate / 100);
 
-  const totalTraffic = periods.reduce((s, idx) => s + trafficFor(byIdx[idx]), 0);
-  const totalOrders = periods.reduce((s, idx) => s + orderFor(byIdx[idx]), 0);
+  const totalNewOrders = periods.reduce((s, idx) => s + newOrdersFor(byIdx[idx]), 0);
+  const totalUpsellOrders = periods.reduce((s, idx) => s + upsellOrdersFor(byIdx[idx]), 0);
   const totalSpend = periods.reduce((s, idx) => s + (parseFloat(byIdx[idx]?.spend) || 0), 0);
-  const blendedCpa = totalOrders > 0 ? totalSpend / totalOrders : 0;
+  const blendedCpa = totalNewOrders > 0 ? totalSpend / totalNewOrders : 0;
 
   const cell = (idx, key, type, step) => (
     <input
@@ -2716,42 +2720,60 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
 
   return (
     <div style={{ marginTop: 10, padding: 10, background: T.surface, borderRadius: 6, border: `1px solid #ec489940` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#ec4899" }}>📍 Standalone Funnel · per-period inputs</div>
-        <div style={{ display: "flex", gap: 10, fontSize: 10, color: T.text3 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#ec4899" }}>📍 Standalone Funnel</div>
+          {/* Input mode toggle */}
+          <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 5, overflow: "hidden" }}>
+            <button onClick={() => updateUpsell(upsell.id, { input_mode: "spend_cpa" })}
+              style={{ padding: "3px 10px", fontSize: 10, fontWeight: 600, background: inputMode === "spend_cpa" ? "#ec4899" : "transparent", color: inputMode === "spend_cpa" ? "#fff" : T.text3, border: "none", cursor: "pointer" }}>
+              Spend + CPA
+            </button>
+            <button onClick={() => updateUpsell(upsell.id, { input_mode: "direct" })}
+              style={{ padding: "3px 10px", fontSize: 10, fontWeight: 600, background: inputMode === "direct" ? "#ec4899" : "transparent", color: inputMode === "direct" ? "#fff" : T.text3, border: "none", cursor: "pointer" }}>
+              Direct Orders
+            </button>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, fontSize: 10, color: T.text3, flexWrap: "wrap" }}>
           {totalSpend > 0 && <span>Spend: <strong style={{ color: T.text }}>${fmt(Math.round(totalSpend))}</strong></span>}
-          {totalTraffic > 0 && <span>Traffic: <strong style={{ color: T.text2 }}>{fmt(totalTraffic)}</strong></span>}
-          <span>Orders: <strong style={{ color: "#ec4899" }}>{fmt(totalOrders)}</strong> <span style={{ fontSize: 9 }}>(@ {takeRate}% take)</span></span>
+          {totalNewOrders > 0 && <span>New Orders: <strong style={{ color: T.text2 }}>{fmt(totalNewOrders)}</strong></span>}
+          <span>Upsell Orders: <strong style={{ color: "#ec4899" }}>{fmt(totalUpsellOrders)}</strong> <span style={{ fontSize: 9 }}>(@ {takeRate}% take)</span></span>
           {blendedCpa > 0 && <span>CPA: <strong style={{ color: "#f59e0b" }}>${blendedCpa.toFixed(2)}</strong></span>}
         </div>
       </div>
       <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 5 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, minWidth: periods.length * 56 + 110 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, minWidth: periods.length * 56 + 130 }}>
           <thead>
             <tr style={{ background: T.surface2 }}>
-              <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface2, zIndex: 1, minWidth: 100 }}>Metric</th>
+              <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface2, zIndex: 1, minWidth: 120 }}>Metric</th>
               {periods.map(idx => (
                 <th key={idx} style={{ padding: "5px 4px", textAlign: "center", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 56 }}>{periodLabel}{idx}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>Spend ($)</td>
-              {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "spend", "decimal", 100)}</td>)}
-            </tr>
-            <tr>
-              <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>Target CPA ($)</td>
-              {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "cpa", "decimal", 1)}</td>)}
-            </tr>
-            <tr>
-              <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>Direct Orders</td>
-              {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "direct_orders", "count", 100)}</td>)}
-            </tr>
+            {inputMode === "spend_cpa" ? (
+              <>
+                <tr>
+                  <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>Spend ($)</td>
+                  {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "spend", "decimal", 100)}</td>)}
+                </tr>
+                <tr>
+                  <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>Target CPA ($)</td>
+                  {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "cpa", "decimal", 1)}</td>)}
+                </tr>
+              </>
+            ) : (
+              <tr>
+                <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>New Orders</td>
+                {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "direct_orders", "count", 100)}</td>)}
+              </tr>
+            )}
             <tr style={{ background: "#ec489908" }}>
-              <td style={{ padding: "5px 8px", fontWeight: 700, color: "#ec4899", position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>Orders →</td>
+              <td style={{ padding: "5px 8px", fontWeight: 700, color: "#ec4899", position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>Upsell Orders →</td>
               {periods.map(idx => {
-                const o = orderFor(byIdx[idx]);
+                const o = upsellOrdersFor(byIdx[idx]);
                 return (
                   <td key={idx} style={{ padding: "5px 4px", textAlign: "center", color: "#ec4899", fontWeight: 700, fontSize: 11 }}>
                     {o > 0 ? fmt(o) : "—"}
@@ -2763,7 +2785,9 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
         </table>
       </div>
       <div style={{ fontSize: 9, color: T.text3, fontStyle: "italic", marginTop: 4 }}>
-        Orders = (spend ÷ CPA) + direct orders. These flow into the Monthly Demand Schedule independently of the Hero GWP funnel.
+        {inputMode === "spend_cpa"
+          ? "New Orders = spend ÷ CPA. Upsell Orders = New Orders × Take Rate %."
+          : "Enter the new orders shown the upsell each period. Upsell Orders = New Orders × Take Rate %."}
       </div>
     </div>
   );
@@ -2851,26 +2875,25 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
     const upsellNewByMonth = new Array(totalMonths + 1).fill(0);
     const takePct = parseFloat(u.take_rate_pct) || 0;
     if (isStandalone) {
-      // Standalone: traffic from upsell's own per-period inputs (spend/CPA/direct)
-      // gets multiplied by the upsell's take rate to determine actual orders.
-      // If take_rate is unset (0), default to 100% (treat traffic as orders).
-      const effectiveTake = takePct > 0 ? takePct / 100 : 1;
+      // Standalone: new orders per period come from spend/CPA OR direct entry depending
+      // on input_mode. Then × take rate gives actual upsell orders.
+      const upInputMode = u.input_mode || "spend_cpa";
       const ups = (upsellPeriods || []).filter(up => up.upsell_id === u.id);
       ups.forEach(p => {
-        let traffic = 0;
-        if (p.override_orders != null && p.override_orders !== "") {
-          traffic = parseInt(p.override_orders) || 0;
+        let newOrders = 0;
+        if (upInputMode === "direct") {
+          newOrders = parseInt(p.direct_orders) || 0;
         } else {
           const sp = parseFloat(p.spend) || 0;
           const cpa = parseFloat(p.cpa) || 0;
-          traffic = (cpa > 0 ? Math.round(sp / cpa) : 0) + (parseInt(p.direct_orders) || 0);
+          newOrders = cpa > 0 ? Math.round(sp / cpa) : 0;
         }
-        const orders = Math.round(traffic * effectiveTake);
-        if (orders <= 0) return;
+        const upsellOrders = Math.round(newOrders * (takePct / 100));
+        if (upsellOrders <= 0) return;
         const m = periodType === "month"
           ? Math.min(totalMonths, Math.max(1, p.period_index))
           : Math.min(totalMonths, Math.max(1, Math.ceil(p.period_index / 4.33)));
-        upsellNewByMonth[m] += orders;
+        upsellNewByMonth[m] += upsellOrders;
       });
     } else {
       // Attached: each month's Hero GWP new orders × take rate becomes the upsell's new orders
@@ -3905,18 +3928,17 @@ function LaunchPlannerView({ isMobile, orgId }) {
                 }, 0);
                 const isStandalone = u.funnel_mode === "standalone";
                 // For attached: orders = main acq orders × take rate
-                // For standalone: traffic-orders × take rate. Spend/CPA gives raw orders/sessions,
-                // take rate then converts that into actual upsell purchases.
+                // For standalone: new orders come from spend/CPA OR direct orders depending
+                // on input_mode. Then upsell orders = new orders × take rate.
+                const upInputMode = u.input_mode || "spend_cpa";
                 const upPeriods = launchUpsellPeriods.filter(up => up.upsell_id === u.id);
-                const standaloneTraffic = upPeriods.reduce((s, p) => {
-                  if (p.override_orders != null) return s + (parseInt(p.override_orders) || 0);
+                const standaloneNewOrders = upPeriods.reduce((s, p) => {
+                  if (upInputMode === "direct") return s + (parseInt(p.direct_orders) || 0);
                   const sp = parseFloat(p.spend) || 0;
                   const cpa = parseFloat(p.cpa) || 0;
-                  const fromSpend = cpa > 0 ? Math.round(sp / cpa) : 0;
-                  const direct = parseInt(p.direct_orders) || 0;
-                  return s + fromSpend + direct;
+                  return s + (cpa > 0 ? Math.round(sp / cpa) : 0);
                 }, 0);
-                const standaloneOrders = Math.round(standaloneTraffic * (u.take_rate_pct || 100) / 100);
+                const standaloneOrders = Math.round(standaloneNewOrders * (u.take_rate_pct || 0) / 100);
                 const upTotalOrders = isStandalone
                   ? standaloneOrders
                   : Math.round(totalAcqOrders * (u.take_rate_pct || 0) / 100);
@@ -3973,6 +3995,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                         upsell={u}
                         upsellPeriods={upPeriods}
                         upsertUpsellPeriod={(periodIndex, updates) => upsertUpsellPeriod(selected.id, u.id, periodIndex, updates)}
+                        updateUpsell={updateUpsell}
                         T={T}
                         isMobile={isMobile}
                       />
