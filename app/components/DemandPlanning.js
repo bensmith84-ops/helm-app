@@ -1426,7 +1426,7 @@ function DebouncedInput({ label, value, onChange, type = "text", placeholder, su
 }
 
 // Inline number input with comma formatting for table cells
-function FmtInput({ defaultValue, onBlur, style }) {
+function FmtInput({ defaultValue, onBlur, style, disabled }) {
   const [val, setVal] = useState(defaultValue ?? "");
   const [focused, setFocused] = useState(false);
   const fmtC = (v) => { if (v === "" || v === null || v === undefined) return ""; const n = Number(v); return isNaN(n) ? String(v) : n.toLocaleString("en-US", { maximumFractionDigits: 4 }); };
@@ -1438,6 +1438,7 @@ function FmtInput({ defaultValue, onBlur, style }) {
       onFocus={() => setFocused(true)}
       onBlur={e => { setFocused(false); onBlur({ target: { value: String(val).replace(/,/g, "") } }); }}
       type="text" inputMode="decimal"
+      disabled={disabled}
       style={style}
     />
   );
@@ -2405,16 +2406,13 @@ function MarketingChannelRow({ channel, periods, periodLabel, launchPeriods, upd
                     const p = byIdx[idx] || {};
                     return (
                       <td key={idx} style={{ padding: "3px 2px", textAlign: "center", borderBottom: `1px solid ${T.border}` }}>
-                        <input
-                          type="number"
-                          step={ir.step}
+                        <FmtInput
                           defaultValue={p[key] ?? ""}
                           onBlur={e => {
                             const val = e.target.value;
                             const parsed = val === "" ? null : (ir.type === "count" ? parseInt(val) : parseFloat(val));
                             upsertMarketingPeriod(idx, { [key]: parsed });
                           }}
-                          placeholder="0"
                           style={{
                             width: "100%", padding: "4px 2px", fontSize: 11, textAlign: "center",
                             border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface,
@@ -2704,16 +2702,13 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
   const blendedCpa = totalNewOrders > 0 ? totalSpend / totalNewOrders : 0;
 
   const cell = (idx, key, type, step) => (
-    <input
-      type="number"
-      step={step}
+    <FmtInput
       defaultValue={byIdx[idx]?.[key] ?? ""}
       onBlur={e => {
         const val = e.target.value;
         const parsed = val === "" ? null : (type === "count" ? parseInt(val) : parseFloat(val));
         upsertUpsellPeriod(idx, { [key]: parsed });
       }}
-      placeholder="0"
       style={{ width: "100%", padding: "3px 2px", fontSize: 10, textAlign: "center", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }}
     />
   );
@@ -3111,7 +3106,7 @@ function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, upda
                   <tr key={t.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                     <td style={{ padding: "4px 8px", fontWeight: 700, color: T.text }}>{t.pack_size || "?"}-Pack</td>
                     <td style={{ padding: "3px 4px" }}>
-                      <input type="number" defaultValue={t.take_rate_pct ?? 0}
+                      <FmtInput defaultValue={t.take_rate_pct ?? 0}
                         onBlur={e => updateGwpPackTier(t.id, { take_rate_pct: parseFloat(e.target.value) || 0 })}
                         style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
                     </td>
@@ -3124,14 +3119,12 @@ function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, upda
                         style={{ width: "100%", padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
                     </td>
                     <td style={{ padding: "3px 4px" }}>
-                      <input type="number" defaultValue={t.gift_qty ?? ""}
-                        placeholder="0"
+                      <FmtInput defaultValue={t.gift_qty ?? ""}
                         onBlur={e => updateGwpPackTier(t.id, { gift_qty: parseInt(e.target.value) || null })}
                         style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
                     </td>
                     <td style={{ padding: "3px 4px" }}>
-                      <input type="number" defaultValue={t.gift_cost ?? ""}
-                        placeholder="0.00" step="0.01"
+                      <FmtInput defaultValue={t.gift_cost ?? ""}
                         onBlur={e => updateGwpPackTier(t.id, { gift_cost: parseFloat(e.target.value) || null })}
                         style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
                     </td>
@@ -3186,9 +3179,7 @@ function RebillRatesEditor({ launchId, scopeType, scopeId, otpPct, subPct, rebil
   };
 
   const cellInput = (cohort, m, color, enabled) => (
-    <input
-      type="number"
-      placeholder="—"
+    <FmtInput
       defaultValue={rateFor(cohort, m)}
       onBlur={e => {
         const val = parseFloat(e.target.value);
