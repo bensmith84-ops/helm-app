@@ -1444,6 +1444,159 @@ function FmtInput({ defaultValue, onBlur, style, disabled }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SkuPicker — autocomplete search of dp_sku_master with "Create New Draft SKU" fallback
+// Used for: launch.product_sku, dp_launch_gwp_tiers.gift_sku, etc.
+// ─────────────────────────────────────────────────────────────────────────────
+function SkuPicker({ value, onChange, orgId, placeholder, allowCreate = true, isGiftPicker = false, style }) {
+  const [query, setQuery] = useState(value || "");
+  const [results, setResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [selectedDetails, setSelectedDetails] = useState(null);
+  const timerRef = useRef(null);
+  const wrapperRef = useRef(null);
+
+  // Sync external value changes (e.g., when switching pack tiers)
+  useEffect(() => { setQuery(value || ""); }, [value]);
+
+  // Lookup the selected SKU details for the badge under the input
+  useEffect(() => {
+    if (!value) { setSelectedDetails(null); return; }
+    let active = true;
+    (async () => {
+      const { data } = await supabase.from("dp_sku_master").select("sku, product_title, variant_title, status").eq("org_id", orgId).eq("sku", value).limit(1).single();
+      if (active && data) setSelectedDetails(data);
+    })();
+    return () => { active = false; };
+  }, [value, orgId]);
+
+  // Debounced search
+  useEffect(() => {
+    if (!showDropdown) return;
+    clearTimeout(timerRef.current);
+    if (!query || query.length < 1) { setResults([]); return; }
+    timerRef.current = setTimeout(async () => {
+      setLoading(true);
+      const q = query.replace(/[%_]/g, "\\$&");
+      let req = supabase.from("dp_sku_master")
+        .select("sku, product_title, variant_title, base_product, product_category, status, current_price, units_per_sku")
+        .eq("org_id", orgId)
+        .or(`sku.ilike.%${q}%,product_title.ilike.%${q}%,variant_title.ilike.%${q}%`)
+        .limit(15);
+      if (isGiftPicker) {
+        // Prefer GWP-flagged products at the top, but don't exclude others
+      }
+      const { data } = await req;
+      setResults(data || []);
+      setLoading(false);
+    }, 200);
+    return () => clearTimeout(timerRef.current);
+  }, [query, orgId, showDropdown, isGiftPicker]);
+
+  // Click-outside handler
+  useEffect(() => {
+    const onDown = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setShowDropdown(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
+
+  const pick = (sku) => {
+    setQuery(sku.sku);
+    onChange(sku.sku);
+    setShowDropdown(false);
+  };
+
+  const createDraft = async () => {
+    if (!query.trim()) return;
+    setCreating(true);
+    // Generate a draft SKU code based on the typed query
+    let baseCode = query.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    if (!baseCode) baseCode = "DRAFT";
+    let sku = baseCode.startsWith("DRAFT-") ? baseCode : `DRAFT-${baseCode}`;
+    // Ensure uniqueness
+    let suffix = 0;
+    while (true) {
+      const candidate = suffix === 0 ? sku : `${sku}-${suffix}`;
+      const { data: existing } = await supabase.from("dp_sku_master").select("sku").eq("org_id", orgId).eq("sku", candidate).limit(1);
+      if (!existing || existing.length === 0) { sku = candidate; break; }
+      suffix++;
+      if (suffix > 99) break;
+    }
+    const { data, error } = await supabase.from("dp_sku_master").insert({
+      org_id: orgId,
+      sku,
+      product_title: query.trim(),
+      status: "draft",
+      is_gwp: !!isGiftPicker,
+    }).select().single();
+    setCreating(false);
+    if (error) { alert(`Failed to create SKU: ${error.message}`); return; }
+    if (data) {
+      pick(data);
+    }
+  };
+
+  const showCreate = allowCreate && query.trim().length >= 2 && !results.some(r => r.sku.toLowerCase() === query.trim().toLowerCase());
+
+  return (
+    <div ref={wrapperRef} style={{ position: "relative", ...style }}>
+      <input
+        type="text"
+        value={query}
+        placeholder={placeholder || "Search SKU or product title…"}
+        onChange={e => { setQuery(e.target.value); setShowDropdown(true); }}
+        onFocus={() => setShowDropdown(true)}
+        style={{ width: "100%", padding: "5px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }}
+      />
+      {selectedDetails && !showDropdown && (
+        <div style={{ marginTop: 3, fontSize: 9, color: T.text3, lineHeight: 1.4 }}>
+          {selectedDetails.product_title}{selectedDetails.variant_title ? ` · ${selectedDetails.variant_title}` : ""}
+          {selectedDetails.status === "draft" && <span style={{ marginLeft: 6, padding: "1px 5px", background: "#f59e0b15", color: "#f59e0b", borderRadius: 3, fontWeight: 700, fontSize: 8 }}>DRAFT</span>}
+        </div>
+      )}
+      {showDropdown && (
+        <div style={{ position: "absolute", top: "calc(100% + 2px)", left: 0, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", maxHeight: 280, overflowY: "auto", zIndex: 100 }}>
+          {loading && <div style={{ padding: 10, fontSize: 10, color: T.text3, textAlign: "center" }}>Searching…</div>}
+          {!loading && results.length === 0 && query.trim().length >= 1 && (
+            <div style={{ padding: 10, fontSize: 10, color: T.text3, textAlign: "center" }}>No matches.</div>
+          )}
+          {!loading && results.map(r => (
+            <button key={r.sku} type="button" onClick={() => pick(r)}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent", color: T.text, cursor: "pointer", fontSize: 11, borderBottom: `1px solid ${T.border}` }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div style={{ fontWeight: 700, fontFamily: "monospace", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{r.sku}</span>
+                {r.status === "draft" && <span style={{ padding: "1px 5px", background: "#f59e0b15", color: "#f59e0b", borderRadius: 3, fontWeight: 700, fontSize: 8 }}>DRAFT</span>}
+              </div>
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>
+                {r.product_title}{r.variant_title ? ` · ${r.variant_title}` : ""}
+                {r.product_category && <span style={{ marginLeft: 6, color: T.text3 }}>· {r.product_category}</span>}
+              </div>
+            </button>
+          ))}
+          {showCreate && (
+            <button type="button" onClick={createDraft} disabled={creating}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", background: T.accent + "08", color: T.accent, cursor: creating ? "wait" : "pointer", fontSize: 11, fontWeight: 600, borderTop: results.length > 0 ? `1px solid ${T.border}` : "none" }}>
+              {creating ? "Creating…" : `+ Create draft SKU for "${query.trim()}"`}
+            </button>
+          )}
+          {value && (
+            <button type="button" onClick={() => { setQuery(""); onChange(null); setShowDropdown(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent", color: T.text3, cursor: "pointer", fontSize: 10, borderTop: `1px solid ${T.border}` }}>
+              Clear selection
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeriod, onUpdatePeriod, onRemovePeriod, onInitPeriods, emailSends, onAddEmailSend, onUpdateEmailSend, onRemoveEmailSend, variantSplits, allVariantSplits, onAddVariantSplit, onUpdateVariantSplit, onRemoveVariantSplit, onInitDefaultVariants, onCopyVariantsFrom, gwpTiers, onAddGwpTier, onUpdateGwpTier, onRemoveGwpTier }) {
   const up = (field, val) => onUpdateChannel(ch.id, { [field]: val });
   const c = ch.channel;
@@ -3053,7 +3206,7 @@ function ScheduleRow({ label, subtitle, values, color, T, isUnit }) {
 // e.g., 30% of orders are 1-pack, 50% are 2-pack with free gift X, 20% are 3-pack with gift Y
 // Take rates must sum to 100%. Total units = Σ (orders × take% × pack_size).
 // ─────────────────────────────────────────────────────────────────────────────
-function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, updateGwpPackTier, deleteGwpPackTier, T, isMobile }) {
+function PackTiersEditor({ launchId, orgId, tiers, totalAcqOrders, addGwpPackTier, updateGwpPackTier, deleteGwpPackTier, T, isMobile }) {
   const sorted = [...tiers].sort((a, b) => (a.pack_size || 0) - (b.pack_size || 0));
   const totalPct = sorted.reduce((s, t) => s + (parseFloat(t.take_rate_pct) || 0), 0);
   const sumOk = Math.abs(totalPct - 100) < 0.01;
@@ -3160,10 +3313,34 @@ function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, upda
                     <td style={{ padding: "4px 8px", textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>{fmt(t._orders)}</td>
                     <td style={{ padding: "4px 8px", textAlign: "right", color: T.text, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(t._units)}</td>
                     <td style={{ padding: "3px 4px" }}>
-                      <input type="text" defaultValue={t.gift_name || ""}
-                        placeholder="e.g. Free Shipping, Gift A"
-                        onBlur={e => updateGwpPackTier(t.id, { gift_name: e.target.value || null })}
-                        style={{ width: "100%", padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
+                      <SkuPicker
+                        value={t.gift_sku || null}
+                        onChange={(skuCode) => {
+                          if (!skuCode) {
+                            updateGwpPackTier(t.id, { gift_sku: null });
+                            return;
+                          }
+                          supabase.from("dp_sku_master").select("product_title, variant_title, cogs_per_unit").eq("org_id", orgId).eq("sku", skuCode).limit(1).single().then(({ data }) => {
+                            const titleParts = [];
+                            if (data?.product_title) titleParts.push(data.product_title);
+                            if (data?.variant_title) titleParts.push(data.variant_title);
+                            const updates = { gift_sku: skuCode, gift_name: titleParts.join(" · ") || skuCode };
+                            if ((t.gift_cost == null || t.gift_cost === "") && data?.cogs_per_unit) {
+                              updates.gift_cost = data.cogs_per_unit;
+                            }
+                            updateGwpPackTier(t.id, updates);
+                          });
+                        }}
+                        orgId={orgId}
+                        placeholder={t.gift_name || "Search SKU or product…"}
+                        isGiftPicker
+                      />
+                      {!t.gift_sku && (
+                        <input type="text" defaultValue={t.gift_name || ""}
+                          placeholder="…or type a non-SKU gift (e.g. Free Shipping)"
+                          onBlur={e => updateGwpPackTier(t.id, { gift_name: e.target.value || null })}
+                          style={{ width: "100%", padding: "3px 6px", fontSize: 9, border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface2, color: T.text3, outline: "none", marginTop: 3, fontStyle: "italic" }} />
+                      )}
                     </td>
                     <td style={{ padding: "3px 4px" }}>
                       <FmtInput defaultValue={t.gift_qty ?? ""}
@@ -3863,7 +4040,19 @@ function LaunchPlannerView({ isMobile, orgId }) {
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>📋 Product Details</div>
             <I label="Product Name" value={selected.product_name} onChange={v => updateLaunch(selected.id, "product_name", v)} />
-            <I label="SKU" value={selected.sku} onChange={v => updateLaunch(selected.id, "sku", v)} placeholder="e.g. LS-60-LEMON" />
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3 }}>Product SKU</div>
+              <SkuPicker
+                value={selected.product_sku || selected.sku}
+                onChange={(skuCode) => {
+                  // Keep legacy sku field in sync for any downstream code still reading it
+                  updateLaunch(selected.id, "product_sku", skuCode);
+                  updateLaunch(selected.id, "sku", skuCode);
+                }}
+                orgId={orgId}
+                placeholder="Search SKU or product title…"
+              />
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <I label="Retail Price" value={selected.retail_price} onChange={v => updateLaunch(selected.id, "retail_price", v)} type="number" prefix="$" />
               <I label="Unit Cost" value={selected.unit_cost} onChange={v => updateLaunch(selected.id, "unit_cost", v)} type="number" prefix="$" />
@@ -3956,6 +4145,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
               {/* Pack-size take rates + free gifts (GWP offer config) */}
               <PackTiersEditor
                 launchId={selected.id}
+                orgId={orgId}
                 tiers={launchGwpTiers}
                 totalAcqOrders={totalAcqOrders}
                 addGwpPackTier={addGwpPackTier}
