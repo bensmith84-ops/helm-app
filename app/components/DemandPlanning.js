@@ -3057,26 +3057,72 @@ function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, upda
   const sorted = [...tiers].sort((a, b) => (a.pack_size || 0) - (b.pack_size || 0));
   const totalPct = sorted.reduce((s, t) => s + (parseFloat(t.take_rate_pct) || 0), 0);
   const sumOk = Math.abs(totalPct - 100) < 0.01;
-  const totalUnits = sorted.reduce((s, t) => {
-    const orders = totalAcqOrders * (parseFloat(t.take_rate_pct) || 0) / 100;
-    return s + orders * (parseInt(t.pack_size) || 0);
-  }, 0);
-  const totalGiftCost = sorted.reduce((s, t) => {
-    const orders = totalAcqOrders * (parseFloat(t.take_rate_pct) || 0) / 100;
-    return s + orders * (parseFloat(t.gift_cost) || 0);
-  }, 0);
+
+  // Per-tier orders + units (tier itself, no cascade)
+  const tierWithOrders = sorted.map(t => {
+    const orders = Math.round(totalAcqOrders * (parseFloat(t.take_rate_pct) || 0) / 100);
+    const units = orders * (parseInt(t.pack_size) || 0);
+    return { ...t, _orders: orders, _units: units };
+  });
+
+  // Cascade: cumulative orders that reach OR exceed each tier (orders for this tier + every larger tier)
+  // because a 3-pack ALSO gets the 1-pack and 2-pack gifts.
+  const cumulativeOrdersAtOrAbove = (idx) =>
+    tierWithOrders.slice(idx).reduce((s, t) => s + t._orders, 0);
+
+  // Per-row "cumulative gift cost" = own gift cost (×orders) + every smaller tier's gift cost (×orders for this tier)
+  // Wait — re-read user requirement:
+  //   1-pack gets gift A (qty 1); 2-pack gets A + B; 3-pack gets A + B + C.
+  // So orders at THIS tier × (sum of gift costs for THIS tier and all SMALLER tiers).
+  const cumulativeGiftCostForTier = (idx) => {
+    const orders = tierWithOrders[idx]._orders;
+    const cumulativePerOrderCost = tierWithOrders.slice(0, idx + 1).reduce((s, smaller) => {
+      return s + ((parseFloat(smaller.gift_cost) || 0) * (parseInt(smaller.gift_qty) || 0));
+    }, 0);
+    return orders * cumulativePerOrderCost;
+  };
+
+  // Gift inventory rollup: for each gift introduced at tier i, total qty = (qty/order at tier i) × Σ orders at tiers ≥ i
+  const giftInventory = sorted
+    .filter(t => t.gift_name && parseInt(t.gift_qty) > 0)
+    .map((t, idx) => {
+      // Find the original index in sorted (idx is index in filtered array)
+      const originalIdx = sorted.findIndex(x => x.id === t.id);
+      const ordersReaching = cumulativeOrdersAtOrAbove(originalIdx);
+      const qtyPerOrder = parseInt(t.gift_qty) || 0;
+      const totalQty = ordersReaching * qtyPerOrder;
+      const totalCost = totalQty * (parseFloat(t.gift_cost) || 0);
+      return {
+        introducedAt: t.pack_size,
+        name: t.gift_name,
+        qtyPerOrder,
+        ordersReaching,
+        totalQty,
+        unitCost: parseFloat(t.gift_cost) || 0,
+        totalCost,
+      };
+    });
+
+  const totalUnits = tierWithOrders.reduce((s, t) => s + t._units, 0);
+  const totalGiftCost = giftInventory.reduce((s, g) => s + g.totalCost, 0);
   const usedSizes = new Set(sorted.map(t => t.pack_size));
+
+  // Build "includes" string per tier — what gifts cascade in from smaller tiers
+  const includesFor = (idx) => {
+    const smaller = tierWithOrders.slice(0, idx).filter(s => s.gift_name);
+    return smaller.map(s => `${s.pack_size}-pk: ${s.gift_name}`).join(" + ");
+  };
 
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>Pack Tiers · Take Rate + Free Gifts</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>Pack Tiers · Take Rate + Free Gifts <span style={{ fontWeight: 400, color: T.text3, fontSize: 10 }}>(gifts cascade — bigger packs include smaller-pack gifts)</span></div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <div style={{ padding: "2px 8px", borderRadius: 5, fontSize: 9, fontWeight: 700, background: sumOk ? "#22c55e15" : "#ef444415", color: sumOk ? "#22c55e" : "#ef4444" }}>
             {totalPct.toFixed(0)}% {sumOk ? "✓" : "✗"}
           </div>
           {totalUnits > 0 && <div style={{ fontSize: 9, color: T.text3 }}>{fmt(Math.round(totalUnits))} units</div>}
-          {totalGiftCost > 0 && <div style={{ fontSize: 9, color: T.text3 }}>· ${fmt(Math.round(totalGiftCost))} gift cost</div>}
+          {totalGiftCost > 0 && <div style={{ fontSize: 9, color: T.text3 }}>· ${fmt(Math.round(totalGiftCost))} total gift cost</div>}
         </div>
       </div>
       {sorted.length === 0 ? (
@@ -3092,16 +3138,17 @@ function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, upda
                 <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 70 }}>Take %</th>
                 <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Orders</th>
                 <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Units</th>
-                <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 140 }}>Free Gift</th>
-                <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 60 }}>Gift Qty</th>
+                <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 140 }}>Adds Gift</th>
+                <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 50 }}>Qty/Ord</th>
                 <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 70 }}>Cost ea</th>
+                <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 150 }}>Includes (cascade)</th>
                 <th style={{ padding: "5px 4px", borderBottom: `1px solid ${T.border}`, width: 24 }}></th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map(t => {
-                const orders = Math.round(totalAcqOrders * (parseFloat(t.take_rate_pct) || 0) / 100);
-                const units = orders * (parseInt(t.pack_size) || 0);
+              {tierWithOrders.map((t, idx) => {
+                const cumulativeCost = cumulativeGiftCostForTier(idx);
+                const inc = includesFor(idx);
                 return (
                   <tr key={t.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                     <td style={{ padding: "4px 8px", fontWeight: 700, color: T.text }}>{t.pack_size || "?"}-Pack</td>
@@ -3110,11 +3157,11 @@ function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, upda
                         onBlur={e => updateGwpPackTier(t.id, { take_rate_pct: parseFloat(e.target.value) || 0 })}
                         style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
                     </td>
-                    <td style={{ padding: "4px 8px", textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>{fmt(orders)}</td>
-                    <td style={{ padding: "4px 8px", textAlign: "right", color: T.text, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(units)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>{fmt(t._orders)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: T.text, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(t._units)}</td>
                     <td style={{ padding: "3px 4px" }}>
                       <input type="text" defaultValue={t.gift_name || ""}
-                        placeholder="e.g. Eco Sheets 30ct"
+                        placeholder="e.g. Free Shipping, Gift A"
                         onBlur={e => updateGwpPackTier(t.id, { gift_name: e.target.value || null })}
                         style={{ width: "100%", padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
                     </td>
@@ -3128,6 +3175,9 @@ function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, upda
                         onBlur={e => updateGwpPackTier(t.id, { gift_cost: parseFloat(e.target.value) || null })}
                         style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
                     </td>
+                    <td style={{ padding: "4px 8px", color: T.text3, fontSize: 9 }}>
+                      {inc ? inc : <span style={{ fontStyle: "italic" }}>—</span>}
+                    </td>
                     <td style={{ padding: "3px 4px", textAlign: "center" }}>
                       <button onClick={() => deleteGwpPackTier(t.id)} title="Remove tier"
                         style={{ background: "transparent", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: 0 }}>×</button>
@@ -3139,7 +3189,42 @@ function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, upda
           </table>
         </div>
       )}
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+
+      {/* Gift Inventory Needs — cumulative quantities across all tiers that include each gift */}
+      {giftInventory.length > 0 && (
+        <div style={{ marginTop: 10, padding: 10, background: T.accent + "06", border: `1px solid ${T.accent}30`, borderRadius: 6 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <span>📦 Gift Inventory Needs <span style={{ fontWeight: 400, color: T.text3 }}>(cumulative across cascading tiers)</span></span>
+            <span style={{ fontSize: 9, color: T.text3 }}>Total: ${fmt(Math.round(totalGiftCost))}</span>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+            <thead>
+              <tr>
+                <th style={{ padding: "4px 6px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Gift</th>
+                <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Introduced</th>
+                <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Qty/Ord</th>
+                <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Orders Receiving</th>
+                <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Total Qty Needed</th>
+                <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Total Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {giftInventory.map((g, i) => (
+                <tr key={i} style={{ borderBottom: i < giftInventory.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                  <td style={{ padding: "4px 6px", fontWeight: 700, color: T.text }}>{g.name}</td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", color: T.text3 }}>{g.introducedAt}-pk and up</td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>{fmt(g.qtyPerOrder)}</td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>{fmt(g.ordersReaching)}</td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", color: T.text, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(g.totalQty)}</td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", color: T.accent, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>${fmt(Math.round(g.totalCost))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
         {[1, 2, 3, 4, 6].filter(n => !usedSizes.has(n)).map(n => (
           <button key={n} onClick={() => addGwpPackTier(launchId, n)}
             style={{ padding: "3px 9px", fontSize: 10, fontWeight: 600, background: "transparent", color: T.accent, border: `1px dashed ${T.accent}50`, borderRadius: 5, cursor: "pointer" }}>
