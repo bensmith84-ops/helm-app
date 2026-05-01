@@ -2760,13 +2760,15 @@ function GeographySection({ launchId, launchGeoSplit, totalAcquisitionOrders, up
 // ─────────────────────────────────────────────────────────────────────────────
 // CapacityDosSection — manufacturing capacity & days of supply
 // ─────────────────────────────────────────────────────────────────────────────
-function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos, forecastWeeks, updateLaunch, T, isMobile }) {
+function CapacityDosSection({ launch, totalUnits, peakUnits, maxMonthlyCapacity, targetDos, forecastWeeks, updateLaunch, T, isMobile }) {
   const monthCount = Math.max(1, Math.ceil(forecastWeeks / 4.33));
-  const monthlyDemand = totalUnits / monthCount;
-  const dailyDemand = monthlyDemand / 30;
+  const avgMonthlyDemand = totalUnits / monthCount;
+  // Peak month is what matters for capacity planning; fall back to average if not provided
+  const peak = (peakUnits != null && peakUnits > 0) ? peakUnits : avgMonthlyDemand;
+  const dailyDemand = avgMonthlyDemand / 30;
   const cap = parseInt(maxMonthlyCapacity) || 0;
   const dos = parseInt(targetDos) || 60;
-  const overCap = cap > 0 && monthlyDemand > cap;
+  const overCap = cap > 0 && peak > cap;
   const targetInventory = Math.round(dos * dailyDemand);
 
   return (
@@ -2780,7 +2782,7 @@ function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos,
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444" }}>Capacity exceeded</div>
             <div style={{ fontSize: 11, color: T.text2, marginTop: 2 }}>
-              Forecast monthly demand of <strong>{fmt(Math.round(monthlyDemand))}</strong> units exceeds your manufacturer's max capacity of <strong>{fmt(cap)}</strong>/mo by <strong>{fmt(Math.round(monthlyDemand - cap))}</strong> units.
+              Peak monthly demand of <strong>{fmt(Math.round(peak))}</strong> units exceeds your manufacturer's max capacity of <strong>{fmt(cap)}</strong>/mo by <strong>{fmt(Math.round(peak - cap))}</strong> units.
               You'll need additional production capacity, an extended lead time, or to reduce forecast demand.
             </div>
           </div>
@@ -2791,8 +2793,8 @@ function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos,
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
         <div style={{ padding: "10px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Forecast / Mo</div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{fmt(Math.round(monthlyDemand))}</div>
-          <div style={{ fontSize: 9, color: T.text3 }}>units / month</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{fmt(Math.round(avgMonthlyDemand))}</div>
+          <div style={{ fontSize: 9, color: T.text3 }}>avg · peak {fmt(Math.round(peak))}</div>
         </div>
         <div style={{ padding: "10px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${overCap ? "#ef4444" : T.border}` }}>
           <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Max Capacity</div>
@@ -2945,18 +2947,18 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
 // MonthlyDemandSchedule — synthesizes everything into a monthly forecast
 // New Orders + Recurring Orders + Total Units, broken out per month
 // ─────────────────────────────────────────────────────────────────────────────
-function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, upsellPeriods, T, isMobile }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// computeMonthlyDemand — single source of truth for v3 launch demand math.
+// Used by MonthlyDemandSchedule (rendering) AND CapacityDosSection (peak/avg).
+// ─────────────────────────────────────────────────────────────────────────────
+function computeMonthlyDemand({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, upsellPeriods }) {
   const periodType = launch.period_type || "week";
   const periodCount = parseInt(launch.forecast_periods) || 12;
-
-  // Show at least 12 months on the schedule, more if forecast extends further
   const totalMonths = periodType === "month" ? Math.max(12, periodCount) : Math.max(12, Math.ceil(periodCount / 4.33));
   const months = Array.from({ length: totalMonths }, (_, i) => i + 1);
 
-  // Step 1: Map marketing-channel period orders into monthly buckets
-  // For weekly: month_index = ceil(week_index / 4.33) (rough but sufficient for forecasting)
-  // For monthly: 1:1
-  const newOrdersByMonth = new Array(totalMonths + 1).fill(0); // 1-indexed
+  // Step 1: New orders per month (from marketing channels)
+  const newOrdersByMonth = new Array(totalMonths + 1).fill(0);
   marketingChannels.forEach(ch => {
     const cps = marketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
     cps.forEach(p => {
@@ -2965,17 +2967,17 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
       const m = periodType === "month"
         ? Math.min(totalMonths, Math.max(1, p.period_index))
         : Math.min(totalMonths, Math.max(1, Math.ceil(p.period_index / 4.33)));
-      newOrdersByMonth[m] = (newOrdersByMonth[m] || 0) + orders;
+      newOrdersByMonth[m] += orders;
     });
   });
 
-  // Step 2: Pack tier mix → avg units per order, plus order→unit multiplier
+  // Step 2: Pack tier mix → avg units per order
   const totalTakePct = packTiers.reduce((s, t) => s + (parseFloat(t.take_rate_pct) || 0), 0);
   const avgUnitsPerOrder = totalTakePct > 0
     ? packTiers.reduce((s, t) => s + ((parseFloat(t.take_rate_pct) || 0) / 100) * (parseInt(t.pack_size) || 0), 0)
-    : 1; // fallback if no tiers configured
+    : 1;
 
-  // Step 3: Lookup rebill rates by cohort + scope + month
+  // Step 3: Rebill rate lookup
   const rebillRate = (scopeType, scopeId, cohort, monthIdx) => {
     const r = rebillRates.find(x =>
       x.launch_id === launch.id &&
@@ -2990,15 +2992,13 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
   const otpPct = parseFloat(launch.gwp_otp_pct) || 0;
   const subPct = parseFloat(launch.gwp_sub_pct) || 0;
 
-  // Step 4: For each month M, compute recurring orders from cohorts acquired in earlier months
-  // Recurring orders in month M from cohort acquired in month k (k < M):
-  //   = new_orders[k] × OTP% × otp_rebill[M-k]  +  new_orders[k] × Sub% × sub_rebill[M-k]
+  // Step 4: Recurring orders
   const recurringOrdersByMonth = new Array(totalMonths + 1).fill(0);
   const recurringUnitsByMonth = new Array(totalMonths + 1).fill(0);
   for (let M = 2; M <= totalMonths; M++) {
     let monthRebillOrders = 0;
     for (let k = 1; k < M; k++) {
-      const offset = M - k; // months since acquisition
+      const offset = M - k;
       const newK = newOrdersByMonth[k] || 0;
       if (newK <= 0) continue;
       const otpR = rebillRate("gwp", null, "otp", offset);
@@ -3010,21 +3010,16 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
     recurringUnitsByMonth[M] = Math.round(monthRebillOrders * avgUnitsPerOrder);
   }
 
-  // Step 5: Upsell units per month (attached upsells ride on Hero GWP cohorts;
-  // standalone upsells have their own per-period orders driven by spend/CPA/direct)
+  // Step 5: Upsell units
   const upsellUnitsByMonth = new Array(totalMonths + 1).fill(0);
   upsells.forEach(u => {
     const isStandalone = u.funnel_mode === "standalone";
     const upu = parseInt(u.units_per_order) || 1;
     const uOtp = parseFloat(u.otp_pct) || 0;
     const uSub = parseFloat(u.sub_pct) || 0;
-
-    // Build per-month "new" upsell orders for this upsell (acquisition events)
     const upsellNewByMonth = new Array(totalMonths + 1).fill(0);
     const takePct = parseFloat(u.take_rate_pct) || 0;
     if (isStandalone) {
-      // Standalone: new orders per period come from spend/CPA OR direct entry depending
-      // on input_mode. Then × take rate gives actual upsell orders.
       const upInputMode = u.input_mode || "spend_cpa";
       const ups = (upsellPeriods || []).filter(up => up.upsell_id === u.id);
       ups.forEach(p => {
@@ -3044,18 +3039,12 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
         upsellNewByMonth[m] += upsellOrders;
       });
     } else {
-      // Attached: each month's Hero GWP new orders × take rate becomes the upsell's new orders
       for (let M = 1; M <= totalMonths; M++) {
         upsellNewByMonth[M] = (newOrdersByMonth[M] || 0) * (takePct / 100);
       }
     }
-
-    // Upsell rebills using its own OTP/Sub split + chosen rebill curve
     for (let M = 1; M <= totalMonths; M++) {
-      // Direct upsell orders in M (new)
-      upsellUnitsByMonth[M] = (upsellUnitsByMonth[M] || 0) + Math.round(upsellNewByMonth[M] * upu);
-
-      // Rebills from prior months
+      upsellUnitsByMonth[M] += Math.round(upsellNewByMonth[M] * upu);
       for (let k = 1; k < M; k++) {
         const offset = M - k;
         const newK = upsellNewByMonth[k];
@@ -3069,12 +3058,12 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
           subR = rebillRate("gwp", null, "sub", offset);
         }
         const rebillOrders = newK * ((uOtp / 100) * (otpR / 100) + (uSub / 100) * (subR / 100));
-        upsellUnitsByMonth[M] = (upsellUnitsByMonth[M] || 0) + Math.round(rebillOrders * upu);
+        upsellUnitsByMonth[M] += Math.round(rebillOrders * upu);
       }
     }
   });
 
-  // Step 6: Roll up totals
+  // Roll up
   const newUnitsByMonth = months.map(m => Math.round((newOrdersByMonth[m] || 0) * avgUnitsPerOrder));
   const newOrdersArr = months.map(m => newOrdersByMonth[m] || 0);
   const recurOrdersArr = months.map(m => recurringOrdersByMonth[m] || 0);
@@ -3083,12 +3072,21 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
   const totalUnitsArr = months.map((_, i) => newUnitsByMonth[i] + recurUnitsArr[i] + upsellUnitsArr[i]);
 
   const sum = arr => arr.reduce((s, v) => s + v, 0);
-  const totalNewOrders = sum(newOrdersArr);
-  const totalRecurOrders = sum(recurOrdersArr);
   const grandTotalUnits = sum(totalUnitsArr);
+  const peakUnits = totalUnitsArr.length ? Math.max(...totalUnitsArr) : 0;
 
-  // Find peak month (for capacity comparison) and check against max_monthly_capacity
-  const peakUnits = Math.max(...totalUnitsArr);
+  return {
+    months, totalMonths, periodType, avgUnitsPerOrder,
+    newOrdersArr, newUnitsByMonth, recurOrdersArr, recurUnitsArr, upsellUnitsArr, totalUnitsArr,
+    totalNewOrders: sum(newOrdersArr), totalRecurOrders: sum(recurOrdersArr), grandTotalUnits,
+    peakUnits,
+    otpPct, subPct,
+  };
+}
+
+function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, upsellPeriods, T, isMobile }) {
+  const d = computeMonthlyDemand({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, upsellPeriods });
+  const { months, totalMonths, avgUnitsPerOrder, newOrdersArr, newUnitsByMonth, recurOrdersArr, recurUnitsArr, upsellUnitsArr, totalUnitsArr, totalNewOrders, totalRecurOrders, grandTotalUnits, peakUnits, otpPct, subPct } = d;
   const cap = parseInt(launch.max_monthly_capacity) || 0;
   const overCap = cap > 0 && peakUnits > cap;
 
@@ -4361,16 +4359,35 @@ function LaunchPlannerView({ isMobile, orgId }) {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* CAPACITY & DAYS OF SUPPLY — production guardrails                 */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        <CapacityDosSection
-          launch={selected}
-          totalUnits={totalUnits}
-          maxMonthlyCapacity={selected.max_monthly_capacity}
-          targetDos={selected.target_days_of_supply}
-          forecastWeeks={selected.forecast_period_weeks || 12}
-          updateLaunch={updateLaunch}
-          T={T}
-          isMobile={isMobile}
-        />
+        {(() => {
+          const dem = computeMonthlyDemand({
+            launch: selected,
+            marketingChannels: launchMarketingChannels,
+            marketingPeriods: launchMarketingPeriods,
+            packTiers: launchGwpTiers,
+            rebillRates,
+            upsells: launchUpsells,
+            upsellPeriods: launchUpsellPeriods,
+          });
+          // Use the longer of: launch forecast_period_weeks (legacy) or v3 totalMonths × ~4.33
+          const effectiveForecastWeeks = Math.max(
+            selected.forecast_period_weeks || 12,
+            Math.round(dem.totalMonths * 4.33)
+          );
+          return (
+            <CapacityDosSection
+              launch={selected}
+              totalUnits={dem.grandTotalUnits}
+              peakUnits={dem.peakUnits}
+              maxMonthlyCapacity={selected.max_monthly_capacity}
+              targetDos={selected.target_days_of_supply}
+              forecastWeeks={effectiveForecastWeeks}
+              updateLaunch={updateLaunch}
+              T={T}
+              isMobile={isMobile}
+            />
+          );
+        })()}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* MONTHLY DEMAND SCHEDULE — pulls everything together               */}
