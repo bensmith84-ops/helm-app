@@ -2677,11 +2677,13 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
   const periodCount = parseInt(launch.forecast_periods) || 12;
   const periodLabel = periodType === "month" ? "M" : "W";
   const periods = Array.from({ length: periodCount }, (_, i) => i + 1);
+  const takeRate = parseFloat(upsell.take_rate_pct) || 100; // default 100% if not set
 
   const byIdx = {};
   upsellPeriods.forEach(p => { byIdx[p.period_index] = p; });
 
-  const orderFor = (p) => {
+  // Raw traffic orders before take-rate filter
+  const trafficFor = (p) => {
     if (!p) return 0;
     if (p.override_orders != null && p.override_orders !== "") return parseInt(p.override_orders) || 0;
     const sp = parseFloat(p.spend) || 0;
@@ -2690,7 +2692,9 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
     const direct = parseInt(p.direct_orders) || 0;
     return fromSpend + direct;
   };
+  const orderFor = (p) => Math.round(trafficFor(p) * takeRate / 100);
 
+  const totalTraffic = periods.reduce((s, idx) => s + trafficFor(byIdx[idx]), 0);
   const totalOrders = periods.reduce((s, idx) => s + orderFor(byIdx[idx]), 0);
   const totalSpend = periods.reduce((s, idx) => s + (parseFloat(byIdx[idx]?.spend) || 0), 0);
   const blendedCpa = totalOrders > 0 ? totalSpend / totalOrders : 0;
@@ -2716,7 +2720,8 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
         <div style={{ fontSize: 11, fontWeight: 700, color: "#ec4899" }}>📍 Standalone Funnel · per-period inputs</div>
         <div style={{ display: "flex", gap: 10, fontSize: 10, color: T.text3 }}>
           {totalSpend > 0 && <span>Spend: <strong style={{ color: T.text }}>${fmt(Math.round(totalSpend))}</strong></span>}
-          <span>Orders: <strong style={{ color: "#ec4899" }}>{fmt(totalOrders)}</strong></span>
+          {totalTraffic > 0 && <span>Traffic: <strong style={{ color: T.text2 }}>{fmt(totalTraffic)}</strong></span>}
+          <span>Orders: <strong style={{ color: "#ec4899" }}>{fmt(totalOrders)}</strong> <span style={{ fontSize: 9 }}>(@ {takeRate}% take)</span></span>
           {blendedCpa > 0 && <span>CPA: <strong style={{ color: "#f59e0b" }}>${blendedCpa.toFixed(2)}</strong></span>}
         </div>
       </div>
@@ -2844,18 +2849,23 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
 
     // Build per-month "new" upsell orders for this upsell (acquisition events)
     const upsellNewByMonth = new Array(totalMonths + 1).fill(0);
+    const takePct = parseFloat(u.take_rate_pct) || 0;
     if (isStandalone) {
-      // Standalone: orders come from upsellPeriods (spend/CPA/direct), bucketed by period→month
+      // Standalone: traffic from upsell's own per-period inputs (spend/CPA/direct)
+      // gets multiplied by the upsell's take rate to determine actual orders.
+      // If take_rate is unset (0), default to 100% (treat traffic as orders).
+      const effectiveTake = takePct > 0 ? takePct / 100 : 1;
       const ups = (upsellPeriods || []).filter(up => up.upsell_id === u.id);
       ups.forEach(p => {
-        let orders = 0;
+        let traffic = 0;
         if (p.override_orders != null && p.override_orders !== "") {
-          orders = parseInt(p.override_orders) || 0;
+          traffic = parseInt(p.override_orders) || 0;
         } else {
           const sp = parseFloat(p.spend) || 0;
           const cpa = parseFloat(p.cpa) || 0;
-          orders = (cpa > 0 ? Math.round(sp / cpa) : 0) + (parseInt(p.direct_orders) || 0);
+          traffic = (cpa > 0 ? Math.round(sp / cpa) : 0) + (parseInt(p.direct_orders) || 0);
         }
+        const orders = Math.round(traffic * effectiveTake);
         if (orders <= 0) return;
         const m = periodType === "month"
           ? Math.min(totalMonths, Math.max(1, p.period_index))
@@ -2864,7 +2874,6 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
       });
     } else {
       // Attached: each month's Hero GWP new orders × take rate becomes the upsell's new orders
-      const takePct = parseFloat(u.take_rate_pct) || 0;
       for (let M = 1; M <= totalMonths; M++) {
         upsellNewByMonth[M] = (newOrdersByMonth[M] || 0) * (takePct / 100);
       }
@@ -3896,9 +3905,10 @@ function LaunchPlannerView({ isMobile, orgId }) {
                 }, 0);
                 const isStandalone = u.funnel_mode === "standalone";
                 // For attached: orders = main acq orders × take rate
-                // For standalone: orders = sum of upsell's own per-period funnel inputs
+                // For standalone: traffic-orders × take rate. Spend/CPA gives raw orders/sessions,
+                // take rate then converts that into actual upsell purchases.
                 const upPeriods = launchUpsellPeriods.filter(up => up.upsell_id === u.id);
-                const standaloneOrders = upPeriods.reduce((s, p) => {
+                const standaloneTraffic = upPeriods.reduce((s, p) => {
                   if (p.override_orders != null) return s + (parseInt(p.override_orders) || 0);
                   const sp = parseFloat(p.spend) || 0;
                   const cpa = parseFloat(p.cpa) || 0;
@@ -3906,6 +3916,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                   const direct = parseInt(p.direct_orders) || 0;
                   return s + fromSpend + direct;
                 }, 0);
+                const standaloneOrders = Math.round(standaloneTraffic * (u.take_rate_pct || 100) / 100);
                 const upTotalOrders = isStandalone
                   ? standaloneOrders
                   : Math.round(totalAcqOrders * (u.take_rate_pct || 0) / 100);
@@ -3941,10 +3952,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
                     <I label="Description (optional)" value={u.description || ""} onChange={v => updateUpsell(u.id, { description: v })} placeholder="e.g., Discount on additional pack at checkout" />
 
                     {/* Common fields */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : (isStandalone ? "1fr 1fr 1fr 1fr" : "1fr 1fr 1fr 1fr 1fr"), gap: 8, marginTop: 8 }}>
-                      {!isStandalone && (
-                        <I label="Take Rate" value={u.take_rate_pct} onChange={v => updateUpsell(u.id, { take_rate_pct: parseFloat(v) || 0 })} type="number" suffix="%" />
-                      )}
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+                      <I label="Take Rate" value={u.take_rate_pct} onChange={v => updateUpsell(u.id, { take_rate_pct: parseFloat(v) || 0 })} type="number" suffix="%" />
                       <I label="Units / Order" value={u.units_per_order} onChange={v => updateUpsell(u.id, { units_per_order: parseInt(v) || 1 })} type="number" />
                       <I label="Unit Price" value={u.unit_price} onChange={v => updateUpsell(u.id, { unit_price: parseFloat(v) || null })} type="number" prefix="$" />
                       <I label="OTP %" value={u.otp_pct} onChange={v => {
