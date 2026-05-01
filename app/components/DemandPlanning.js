@@ -2669,6 +2669,236 @@ function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MonthlyDemandSchedule — synthesizes everything into a monthly forecast
+// New Orders + Recurring Orders + Total Units, broken out per month
+// ─────────────────────────────────────────────────────────────────────────────
+function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, T, isMobile }) {
+  const periodType = launch.period_type || "week";
+  const periodCount = parseInt(launch.forecast_periods) || 12;
+
+  // Show at least 12 months on the schedule, more if forecast extends further
+  const totalMonths = periodType === "month" ? Math.max(12, periodCount) : Math.max(12, Math.ceil(periodCount / 4.33));
+  const months = Array.from({ length: totalMonths }, (_, i) => i + 1);
+
+  // Step 1: Map marketing-channel period orders into monthly buckets
+  // For weekly: month_index = ceil(week_index / 4.33) (rough but sufficient for forecasting)
+  // For monthly: 1:1
+  const newOrdersByMonth = new Array(totalMonths + 1).fill(0); // 1-indexed
+  marketingChannels.forEach(ch => {
+    const cps = marketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
+    cps.forEach(p => {
+      const orders = calcMarketingPeriodOrders(ch.channel_type, p);
+      if (orders <= 0) return;
+      const m = periodType === "month"
+        ? Math.min(totalMonths, Math.max(1, p.period_index))
+        : Math.min(totalMonths, Math.max(1, Math.ceil(p.period_index / 4.33)));
+      newOrdersByMonth[m] = (newOrdersByMonth[m] || 0) + orders;
+    });
+  });
+
+  // Step 2: Pack tier mix → avg units per order, plus order→unit multiplier
+  const totalTakePct = packTiers.reduce((s, t) => s + (parseFloat(t.take_rate_pct) || 0), 0);
+  const avgUnitsPerOrder = totalTakePct > 0
+    ? packTiers.reduce((s, t) => s + ((parseFloat(t.take_rate_pct) || 0) / 100) * (parseInt(t.pack_size) || 0), 0)
+    : 1; // fallback if no tiers configured
+
+  // Step 3: Lookup rebill rates by cohort + scope + month
+  const rebillRate = (scopeType, scopeId, cohort, monthIdx) => {
+    const r = rebillRates.find(x =>
+      x.launch_id === launch.id &&
+      x.scope_type === scopeType &&
+      (x.scope_id || null) === (scopeId || null) &&
+      x.cohort === cohort &&
+      x.month_index === monthIdx
+    );
+    return parseFloat(r?.rate_pct) || 0;
+  };
+
+  const otpPct = parseFloat(launch.gwp_otp_pct) || 0;
+  const subPct = parseFloat(launch.gwp_sub_pct) || 0;
+
+  // Step 4: For each month M, compute recurring orders from cohorts acquired in earlier months
+  // Recurring orders in month M from cohort acquired in month k (k < M):
+  //   = new_orders[k] × OTP% × otp_rebill[M-k]  +  new_orders[k] × Sub% × sub_rebill[M-k]
+  const recurringOrdersByMonth = new Array(totalMonths + 1).fill(0);
+  const recurringUnitsByMonth = new Array(totalMonths + 1).fill(0);
+  for (let M = 2; M <= totalMonths; M++) {
+    let monthRebillOrders = 0;
+    for (let k = 1; k < M; k++) {
+      const offset = M - k; // months since acquisition
+      const newK = newOrdersByMonth[k] || 0;
+      if (newK <= 0) continue;
+      const otpR = rebillRate("gwp", null, "otp", offset);
+      const subR = rebillRate("gwp", null, "sub", offset);
+      monthRebillOrders += newK * (otpPct / 100) * (otpR / 100);
+      monthRebillOrders += newK * (subPct / 100) * (subR / 100);
+    }
+    recurringOrdersByMonth[M] = Math.round(monthRebillOrders);
+    recurringUnitsByMonth[M] = Math.round(monthRebillOrders * avgUnitsPerOrder);
+  }
+
+  // Step 5: Upsell units per month (attach to acquisition month, treat rebills similarly)
+  const upsellUnitsByMonth = new Array(totalMonths + 1).fill(0);
+  upsells.forEach(u => {
+    const takePct = parseFloat(u.take_rate_pct) || 0;
+    const upu = parseInt(u.units_per_order) || 1;
+    const uOtp = parseFloat(u.otp_pct) || 0;
+    const uSub = parseFloat(u.sub_pct) || 0;
+    for (let M = 1; M <= totalMonths; M++) {
+      // Direct upsell at the time of new acquisition in month M
+      const newOrders = newOrdersByMonth[M] || 0;
+      const upsellOrdersThisMonth = newOrders * (takePct / 100);
+      upsellUnitsByMonth[M] = (upsellUnitsByMonth[M] || 0) + Math.round(upsellOrdersThisMonth * upu);
+
+      // Upsell rebills from prior cohorts
+      for (let k = 1; k < M; k++) {
+        const offset = M - k;
+        const newK = newOrdersByMonth[k] || 0;
+        if (newK <= 0) continue;
+        const upsellAcquiredInK = newK * (takePct / 100); // baseline acquired in month k
+        let otpR, subR;
+        if (u.rebill_mode === "custom") {
+          otpR = rebillRate("upsell", u.id, "otp", offset);
+          subR = rebillRate("upsell", u.id, "sub", offset);
+        } else {
+          // inherit from main GWP
+          otpR = rebillRate("gwp", null, "otp", offset);
+          subR = rebillRate("gwp", null, "sub", offset);
+        }
+        const rebillOrders = upsellAcquiredInK * ((uOtp / 100) * (otpR / 100) + (uSub / 100) * (subR / 100));
+        upsellUnitsByMonth[M] = (upsellUnitsByMonth[M] || 0) + Math.round(rebillOrders * upu);
+      }
+    }
+  });
+
+  // Step 6: Roll up totals
+  const newUnitsByMonth = months.map(m => Math.round((newOrdersByMonth[m] || 0) * avgUnitsPerOrder));
+  const newOrdersArr = months.map(m => newOrdersByMonth[m] || 0);
+  const recurOrdersArr = months.map(m => recurringOrdersByMonth[m] || 0);
+  const recurUnitsArr = months.map(m => recurringUnitsByMonth[m] || 0);
+  const upsellUnitsArr = months.map(m => upsellUnitsByMonth[m] || 0);
+  const totalUnitsArr = months.map((_, i) => newUnitsByMonth[i] + recurUnitsArr[i] + upsellUnitsArr[i]);
+
+  const sum = arr => arr.reduce((s, v) => s + v, 0);
+  const totalNewOrders = sum(newOrdersArr);
+  const totalRecurOrders = sum(recurOrdersArr);
+  const grandTotalUnits = sum(totalUnitsArr);
+
+  // Find peak month (for capacity comparison) and check against max_monthly_capacity
+  const peakUnits = Math.max(...totalUnitsArr);
+  const cap = parseInt(launch.max_monthly_capacity) || 0;
+  const overCap = cap > 0 && peakUnits > cap;
+
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>📅 Monthly Demand Schedule</div>
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+            New Orders → Recurring (rebills from prior cohorts) → Upsell add-ons → Total Units
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Stat label="Total New Orders" value={fmt(totalNewOrders)} color={T.accent} T={T} />
+          <Stat label="Total Recurring" value={fmt(totalRecurOrders)} color="#22c55e" T={T} />
+          <Stat label="Grand Total Units" value={fmt(grandTotalUnits)} color={T.text} T={T} />
+          {overCap && <Stat label="Peak vs Cap" value="⚠ Over" color="#ef4444" T={T} />}
+        </div>
+      </div>
+
+      {totalNewOrders === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 11, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: 8 }}>
+          Add marketing channels and pack tiers above to see the monthly demand schedule.
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 6 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: totalMonths * 60 + 180 }}>
+            <thead>
+              <tr style={{ background: T.surface2 }}>
+                <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 10, borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface2, zIndex: 1, minWidth: 160 }}>Metric</th>
+                {months.map(m => (
+                  <th key={m} style={{ padding: "6px 4px", textAlign: "center", fontWeight: 700, color: T.text3, fontSize: 10, borderBottom: `1px solid ${T.border}`, minWidth: 60 }}>M{m}</th>
+                ))}
+                <th style={{ padding: "6px 10px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 10, borderBottom: `1px solid ${T.border}`, minWidth: 80 }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <ScheduleRow label="New Orders" subtitle="from marketing channels" values={newOrdersArr} color={T.accent} T={T} />
+              <ScheduleRow label="Recurring Orders" subtitle={`OTP ${otpPct}% + Sub ${subPct}% rebills`} values={recurOrdersArr} color="#22c55e" T={T} />
+              <ScheduleRow
+                label="New Units"
+                subtitle={`@ ${avgUnitsPerOrder.toFixed(2)} units/order avg`}
+                values={newUnitsByMonth}
+                color={T.text2}
+                T={T}
+                isUnit
+              />
+              <ScheduleRow label="Recurring Units" subtitle="" values={recurUnitsArr} color={T.text2} T={T} isUnit />
+              {upsells.length > 0 && <ScheduleRow label="Upsell Units" subtitle={`${upsells.length} upsell${upsells.length === 1 ? "" : "s"}`} values={upsellUnitsArr} color="#ec4899" T={T} isUnit />}
+              <tr style={{ background: T.accent + "08", fontWeight: 800 }}>
+                <td style={{ padding: "8px 10px", borderTop: `2px solid ${T.accent}30`, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: T.text }}>Total Units</div>
+                  <div style={{ fontSize: 9, color: T.text3, fontWeight: 400 }}>= New + Recurring + Upsells</div>
+                </td>
+                {totalUnitsArr.map((v, i) => {
+                  const overThisMonth = cap > 0 && v > cap;
+                  return (
+                    <td key={i} style={{ padding: "8px 4px", textAlign: "center", fontSize: 12, fontWeight: 800, color: overThisMonth ? "#ef4444" : T.text, borderTop: `2px solid ${T.accent}30`, fontVariantNumeric: "tabular-nums" }}>
+                      {v > 0 ? fmt(v) : "—"}
+                    </td>
+                  );
+                })}
+                <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 13, fontWeight: 800, color: T.accent, borderTop: `2px solid ${T.accent}30`, fontVariantNumeric: "tabular-nums" }}>
+                  {fmt(grandTotalUnits)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {overCap && (
+        <div style={{ marginTop: 10, padding: 8, background: "#ef444412", border: `1px solid #ef444440`, borderRadius: 6, fontSize: 11, color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
+          <span>⚠️</span>
+          <span>Peak month exceeds your manufacturer capacity of <strong>{fmt(cap)}</strong> units/mo. Red cells above show when capacity is breached.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Small stat pill helper
+function Stat({ label, value, color, T }) {
+  return (
+    <div style={{ padding: "5px 10px", background: color + "12", borderRadius: 6, display: "flex", alignItems: "baseline", gap: 5 }}>
+      <span style={{ fontSize: 9, fontWeight: 600, color: T.text3, textTransform: "uppercase" }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 800, color }}>{value}</span>
+    </div>
+  );
+}
+
+// Schedule row helper
+function ScheduleRow({ label, subtitle, values, color, T, isUnit }) {
+  const total = values.reduce((s, v) => s + v, 0);
+  return (
+    <tr>
+      <td style={{ padding: "6px 10px", borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{label}</div>
+        {subtitle && <div style={{ fontSize: 9, color: T.text3, fontWeight: 400 }}>{subtitle}</div>}
+      </td>
+      {values.map((v, i) => (
+        <td key={i} style={{ padding: "6px 4px", textAlign: "center", fontSize: 11, color: v > 0 ? color : T.text3, fontWeight: v > 0 ? 600 : 400, borderBottom: `1px solid ${T.border}`, fontVariantNumeric: "tabular-nums" }}>
+          {v > 0 ? fmt(v) : "—"}
+        </td>
+      ))}
+      <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 11, fontWeight: 800, color, borderBottom: `1px solid ${T.border}`, fontVariantNumeric: "tabular-nums" }}>
+        {fmt(total)}
+      </td>
+    </tr>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PackTiersEditor — pack-size take rates + free gifts per tier
 // e.g., 30% of orders are 1-pack, 50% are 2-pack with free gift X, 20% are 3-pack with gift Y
 // Take rates must sum to 100%. Total units = Σ (orders × take% × pack_size).
@@ -3616,6 +3846,20 @@ function LaunchPlannerView({ isMobile, orgId }) {
           targetDos={selected.target_days_of_supply}
           forecastWeeks={selected.forecast_period_weeks || 12}
           updateLaunch={updateLaunch}
+          T={T}
+          isMobile={isMobile}
+        />
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* MONTHLY DEMAND SCHEDULE — pulls everything together               */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <MonthlyDemandSchedule
+          launch={selected}
+          marketingChannels={launchMarketingChannels}
+          marketingPeriods={launchMarketingPeriods}
+          packTiers={launchGwpTiers}
+          rebillRates={rebillRates}
+          upsells={launchUpsells}
           T={T}
           isMobile={isMobile}
         />
