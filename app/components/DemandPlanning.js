@@ -4175,49 +4175,68 @@ function LaunchPlannerView({ isMobile, orgId }) {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* UPSELLS — multiple named upsells per launch                       */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>⬆️ Post-Purchase Upsells ({launchUpsells.length})</div>
-            <button onClick={() => addUpsell(selected.id, `Upsell ${launchUpsells.length + 1}`)}
-              style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Add Upsell</button>
-          </div>
-          {launchUpsells.length === 0 ? (
-            <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 11, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: 8 }}>
-              No upsells configured. Click "+ Add Upsell" to add one — e.g., a same-product upsell or cross-sell.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {launchUpsells.map(u => {
-                const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
-                  const cps = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
-                  return sum + cps.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
-                }, 0);
-                const isStandalone = u.funnel_mode === "standalone";
-                // For attached: orders = main acq orders × take rate
-                // For standalone: new orders come from spend/CPA OR direct orders depending
-                // on input_mode. Then upsell orders = new orders × take rate.
-                const upInputMode = u.input_mode || "spend_cpa";
-                const upPeriods = launchUpsellPeriods.filter(up => up.upsell_id === u.id);
-                const standaloneNewOrders = upPeriods.reduce((s, p) => {
-                  if (upInputMode === "direct") return s + (parseInt(p.direct_orders) || 0);
-                  const sp = parseFloat(p.spend) || 0;
-                  const cpa = parseFloat(p.cpa) || 0;
-                  return s + (cpa > 0 ? Math.round(sp / cpa) : 0);
-                }, 0);
-                const standaloneOrders = Math.round(standaloneNewOrders * (u.take_rate_pct || 0) / 100);
-                const upTotalOrders = isStandalone
-                  ? standaloneOrders
-                  : Math.round(totalAcqOrders * (u.take_rate_pct || 0) / 100);
-                return (
+        {(() => {
+          // Pre-compute per-upsell totals so we can both render each card AND a footer summary
+          const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
+            const cps = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
+            return sum + cps.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
+          }, 0);
+          const upsellsWithTotals = launchUpsells.map(u => {
+            const isStandalone = u.funnel_mode === "standalone";
+            const upInputMode = u.input_mode || "spend_cpa";
+            const upPeriods = launchUpsellPeriods.filter(up => up.upsell_id === u.id);
+            const standaloneNewOrders = upPeriods.reduce((s, p) => {
+              if (upInputMode === "direct") return s + (parseInt(p.direct_orders) || 0);
+              const sp = parseFloat(p.spend) || 0;
+              const cpa = parseFloat(p.cpa) || 0;
+              return s + (cpa > 0 ? Math.round(sp / cpa) : 0);
+            }, 0);
+            const standaloneOrders = Math.round(standaloneNewOrders * (u.take_rate_pct || 0) / 100);
+            const upTotalOrders = isStandalone
+              ? standaloneOrders
+              : Math.round(totalAcqOrders * (u.take_rate_pct || 0) / 100);
+            const upu = parseInt(u.units_per_order) || 1;
+            const upTotalUnits = upTotalOrders * upu;
+            const upTotalRevenue = upTotalUnits * (parseFloat(u.unit_price) || 0);
+            return { u, isStandalone, upPeriods, upTotalOrders, upTotalUnits, upTotalRevenue, unitsPerOrder: upu };
+          });
+          const grandOrders = upsellsWithTotals.reduce((s, x) => s + x.upTotalOrders, 0);
+          const grandUnits = upsellsWithTotals.reduce((s, x) => s + x.upTotalUnits, 0);
+          const grandRevenue = upsellsWithTotals.reduce((s, x) => s + x.upTotalRevenue, 0);
+
+          return (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>⬆️ Post-Purchase Upsells ({launchUpsells.length})</div>
+                <button onClick={() => addUpsell(selected.id, `Upsell ${launchUpsells.length + 1}`)}
+                  style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Add Upsell</button>
+              </div>
+              {launchUpsells.length === 0 ? (
+                <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 11, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: 8 }}>
+                  No upsells configured. Click "+ Add Upsell" to add one — e.g., a same-product upsell or cross-sell.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {upsellsWithTotals.map(({ u, isStandalone, upPeriods, upTotalOrders, upTotalUnits, upTotalRevenue, unitsPerOrder }) => {
+                    return (
                   <div key={u.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
                       <input value={u.name || ""} onChange={e => updateUpsell(u.id, { name: e.target.value })}
                         placeholder="Upsell name (e.g., Same-product 2-pack upsell)"
-                        style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", padding: "2px 0" }} />
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ padding: "3px 8px", background: T.accent + "15", borderRadius: 5, fontSize: 10, color: T.accent, fontWeight: 600 }}>
+                        style={{ flex: 1, minWidth: 180, fontSize: 13, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", padding: "2px 0" }} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <div style={{ padding: "3px 8px", background: T.accent + "12", borderRadius: 5, fontSize: 10, color: T.accent, fontWeight: 600 }}>
                           {fmt(upTotalOrders)} orders
                         </div>
+                        <div style={{ padding: "3px 8px", background: "#22c55e15", borderRadius: 5, fontSize: 10, color: "#22c55e", fontWeight: 600 }}>
+                          {fmt(upTotalUnits)} units
+                          {unitsPerOrder !== 1 && <span style={{ marginLeft: 3, fontWeight: 400, opacity: 0.75 }}>(× {unitsPerOrder}/ord)</span>}
+                        </div>
+                        {upTotalRevenue > 0 && (
+                          <div style={{ padding: "3px 8px", background: "#f59e0b15", borderRadius: 5, fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>
+                            ${fmt(Math.round(upTotalRevenue))}
+                          </div>
+                        )}
                         <button onClick={() => deleteUpsell(u.id)} title="Remove" style={{ background: "transparent", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 4px" }}>×</button>
                       </div>
                     </div>
@@ -4299,9 +4318,24 @@ function LaunchPlannerView({ isMobile, orgId }) {
                   </div>
                 );
               })}
+                  {/* Footer: summary across all upsells */}
+                  {upsellsWithTotals.length > 1 && (
+                    <div style={{ marginTop: 4, padding: "10px 14px", background: T.accent + "08", border: `1px solid ${T.accent}30`, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.text2 }}>Total across {upsellsWithTotals.length} upsells:</div>
+                      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                        <div><span style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Orders </span><span style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{fmt(grandOrders)}</span></div>
+                        <div><span style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Units </span><span style={{ fontSize: 14, fontWeight: 800, color: "#22c55e" }}>{fmt(grandUnits)}</span></div>
+                        {grandRevenue > 0 && (
+                          <div><span style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Revenue </span><span style={{ fontSize: 14, fontWeight: 800, color: "#f59e0b" }}>${fmt(Math.round(grandRevenue))}</span></div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* GEOGRAPHY — distribution split for shipping/demand allocation     */}
