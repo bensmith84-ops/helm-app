@@ -2673,8 +2673,9 @@ function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos,
 // (used both for the main GWP funnel and for individual upsells with custom rates)
 // ─────────────────────────────────────────────────────────────────────────────
 function RebillRatesEditor({ launchId, scopeType, scopeId, otpPct, subPct, rebillRates, upsertRebillRate, forecastWeeks, T, isMobile, compact }) {
-  const monthCount = Math.max(1, Math.ceil(forecastWeeks / 4.33));
-  const months = Array.from({ length: monthCount }, (_, i) => i + 1); // M1..Mn
+  // Always show at least 12 months. If forecast is longer (in weeks), expand accordingly.
+  const monthCount = Math.max(12, Math.ceil((forecastWeeks || 12) / 4.33));
+  const months = Array.from({ length: monthCount }, (_, i) => i + 1);
 
   const rateFor = (cohort, monthIdx) => {
     const r = rebillRates.find(x =>
@@ -2687,51 +2688,73 @@ function RebillRatesEditor({ launchId, scopeType, scopeId, otpPct, subPct, rebil
     return r?.rate_pct ?? "";
   };
 
-  const cohortRow = (cohort, label, color) => {
-    const enabled = cohort === "otp" ? otpPct > 0 : subPct > 0;
-    return (
-      <div style={{ marginBottom: compact ? 6 : 10, opacity: enabled ? 1 : 0.4 }}>
-        <div style={{ fontSize: compact ? 9 : 10, fontWeight: 700, color, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          {label} Cohort {!enabled && "(0% — not active)"}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${months.length}, 1fr)`, gap: 4 }}>
-          {months.map(m => (
-            <div key={m} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <div style={{ fontSize: 9, color: T.text3, textAlign: "center" }}>M{m}</div>
-              <input
-                type="number"
-                placeholder="0"
-                defaultValue={rateFor(cohort, m)}
-                onBlur={e => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val)) upsertRebillRate(launchId, scopeType, scopeId, cohort, m, val);
-                }}
-                style={{
-                  width: "100%",
-                  padding: "4px 2px",
-                  fontSize: 10,
-                  textAlign: "center",
-                  border: `1px solid ${T.border}`,
-                  borderRadius: 4,
-                  background: T.surface,
-                  color: T.text,
-                  outline: "none",
-                }}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+  const cellInput = (cohort, m, color, enabled) => (
+    <input
+      type="number"
+      placeholder="—"
+      defaultValue={rateFor(cohort, m)}
+      onBlur={e => {
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val)) upsertRebillRate(launchId, scopeType, scopeId, cohort, m, val);
+      }}
+      disabled={!enabled}
+      style={{
+        width: "100%",
+        padding: "3px 2px",
+        fontSize: 10,
+        textAlign: "center",
+        border: `1px solid ${T.border}`,
+        borderRadius: 3,
+        background: enabled ? T.surface : T.surface2,
+        color: enabled ? T.text : T.text3,
+        outline: "none",
+        opacity: enabled ? 1 : 0.5,
+      }}
+    />
+  );
+
+  const otpEnabled = otpPct > 0;
+  const subEnabled = subPct > 0;
 
   return (
     <div>
-      {!compact && <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>Monthly Rebill % by Cohort</div>}
-      {cohortRow("otp", "OTP", "#f59e0b")}
-      {cohortRow("sub", "Subscription", "#22c55e")}
-      <div style={{ fontSize: 9, color: T.text3, fontStyle: "italic", marginTop: 4 }}>
-        Enter the % of the cohort that purchases again in each month after acquisition. e.g., Sub M1 = 90% means 90% of subscribers rebill in their second month.
+      {!compact && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>Monthly Rebill % by Cohort</div>
+          <div style={{ fontSize: 9, color: T.text3, fontStyle: "italic" }}>% of cohort that rebills in each month</div>
+        </div>
+      )}
+      <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 6 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, minWidth: monthCount * 50 + 100 }}>
+          <thead>
+            <tr style={{ background: T.surface }}>
+              <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 1, minWidth: 90 }}>Cohort</th>
+              {months.map(m => (
+                <th key={m} style={{ padding: "5px 4px", textAlign: "center", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 48 }}>M{m}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr style={{ opacity: otpEnabled ? 1 : 0.5 }}>
+              <td style={{ padding: "4px 8px", borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b" }}>OTP</span>
+                <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>{otpPct}%</span>
+              </td>
+              {months.map(m => (
+                <td key={m} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cellInput("otp", m, "#f59e0b", otpEnabled)}</td>
+              ))}
+            </tr>
+            <tr style={{ opacity: subEnabled ? 1 : 0.5 }}>
+              <td style={{ padding: "4px 8px", position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e" }}>Sub</span>
+                <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>{subPct}%</span>
+              </td>
+              {months.map(m => (
+                <td key={m} style={{ padding: "3px 2px" }}>{cellInput("sub", m, "#22c55e", subEnabled)}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -3266,68 +3289,71 @@ function LaunchPlannerView({ isMobile, orgId }) {
 
         {/* ACQUISITION FUNNEL — GWP-driven (replaces multi-channel acquisition) */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        <div style={{ background: "linear-gradient(135deg, " + T.surface + " 0%, " + T.accent + "08 100%)", border: `1px solid ${T.accent}40`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>🎁 Acquisition Funnel (Hero GWP)</div>
-            <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>Total orders sum from marketing channels above</div>
-          </div>
-          <div style={{ fontSize: 11, color: T.text3, marginBottom: 14, lineHeight: 1.5 }}>Acquisition orders flow from marketing channels above. Split between OTP and Subscription cohorts here — each cohort has its own rebill curve.</div>
-
-          {/* Top stats: computed total + OTP/Sub split */}
-          {(() => {
-            const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
-              const channelPeriods = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
-              return sum + channelPeriods.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
-            }, 0);
-            const otpOrders = Math.round(totalAcqOrders * (selected.gwp_otp_pct || 0) / 100);
-            const subOrders = Math.round(totalAcqOrders * (selected.gwp_sub_pct || 0) / 100);
-            return (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1.5fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
-                  <div style={{ padding: "10px 12px", background: T.accent + "10", borderRadius: 8, border: `1px solid ${T.accent}30` }}>
-                    <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Total Acquisition Orders</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: T.accent }}>{fmt(totalAcqOrders)}</div>
-                    <div style={{ fontSize: 9, color: T.text3 }}>computed from marketing channels</div>
-                  </div>
-                  <I label="OTP %" value={selected.gwp_otp_pct} onChange={v => {
-                    const otp = Math.max(0, Math.min(100, parseFloat(v) || 0));
-                    updateLaunch(selected.id, "gwp_otp_pct", otp);
-                    updateLaunch(selected.id, "gwp_sub_pct", 100 - otp);
-                  }} type="number" suffix="%" />
-                  <I label="Sub %" value={selected.gwp_sub_pct} onChange={v => {
-                    const sub = Math.max(0, Math.min(100, parseFloat(v) || 0));
-                    updateLaunch(selected.id, "gwp_sub_pct", sub);
-                    updateLaunch(selected.id, "gwp_otp_pct", 100 - sub);
-                  }} type="number" suffix="%" />
+        {(() => {
+          const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
+            const channelPeriods = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
+            return sum + channelPeriods.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
+          }, 0);
+          const otpOrders = Math.round(totalAcqOrders * (selected.gwp_otp_pct || 0) / 100);
+          const subOrders = Math.round(totalAcqOrders * (selected.gwp_sub_pct || 0) / 100);
+          return (
+            <div style={{ background: "linear-gradient(135deg, " + T.surface + " 0%, " + T.accent + "06 100%)", border: `1px solid ${T.accent}40`, borderRadius: 10, padding: 14, marginBottom: 20 }}>
+              {/* Compact header: title + computed stats inline */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>🎁 Acquisition Funnel <span style={{ fontWeight: 400, color: T.text3, fontSize: 11 }}>· Hero GWP</span></div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>Orders flow from marketing channels above. Split between OTP and Subscription cohorts.</div>
                 </div>
-
-                {/* Computed split badges */}
-                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                  <div style={{ padding: "6px 12px", background: "#f59e0b15", borderRadius: 6, fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>
-                    OTP cohort: {fmt(otpOrders)} orders
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ padding: "5px 10px", background: T.accent + "12", border: `1px solid ${T.accent}30`, borderRadius: 6, display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Total</span>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{fmt(totalAcqOrders)}</span>
                   </div>
-                  <div style={{ padding: "6px 12px", background: "#22c55e15", borderRadius: 6, fontSize: 11, color: "#22c55e", fontWeight: 600 }}>
-                    Sub cohort: {fmt(subOrders)} orders
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <div style={{ padding: "5px 8px", background: "#f59e0b15", borderRadius: 6, display: "flex", alignItems: "baseline", gap: 4 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b" }}>OTP</span>
+                      <input type="number" value={selected.gwp_otp_pct ?? 50}
+                        onChange={e => {
+                          const otp = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                          updateLaunch(selected.id, "gwp_otp_pct", otp);
+                          updateLaunch(selected.id, "gwp_sub_pct", 100 - otp);
+                        }}
+                        style={{ width: 36, padding: "1px 3px", fontSize: 11, fontWeight: 700, color: "#f59e0b", border: `1px solid #f59e0b40`, borderRadius: 3, background: T.surface, outline: "none", textAlign: "center" }} />
+                      <span style={{ fontSize: 9, color: "#f59e0b" }}>%</span>
+                      <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>· {fmt(otpOrders)}</span>
+                    </div>
+                    <div style={{ padding: "5px 8px", background: "#22c55e15", borderRadius: 6, display: "flex", alignItems: "baseline", gap: 4 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "#22c55e" }}>Sub</span>
+                      <input type="number" value={selected.gwp_sub_pct ?? 50}
+                        onChange={e => {
+                          const sub = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                          updateLaunch(selected.id, "gwp_sub_pct", sub);
+                          updateLaunch(selected.id, "gwp_otp_pct", 100 - sub);
+                        }}
+                        style={{ width: 36, padding: "1px 3px", fontSize: 11, fontWeight: 700, color: "#22c55e", border: `1px solid #22c55e40`, borderRadius: 3, background: T.surface, outline: "none", textAlign: "center" }} />
+                      <span style={{ fontSize: 9, color: "#22c55e" }}>%</span>
+                      <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>· {fmt(subOrders)}</span>
+                    </div>
                   </div>
                 </div>
-              </>
-            );
-          })()}
+              </div>
 
-          {/* Rebill rate tables — OTP and Sub side by side */}
-          <RebillRatesEditor
-            launchId={selected.id}
-            scopeType="gwp"
-            scopeId={null}
-            otpPct={selected.gwp_otp_pct || 0}
-            subPct={selected.gwp_sub_pct || 0}
-            rebillRates={rebillRates}
-            upsertRebillRate={upsertRebillRate}
-            forecastWeeks={selected.forecast_period_weeks || 12}
-            T={T}
-            isMobile={isMobile}
-          />
-        </div>
+              {/* Rebill rate table */}
+              <RebillRatesEditor
+                launchId={selected.id}
+                scopeType="gwp"
+                scopeId={null}
+                otpPct={selected.gwp_otp_pct || 0}
+                subPct={selected.gwp_sub_pct || 0}
+                rebillRates={rebillRates}
+                upsertRebillRate={upsertRebillRate}
+                forecastWeeks={selected.forecast_period_weeks || 12}
+                T={T}
+                isMobile={isMobile}
+              />
+            </div>
+          );
+        })()}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* UPSELLS — multiple named upsells per launch                       */}
