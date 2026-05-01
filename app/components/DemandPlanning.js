@@ -2669,6 +2669,118 @@ function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PackTiersEditor — pack-size take rates + free gifts per tier
+// e.g., 30% of orders are 1-pack, 50% are 2-pack with free gift X, 20% are 3-pack with gift Y
+// Take rates must sum to 100%. Total units = Σ (orders × take% × pack_size).
+// ─────────────────────────────────────────────────────────────────────────────
+function PackTiersEditor({ launchId, tiers, totalAcqOrders, addGwpPackTier, updateGwpPackTier, deleteGwpPackTier, T, isMobile }) {
+  const sorted = [...tiers].sort((a, b) => (a.pack_size || 0) - (b.pack_size || 0));
+  const totalPct = sorted.reduce((s, t) => s + (parseFloat(t.take_rate_pct) || 0), 0);
+  const sumOk = Math.abs(totalPct - 100) < 0.01;
+  const totalUnits = sorted.reduce((s, t) => {
+    const orders = totalAcqOrders * (parseFloat(t.take_rate_pct) || 0) / 100;
+    return s + orders * (parseInt(t.pack_size) || 0);
+  }, 0);
+  const totalGiftCost = sorted.reduce((s, t) => {
+    const orders = totalAcqOrders * (parseFloat(t.take_rate_pct) || 0) / 100;
+    return s + orders * (parseFloat(t.gift_cost) || 0);
+  }, 0);
+  const usedSizes = new Set(sorted.map(t => t.pack_size));
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>Pack Tiers · Take Rate + Free Gifts</div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ padding: "2px 8px", borderRadius: 5, fontSize: 9, fontWeight: 700, background: sumOk ? "#22c55e15" : "#ef444415", color: sumOk ? "#22c55e" : "#ef4444" }}>
+            {totalPct.toFixed(0)}% {sumOk ? "✓" : "✗"}
+          </div>
+          {totalUnits > 0 && <div style={{ fontSize: 9, color: T.text3 }}>{fmt(Math.round(totalUnits))} units</div>}
+          {totalGiftCost > 0 && <div style={{ fontSize: 9, color: T.text3 }}>· ${fmt(Math.round(totalGiftCost))} gift cost</div>}
+        </div>
+      </div>
+      {sorted.length === 0 ? (
+        <div style={{ padding: 12, textAlign: "center", color: T.text3, fontSize: 10, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: 6, marginBottom: 6 }}>
+          No pack tiers yet. Add common tiers below.
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 6, marginBottom: 6 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+            <thead>
+              <tr style={{ background: T.surface }}>
+                <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Pack</th>
+                <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 70 }}>Take %</th>
+                <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Orders</th>
+                <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}` }}>Units</th>
+                <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 140 }}>Free Gift</th>
+                <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 60 }}>Gift Qty</th>
+                <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 70 }}>Cost ea</th>
+                <th style={{ padding: "5px 4px", borderBottom: `1px solid ${T.border}`, width: 24 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(t => {
+                const orders = Math.round(totalAcqOrders * (parseFloat(t.take_rate_pct) || 0) / 100);
+                const units = orders * (parseInt(t.pack_size) || 0);
+                return (
+                  <tr key={t.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                    <td style={{ padding: "4px 8px", fontWeight: 700, color: T.text }}>{t.pack_size || "?"}-Pack</td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input type="number" defaultValue={t.take_rate_pct ?? 0}
+                        onBlur={e => updateGwpPackTier(t.id, { take_rate_pct: parseFloat(e.target.value) || 0 })}
+                        style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
+                    </td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: T.text2, fontVariantNumeric: "tabular-nums" }}>{fmt(orders)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: T.text, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(units)}</td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input type="text" defaultValue={t.gift_name || ""}
+                        placeholder="e.g. Eco Sheets 30ct"
+                        onBlur={e => updateGwpPackTier(t.id, { gift_name: e.target.value || null })}
+                        style={{ width: "100%", padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input type="number" defaultValue={t.gift_qty ?? ""}
+                        placeholder="0"
+                        onBlur={e => updateGwpPackTier(t.id, { gift_qty: parseInt(e.target.value) || null })}
+                        style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input type="number" defaultValue={t.gift_cost ?? ""}
+                        placeholder="0.00" step="0.01"
+                        onBlur={e => updateGwpPackTier(t.id, { gift_cost: parseFloat(e.target.value) || null })}
+                        style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
+                    </td>
+                    <td style={{ padding: "3px 4px", textAlign: "center" }}>
+                      <button onClick={() => deleteGwpPackTier(t.id)} title="Remove tier"
+                        style={{ background: "transparent", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: 0 }}>×</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {[1, 2, 3, 4, 6].filter(n => !usedSizes.has(n)).map(n => (
+          <button key={n} onClick={() => addGwpPackTier(launchId, n)}
+            style={{ padding: "3px 9px", fontSize: 10, fontWeight: 600, background: "transparent", color: T.accent, border: `1px dashed ${T.accent}50`, borderRadius: 5, cursor: "pointer" }}>
+            + {n}-Pack
+          </button>
+        ))}
+        <button onClick={() => {
+          const next = Math.max(0, ...sorted.map(t => parseInt(t.pack_size) || 0)) + 1;
+          addGwpPackTier(launchId, next);
+        }}
+          style={{ padding: "3px 9px", fontSize: 10, fontWeight: 600, background: "transparent", color: T.text3, border: `1px dashed ${T.border}`, borderRadius: 5, cursor: "pointer" }}>
+          + Custom
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // RebillRatesEditor — separate OTP and Sub rebill rate tables for any scope
 // (used both for the main GWP funnel and for individual upsells with custom rates)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2873,6 +2985,27 @@ function LaunchPlannerView({ isMobile, orgId }) {
     setMarketingChannels(p => p.filter(m => m.launch_id !== id));
     setMarketingPeriods(p => p.filter(mp => mp.launch_id !== id));
     if (selected?.id === id) setSelected(null);
+  };
+
+  // ── GWP Pack Tiers (launch-scoped: 1-pack, 2-pack, 3-pack with take rates + free gifts) ──
+  const launchGwpTiers = selected ? gwpTiers.filter(g => g.launch_id === selected.id) : [];
+
+  const addGwpPackTier = async (launchId, packSize) => {
+    const max = gwpTiers.filter(g => g.launch_id === launchId).reduce((m, g) => Math.max(m, g.sort_order || 0), -1);
+    const { data } = await supabase.from("dp_launch_gwp_tiers").insert({
+      org_id: orgId, launch_id: launchId, channel_id: null,
+      pack_size: packSize, tier_label: `${packSize}-Pack`,
+      take_rate_pct: 0, sort_order: max + 1,
+    }).select().single();
+    if (data) setGwpTiers(p => [...p, data]);
+  };
+  const updateGwpPackTier = async (id, updates) => {
+    await supabase.from("dp_launch_gwp_tiers").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", id);
+    setGwpTiers(p => p.map(g => g.id === id ? { ...g, ...updates } : g));
+  };
+  const deleteGwpPackTier = async (id) => {
+    await supabase.from("dp_launch_gwp_tiers").delete().eq("id", id);
+    setGwpTiers(p => p.filter(g => g.id !== id));
   };
 
   // ── Marketing Channels (Email, SMS, Paid Ads, Influencer, Organic, Other) ──
@@ -3337,6 +3470,18 @@ function LaunchPlannerView({ isMobile, orgId }) {
                   </div>
                 </div>
               </div>
+
+              {/* Pack-size take rates + free gifts (GWP offer config) */}
+              <PackTiersEditor
+                launchId={selected.id}
+                tiers={launchGwpTiers}
+                totalAcqOrders={totalAcqOrders}
+                addGwpPackTier={addGwpPackTier}
+                updateGwpPackTier={updateGwpPackTier}
+                deleteGwpPackTier={deleteGwpPackTier}
+                T={T}
+                isMobile={isMobile}
+              />
 
               {/* Rebill rate table */}
               <RebillRatesEditor
