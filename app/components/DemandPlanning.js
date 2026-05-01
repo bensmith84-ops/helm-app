@@ -2669,10 +2669,106 @@ function CapacityDosSection({ launch, totalUnits, maxMonthlyCapacity, targetDos,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// UpsellPeriodsEditor — per-period orders inputs for STANDALONE upsells
+// (separate funnel from Hero GWP — its own spend, CPA, or direct orders)
+// ─────────────────────────────────────────────────────────────────────────────
+function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod, T, isMobile }) {
+  const periodType = launch.period_type || "week";
+  const periodCount = parseInt(launch.forecast_periods) || 12;
+  const periodLabel = periodType === "month" ? "M" : "W";
+  const periods = Array.from({ length: periodCount }, (_, i) => i + 1);
+
+  const byIdx = {};
+  upsellPeriods.forEach(p => { byIdx[p.period_index] = p; });
+
+  const orderFor = (p) => {
+    if (!p) return 0;
+    if (p.override_orders != null && p.override_orders !== "") return parseInt(p.override_orders) || 0;
+    const sp = parseFloat(p.spend) || 0;
+    const cpa = parseFloat(p.cpa) || 0;
+    const fromSpend = cpa > 0 ? Math.round(sp / cpa) : 0;
+    const direct = parseInt(p.direct_orders) || 0;
+    return fromSpend + direct;
+  };
+
+  const totalOrders = periods.reduce((s, idx) => s + orderFor(byIdx[idx]), 0);
+  const totalSpend = periods.reduce((s, idx) => s + (parseFloat(byIdx[idx]?.spend) || 0), 0);
+  const blendedCpa = totalOrders > 0 ? totalSpend / totalOrders : 0;
+
+  const cell = (idx, key, type, step) => (
+    <input
+      type="number"
+      step={step}
+      defaultValue={byIdx[idx]?.[key] ?? ""}
+      onBlur={e => {
+        const val = e.target.value;
+        const parsed = val === "" ? null : (type === "count" ? parseInt(val) : parseFloat(val));
+        upsertUpsellPeriod(idx, { [key]: parsed });
+      }}
+      placeholder="0"
+      style={{ width: "100%", padding: "3px 2px", fontSize: 10, textAlign: "center", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }}
+    />
+  );
+
+  return (
+    <div style={{ marginTop: 10, padding: 10, background: T.surface, borderRadius: 6, border: `1px solid #ec489940` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#ec4899" }}>📍 Standalone Funnel · per-period inputs</div>
+        <div style={{ display: "flex", gap: 10, fontSize: 10, color: T.text3 }}>
+          {totalSpend > 0 && <span>Spend: <strong style={{ color: T.text }}>${fmt(Math.round(totalSpend))}</strong></span>}
+          <span>Orders: <strong style={{ color: "#ec4899" }}>{fmt(totalOrders)}</strong></span>
+          {blendedCpa > 0 && <span>CPA: <strong style={{ color: "#f59e0b" }}>${blendedCpa.toFixed(2)}</strong></span>}
+        </div>
+      </div>
+      <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 5 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, minWidth: periods.length * 56 + 110 }}>
+          <thead>
+            <tr style={{ background: T.surface2 }}>
+              <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface2, zIndex: 1, minWidth: 100 }}>Metric</th>
+              {periods.map(idx => (
+                <th key={idx} style={{ padding: "5px 4px", textAlign: "center", fontWeight: 700, color: T.text3, fontSize: 9, borderBottom: `1px solid ${T.border}`, minWidth: 56 }}>{periodLabel}{idx}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>Spend ($)</td>
+              {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "spend", "decimal", 100)}</td>)}
+            </tr>
+            <tr>
+              <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>Target CPA ($)</td>
+              {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "cpa", "decimal", 1)}</td>)}
+            </tr>
+            <tr>
+              <td style={{ padding: "4px 8px", fontWeight: 600, color: T.text2, position: "sticky", left: 0, background: T.surface, zIndex: 1, borderBottom: `1px solid ${T.border}` }}>Direct Orders</td>
+              {periods.map(idx => <td key={idx} style={{ padding: "3px 2px", borderBottom: `1px solid ${T.border}` }}>{cell(idx, "direct_orders", "count", 100)}</td>)}
+            </tr>
+            <tr style={{ background: "#ec489908" }}>
+              <td style={{ padding: "5px 8px", fontWeight: 700, color: "#ec4899", position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>Orders →</td>
+              {periods.map(idx => {
+                const o = orderFor(byIdx[idx]);
+                return (
+                  <td key={idx} style={{ padding: "5px 4px", textAlign: "center", color: "#ec4899", fontWeight: 700, fontSize: 11 }}>
+                    {o > 0 ? fmt(o) : "—"}
+                  </td>
+                );
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 9, color: T.text3, fontStyle: "italic", marginTop: 4 }}>
+        Orders = (spend ÷ CPA) + direct orders. These flow into the Monthly Demand Schedule independently of the Hero GWP funnel.
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MonthlyDemandSchedule — synthesizes everything into a monthly forecast
 // New Orders + Recurring Orders + Total Units, broken out per month
 // ─────────────────────────────────────────────────────────────────────────────
-function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, T, isMobile }) {
+function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, upsellPeriods, T, isMobile }) {
   const periodType = launch.period_type || "week";
   const periodCount = parseInt(launch.forecast_periods) || 12;
 
@@ -2737,35 +2833,62 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
     recurringUnitsByMonth[M] = Math.round(monthRebillOrders * avgUnitsPerOrder);
   }
 
-  // Step 5: Upsell units per month (attach to acquisition month, treat rebills similarly)
+  // Step 5: Upsell units per month (attached upsells ride on Hero GWP cohorts;
+  // standalone upsells have their own per-period orders driven by spend/CPA/direct)
   const upsellUnitsByMonth = new Array(totalMonths + 1).fill(0);
   upsells.forEach(u => {
-    const takePct = parseFloat(u.take_rate_pct) || 0;
+    const isStandalone = u.funnel_mode === "standalone";
     const upu = parseInt(u.units_per_order) || 1;
     const uOtp = parseFloat(u.otp_pct) || 0;
     const uSub = parseFloat(u.sub_pct) || 0;
-    for (let M = 1; M <= totalMonths; M++) {
-      // Direct upsell at the time of new acquisition in month M
-      const newOrders = newOrdersByMonth[M] || 0;
-      const upsellOrdersThisMonth = newOrders * (takePct / 100);
-      upsellUnitsByMonth[M] = (upsellUnitsByMonth[M] || 0) + Math.round(upsellOrdersThisMonth * upu);
 
-      // Upsell rebills from prior cohorts
+    // Build per-month "new" upsell orders for this upsell (acquisition events)
+    const upsellNewByMonth = new Array(totalMonths + 1).fill(0);
+    if (isStandalone) {
+      // Standalone: orders come from upsellPeriods (spend/CPA/direct), bucketed by period→month
+      const ups = (upsellPeriods || []).filter(up => up.upsell_id === u.id);
+      ups.forEach(p => {
+        let orders = 0;
+        if (p.override_orders != null && p.override_orders !== "") {
+          orders = parseInt(p.override_orders) || 0;
+        } else {
+          const sp = parseFloat(p.spend) || 0;
+          const cpa = parseFloat(p.cpa) || 0;
+          orders = (cpa > 0 ? Math.round(sp / cpa) : 0) + (parseInt(p.direct_orders) || 0);
+        }
+        if (orders <= 0) return;
+        const m = periodType === "month"
+          ? Math.min(totalMonths, Math.max(1, p.period_index))
+          : Math.min(totalMonths, Math.max(1, Math.ceil(p.period_index / 4.33)));
+        upsellNewByMonth[m] += orders;
+      });
+    } else {
+      // Attached: each month's Hero GWP new orders × take rate becomes the upsell's new orders
+      const takePct = parseFloat(u.take_rate_pct) || 0;
+      for (let M = 1; M <= totalMonths; M++) {
+        upsellNewByMonth[M] = (newOrdersByMonth[M] || 0) * (takePct / 100);
+      }
+    }
+
+    // Upsell rebills using its own OTP/Sub split + chosen rebill curve
+    for (let M = 1; M <= totalMonths; M++) {
+      // Direct upsell orders in M (new)
+      upsellUnitsByMonth[M] = (upsellUnitsByMonth[M] || 0) + Math.round(upsellNewByMonth[M] * upu);
+
+      // Rebills from prior months
       for (let k = 1; k < M; k++) {
         const offset = M - k;
-        const newK = newOrdersByMonth[k] || 0;
+        const newK = upsellNewByMonth[k];
         if (newK <= 0) continue;
-        const upsellAcquiredInK = newK * (takePct / 100); // baseline acquired in month k
         let otpR, subR;
         if (u.rebill_mode === "custom") {
           otpR = rebillRate("upsell", u.id, "otp", offset);
           subR = rebillRate("upsell", u.id, "sub", offset);
         } else {
-          // inherit from main GWP
           otpR = rebillRate("gwp", null, "otp", offset);
           subR = rebillRate("gwp", null, "sub", offset);
         }
-        const rebillOrders = upsellAcquiredInK * ((uOtp / 100) * (otpR / 100) + (uSub / 100) * (subR / 100));
+        const rebillOrders = newK * ((uOtp / 100) * (otpR / 100) + (uSub / 100) * (subR / 100));
         upsellUnitsByMonth[M] = (upsellUnitsByMonth[M] || 0) + Math.round(rebillOrders * upu);
       }
     }
@@ -3118,12 +3241,13 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const [rebillRates, setRebillRates] = useState([]);
   const [marketingChannels, setMarketingChannels] = useState([]);
   const [marketingPeriods, setMarketingPeriods] = useState([]);
+  const [upsellPeriods, setUpsellPeriods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: "", product_name: "", launch_date: "", moq: 5000, lead_time_days: 45, unit_cost: "", retail_price: "", target_margin_pct: 65, forecast_period_weeks: 12, supplier: "", max_monthly_capacity: "", target_days_of_supply: 60 });
 
   const load = async () => {
-    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }, { data: gt }, { data: us }, { data: gs }, { data: rr }, { data: mc }, { data: mp }] = await Promise.all([
+    const [{ data: l }, { data: c }, { data: p }, { data: pr }, { data: es }, { data: vs }, { data: gt }, { data: us }, { data: gs }, { data: rr }, { data: mc }, { data: mp }, { data: up }] = await Promise.all([
       supabase.from("dp_launches").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
       supabase.from("dp_launch_channels").select("*").eq("org_id", orgId),
       supabase.from("dp_launch_pos").select("*").eq("org_id", orgId),
@@ -3136,11 +3260,13 @@ function LaunchPlannerView({ isMobile, orgId }) {
       supabase.from("dp_launch_rebill_rates").select("*").eq("org_id", orgId).order("month_index"),
       supabase.from("dp_launch_marketing_channels").select("*").eq("org_id", orgId).order("sort_order"),
       supabase.from("dp_launch_marketing_periods").select("*").eq("org_id", orgId).order("period_index"),
+      supabase.from("dp_launch_upsell_periods").select("*").eq("org_id", orgId).order("period_index"),
     ]);
     setLaunches(l || []); setChannels(c || []); setPos(p || []); setPeriods(pr || []);
     setEmailSends(es || []); setVariantSplits(vs || []); setGwpTiers(gt || []);
     setUpsells(us || []); setGeoSplit(gs || []); setRebillRates(rr || []);
     setMarketingChannels(mc || []); setMarketingPeriods(mp || []);
+    setUpsellPeriods(up || []);
     setLoading(false);
   };
   useEffect(() => { if (orgId) load(); }, [orgId]);
@@ -3199,6 +3325,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
       supabase.from("dp_launch_rebill_rates").delete().eq("launch_id", id),
       supabase.from("dp_launch_marketing_periods").delete().eq("launch_id", id),
       supabase.from("dp_launch_marketing_channels").delete().eq("launch_id", id),
+      supabase.from("dp_launch_upsell_periods").delete().eq("launch_id", id),
     ]);
     const { error } = await supabase.from("dp_launches").delete().eq("id", id);
     if (error) { alert(`Failed to delete launch: ${error.message}`); return; }
@@ -3214,6 +3341,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
     setRebillRates(p => p.filter(r => r.launch_id !== id));
     setMarketingChannels(p => p.filter(m => m.launch_id !== id));
     setMarketingPeriods(p => p.filter(mp => mp.launch_id !== id));
+    setUpsellPeriods(p => p.filter(up => up.launch_id !== id));
     if (selected?.id === id) setSelected(null);
   };
 
@@ -3287,11 +3415,26 @@ function LaunchPlannerView({ isMobile, orgId }) {
   };
   const deleteUpsell = async (id) => {
     if (!confirm("Delete this upsell?")) return;
-    // Also delete any custom rebill rates scoped to this upsell
+    // Also delete any custom rebill rates + standalone period inputs scoped to this upsell
     await supabase.from("dp_launch_rebill_rates").delete().eq("scope_type", "upsell").eq("scope_id", id);
+    await supabase.from("dp_launch_upsell_periods").delete().eq("upsell_id", id);
     await supabase.from("dp_launch_upsells").delete().eq("id", id);
     setUpsells(p => p.filter(u => u.id !== id));
     setRebillRates(p => p.filter(r => !(r.scope_type === "upsell" && r.scope_id === id)));
+    setUpsellPeriods(p => p.filter(up => up.upsell_id !== id));
+  };
+
+  const upsertUpsellPeriod = async (launchId, upsellId, periodIndex, updates) => {
+    const existing = upsellPeriods.find(up => up.upsell_id === upsellId && up.period_index === periodIndex);
+    if (existing) {
+      await supabase.from("dp_launch_upsell_periods").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", existing.id);
+      setUpsellPeriods(p => p.map(up => up.id === existing.id ? { ...up, ...updates } : up));
+    } else {
+      const { data } = await supabase.from("dp_launch_upsell_periods").insert({
+        org_id: orgId, launch_id: launchId, upsell_id: upsellId, period_index: periodIndex, ...updates,
+      }).select().single();
+      if (data) setUpsellPeriods(p => [...p, data]);
+    }
   };
 
   // ── Geo split ──
@@ -3521,6 +3664,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
   const launchGeoSplit = selected ? geoSplit.filter(g => g.launch_id === selected.id) : [];
   const launchMarketingChannels = selected ? marketingChannels.filter(m => m.launch_id === selected.id) : [];
   const launchMarketingPeriods = selected ? marketingPeriods.filter(mp => mp.launch_id === selected.id) : [];
+  const launchUpsellPeriods = selected ? upsellPeriods.filter(up => up.launch_id === selected.id) : [];
   
   // Calculate totals from orders → variant splits → units/revenue
   const totalOrders = launchChannels.reduce((s, c) => s + calcChannelUnits(c, launchChannels, launchPeriods, emailSends.filter(es => es.channel_id === c.id)), 0);
@@ -3746,12 +3890,25 @@ function LaunchPlannerView({ isMobile, orgId }) {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {launchUpsells.map(u => {
-                // Compute total acq orders the same way as the funnel
                 const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
                   const cps = launchMarketingPeriods.filter(mp => mp.marketing_channel_id === ch.id);
                   return sum + cps.reduce((s, p) => s + calcMarketingPeriodOrders(ch.channel_type, p), 0);
                 }, 0);
-                const upTotalOrders = Math.round(totalAcqOrders * (u.take_rate_pct || 0) / 100);
+                const isStandalone = u.funnel_mode === "standalone";
+                // For attached: orders = main acq orders × take rate
+                // For standalone: orders = sum of upsell's own per-period funnel inputs
+                const upPeriods = launchUpsellPeriods.filter(up => up.upsell_id === u.id);
+                const standaloneOrders = upPeriods.reduce((s, p) => {
+                  if (p.override_orders != null) return s + (parseInt(p.override_orders) || 0);
+                  const sp = parseFloat(p.spend) || 0;
+                  const cpa = parseFloat(p.cpa) || 0;
+                  const fromSpend = cpa > 0 ? Math.round(sp / cpa) : 0;
+                  const direct = parseInt(p.direct_orders) || 0;
+                  return s + fromSpend + direct;
+                }, 0);
+                const upTotalOrders = isStandalone
+                  ? standaloneOrders
+                  : Math.round(totalAcqOrders * (u.take_rate_pct || 0) / 100);
                 return (
                   <div key={u.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -3765,9 +3922,29 @@ function LaunchPlannerView({ isMobile, orgId }) {
                         <button onClick={() => deleteUpsell(u.id)} title="Remove" style={{ background: "transparent", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 4px" }}>×</button>
                       </div>
                     </div>
+
+                    {/* Funnel mode toggle */}
+                    <div style={{ marginBottom: 10, padding: 10, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>Upsell Source:</div>
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text2, cursor: "pointer" }}>
+                          <input type="radio" checked={!isStandalone} onChange={() => updateUpsell(u.id, { funnel_mode: "attached" })} />
+                          Attached to Hero GWP <span style={{ color: T.text3 }}>(take rate × new acquisitions)</span>
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text2, cursor: "pointer" }}>
+                          <input type="radio" checked={isStandalone} onChange={() => updateUpsell(u.id, { funnel_mode: "standalone" })} />
+                          Standalone funnel <span style={{ color: T.text3 }}>(its own monthly orders)</span>
+                        </label>
+                      </div>
+                    </div>
+
                     <I label="Description (optional)" value={u.description || ""} onChange={v => updateUpsell(u.id, { description: v })} placeholder="e.g., Discount on additional pack at checkout" />
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
-                      <I label="Take Rate" value={u.take_rate_pct} onChange={v => updateUpsell(u.id, { take_rate_pct: parseFloat(v) || 0 })} type="number" suffix="%" />
+
+                    {/* Common fields */}
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : (isStandalone ? "1fr 1fr 1fr 1fr" : "1fr 1fr 1fr 1fr 1fr"), gap: 8, marginTop: 8 }}>
+                      {!isStandalone && (
+                        <I label="Take Rate" value={u.take_rate_pct} onChange={v => updateUpsell(u.id, { take_rate_pct: parseFloat(v) || 0 })} type="number" suffix="%" />
+                      )}
                       <I label="Units / Order" value={u.units_per_order} onChange={v => updateUpsell(u.id, { units_per_order: parseInt(v) || 1 })} type="number" />
                       <I label="Unit Price" value={u.unit_price} onChange={v => updateUpsell(u.id, { unit_price: parseFloat(v) || null })} type="number" prefix="$" />
                       <I label="OTP %" value={u.otp_pct} onChange={v => {
@@ -3779,6 +3956,19 @@ function LaunchPlannerView({ isMobile, orgId }) {
                         updateUpsell(u.id, { sub_pct: sub, otp_pct: 100 - sub });
                       }} type="number" suffix="%" />
                     </div>
+
+                    {/* Standalone-only: per-period orders grid */}
+                    {isStandalone && (
+                      <UpsellPeriodsEditor
+                        launch={selected}
+                        upsell={u}
+                        upsellPeriods={upPeriods}
+                        upsertUpsellPeriod={(periodIndex, updates) => upsertUpsellPeriod(selected.id, u.id, periodIndex, updates)}
+                        T={T}
+                        isMobile={isMobile}
+                      />
+                    )}
+
                     {/* Rebill mode toggle */}
                     <div style={{ marginTop: 10, padding: 10, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: u.rebill_mode === "custom" ? 10 : 0 }}>
@@ -3860,6 +4050,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
           packTiers={launchGwpTiers}
           rebillRates={rebillRates}
           upsells={launchUpsells}
+          upsellPeriods={launchUpsellPeriods}
           T={T}
           isMobile={isMobile}
         />
