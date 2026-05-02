@@ -226,6 +226,19 @@ export default function PeopleView() {
   }, [profile?.org_id]);
 
   const getMembership = (uid) => memberships.find(m => m.user_id === uid);
+  const getPermMode = (uid) => {
+    const om = getMembership(uid);
+    if (!om) return null;
+    if (om.role === "owner" || om.role === "admin") return { mode: "admin", label: "FULL", color: "#22c55e" };
+    const perms = om.module_permissions || {};
+    if (perms._default_deny === true) {
+      const grants = Object.keys(perms).filter(k => k !== "_default_deny" && perms[k] === true).length;
+      return { mode: "allow", label: grants === 0 ? "NO MODULES" : `${grants} GRANTED`, color: grants === 0 ? "#ef4444" : "#3b82f6" };
+    }
+    const blocks = Object.keys(perms).filter(k => perms[k] === false).length;
+    if (blocks > 0) return { mode: "block", label: `${blocks} BLOCKED`, color: "#f59e0b" };
+    return { mode: "full", label: "FULL", color: "#22c55e" };
+  };
   const getStats = (uid) => { const ut = tasks.filter(t => t.assignee_id === uid); return { open: ut.filter(t => t.status !== "done").length, done: ut.filter(t => t.status === "done").length, total: ut.length, overdue: ut.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== "done").length, projs: [...new Set(ut.map(t => t.project_id).filter(Boolean))] }; };
 
   const filtered = members.filter(m => {
@@ -392,6 +405,7 @@ export default function PeopleView() {
             <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{member.email || "—"}</div>
           </div>
           {om?.role && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 8, background: (ROLE_COLORS[om.role] || T.text3) + "18", color: ROLE_COLORS[om.role] || T.text3, textTransform: "capitalize" }}>{om.role}</span>}
+          {(() => { const pm = getPermMode(member.id); return pm ? (<span title={`Permission mode: ${pm.mode}`} style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: pm.color + "15", color: pm.color, fontWeight: 700, letterSpacing: 0.5 }}>{pm.label}</span>) : null; })()}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8 }}>
           <div style={{ textAlign: "center", padding: "6px 0", background: T.surface2, borderRadius: 6 }}><div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{stats.open}</div><div style={{ fontSize: 9, color: T.text3 }}>Open</div></div>
@@ -449,6 +463,7 @@ export default function PeopleView() {
                 <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.display_name || "Unknown"}</span>
                 {isMe && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: T.accentDim, color: T.accent }}>You</span>}
                 {!active && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: T.redDim, color: T.red }}>Off</span>}
+                {(() => { const pm = getPermMode(member.id); return pm ? (<span title={`Permission mode: ${pm.mode}`} style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: pm.color + "15", color: pm.color, fontWeight: 700, letterSpacing: 0.4 }}>{pm.label}</span>) : null; })()}
               </div>
               {(member.title || member.department) && <div style={{ fontSize: 10, color: T.text3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.title}{member.title && member.department ? " · " : ""}{member.department}{member.sub_department ? ` / ${member.sub_department}` : ""}</div>}
             </div>

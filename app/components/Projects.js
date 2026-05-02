@@ -186,6 +186,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [showArchived, setShowArchived] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
   const [projMembersList, setProjMembersList] = useState([]); // [{ project_id, user_id, role }]
+  const [myProjectMemberships, setMyProjectMemberships] = useState([]); // current user only, with access_scope + invited_as_external
   const [showAddMember, setShowAddMember] = useState(false);
   const _profilesRef = useRef({});
   // Labels
@@ -270,6 +271,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         supabase.from("key_results").select("id,title,objective_id,progress,unit,target_value,current_value").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
         setFavorites(new Set((favR.data || []).map(f => f.project_id)));
         setProjMembersList(allPmR.data || []);
+        setMyProjectMemberships(pmR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
         // Load labels, assignments, custom fields
@@ -339,6 +341,30 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const proj = projects.find(p => p.id === activeProject);
   const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
   const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
+  // External-user access_scope gating: hide tabs the user has no scope for.
+  // Internal users (no membership row, or invited_as_external = false) see everything.
+  const myAccessScope = useMemo(() => {
+    const pm = myProjectMemberships.find(m => m.project_id === activeProject);
+    if (!pm || !pm.invited_as_external) return null; // internal → no gating
+    return pm.access_scope || { tasks: true };
+  }, [myProjectMemberships, activeProject]);
+  const visibleTabs = useMemo(() => {
+    if (!myAccessScope) return TABS;
+    return TABS.filter(t => {
+      // Tasks scope governs the task-centric tabs (always on for any project member)
+      if (["Info", "List", "Board", "Timeline", "Calendar", "Updates", "Rules"].includes(t)) {
+        return myAccessScope.tasks !== false;
+      }
+      if (t === "Docs") return myAccessScope.documents === true;
+      return true;
+    });
+  }, [myAccessScope]);
+  // If the current viewMode is no longer visible (scope was revoked), bounce to a safe tab.
+  useEffect(() => {
+    if (visibleTabs.length && !visibleTabs.includes(viewMode)) {
+      setViewMode(visibleTabs.includes("List") ? "List" : visibleTabs[0]);
+    }
+  }, [visibleTabs, viewMode]);
   const filteredTasks = useMemo(() => projTasks.filter(t => {
     if (search) { const s = search.toLowerCase(); const nameMatch = t.assignee_id && profiles[t.assignee_id]?.display_name?.toLowerCase().includes(s); if (!t.title?.toLowerCase().includes(s) && !nameMatch) return false; }
     if (filterStatus !== "all" && filterStatus.length && !filterStatus.includes(t.status)) return false;
@@ -1117,7 +1143,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         {showSidebar && <button onClick={() => setShowSidebar(false)} style={S.iconBtn} title="Collapse"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M11 19l-7-7 7-7"/><path d="M4 12h16"/></svg></button>}
       </div>
       <div style={{ display: "flex", gap: 0, padding: "0 20px", overflow: "auto", alignItems: "center" }}>
-        {TABS.map(tab => (<button key={tab} onClick={() => setViewMode(tab)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: viewMode === tab ? 600 : 400, color: viewMode === tab ? T.accent : T.text3, background: "none", border: "none", borderBottom: viewMode === tab ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", transition: "all 0.15s" }}>{tab}</button>))}
+        {visibleTabs.map(tab => (<button key={tab} onClick={() => setViewMode(tab)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: viewMode === tab ? 600 : 400, color: viewMode === tab ? T.accent : T.text3, background: "none", border: "none", borderBottom: viewMode === tab ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", transition: "all 0.15s" }}>{tab}</button>))}
         <div style={{ marginLeft: "auto" }}>
           <button onClick={() => setShowKeyboardHelp(v => !v)} title="Keyboard shortcuts (?)" style={{ ...S.iconBtn, fontSize: 11, color: T.text3, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 7px" }}>?</button>
         </div>
@@ -2970,7 +2996,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               {viewMode === "Timeline" && timelineViewEl}
               {viewMode === "Calendar" && calendarViewEl}
               {viewMode === "Updates" && updatesViewEl}
-              {viewMode === "Docs" && <DocsView key="docs" />}
+              {viewMode === "Docs" && (!myAccessScope || myAccessScope.documents === true) && <DocsView key="docs" />}
               {viewMode === "Rules" && (
                 <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
