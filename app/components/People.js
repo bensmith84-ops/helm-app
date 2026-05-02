@@ -161,6 +161,8 @@ export default function PeopleView() {
   const [inviteReportsOpen, setInviteReportsOpen] = useState(false);
   const [inviteEmploymentType, setInviteEmploymentType] = useState("full_time");
   const [invitePersonalEmail, setInvitePersonalEmail] = useState("");
+  // Module permissions to grant at invite time (default deny — empty allow list)
+  const [inviteAllowedModules, setInviteAllowedModules] = useState([]);
   const [tab, setTab] = useState("overview");
   const [reportsSearch, setReportsSearch] = useState("");
   const [reportsSearchOpen, setReportsSearchOpen] = useState(false);
@@ -238,10 +240,19 @@ export default function PeopleView() {
     if (!inviteEmail.trim()) return showToast("Email required");
     if (!inviteName.trim()) return showToast("Name required");
     try {
+      // Build module_permissions: default-deny baseline + explicit grants per checkbox
+      const modulePerms = { _default_deny: true };
+      inviteAllowedModules.forEach(k => { modulePerms[k] = true; });
       const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
-        body: JSON.stringify({ email: inviteEmail.trim(), display_name: inviteName.trim(), role: inviteRole, org_id: profile.org_id }),
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          display_name: inviteName.trim(),
+          role: inviteRole,
+          org_id: profile.org_id,
+          module_permissions: modulePerms,
+        }),
       });
       const result = await res.json();
       if (result.error) return showToast("Failed: " + result.error);
@@ -261,8 +272,8 @@ export default function PeopleView() {
       }
       const newMember = { id: userId, display_name: inviteName.trim(), email: inviteEmail.trim(), org_id: profile.org_id, ...extra };
       setMembers(p => [...p.filter(m => m.id !== userId), newMember]);
-      setMemberships(p => { const exists = p.find(m => m.user_id === userId); return exists ? p : [...p, { org_id: profile.org_id, user_id: userId, role: inviteRole, is_active: true }]; });
-      setInviteEmail(""); setInviteName(""); setInviteRole("member"); setInviteTitle(""); setInviteDept(""); setInvitePhone(""); setInviteLocation(""); setInviteStartDate(""); setInviteReportsTo(""); setInviteEmploymentType("full_time"); setInvitePersonalEmail(""); setShowInvite(false);
+      setMemberships(p => { const exists = p.find(m => m.user_id === userId); return exists ? p : [...p, { org_id: profile.org_id, user_id: userId, role: inviteRole, is_active: true, module_permissions: modulePerms }]; });
+      setInviteEmail(""); setInviteName(""); setInviteRole("member"); setInviteTitle(""); setInviteDept(""); setInvitePhone(""); setInviteLocation(""); setInviteStartDate(""); setInviteReportsTo(""); setInviteEmploymentType("full_time"); setInvitePersonalEmail(""); setInviteAllowedModules([]); setShowInvite(false);
       showToast(result.existing ? "User already exists — added to org" : "Invite sent to " + inviteEmail.trim(), "success");
     } catch (e) {
       showToast("Failed: " + e.message);
@@ -272,7 +283,27 @@ export default function PeopleView() {
   const updateRole = async (uid, newRole) => { const om = getMembership(uid); if (!om) return; const { error } = await supabase.from("org_memberships").update({ role: newRole }).eq("org_id", orgId).eq("id", om.id); if (error) return showToast("Failed to update role"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, role: newRole } : m)); showToast("Role updated", "success"); };
   const permScrollRef = React.useRef(0);
   useEffect(() => { if (permScrollRef.current > 0) { setTimeout(() => { const el = document.querySelector("[data-perm-scroll]"); if (el) el.scrollTop = permScrollRef.current; }, 10); } }, [memberships]);
-  const toggleModuleAccess = async (uid, mod) => { const om = getMembership(uid); if (!om) return; const perms = om.module_permissions || {}; const current = perms[mod] !== false; const updated = { ...perms, [mod]: !current }; const scrollEl = document.querySelector("[data-perm-scroll]"); permScrollRef.current = scrollEl?.scrollTop || 0; await supabase.from("org_memberships").update({ module_permissions: updated }).eq("org_id", orgId).eq("id", om.id); setMemberships(p => p.map(m => m.id === om.id ? { ...m, module_permissions: updated } : m)); };
+  const toggleModuleAccess = async (uid, mod) => {
+    const om = getMembership(uid);
+    if (!om) return;
+    const perms = om.module_permissions || {};
+    const isDefaultDeny = perms._default_deny === true;
+    let updated;
+    if (isDefaultDeny) {
+      // Allow-list mode: toggle the explicit `true` flag for this module
+      const currentlyAllowed = perms[mod] === true;
+      updated = { ...perms, [mod]: !currentlyAllowed };
+      if (currentlyAllowed) delete updated[mod]; // remove the key entirely instead of setting false
+    } else {
+      // Legacy block mode: toggle the explicit `false` flag
+      const currentlyAllowed = perms[mod] !== false;
+      updated = { ...perms, [mod]: !currentlyAllowed ? true : false };
+    }
+    const scrollEl = document.querySelector("[data-perm-scroll]");
+    permScrollRef.current = scrollEl?.scrollTop || 0;
+    await supabase.from("org_memberships").update({ module_permissions: updated }).eq("org_id", orgId).eq("id", om.id);
+    setMemberships(p => p.map(m => m.id === om.id ? { ...m, module_permissions: updated } : m));
+  };
   const toggleProjectAccess = async (uid, projectId) => { const existing = projectMembers.find(pm => pm.user_id === uid && pm.project_id === projectId); if (existing) { await supabase.from("project_members").delete().eq("org_id", orgId).eq("id", existing.id); setProjectMembers(p => p.filter(pm => pm.id !== existing.id)); } else { const { data, error } = await supabase.from("project_members").insert({ project_id: projectId, user_id: uid, role: "member" }).select().single(); if (!error && data) setProjectMembers(p => [...p, data]); } };
   const deactivateUser = async (uid) => { const om = getMembership(uid); if (!om) return; const newActive = !om.is_active; const updates = { is_active: newActive }; if (!newActive) updates.deactivated_at = new Date().toISOString(); else updates.deactivated_at = null; const { error } = await supabase.from("org_memberships").update(updates).eq("org_id", orgId).eq("id", om.id); if (error) return showToast("Failed to update"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, ...updates } : m)); showToast(newActive ? "User reactivated" : "User deactivated", "success"); };
   const removeUser = async (uid) => {
@@ -292,7 +323,32 @@ export default function PeopleView() {
     if (selected?.id === uid) setSelected(null);
   };
   const deleteUser = async (uid) => { if (!confirm("Permanently remove this user?")) return; await removeUser(uid); showToast("User removed", "success"); };
-  const hasModuleAccess = (uid, mod) => { const om = getMembership(uid); if (!om) return true; if (om.role === "owner" || om.role === "admin") return true; const perms = om.module_permissions || {}; if (perms[mod] === false) return false; const parts = mod.split("."); for (let i = 1; i <= parts.length; i++) { const ancestor = parts.slice(0, i).join("."); if (perms[ancestor] === false) return false; } return true; };
+  const hasModuleAccess = (uid, mod) => {
+    const om = getMembership(uid);
+    if (!om) return true;
+    if (om.role === "owner" || om.role === "admin") return true;
+    const perms = om.module_permissions || {};
+    const isDefaultDeny = perms._default_deny === true;
+    if (isDefaultDeny) {
+      // Allow-list mode: only show as ON if explicitly granted
+      if (perms[mod] === true) return true;
+      // Check ancestor grants too
+      const parts = mod.split(".");
+      for (let i = 1; i < parts.length; i++) {
+        const ancestor = parts.slice(0, i).join(".");
+        if (perms[ancestor] === true) return true;
+      }
+      return false;
+    }
+    // Legacy block mode
+    if (perms[mod] === false) return false;
+    const parts = mod.split(".");
+    for (let i = 1; i <= parts.length; i++) {
+      const ancestor = parts.slice(0, i).join(".");
+      if (perms[ancestor] === false) return false;
+    }
+    return true;
+  };
   const hasProjectAccess = (uid, pid) => projectMembers.some(pm => pm.user_id === uid && pm.project_id === pid);
 
   // Team CRUD
@@ -942,6 +998,63 @@ export default function PeopleView() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+        {/* Module Access — what this user will see */}
+        <div style={{ marginBottom: 20, padding: 12, background: T.accent + "06", border: `1px solid ${T.accent}30`, borderRadius: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: T.text }}>Module Access</label>
+            <span style={{ fontSize: 10, color: T.text3 }}>
+              {inviteAllowedModules.length === 0 ? "No modules — Dashboard + Settings only" : `${inviteAllowedModules.length} module${inviteAllowedModules.length === 1 ? "" : "s"} granted`}
+            </span>
+          </div>
+          <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>
+            New users default to <strong>no access</strong>. Check the modules this person needs to see. You can change this anytime in their profile.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 4 }}>
+            {[
+              { k: "projects", l: "Projects" },
+              { k: "okrs", l: "OKRs" },
+              { k: "scorecard", l: "Scorecard" },
+              { k: "scoreboard", l: "Scoreboard" },
+              { k: "messages", l: "Messages" },
+              { k: "calendar", l: "Calendar" },
+              { k: "calls", l: "Calls" },
+              { k: "docs", l: "Docs" },
+              { k: "learning", l: "Learning" },
+              { k: "support", l: "Support" },
+              { k: "campaigns", l: "Campaigns" },
+              { k: "plm", l: "PLM" },
+              { k: "erp", l: "ERP" },
+              { k: "wms", l: "WMS" },
+              { k: "finance", l: "Finance" },
+              { k: "automation", l: "Automation" },
+              { k: "reports", l: "Reports" },
+              { k: "people", l: "People" },
+              { k: "demand_planning", l: "Demand Planning" },
+              { k: "launches", l: "Launches" },
+            ].map(opt => {
+              const checked = inviteAllowedModules.includes(opt.k);
+              return (
+                <label key={opt.k} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 6px", fontSize: 11, cursor: "pointer", borderRadius: 4, background: checked ? T.accent + "12" : "transparent" }}>
+                  <input type="checkbox" checked={checked}
+                    onChange={() => setInviteAllowedModules(p => checked ? p.filter(x => x !== opt.k) : [...p, opt.k])} />
+                  <span style={{ color: checked ? T.accent : T.text2, fontWeight: checked ? 600 : 400 }}>{opt.l}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 8, display: "flex", gap: 6, fontSize: 10 }}>
+            <button type="button"
+              onClick={() => setInviteAllowedModules(["projects","okrs","scorecard","messages","calendar","docs","learning"])}
+              style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, background: "transparent", color: T.accent, border: `1px dashed ${T.accent}50`, borderRadius: 4, cursor: "pointer" }}>
+              Quick: Standard employee
+            </button>
+            <button type="button"
+              onClick={() => setInviteAllowedModules([])}
+              style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, background: "transparent", color: T.text3, border: `1px dashed ${T.border}`, borderRadius: 4, cursor: "pointer" }}>
+              Clear
+            </button>
           </div>
         </div>
         {/* Actions */}

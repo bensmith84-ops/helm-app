@@ -112,13 +112,17 @@ export function AuthProvider({ children }) {
       id: userId, display_name: displayName, email, org_id: DEFAULT_ORG_ID,
     }, { onConflict: "id" }).select().single();
 
+    // Auto-created users (no invite flow) get DEFAULT DENY: no modules visible
+    // until an admin grants access in People → Permissions. Dashboard + Settings
+    // remain accessible (always-allowed by the page guard).
     await supabase.from("org_memberships").upsert({
       org_id: DEFAULT_ORG_ID, user_id: userId, role: "member", is_active: true,
+      module_permissions: { _default_deny: true },
     }, { onConflict: "org_id,user_id" }).select();
 
     await supabase.from("user_module_permissions").upsert({
       user_id: userId,
-      allowed_modules: ["dashboard", "scoreboard", "okrs", "scorecard", "projects", "plm"],
+      allowed_modules: [],
       is_admin: false,
     }, { onConflict: "user_id" });
 

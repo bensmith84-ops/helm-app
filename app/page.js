@@ -148,10 +148,22 @@ export default function HelmApp() {
         if (isOwnerOrAdmin) {
           setAllowedModules(null); // full access
         } else {
-          // Build allowed list from module_permissions — anything not explicitly false is allowed
+          // Module permissions interpretation:
+          // - perms = null or {} → full access (legacy behavior, only true for admins now after backfill)
+          // - perms = { _default_deny: true, ... } → DEFAULT DENY: only modules with explicit `true` are allowed
+          //                                          (Dashboard + Settings are always allowed by guards)
+          // - perms = { foo: false, bar: false, ... } → BLOCK MODE: explicitly listed false keys are blocked
+          // - perms = { _default_deny: true, foo: true, bar: true } → DEFAULT DENY + explicit grants
           const perms = membership.module_permissions || {};
-          const blocked = Object.keys(perms).filter(k => perms[k] === false);
-          setAllowedModules(blocked.length > 0 ? { mode: "block", blocked, perms } : null);
+          if (perms._default_deny === true) {
+            // Default-deny mode. Compute allow-list from any keys with value === true.
+            const allowed = Object.keys(perms).filter(k => k !== "_default_deny" && perms[k] === true);
+            setAllowedModules({ mode: "allow", allowed, perms });
+          } else {
+            // Legacy block mode (explicit false flags). Empty {} == full access.
+            const blocked = Object.keys(perms).filter(k => perms[k] === false);
+            setAllowedModules(blocked.length > 0 ? { mode: "block", blocked, perms } : null);
+          }
         }
       } else {
         // No org_membership — check if this is an external collaborator
@@ -324,7 +336,8 @@ export default function HelmApp() {
   const renderView = () => {
     // Check module permissions (settings and dashboard always allowed)
     const isBlocked = allowedModules && !isAdmin && active !== "dashboard" && active !== "settings" && (
-      allowedModules?.mode === "block" ? allowedModules.perms[active] === false : 
+      allowedModules?.mode === "allow" ? !allowedModules.allowed.includes(active) :
+      allowedModules?.mode === "block" ? allowedModules.perms[active] === false :
       Array.isArray(allowedModules) ? !allowedModules.includes(active) : false
     );
     if (isBlocked) {

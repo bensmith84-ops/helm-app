@@ -135,6 +135,7 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
             if (item.adminOnly && !isAdmin) return false;
             if (allowedModules === null) return true;
             if (item.key === "settings" || item.key === "dashboard") return true;
+            if (allowedModules?.mode === "allow") return allowedModules.allowed.includes(item.key);
             if (allowedModules?.mode === "block") return allowedModules.perms[item.key] !== false;
             if (Array.isArray(allowedModules)) return allowedModules.includes(item.key);
             return true;
