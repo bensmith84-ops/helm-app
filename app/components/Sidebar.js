@@ -38,17 +38,27 @@ export const NAV_GROUPS = [
 
 export const NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items);
 
-export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile, allowedModules, isAdmin, orgId, orgs, switchOrg }) {
+export default function Sidebar({ active, setActive, expanded, setExpanded, badges = {}, profile, allowedModules, isAdmin, isExternal, orgId, orgs, switchOrg }) {
   const w = expanded ? 216 : 52;
   const [collapsed, setCollapsed] = useState({});
   const [showOrgMenu, setShowOrgMenu] = useState(false);
   const toggle = (label) => setCollapsed(c => ({ ...c, [label]: !c[label] }));
   
   const activeOrg = orgs?.find(o => o.id === orgId);
+
+  // External collaborators: show ONLY Projects. Skip the user's saved sidebar config.
+  const externalGroups = [
+    {
+      label: "",
+      items: [
+        (NAV_ITEMS.find(n => n.key === "projects")) || { key: "projects", label: "Projects" },
+      ],
+    },
+  ];
   
   // Use sidebar_config from profile if available, otherwise default NAV_GROUPS
   // Auto-merge: any items in default NAV_GROUPS that aren't in the saved config get appended to their group
-  const groups = profile?.sidebar_config?.groups
+  const groups = isExternal ? externalGroups : (profile?.sidebar_config?.groups
     ? profile.sidebar_config.groups.map((g, gi) => {
         const savedKeys = new Set(g.items.map(i => i.key));
         const defaultGroup = NAV_GROUPS[gi];
@@ -64,7 +74,7 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
             })
         };
       })
-    : NAV_GROUPS;
+    : NAV_GROUPS);
   
   const activeGroup = groups.find(g => g.items.some(i => i.key === active))?.label;
 
@@ -165,7 +175,10 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
         <div style={{ width: 28, height: 28, borderRadius: 14, flexShrink: 0, background: `${T.accent}20`, border: `1.5px solid ${T.accent}35`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent }}>{profile?.display_name ? profile.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"}</div>
         {expanded && (
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{profile?.display_name || "User"}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{profile?.display_name || "User"}</span>
+              {isExternal && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700, letterSpacing: 0.5, flexShrink: 0 }}>EXTERNAL</span>}
+            </div>
             <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profile?.email || ""}</div>
           </div>
         )}

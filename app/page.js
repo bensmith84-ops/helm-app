@@ -127,6 +127,14 @@ export default function HelmApp() {
   const [pendingTaskId, setPendingTaskId] = useState(null);
   const [allowedModules, setAllowedModules] = useState(null); // null = loading, array = loaded
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isExternal, setIsExternal] = useState(false);
+
+  // External users always land on Projects (they have no other access)
+  useEffect(() => {
+    if (isExternal && active !== "projects" && active !== "settings") {
+      setActive("projects");
+    }
+  }, [isExternal, active]);
 
   // Load user module permissions from org_memberships
   useEffect(() => {
@@ -136,6 +144,7 @@ export default function HelmApp() {
       if (membership) {
         const isOwnerOrAdmin = membership.role === "owner" || membership.role === "admin";
         setIsAdmin(isOwnerOrAdmin);
+        setIsExternal(false);
         if (isOwnerOrAdmin) {
           setAllowedModules(null); // full access
         } else {
@@ -145,9 +154,25 @@ export default function HelmApp() {
           setAllowedModules(blocked.length > 0 ? { mode: "block", blocked, perms } : null);
         }
       } else {
-        const isOwner = profile?.email?.includes("ben.smith@earthbreeze");
-        setIsAdmin(isOwner);
-        setAllowedModules(isOwner ? null : { mode: "block", blocked: [], perms: {} });
+        // No org_membership — check if this is an external collaborator
+        const { data: profileRow } = await supabase.from("profiles").select("is_external").eq("id", user.id).maybeSingle();
+        if (profileRow?.is_external) {
+          // External collaborator: only Projects allowed.
+          setIsExternal(true);
+          setIsAdmin(false);
+          // Use 'block' mode with everything-except-projects-and-dashboard blocked.
+          // Dashboard is always allowed by the renderView guard, so we only need to
+          // restrict the sidebar to show 'projects' (and Settings/profile).
+          const blockedAll = ["okrs","scorecard","learning","support","scoreboard","messages","docs","calendar","calls","campaigns","plm","erp","wms","finance","automation","reports","people","cx","content","creative","demand_planning"];
+          const perms = {};
+          blockedAll.forEach(k => { perms[k] = false; });
+          setAllowedModules({ mode: "block", blocked: blockedAll, perms });
+        } else {
+          const isOwner = profile?.email?.includes("ben.smith@earthbreeze");
+          setIsExternal(false);
+          setIsAdmin(isOwner);
+          setAllowedModules(isOwner ? null : { mode: "block", blocked: [], perms: {} });
+        }
       }
     })();
   }, [user?.id, profile?.email]);
@@ -366,7 +391,7 @@ export default function HelmApp() {
         {/* Sidebar — hidden on mobile unless toggled */}
         {(!isMobile || sidebarOpen) && (
           <div className={isMobile ? "sidebar-mobile-overlay" : ""}>
-            <Sidebar active={active} setActive={(v) => { setActive(v); if (isMobile) setSidebarOpen(false); }} expanded={isMobile ? true : expanded} setExpanded={isMobile ? () => setSidebarOpen(false) : setExpanded} badges={badges} profile={profile} allowedModules={allowedModules} isAdmin={isAdmin} orgId={orgId} orgs={orgs} switchOrg={switchOrg} />
+            <Sidebar active={active} setActive={(v) => { setActive(v); if (isMobile) setSidebarOpen(false); }} expanded={isMobile ? true : expanded} setExpanded={isMobile ? () => setSidebarOpen(false) : setExpanded} badges={badges} profile={profile} allowedModules={allowedModules} isAdmin={isAdmin} isExternal={isExternal} orgId={orgId} orgs={orgs} switchOrg={switchOrg} />
           </div>
         )}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", width: 0 }}>
