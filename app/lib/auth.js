@@ -52,6 +52,18 @@ export function AuthProvider({ children }) {
 
     if (existingProfile) {
       setProfile(existingProfile);
+      // External collaborators have no org memberships and no active org concept.
+      // They get access only via project_members; setting active_org_id would falsely
+      // grant them org-wide RLS access via active_org() in some flows. Keep null.
+      if (existingProfile.is_external) {
+        setOrgs([]);
+        setOrgId(null);
+        if (existingProfile.active_org_id !== null) {
+          supabase.from("profiles").update({ active_org_id: null }).eq("id", userId).then(() => {});
+        }
+        setLoading(false);
+        return;
+      }
       // Load org memberships
       const { data: memberships } = await supabase.from("org_memberships").select("org_id, role, organizations(id, name, slug, logo_url)").eq("user_id", userId).eq("is_active", true);
       const userOrgs = (memberships || []).map(m => ({ id: m.org_id, role: m.role, ...(m.organizations || {}) }));
