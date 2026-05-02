@@ -242,7 +242,68 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const formatFileSize = (b) => { if (!b) return "0 B"; const k = 1024; const s = ["B", "KB", "MB", "GB"]; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(1)) + " " + s[i]; };
   const getFileUrl = (path) => `https://upbjdmnykheubxkuknuj.supabase.co/storage/v1/object/public/attachments/${path}`;
   useEffect(() => {
-    if (!profile?.org_id) return;
+    if (!profile) return;
+    // External collaborators: load only the projects they're a member of, with no org_id.
+    if (profile.is_external) {
+      const loadExternal = async () => {
+        setLoading(true);
+        try {
+          // 1. Find which projects this user is a member of
+          const { data: myPm } = await supabase.from("project_members")
+            .select("id, project_id, user_id, role, access_scope, invited_as_external")
+            .eq("user_id", user.id);
+          const projectIds = (myPm || []).map(m => m.project_id);
+          if (projectIds.length === 0) {
+            setProjects([]); setSections([]); setTasks([]); setProjMembersList([]);
+            setMyProjectMemberships([]); setProfiles({}); setAllProfiles([]);
+            setLoading(false);
+            return;
+          }
+          // 2. Pull project + nested data for those projects only
+          const [pR, sR, tR, allPmR, favR, docsR] = await Promise.all([
+            supabase.from("projects").select("*").in("id", projectIds).is("deleted_at", null).order("name"),
+            supabase.from("sections").select("*").in("project_id", projectIds).order("sort_order"),
+            supabase.from("tasks").select("*").in("project_id", projectIds).is("deleted_at", null).order("sort_order"),
+            supabase.from("project_members").select("id, project_id, user_id, role, access_scope, invited_as_external").in("project_id", projectIds),
+            supabase.from("project_favorites").select("project_id").eq("user_id", user.id),
+            supabase.from("documents").select("id,title,emoji,updated_at,project_id,status").in("project_id", projectIds).is("deleted_at", null).order("updated_at", { ascending: false }),
+          ]);
+          // 3. Pull profile records for everyone in the same projects, so names/avatars resolve
+          const userIds = [...new Set((allPmR.data || []).map(pm => pm.user_id))];
+          const { data: prR } = userIds.length
+            ? await supabase.from("profiles").select("*").in("id", userIds)
+            : { data: [] };
+          // 4. Task labels + assignments for visible tasks
+          const taskIds = (tR.data || []).map(t => t.id);
+          const [lblAR] = await Promise.all([
+            taskIds.length
+              ? supabase.from("task_label_assignments").select("*").in("task_id", taskIds)
+              : Promise.resolve({ data: [] }),
+          ]);
+          // External users see no admin badge, no objectives, no teams, no rules templates etc.
+          setIsAdmin(false);
+          setProjects(pR.data || []);
+          setSections(sR.data || []);
+          setTasks(tR.data || []);
+          setProjMembersList(allPmR.data || []);
+          setMyProjectMemberships(myPm || []);
+          setFavorites(new Set((favR.data || []).map(f => f.project_id)));
+          setDocs(docsR.data || []);
+          setAllProfiles(prR || []);
+          const m = {}; (prR || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
+          setLabelAssignments(lblAR.data || []);
+          // Empty arrays for things external users don't need:
+          setTeams([]); setObjectives([]); setKeyResultsForLink([]);
+          setProjectLabels([]); setLabels([]); setPlmPrograms([]); setTemplates([]);
+          if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
+        } catch (e) { showToast("Failed to load projects"); }
+        setLoading(false);
+      };
+      loadExternal();
+      return;
+    }
+    // Internal user path (unchanged):
+    if (!profile.org_id) return;
     const load = async () => {
       setLoading(true);
       try {
@@ -296,7 +357,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       setLoading(false);
     };
     load();
-  }, [profile?.org_id]);
+  }, [profile?.org_id, profile?.is_external, user?.id]);
 
   // Open a specific task when navigating from Dashboard
   useEffect(() => {
