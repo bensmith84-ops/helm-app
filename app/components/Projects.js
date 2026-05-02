@@ -334,6 +334,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         setProjMembersList(allPmR.data || []);
         setMyProjectMemberships(pmR.data || []);
         const m = {}; (prR.data || []).forEach(u => { m[u.id] = u; }); setProfiles(m);
+        // Backfill profiles for external collaborators on shared projects.
+        // The org_id filter above excludes them (their profiles.org_id is NULL),
+        // but RLS via external_collab_profiles still allows reading them.
+        const externalIds = [...new Set((allPmR.data || []).map(pm => pm.user_id))].filter(id => !m[id]);
+        if (externalIds.length) {
+          supabase.from("profiles").select("*").in("id", externalIds).then(({ data: extR }) => {
+            if (!extR?.length) return;
+            setProfiles(prev => { const next = { ...prev }; extR.forEach(u => { next[u.id] = u; }); return next; });
+            setAllProfiles(prev => [...prev, ...extR.filter(u => !prev.some(p => p.id === u.id))]);
+          });
+        }
         if (!activeProject && pR.data?.length) setActiveProject(pR.data[0].id);
         // Load labels, assignments, custom fields
         const [lblR, lblAR] = await Promise.all([
