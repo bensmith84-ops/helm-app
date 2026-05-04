@@ -5,6 +5,7 @@ import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 import { useResponsive } from "../lib/responsive";
 import BudgetPlanner from "./BudgetPlanner";
+import { notifySlack } from "../lib/slack";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FINANCE MODULE — ApproveFlow merged into Helm
@@ -3534,6 +3535,36 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       };
       const data = await addRequest(req);
       addAuditEntry("Request submitted", `"${form.title}" for ${fmt(amt)}${matchedRule ? ` — rule: ${matchedRule.name}` : ""}`, data?.id);
+      // Slack notification — DM to admin/CFO when an approval is needed,
+      // or a confirmation when the request was auto-approved within the user's limit.
+      const requesterName = profile?.display_name || profile?.email || "Someone";
+      const fields = [
+        { label: "Requester", value: requesterName },
+        { label: "Amount", value: fmt(amt) + (form.cost_type === "recurring" ? ` /${form.recurring_frequency}` : "") },
+        { label: "Department", value: form.department || "—" },
+        { label: "GL Code", value: form.gl_code ? `${form.gl_code} · ${glEntry?.name || ""}`.trim() : "—" },
+      ];
+      if (matchedRule) fields.push({ label: "Rule Applied", value: `⚡ ${matchedRule.name}` });
+      if (form.description) fields.push({ label: "Description", value: form.description.slice(0, 240) });
+      if (isAuto) {
+        notifySlack({
+          type: "finance",
+          channel: "ben",
+          title: "Spend auto-approved ✅",
+          message: `*${form.title}* — auto-approved within ${requesterName}'s spend limit.`,
+          fields,
+          url: "https://helm-app-six.vercel.app",
+        });
+      } else {
+        notifySlack({
+          type: "approval",
+          channel: "ben",
+          title: requirePersonName ? `Spend approval needed — assigned to ${requirePersonName}` : "Spend approval needed",
+          message: `*${form.title}* submitted by ${requesterName}.`,
+          fields,
+          url: "https://helm-app-six.vercel.app",
+        });
+      }
     }
     setForm(FORM_INIT);
     setFormAttachments([]);
