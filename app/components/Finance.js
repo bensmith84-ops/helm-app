@@ -5,7 +5,7 @@ import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 import { useResponsive } from "../lib/responsive";
 import BudgetPlanner from "./BudgetPlanner";
-import { notifySlack } from "../lib/slack";
+import { notifySlack, notifySlackUpdate } from "../lib/slack";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FINANCE MODULE — ApproveFlow merged into Helm
@@ -3575,6 +3575,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           url: "https://helm-app-six.vercel.app",
         });
       } else {
+        // Capture the Slack ts/channel of the approval card so later in-app
+        // status changes can update that same message (strip buttons, show outcome).
         notifySlack({
           type: "approval",
           channel: "ben",
@@ -3584,6 +3586,13 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           url: "https://helm-app-six.vercel.app",
           actions: "approval",
           request_id: data?.id,
+        }).then(slackResp => {
+          if (slackResp?.success && data?.id) {
+            supabase.from("af_requests")
+              .update({ slack_channel_id: slackResp.channel, slack_message_ts: slackResp.ts })
+              .eq("id", data.id)
+              .then(() => {});
+          }
         });
       }
     }
@@ -3609,7 +3618,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (req.matched_rule_name) fields.push({ label: "Rule Applied", value: `⚡ ${req.matched_rule_name}` });
     fields.push({ label: "Action by", value: actorName });
     extraFields.forEach(f => fields.push(f));
-    notifySlack({
+    const promise = notifySlack({
       type,
       channel: "ben",
       title,
@@ -3617,6 +3626,34 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       fields,
       url: "https://helm-app-six.vercel.app",
       ...(withApprovalButtons ? { actions: "approval", request_id: req.id } : {}),
+    });
+    // When a new approvable card is posted (e.g. on resubmit after info-added),
+    // remember its ts so a later in-app action can update it.
+    if (withApprovalButtons) {
+      promise?.then?.(slackResp => {
+        if (slackResp?.success && req.id) {
+          supabase.from("af_requests")
+            .update({ slack_channel_id: slackResp.channel, slack_message_ts: slackResp.ts })
+            .eq("id", req.id)
+            .then(() => {});
+        }
+      });
+    }
+  };
+
+  // Update the originating Slack message after an in-app action so the user
+  // can see at a glance whether they've already actioned a DM.
+  const updateSlackMessage = (req, status, note) => {
+    if (!req?.slack_channel_id || !req?.slack_message_ts) return;
+    const actorName = profile?.display_name || profile?.email || "Someone";
+    notifySlackUpdate({
+      channel_id: req.slack_channel_id,
+      message_ts: req.slack_message_ts,
+      status,
+      title: req.title,
+      actor_name: actorName,
+      note,
+      url: "https://helm-app-six.vercel.app",
     });
   };
 
@@ -3633,6 +3670,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     };
     await updateRequest(selReq.id, patch);
     addAuditEntry(done ? "Request approved" : `Approval step ${newStep} completed`, `"${selReq.title}" ${done ? "fully approved" : "step approved"}`, selReq.id);
+    if (done) updateSlackMessage(selReq, "approved");
     notifyStatusChange(selReq, {
       type: done ? "finance" : "approval",
       title: done ? "Spend approved ✅" : `Approval step ${newStep} completed`,
@@ -3645,6 +3683,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "rejected", rejection_note: rejectNote, rejected_by: user.id, rejected_at: new Date().toISOString().slice(0, 10) });
     addAuditEntry("Request rejected", `"${selReq.title}" — ${rejectNote || "no reason"}`, selReq.id);
+    updateSlackMessage(selReq, "rejected", rejectNote);
     notifyStatusChange(selReq, {
       type: "alert",
       title: "Spend rejected ❌",
@@ -3658,6 +3697,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "conditionally_approved", conditional_note: conditionalNote, conditional_by: user.id, conditional_at: new Date().toISOString().slice(0, 10) });
     addAuditEntry("Additional info required", `"${selReq.title}" — ${conditionalNote}`, selReq.id);
+    updateSlackMessage(selReq, "conditionally_approved", conditionalNote);
     notifyStatusChange(selReq, {
       type: "approval",
       title: "More info requested ℹ️",
