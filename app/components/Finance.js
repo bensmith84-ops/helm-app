@@ -4455,15 +4455,15 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       qboByCategory[cat] += Number(r.amount) || 0;
     }
   });
-  // Normalize category names for matching (handles "and" vs "&", slight name differences)
+  // Normalize category names for matching (case/whitespace tolerance only —
+  // the canonical names in af_gl_categories now match QBO's ga_category exactly).
   const normalizeCat = (name) => (name || "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "").trim();
-  const QBO_TO_BUDGET_MAP = {
-    "Brand/Other/Marketing": "Brand / Other Marketing",
-    "Consultants": "Consultants & Prof. Services",
-    "Software and Subscriptions": "Software & Subscriptions",
-    "T&E": "Travel & Entertainment",
-    "Non-Fixed and Other": "Non-Fixed & Other",
-  };
+  // Historically Helm's display names (e.g. "Travel & Entertainment") differed
+  // from QBO's ga_category strings (e.g. "T&E"), so this map merged the two.
+  // af_gl_categories.name has been renamed to match QBO, so the map is now
+  // empty and the rest of this block is a no-op kept for shape compatibility
+  // with the helpers below.
+  const QBO_TO_BUDGET_MAP = {};
   // Merge budget-name aliases — both names should have the combined total
   Object.entries(QBO_TO_BUDGET_MAP).forEach(([qboName, budgetName]) => {
     const qboVal = qboByCategory[qboName] || 0;
