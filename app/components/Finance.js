@@ -345,7 +345,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {} } 
         {view === "budgets" && <BudgetsView isMobile={isMobile} glCategories={glCategories} requests={requests} departments={departments} activeBudget={activeBudget} setActiveBudget={setActiveBudget} activeBudgetName={activeBudgetName} setActiveBudgetName={setActiveBudgetName} budgetVersions={budgetVersions} setBudgetVersions={setBudgetVersions} user={user} modulePerms={modulePerms} />}
         {view === "budget_planner" && <BudgetPlanner />}
         {view === "requests" && <RequestsView isMobile={isMobile} requests={requests} addRequest={addRequest} updateRequest={updateRequest} deleteRequest={deleteRequest} members={members} departments={departments} glCodes={glCodes} glCategories={glCategories} rules={rules} activeBudget={activeBudget} myMembership={myMembership} mySpendLimit={mySpendLimit} isAdmin={isAdmin} isApprover={isApprover} user={user} profile={profile} addAuditEntry={addAuditEntry} getDeptSpend={getDeptSpend} />}
-        {view === "rules" && <RulesView isMobile={isMobile} rules={rules} setRules={setRules} glCodes={glCodes} members={members} user={user} />}
+        {view === "rules" && <RulesView isMobile={isMobile} rules={rules} setRules={setRules} glCodes={glCodes} departments={departments} members={members} user={user} />}
         {view === "audit" && <AuditLogView isMobile={isMobile} auditLog={auditLog} />}
         {view === "vendor_spend" && <VendorSpendView isMobile={isMobile} glCodes={glCodes} glCategories={glCategories} departments={departments} />}
       </div>
@@ -3461,13 +3461,28 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         let pass = false;
         if (c.field === "amount") {
           const a = parseFloat(req.amount);
-          if (c.operator === ">") pass = a > parseFloat(c.value);
-          if (c.operator === "<") pass = a < parseFloat(c.value);
-          if (c.operator === "==") pass = a === parseFloat(c.value);
-          if (c.operator === ">=") pass = a >= parseFloat(c.value);
+          const v = parseFloat(c.value);
+          if (c.operator === ">") pass = a > v;
+          else if (c.operator === "<") pass = a < v;
+          else if (c.operator === "==") pass = a === v;
+          else if (c.operator === "!=") pass = a !== v;
+          else if (c.operator === ">=") pass = a >= v;
+          else if (c.operator === "<=") pass = a <= v;
+        } else if (c.field === "gl") {
+          const gl = String(req.gl_code || "");
+          const v = String(c.value || "");
+          const op = c.operator || "is";
+          if (op === "is") pass = gl === v;
+          else if (op === "is_not") pass = gl !== v;
+          else if (op === "starts_with") pass = v.length > 0 && gl.startsWith(v);
+        } else if (c.field === "department") {
+          const d = String(req.department || "");
+          const v = String(c.value || "");
+          const op = c.operator || "is";
+          if (op === "is") pass = d === v;
+          else if (op === "is_not") pass = d !== v;
+          else if (op === "starts_with") pass = v.length > 0 && d.toLowerCase().startsWith(v.toLowerCase());
         }
-        if (c.field === "gl") pass = req.gl_code === c.value;
-        if (c.field === "department") pass = req.department === c.value;
         if (result === null) result = pass;
         else if (conds[i - 1]?.join === "AND") result = result && pass;
         else if (conds[i - 1]?.join === "OR") result = result || pass;
@@ -5668,21 +5683,61 @@ function DepartmentsView({ isMobile, departments, setDepartments, members, reque
 // ═══════════════════════════════════════════════════════════════════════════════
 // RULES ENGINE — IF/THEN approval routing
 // ═══════════════════════════════════════════════════════════════════════════════
-function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
+function RulesView({ isMobile, rules, setRules, glCodes, departments = [], members, user }) {
   const [showNew, setShowNew] = useState(false);
+  const [editingId, setEditingId] = useState(null); // null = new rule, rule.id = edit
   const FORM_DEFAULT = { name: "", description: "", action: "require_manager", conditions: [{ field: "amount", operator: ">", value: "", join: null }] };
   const [form, setForm] = useState(FORM_DEFAULT);
 
+  const openNew = () => { setEditingId(null); setForm(FORM_DEFAULT); setShowNew(true); };
+  const openEdit = (rule) => {
+    setEditingId(rule.id);
+    setForm({
+      name: rule.name || "",
+      description: rule.description || "",
+      action: rule.action || "require_manager",
+      // Backfill operator default for legacy rules where gl/department had no operator stored.
+      conditions: (rule.conditions || []).map(c => ({
+        field: c.field,
+        operator: c.operator || (c.field === "gl" || c.field === "department" ? "is" : ">"),
+        value: c.value ?? "",
+        join: c.join ?? null,
+      })),
+    });
+    setShowNew(true);
+  };
+  const closeForm = () => { setShowNew(false); setEditingId(null); setForm(FORM_DEFAULT); };
+
   const addCond = () => setForm(f => ({ ...f, conditions: [...f.conditions, { field: "amount", operator: ">", value: "", join: "AND" }] }));
-  const updCond = (i, k, v) => setForm(f => { const c = [...f.conditions]; c[i] = { ...c[i], [k]: v }; return { ...f, conditions: c }; });
+  const updCond = (i, k, v) => setForm(f => {
+    const c = [...f.conditions];
+    c[i] = { ...c[i], [k]: v };
+    // When the field changes, reset operator + value to sensible defaults
+    if (k === "field") {
+      if (v === "amount") { c[i].operator = ">"; c[i].value = ""; }
+      else { c[i].operator = "is"; c[i].value = ""; }
+    }
+    return { ...f, conditions: c };
+  });
   const remCond = i => setForm(f => ({ ...f, conditions: f.conditions.filter((_, idx) => idx !== i) }));
 
   const saveRule = async () => {
     if (!form.name.trim()) return;
-    const payload = { name: form.name, description: form.description, action: form.action, conditions: form.conditions, is_active: true, sort_order: rules.length, created_by: user?.id };
-    const { data } = await supabase.from("af_rules").insert(payload).select().single();
-    if (data) setRules(p => [...p, data]);
-    setShowNew(false); setForm(FORM_DEFAULT);
+    const payload = {
+      name: form.name,
+      description: form.description,
+      action: form.action,
+      conditions: form.conditions,
+    };
+    if (editingId) {
+      const { data } = await supabase.from("af_rules").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", editingId).select().single();
+      if (data) setRules(p => p.map(r => r.id === editingId ? data : r));
+    } else {
+      const insertPayload = { ...payload, is_active: true, sort_order: rules.length, created_by: user?.id };
+      const { data } = await supabase.from("af_rules").insert(insertPayload).select().single();
+      if (data) setRules(p => [...p, data]);
+    }
+    closeForm();
   };
 
   const toggleRule = async (id) => {
@@ -5693,12 +5748,26 @@ function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
   };
 
   const deleteRule = async (id) => {
+    if (!confirm("Delete this rule? This can't be undone.")) return;
     await supabase.from("af_rules").delete().eq("id", id);
     setRules(p => p.filter(r => r.id !== id));
   };
 
   const ACTION_LABELS = { require_manager: "Require Manager", require_cfo: "Require CFO", require_cmo: "Require CMO", require_person: "Require Specific Person", auto_approve: "Auto-Approve", block: "Block Request" };
   const FIELD_LABELS = { amount: "Amount ($)", gl: "GL Code", department: "Department" };
+  const OP_LABELS = { ">": ">", "<": "<", "==": "==", "!=": "≠", ">=": "≥", "<=": "≤", is: "is", is_not: "is not", starts_with: "starts with" };
+
+  // For display, render GL value as "60010 · Salaries" if we can resolve the code
+  const renderCondValue = (c) => {
+    if (c.field === "gl" && (c.operator === "is" || c.operator === "is_not")) {
+      const g = glCodes.find(x => x.code === c.value);
+      return g ? `${g.code} · ${g.name}` : c.value;
+    }
+    if (c.field === "gl" && c.operator === "starts_with") return `"${c.value}…"`;
+    return c.value;
+  };
+
+  const topLevelDepts = (departments || []).filter(d => !d.parent_id);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -5707,17 +5776,17 @@ function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
           <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Approval Rules Engine</div>
           <div style={{ fontSize: 12, color: T.text3 }}>IF → THEN logic for automated approval routing</div>
         </div>
-        <button onClick={() => setShowNew(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Rule</button>
+        <button onClick={openNew} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Rule</button>
       </div>
 
       <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: T.text3 }}>
-        Rules evaluate top-to-bottom on every request. First match wins. Conditions support AND / OR chaining.
+        Rules evaluate top-to-bottom on every request. First match wins. Conditions support AND / OR chaining. GL Code supports <strong>starts with</strong> for matching whole buckets (e.g. "60" catches every Salaries account).
       </div>
 
       {rules.map((rule, idx) => (
         <Card key={rule.id} style={{ opacity: rule.is_active ? 1 : 0.5 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, cursor: "pointer" }} onClick={() => openEdit(rule)}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                 <span style={{ background: T.accent, color: "#fff", borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>Rule {idx + 1}</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{rule.name}</span>
@@ -5729,7 +5798,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
                   <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                     {ci > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#7C3AED", background: "#EDE9FE", padding: "2px 6px", borderRadius: 4 }}>{cond.join}</span>}
                     <span style={{ background: T.surface2, padding: "3px 8px", borderRadius: 6, fontSize: 11 }}>
-                      {FIELD_LABELS[cond.field] || cond.field} {cond.operator} {cond.value}
+                      {FIELD_LABELS[cond.field] || cond.field} {OP_LABELS[cond.operator] || cond.operator} {renderCondValue(cond)}
                     </span>
                   </span>
                 ))}
@@ -5739,6 +5808,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
               {rule.description && <div style={{ fontSize: 11, color: T.text3 }}>{rule.description}</div>}
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <button onClick={() => openEdit(rule)} style={{ padding: "5px 10px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text3, cursor: "pointer", fontWeight: 600 }}>Edit</button>
               <button onClick={() => toggleRule(rule.id)} style={{ padding: "5px 10px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, background: rule.is_active ? T.surface2 : "#D1FAE5", color: rule.is_active ? T.text3 : "#065F46", cursor: "pointer", fontWeight: 600 }}>{rule.is_active ? "Disable" : "Enable"}</button>
               <button onClick={() => deleteRule(rule.id)} style={{ padding: "5px 8px", fontSize: 11, border: "1px solid #ef444440", borderRadius: 6, background: "transparent", color: "#EF4444", cursor: "pointer" }}>✕</button>
             </div>
@@ -5746,11 +5816,11 @@ function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
         </Card>
       ))}
 
-      {/* New rule modal */}
+      {/* New / edit rule modal */}
       {showNew && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowNew(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, padding: 24, width: "min(600px, 95vw)", maxHeight: "80vh", overflow: "auto" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Approval Rule</div>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={closeForm}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 16, padding: 24, width: "min(640px, 95vw)", maxHeight: "85vh", overflow: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>{editingId ? "Edit Approval Rule" : "New Approval Rule"}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
                 <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Rule Name *</div>
@@ -5767,16 +5837,54 @@ function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 8 }}>Conditions (IF)</div>
                 {form.conditions.map((cond, idx) => (
-                  <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                    {idx > 0 && <select value={cond.join} onChange={e => updCond(idx, "join", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: "#EDE9FE", color: "#5B21B6", fontWeight: 700, width: 60 }}><option value="AND">AND</option><option value="OR">OR</option></select>}
+                  <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+                    {idx > 0 && (
+                      <select value={cond.join} onChange={e => updCond(idx, "join", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: "#EDE9FE", color: "#5B21B6", fontWeight: 700, width: 64 }}>
+                        <option value="AND">AND</option><option value="OR">OR</option>
+                      </select>
+                    )}
                     <select value={cond.field} onChange={e => updCond(idx, "field", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
                       <option value="amount">Amount ($)</option><option value="gl">GL Code</option><option value="department">Department</option>
                     </select>
-                    {cond.field === "amount" && <select value={cond.operator} onChange={e => updCond(idx, "operator", e.target.value)} style={{ padding: "6px 6px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, width: 50, background: T.surface2, color: T.text }}>
-                      {["==","!=",">","<",">=","<="].map(op => <option key={op} value={op}>{op}</option>)}
-                    </select>}
-                    <input value={cond.value} onChange={e => updCond(idx, "value", e.target.value)} placeholder="Value…"
-                      style={{ flex: 1, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, outline: "none" }} />
+                    {cond.field === "amount" && (
+                      <select value={cond.operator} onChange={e => updCond(idx, "operator", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
+                        {[">", "<", "==", "!=", ">=", "<="].map(op => <option key={op} value={op}>{op}</option>)}
+                      </select>
+                    )}
+                    {cond.field === "gl" && (
+                      <select value={cond.operator} onChange={e => updCond(idx, "operator", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
+                        <option value="is">is</option><option value="is_not">is not</option><option value="starts_with">starts with</option>
+                      </select>
+                    )}
+                    {cond.field === "department" && (
+                      <select value={cond.operator} onChange={e => updCond(idx, "operator", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
+                        <option value="is">is</option><option value="is_not">is not</option><option value="starts_with">starts with</option>
+                      </select>
+                    )}
+                    {/* Value input — varies by field + operator */}
+                    {cond.field === "amount" && (
+                      <input type="number" value={cond.value} onChange={e => updCond(idx, "value", e.target.value)} placeholder="0.00"
+                        style={{ flex: 1, minWidth: 120, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, outline: "none" }} />
+                    )}
+                    {cond.field === "gl" && (cond.operator === "is" || cond.operator === "is_not") && (
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <GLCodePicker value={cond.value} onChange={code => updCond(idx, "value", code)} codes={glCodes} placeholder="Pick a GL code…" style={{ padding: "6px 10px", fontSize: 12, borderRadius: 6 }} />
+                      </div>
+                    )}
+                    {cond.field === "gl" && cond.operator === "starts_with" && (
+                      <input value={cond.value} onChange={e => updCond(idx, "value", e.target.value)} placeholder='e.g. "60" matches all 6XXXX'
+                        style={{ flex: 1, minWidth: 160, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, outline: "none", fontFamily: "ui-monospace, monospace" }} />
+                    )}
+                    {cond.field === "department" && (cond.operator === "is" || cond.operator === "is_not") && (
+                      <select value={cond.value} onChange={e => updCond(idx, "value", e.target.value)} style={{ flex: 1, minWidth: 140, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, cursor: "pointer" }}>
+                        <option value="">Pick a department…</option>
+                        {topLevelDepts.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                      </select>
+                    )}
+                    {cond.field === "department" && cond.operator === "starts_with" && (
+                      <input value={cond.value} onChange={e => updCond(idx, "value", e.target.value)} placeholder="e.g. Mark"
+                        style={{ flex: 1, minWidth: 140, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, outline: "none" }} />
+                    )}
                     {form.conditions.length > 1 && <button onClick={() => remCond(idx)} style={{ background: "#FEE2E2", border: "none", borderRadius: 6, padding: "6px 8px", cursor: "pointer", color: "#991B1B", fontSize: 10, fontWeight: 700 }}>✕</button>}
                   </div>
                 ))}
@@ -5793,8 +5901,8 @@ function RulesView({ isMobile, rules, setRules, glCodes, members, user }) {
               </div>
 
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => setShowNew(false)} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
-                <button onClick={saveRule} disabled={!form.name.trim() || form.conditions.some(c => !c.value)} style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Save Rule</button>
+                <button onClick={closeForm} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveRule} disabled={!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null)} style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) ? 0.5 : 1 }}>{editingId ? "Update Rule" : "Save Rule"}</button>
               </div>
             </div>
           </div>
