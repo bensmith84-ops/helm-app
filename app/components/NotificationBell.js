@@ -83,10 +83,13 @@ export default function NotificationBell({ setActive }) {
     const today = new Date().toISOString().split("T")[0];
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
 
-    // Check for overdue tasks assigned to me
+    // Check for overdue tasks assigned to me — only those that live under a
+    // project, since orphan tasks (project_id NULL) don't appear in the
+    // Projects UI and there's nowhere for the user to see/action them.
     const { data: overdueTasks } = await supabase.from("tasks")
       .select("id,title,due_date").eq("assignee_id", user.id)
       .lt("due_date", today).neq("status","done").neq("status","cancelled")
+      .not("project_id", "is", null)
       .limit(5);
 
     for (const task of (overdueTasks || [])) {
