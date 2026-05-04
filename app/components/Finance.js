@@ -3441,7 +3441,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (isApprover && r.status === "pending") return true; // pending items visible to approvers
     return false;
   });
-  const filtered = myRequests.filter(r => filter === "all" || r.status === filter);
+  const filtered = myRequests.filter(r => {
+    if (filter === "all") return true;
+    if (filter === "pending") return ["pending", "conditionally_approved", "conditionally_approved_info_added"].includes(r.status);
+    return r.status === filter;
+  });
   const selReq = requests.find(r => r.id === selected);
   const isMyRequest = selReq?.requester_id === user?.id;
   const canEditRequest = isMyRequest && (selReq?.status === "pending" || selReq?.status === "resubmit");
@@ -3572,6 +3576,32 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     setEditMode(false);
   };
 
+  // ── Slack notification helper (status changes) ────────────────────────────
+  const notifyStatusChange = (req, { title, message, type = "approval", extraFields = [] } = {}) => {
+    if (!req) return;
+    const requester = members.find(m => m.user_id === req.requester_id);
+    const requesterName = requester?.profiles?.display_name || requester?.profiles?.email || "Unknown";
+    const actorName = profile?.display_name || profile?.email || "Someone";
+    const gl = glCodes.find(g => g.code === req.gl_code);
+    const fields = [
+      { label: "Requester", value: requesterName },
+      { label: "Amount", value: fmt(req.amount) + (req.cost_type === "recurring" && req.recurring_frequency ? ` /${req.recurring_frequency}` : "") },
+      { label: "Department", value: req.department || "—" },
+      { label: "GL Code", value: gl ? `${gl.code} · ${gl.name}` : (req.gl_code || "—") },
+    ];
+    if (req.matched_rule_name) fields.push({ label: "Rule Applied", value: `⚡ ${req.matched_rule_name}` });
+    fields.push({ label: "Action by", value: actorName });
+    extraFields.forEach(f => fields.push(f));
+    notifySlack({
+      type,
+      channel: "ben",
+      title,
+      message,
+      fields,
+      url: "https://helm-app-six.vercel.app",
+    });
+  };
+
   const doApprove = async () => {
     if (!selReq) return;
     const isPersonChain = (selReq.approval_chain || "").startsWith("person_");
@@ -3585,6 +3615,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     };
     await updateRequest(selReq.id, patch);
     addAuditEntry(done ? "Request approved" : `Approval step ${newStep} completed`, `"${selReq.title}" ${done ? "fully approved" : "step approved"}`, selReq.id);
+    notifyStatusChange(selReq, {
+      type: done ? "finance" : "approval",
+      title: done ? "Spend approved ✅" : `Approval step ${newStep} completed`,
+      message: done ? `*${selReq.title}* has been fully approved.` : `*${selReq.title}* — moved to next approval step.`,
+    });
     setSelected(null);
   };
 
@@ -3592,6 +3627,12 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "rejected", rejection_note: rejectNote, rejected_by: user.id, rejected_at: new Date().toISOString().slice(0, 10) });
     addAuditEntry("Request rejected", `"${selReq.title}" — ${rejectNote || "no reason"}`, selReq.id);
+    notifyStatusChange(selReq, {
+      type: "alert",
+      title: "Spend rejected ❌",
+      message: `*${selReq.title}* was rejected.`,
+      extraFields: rejectNote ? [{ label: "Reason", value: rejectNote.slice(0, 240) }] : [],
+    });
     setRejectNote(""); setShowReject(false); setSelected(null);
   };
 
@@ -3599,6 +3640,12 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "conditionally_approved", conditional_note: conditionalNote, conditional_by: user.id, conditional_at: new Date().toISOString().slice(0, 10) });
     addAuditEntry("Additional info required", `"${selReq.title}" — ${conditionalNote}`, selReq.id);
+    notifyStatusChange(selReq, {
+      type: "approval",
+      title: "More info requested ℹ️",
+      message: `Additional information was requested on *${selReq.title}*.`,
+      extraFields: conditionalNote ? [{ label: "What's needed", value: conditionalNote.slice(0, 240) }] : [],
+    });
     setConditionalNote(""); setShowConditional(false); setSelected(null);
   };
 
@@ -3607,6 +3654,12 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     const patch = { status: "conditionally_approved_info_added", added_info: resubEdits.added_info, resubmitted_at: new Date().toISOString().slice(0, 10), title: resubEdits.title || selReq.title, amount: resubEdits.amount ? parseFloat(resubEdits.amount) : selReq.amount, gl_code: resubEdits.gl_code || selReq.gl_code, description: resubEdits.description ?? selReq.description, department: resubEdits.department || selReq.department };
     await updateRequest(selReq.id, patch);
     addAuditEntry("Info added — resubmitted", `"${selReq.title}"`, selReq.id);
+    notifyStatusChange({ ...selReq, ...patch }, {
+      type: "approval",
+      title: "Info submitted — ready to review 👀",
+      message: `Additional info was provided on *${patch.title}*.`,
+      extraFields: [{ label: "Info added", value: resubEdits.added_info.slice(0, 240) }],
+    });
     setShowResubmit(false); setResubEdits({}); setSelected(null);
   };
 
@@ -3614,6 +3667,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "pending", approval_step: 0, rejection_note: null, rejected_by: null, rejected_at: null });
     addAuditEntry("Reinstated to pending", `"${selReq.title}"`, selReq.id);
+    notifyStatusChange(selReq, {
+      type: "approval",
+      title: "Spend reinstated 🔄",
+      message: `*${selReq.title}* was reinstated to pending.`,
+    });
     setSelected(null);
   };
 
@@ -3621,6 +3679,12 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "removal_requested", removal_reason: removalReason, removal_requested_by: user.id, removal_requested_at: new Date().toISOString().slice(0, 10) });
     addAuditEntry("Removal requested", `"${selReq.title}" — ${removalReason || "no reason"}`, selReq.id);
+    notifyStatusChange(selReq, {
+      type: "approval",
+      title: "Removal requested 🗑️",
+      message: `Removal of *${selReq.title}* was requested.`,
+      extraFields: removalReason ? [{ label: "Reason", value: removalReason.slice(0, 240) }] : [],
+    });
     setRemovalReason(""); setShowRemoval(false); setSelected(null);
   };
 
@@ -3628,6 +3692,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "removed", removed_by: user.id, removed_at: new Date().toISOString().slice(0, 10) });
     addAuditEntry("Removal approved", `"${selReq.title}" removed — budget reversed`, selReq.id);
+    notifyStatusChange(selReq, {
+      type: "alert",
+      title: "Spend removed 🗑️",
+      message: `*${selReq.title}* has been removed — budget reversed.`,
+    });
     setSelected(null);
   };
 
@@ -3635,6 +3704,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "approved", removal_reason: null, removal_requested_by: null, removal_requested_at: null });
     addAuditEntry("Removal denied", `"${selReq.title}" stays approved`, selReq.id);
+    notifyStatusChange(selReq, {
+      type: "approval",
+      title: "Removal denied",
+      message: `*${selReq.title}* stays approved — removal denied.`,
+    });
     setSelected(null);
   };
 
