@@ -341,6 +341,39 @@ export default function PeopleView() {
     setMemberships(p => p.map(m => m.id === om.id ? { ...m, module_permissions: updated } : m));
   };
   const toggleProjectAccess = async (uid, projectId) => { const existing = projectMembers.find(pm => pm.user_id === uid && pm.project_id === projectId); if (existing) { await supabase.from("project_members").delete().eq("org_id", orgId).eq("id", existing.id); setProjectMembers(p => p.filter(pm => pm.id !== existing.id)); } else { const { data, error } = await supabase.from("project_members").insert({ project_id: projectId, user_id: uid, role: "member" }).select().single(); if (!error && data) setProjectMembers(p => [...p, data]); } };
+
+  // ── External-collaborator edit handlers (used by the People > External
+  //    Collaborators section). All write to project_members directly and
+  //    keep both the master projectMembers list and the derived externals
+  //    state in sync so the UI updates without a refetch.
+  const updateExternalRole = async (uid, projectId, newRole) => {
+    await supabase.from("project_members").update({ role: newRole })
+      .eq("org_id", orgId).eq("project_id", projectId).eq("user_id", uid);
+    setProjectMembers(p => p.map(pm => (pm.user_id === uid && pm.project_id === projectId) ? { ...pm, role: newRole } : pm));
+    setExternals(p => p.map(ext => ext.profile.id !== uid ? ext : ({
+      ...ext, projects: ext.projects.map(pj => pj.id === projectId ? { ...pj, role: newRole } : pj),
+    })));
+  };
+  const updateExternalScope = async (uid, projectId, key, value) => {
+    const existing = projectMembers.find(pm => pm.user_id === uid && pm.project_id === projectId);
+    const nextScope = { ...(existing?.access_scope || {}), [key]: value };
+    await supabase.from("project_members").update({ access_scope: nextScope })
+      .eq("org_id", orgId).eq("project_id", projectId).eq("user_id", uid);
+    setProjectMembers(p => p.map(pm => (pm.user_id === uid && pm.project_id === projectId) ? { ...pm, access_scope: nextScope } : pm));
+    setExternals(p => p.map(ext => ext.profile.id !== uid ? ext : ({
+      ...ext, projects: ext.projects.map(pj => pj.id === projectId ? { ...pj, access_scope: nextScope } : pj),
+    })));
+  };
+  const removeExternalFromProject = async (uid, projectId, projectName) => {
+    if (!confirm(`Remove this user from "${projectName}"? They'll lose all access to this project.`)) return;
+    await supabase.from("project_members").delete()
+      .eq("org_id", orgId).eq("project_id", projectId).eq("user_id", uid);
+    setProjectMembers(p => p.filter(pm => !(pm.user_id === uid && pm.project_id === projectId)));
+    setExternals(p => p
+      .map(ext => ext.profile.id !== uid ? ext : ({ ...ext, projects: ext.projects.filter(pj => pj.id !== projectId) }))
+      .filter(ext => ext.projects.length > 0) // drop the user entirely if no projects left
+    );
+  };
   const deactivateUser = async (uid) => { const om = getMembership(uid); if (!om) return; const newActive = !om.is_active; const updates = { is_active: newActive }; if (!newActive) updates.deactivated_at = new Date().toISOString(); else updates.deactivated_at = null; const { error } = await supabase.from("org_memberships").update(updates).eq("org_id", orgId).eq("id", om.id); if (error) return showToast("Failed to update"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, ...updates } : m)); showToast(newActive ? "User reactivated" : "User deactivated", "success"); };
   const removeUser = async (uid) => {
     try {
@@ -1504,28 +1537,45 @@ export default function PeopleView() {
                     </div>
                     <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "#f59e0b15", color: "#f59e0b", letterSpacing: 0.5 }}>EXTERNAL</span>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingLeft: 42 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingLeft: 42 }}>
                     {eprojects.map(pj => {
                       const scope = pj.access_scope || {};
-                      const scopeLabels = [
-                        scope.tasks ? "Tasks" : null,
-                        scope.documents ? "Docs" : null,
-                        scope.messages ? "Messages" : null,
-                      ].filter(Boolean);
                       return (
-                        <div key={pj.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 11 }}>
-                          {pj.color && <span style={{ width: 6, height: 6, borderRadius: 3, background: pj.color, flexShrink: 0 }} />}
-                          <span style={{ color: T.text, fontWeight: 500 }}>{pj.name}</span>
-                          <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.surface2, color: T.text3, fontWeight: 600, textTransform: "capitalize" }}>{pj.role}</span>
-                          <span style={{ color: T.text3, marginLeft: "auto" }}>
-                            {scopeLabels.length > 0 ? `Access: ${scopeLabels.join(" · ")}` : <span style={{ color: "#EF4444" }}>No access</span>}
+                        <div key={pj.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.surface2, borderRadius: 6, fontSize: 11, flexWrap: "wrap" }}>
+                          {pj.color && <span style={{ width: 8, height: 8, borderRadius: 4, background: pj.color, flexShrink: 0 }} />}
+                          <span style={{ color: T.text, fontWeight: 600, minWidth: 140 }}>{pj.name}</span>
+                          <select value={pj.role} onChange={e => updateExternalRole(ep.id, pj.id, e.target.value)}
+                            style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, outline: "none", cursor: "pointer" }}>
+                            <option value="editor">Editor</option>
+                            <option value="commenter">Commenter</option>
+                            <option value="viewer">Viewer</option>
+                            <option value="member">Member</option>
+                          </select>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, marginLeft: 4 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>Access:</span>
+                            {[
+                              { key: "tasks", label: "Tasks" },
+                              { key: "documents", label: "Docs" },
+                              { key: "messages", label: "Messages" },
+                            ].map(({ key, label }) => {
+                              const on = scope[key] === true;
+                              return (
+                                <label key={key} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: on ? T.text : T.text3, cursor: "pointer", userSelect: "none" }}>
+                                  <input type="checkbox" checked={on} onChange={e => updateExternalScope(ep.id, pj.id, key, e.target.checked)}
+                                    style={{ width: 12, height: 12, cursor: "pointer", accentColor: T.accent }} />
+                                  {label}
+                                </label>
+                              );
+                            })}
                           </span>
+                          <button onClick={() => removeExternalFromProject(ep.id, pj.id, pj.name)}
+                            title="Remove from project"
+                            style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: "2px 6px", borderRadius: 4 }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "#FEE2E2"; e.currentTarget.style.color = "#991B1B"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = T.text3; }}>✕</button>
                         </div>
                       );
                     })}
-                  </div>
-                  <div style={{ fontSize: 10, color: T.text3, marginTop: 6, paddingLeft: 42 }}>
-                    To change roles or fine-tune access, open the project and click <strong>Project Members</strong>.
                   </div>
                 </div>
               ))}
