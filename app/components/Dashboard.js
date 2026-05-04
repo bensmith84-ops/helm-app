@@ -901,9 +901,15 @@ export default function DashboardView({ setActive }) {
         amount: r.amount, description: `${r.department || "—"} · ${r.gl_code || "—"}`,
         module: "finance", created_at: r.created_at, _type: "spend",
         requester_id: r.requester_id,
+        requester_name: profMap[r.requester_id]?.display_name || "Unknown",
+        matched_rule_name: r.matched_rule_name || null,
+        approvals: r.approvals || [],
       }));
       // Also filter general approval_requests — exclude own
-      const myApprovals = (approvals || []).filter(r => r.requester_id !== profile?.id);
+      const myApprovals = (approvals || []).filter(r => r.requester_id !== profile?.id).map(r => ({
+        ...r,
+        requester_name: profMap[r.requester_id]?.display_name || "Unknown",
+      }));
       setPendingApprovals([...myApprovals, ...mySpendApprovals]);
       setPlmPrograms(plm || []);
       setRecentActivity(activity || []);
@@ -1570,9 +1576,13 @@ export default function DashboardView({ setActive }) {
                 {pendingApprovals.map(req => (
                   <div key={req.id} style={{ padding:"10px 12px", background:T.surface2, borderRadius:9, border:`1px solid ${T.border}` }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-                      <div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize:13, fontWeight:600 }}>{req.entity_name || req.entity_type}</div>
-                        {req._type === "spend" && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#f59e0b18", color:"#f59e0b" }}>SPEND REQUEST</span>}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
+                          {req._type === "spend" && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#f59e0b18", color:"#f59e0b" }}>SPEND REQUEST</span>}
+                          {req.requester_name && <span style={{ fontSize: 10, color: T.text3 }}>by <span style={{ fontWeight: 600, color: T.text2 }}>{req.requester_name}</span></span>}
+                          {req.matched_rule_name && <span title={`Rule applied: ${req.matched_rule_name}`} style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#FEF3C7", color: "#92400E", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>⚡ {req.matched_rule_name}</span>}
+                        </div>
                       </div>
                       {req.amount && <div style={{ fontSize:13, fontWeight:700, color:"#f97316" }}>{fmt$(req.amount)}</div>}
                     </div>

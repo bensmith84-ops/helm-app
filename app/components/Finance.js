@@ -3632,16 +3632,19 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         filtered.map(req => {
           const gl = glCodes.find(g => g.code === req.gl_code);
           const freqShort = { monthly: "mo", quarterly: "qtr", weekly: "wk", annually: "yr" }[req.recurring_frequency] || "";
+          const requester = members.find(m => m.user_id === req.requester_id);
+          const requesterName = requester?.profiles?.display_name || requester?.profiles?.email || "Unknown";
           return (
             <Card key={req.id} onClick={() => setSelected(req.id)} style={{ padding: "14px 16px", cursor: "pointer" }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{req.title}</span>
-                    {req.matched_rule_name && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 6px", borderRadius: 8, fontWeight: 600 }}>⚡ Rule</span>}
+                    {req.matched_rule_name && <span title={`Rule applied: ${req.matched_rule_name}`} style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 6px", borderRadius: 8, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>⚡ {req.matched_rule_name}</span>}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text3, flexWrap: "wrap" }}>
-                    <span>{req.department}</span>
+                    <span style={{ fontWeight: 600, color: T.text2 }}>{requesterName}</span>
+                    <span>· {req.department}</span>
                     {gl && <span>· {gl.name}</span>}
                     <span>· {req.date}</span>
                     {req.cost_type === "recurring" && <span style={{ fontSize: 10, fontWeight: 700, background: "#EDE9FE", color: "#5B21B6", padding: "1px 6px", borderRadius: 8 }}>↻ {req.recurring_frequency}</span>}
@@ -3812,10 +3815,24 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{selReq.title}</div>
-                <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>{selReq.department} · {selReq.date}</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>
+                  {(() => { const rq = members.find(m => m.user_id === selReq.requester_id); const nm = rq?.profiles?.display_name || rq?.profiles?.email || "Unknown"; return <span>Requested by <span style={{ fontWeight: 700, color: T.text2 }}>{nm}</span></span>; })()}
+                  {" · "}{selReq.department} · {selReq.date}
+                </div>
               </div>
               <Badge status={selReq.status} />
             </div>
+
+            {/* Rule applied banner */}
+            {selReq.matched_rule_name && (
+              <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 12px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14 }}>⚡</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase" }}>Rule Applied</div>
+                  <div style={{ fontSize: 12, color: "#78350F", fontWeight: 600 }}>{selReq.matched_rule_name}</div>
+                </div>
+              </div>
+            )}
 
             {/* Approval chain */}
             <div style={{ background: T.surface2, borderRadius: 10, padding: 16, marginBottom: 16 }}>
