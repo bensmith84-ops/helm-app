@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth";
 import { useResponsive } from "../lib/responsive";
 import BudgetPlanner from "./BudgetPlanner";
 import { notifySlack, notifySlackUpdate } from "../lib/slack";
+import { getBudgetSnapshot } from "../lib/budgetSnapshot";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FINANCE MODULE — ApproveFlow merged into Helm
@@ -3398,6 +3399,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   const [showConditional, setShowConditional] = useState(false);
   const [showResubmit, setShowResubmit] = useState(false);
   const [resubEdits, setResubEdits] = useState({});
+  // Budget snapshot for the GL category of the currently-selected request.
+  // Loaded on demand when the detail modal opens so the approver can see how
+  // much room they have in the parent bucket before clicking Approve.
+  const [budgetSnap, setBudgetSnap] = useState(null);
+  const [budgetSnapLoading, setBudgetSnapLoading] = useState(false);
   const [showRemoval, setShowRemoval] = useState(false);
   const [removalReason, setRemovalReason] = useState("");
 
@@ -3449,6 +3455,27 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   const selReq = requests.find(r => r.id === selected);
   const isMyRequest = selReq?.requester_id === user?.id;
   const canEditRequest = isMyRequest && (selReq?.status === "pending" || selReq?.status === "resubmit");
+
+  // Load the budget snapshot whenever a different request is selected.
+  // Only run when we actually have a GL code — otherwise the helper would
+  // return hasPlan: false anyway. The request being reviewed is excluded
+  // from the "approved" totals so we don't double-count it.
+  useEffect(() => {
+    if (!selReq?.gl_code || !orgId) { setBudgetSnap(null); return; }
+    let cancelled = false;
+    setBudgetSnapLoading(true);
+    getBudgetSnapshot({
+      glCode: selReq.gl_code,
+      orgId,
+      atDate: selReq.date,
+      requestId: selReq.id,
+    }).then(snap => {
+      if (!cancelled) { setBudgetSnap(snap); setBudgetSnapLoading(false); }
+    }).catch(() => {
+      if (!cancelled) { setBudgetSnap(null); setBudgetSnapLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [selReq?.id, selReq?.gl_code, orgId]);
 
   const evaluateRules = (req) => {
     const hits = [];
@@ -3565,6 +3592,23 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       ];
       if (matchedRule) fields.push({ label: "Rule Applied", value: `⚡ ${matchedRule.name}` });
       if (form.description) fields.push({ label: "Description", value: form.description.slice(0, 240) });
+      // Budget impact for the parent category — best-effort, don't block submit if it fails.
+      try {
+        if (form.gl_code) {
+          const snap = await getBudgetSnapshot({ glCode: form.gl_code, orgId, atDate: req.date, requestId: data?.id });
+          if (snap?.hasPlan) {
+            const monthAfter = snap.monthRemaining - amt;
+            const ytdAfter = snap.ytdRemaining - amt;
+            const monthPctAfter = snap.monthBudget > 0 ? Math.round(((snap.monthSpent + amt) / snap.monthBudget) * 100) : null;
+            const ytdPctAfter = snap.ytdBudget > 0 ? Math.round(((snap.ytdSpent + amt) / snap.ytdBudget) * 100) : null;
+            const flag = (monthAfter < 0 || ytdAfter < 0) ? "🚨 " : "";
+            fields.push({
+              label: "Budget Impact",
+              value: `${flag}*${snap.categoryName}*\nMonth: ${fmt(snap.monthSpent)}/${fmt(snap.monthBudget)} → after: ${fmt(monthAfter)} left${monthPctAfter != null ? ` (${monthPctAfter}%)` : ""}\nYTD: ${fmt(snap.ytdSpent)}/${fmt(snap.ytdBudget)} → after: ${fmt(ytdAfter)} left${ytdPctAfter != null ? ` (${ytdPctAfter}%)` : ""}`,
+            });
+          }
+        }
+      } catch (e) { console.warn("Budget snapshot for Slack failed:", e); }
       if (isAuto) {
         notifySlack({
           type: "finance",
@@ -3997,6 +4041,72 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 </div>
               </div>
             )}
+
+            {/* Budget impact for the parent GL category */}
+            {(() => {
+              if (budgetSnapLoading) {
+                return <div style={{ background: T.surface2, borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 11, color: T.text3 }}>Loading budget impact…</div>;
+              }
+              if (!budgetSnap?.hasPlan) return null;
+              const reqAmt = Number(selReq.amount || 0);
+              const monthAfter = budgetSnap.monthRemaining - reqAmt;
+              const ytdAfter = budgetSnap.ytdRemaining - reqAmt;
+              const monthPctAfter = budgetSnap.monthBudget > 0 ? (budgetSnap.monthSpent + reqAmt) / budgetSnap.monthBudget : null;
+              const ytdPctAfter = budgetSnap.ytdBudget > 0 ? (budgetSnap.ytdSpent + reqAmt) / budgetSnap.ytdBudget : null;
+              const wouldOverMonth = monthAfter < 0;
+              const wouldOverYtd = ytdAfter < 0;
+              const monthPctText = monthPctAfter != null ? `${Math.round(monthPctAfter * 100)}%` : "—";
+              const ytdPctText = ytdPctAfter != null ? `${Math.round(ytdPctAfter * 100)}%` : "—";
+              const Bar = ({ pct, danger }) => {
+                if (pct == null) return null;
+                const w = Math.min(100, Math.max(0, pct * 100));
+                const overflow = pct > 1;
+                return (
+                  <div style={{ height: 5, background: T.border, borderRadius: 3, overflow: "hidden", marginTop: 4 }}>
+                    <div style={{ width: `${overflow ? 100 : w}%`, height: "100%", background: danger || overflow ? "#EF4444" : pct > 0.8 ? "#F59E0B" : "#10B981", borderRadius: 3, transition: "width 0.3s" }} />
+                  </div>
+                );
+              };
+              return (
+                <div style={{ background: T.surface2, border: `1px solid ${wouldOverMonth || wouldOverYtd ? "#EF444440" : T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Budget Impact · {budgetSnap.categoryName}</div>
+                    {(wouldOverMonth || wouldOverYtd) && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "#FEE2E2", color: "#991B1B" }}>OVER BUDGET</span>}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {/* This month */}
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 2 }}>THIS MONTH</div>
+                      <div style={{ fontSize: 12, color: T.text }}>
+                        {fmt(budgetSnap.monthSpent)} of {fmt(budgetSnap.monthBudget)}
+                        <span style={{ color: T.text3, marginLeft: 4 }}>({budgetSnap.monthPct != null ? Math.round(budgetSnap.monthPct * 100) : "—"}%)</span>
+                      </div>
+                      <Bar pct={budgetSnap.monthPct} />
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
+                        After this approval: <span style={{ fontWeight: 700, color: wouldOverMonth ? "#EF4444" : T.text }}>{fmt(monthAfter)} left</span> <span style={{ color: T.text3 }}>({monthPctText})</span>
+                      </div>
+                    </div>
+                    {/* YTD */}
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 2 }}>YTD</div>
+                      <div style={{ fontSize: 12, color: T.text }}>
+                        {fmt(budgetSnap.ytdSpent)} of {fmt(budgetSnap.ytdBudget)}
+                        <span style={{ color: T.text3, marginLeft: 4 }}>({budgetSnap.ytdPct != null ? Math.round(budgetSnap.ytdPct * 100) : "—"}%)</span>
+                      </div>
+                      <Bar pct={budgetSnap.ytdPct} />
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
+                        After this approval: <span style={{ fontWeight: 700, color: wouldOverYtd ? "#EF4444" : T.text }}>{fmt(ytdAfter)} left</span> <span style={{ color: T.text3 }}>({ytdPctText})</span>
+                      </div>
+                    </div>
+                  </div>
+                  {(budgetSnap.monthApproved > 0 || budgetSnap.ytdApproved > 0) && (
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+                      <em>Spent includes approved-but-unpaid: {fmt(budgetSnap.monthApproved)} this month / {fmt(budgetSnap.ytdApproved)} YTD</em>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Approval chain */}
             <div style={{ background: T.surface2, borderRadius: 10, padding: 16, marginBottom: 16 }}>
