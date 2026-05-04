@@ -3598,15 +3598,23 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         if (form.gl_code && profile?.org_id) {
           const snap = await getBudgetSnapshot({ glCode: form.gl_code, orgId: profile.org_id, atDate: req.date, requestId: data?.id });
           if (snap?.hasPlan) {
-            const monthAfter = snap.monthRemaining - amt;
-            const ytdAfter = snap.ytdRemaining - amt;
-            const monthPctAfter = snap.monthBudget > 0 ? Math.round(((snap.monthSpent + amt) / snap.monthBudget) * 100) : null;
-            const ytdPctAfter = snap.ytdBudget > 0 ? Math.round(((snap.ytdSpent + amt) / snap.ytdBudget) * 100) : null;
-            const flag = (monthAfter < 0 || ytdAfter < 0) ? "🚨 " : "";
-            fields.push({
-              label: "Budget Impact",
-              value: `${flag}*${snap.categoryName}*\nMonth: ${fmt(snap.monthSpent)}/${fmt(snap.monthBudget)} → after: ${fmt(monthAfter)} left${monthPctAfter != null ? ` (${monthPctAfter}%)` : ""}\nYTD: ${fmt(snap.ytdSpent)}/${fmt(snap.ytdBudget)} → after: ${fmt(ytdAfter)} left${ytdPctAfter != null ? ` (${ytdPctAfter}%)` : ""}`,
-            });
+            if (snap.hasBudget) {
+              const monthAfter = snap.monthRemaining - amt;
+              const ytdAfter = snap.ytdRemaining - amt;
+              const monthPctAfter = snap.monthBudget > 0 ? Math.round(((snap.monthSpent + amt) / snap.monthBudget) * 100) : null;
+              const ytdPctAfter = snap.ytdBudget > 0 ? Math.round(((snap.ytdSpent + amt) / snap.ytdBudget) * 100) : null;
+              const flag = (monthAfter < 0 || ytdAfter < 0) ? "🚨 " : "";
+              fields.push({
+                label: "Budget Impact",
+                value: `${flag}*${snap.categoryName}*\nMonth: ${fmt(snap.monthSpent)}/${fmt(snap.monthBudget)} → after: ${fmt(monthAfter)} left${monthPctAfter != null ? ` (${monthPctAfter}%)` : ""}\nYTD: ${fmt(snap.ytdSpent)}/${fmt(snap.ytdBudget)} → after: ${fmt(ytdAfter)} left${ytdPctAfter != null ? ` (${ytdPctAfter}%)` : ""}`,
+              });
+            } else {
+              // Actuals exist but no budget set — still useful context.
+              fields.push({
+                label: "Spend So Far",
+                value: `*${snap.categoryName}* (no budget set)\nMonth: ${fmt(snap.monthSpent)} · YTD: ${fmt(snap.ytdSpent)}`,
+              });
+            }
           }
         }
       } catch (e) { console.warn("Budget snapshot for Slack failed:", e); }
@@ -4050,6 +4058,21 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               }
               if (!budgetSnap?.hasPlan) return null;
               const reqAmt = Number(selReq.amount || 0);
+              // No-budget mode: just show actuals + this request's contribution
+              if (!budgetSnap.hasBudget) {
+                return (
+                  <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Spend So Far · {budgetSnap.categoryName}</div>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: T.surface, color: T.text3 }}>NO BUDGET SET</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, color: T.text }}>
+                      <div>This month: <span style={{ fontWeight: 700 }}>{fmt(budgetSnap.monthSpent)}</span></div>
+                      <div>YTD: <span style={{ fontWeight: 700 }}>{fmt(budgetSnap.ytdSpent)}</span></div>
+                    </div>
+                  </div>
+                );
+              }
               const monthAfter = budgetSnap.monthRemaining - reqAmt;
               const ytdAfter = budgetSnap.ytdRemaining - reqAmt;
               const monthPctAfter = budgetSnap.monthBudget > 0 ? (budgetSnap.monthSpent + reqAmt) / budgetSnap.monthBudget : null;
