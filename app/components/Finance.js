@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback, Fragment } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
@@ -111,6 +111,75 @@ const ApprovalChain = ({ req, members }) => {
           </div>
         );
       })}
+    </div>
+  );
+};
+
+// Searchable picker for GL codes — replacement for native <select> when the list is long.
+// Props mirror a basic select: value (the code string), onChange (receives the code),
+// codes (array of { code, name }), placeholder, style (applied to the trigger button).
+const GLCodePicker = ({ value, onChange, codes, placeholder = "Select GL code…", style = {}, disabled = false }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [hoverIdx, setHoverIdx] = useState(0);
+  const wrapRef = useRef(null);
+  const inputRef = useRef(null);
+  const listRef = useRef(null);
+  const selected = useMemo(() => codes.find(c => c.code === value), [codes, value]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return codes;
+    return codes.filter(c => c.code.toLowerCase().includes(q) || (c.name || "").toLowerCase().includes(q));
+  }, [codes, query]);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 10); }, [open]);
+  useEffect(() => { setHoverIdx(0); }, [query, open]);
+  const pick = (code) => { onChange(code); setOpen(false); setQuery(""); };
+  const onKey = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setHoverIdx(i => Math.min(i + 1, filtered.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHoverIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (filtered[hoverIdx]) pick(filtered[hoverIdx].code); }
+    else if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
+  };
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    const el = listRef.current.children[hoverIdx];
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [hoverIdx, open]);
+  const triggerStyle = { width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: selected ? T.text : T.text3, cursor: disabled ? "default" : "pointer", boxSizing: "border-box", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, ...style };
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button type="button" disabled={disabled} onClick={() => !disabled && setOpen(o => !o)} style={triggerStyle}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {selected ? `${selected.code} · ${selected.name}` : placeholder}
+        </span>
+        <span style={{ color: T.text3, fontSize: 10 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 1000, overflow: "hidden" }}>
+          <div style={{ padding: 8, borderBottom: `1px solid ${T.border}` }}>
+            <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKey} placeholder="Search code or name…"
+              style={{ width: "100%", padding: "6px 10px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div ref={listRef} style={{ maxHeight: 280, overflowY: "auto" }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: "12px 14px", fontSize: 12, color: T.text3 }}>No matches</div>
+            ) : filtered.map((c, i) => (
+              <div key={c.code} onMouseEnter={() => setHoverIdx(i)} onClick={() => pick(c.code)}
+                style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", background: i === hoverIdx ? T.surface2 : "transparent", color: T.text, display: "flex", gap: 8 }}>
+                <span style={{ fontFamily: "ui-monospace, monospace", color: T.text3, minWidth: 50 }}>{c.code}</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                {c.code === value && <span style={{ marginLeft: "auto", color: T.accent }}>✓</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -3623,11 +3692,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>GL Code</div>
-                  <select value={form.gl_code} onChange={e => setForm(f => ({ ...f, gl_code: e.target.value }))}
-                    style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
-                    <option value="">Select GL code…</option>
-                    {glCodes.map(g => <option key={g.code} value={g.code}>{g.code} · {g.name}</option>)}
-                  </select>
+                  <GLCodePicker value={form.gl_code} onChange={code => setForm(f => ({ ...f, gl_code: code }))} codes={glCodes} />
                 </div>
               </div>
 
@@ -3896,7 +3961,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                       <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Amount</div><input type="number" value={resubEdits.amount || ""} onChange={e => setResubEdits(p => ({ ...p, amount: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
-                      <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>GL Code</div><select value={resubEdits.gl_code || ""} onChange={e => setResubEdits(p => ({ ...p, gl_code: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{glCodes.map(g => <option key={g.code} value={g.code}>{g.code} · {g.name}</option>)}</select></div>
+                      <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>GL Code</div><GLCodePicker value={resubEdits.gl_code || ""} onChange={code => setResubEdits(p => ({ ...p, gl_code: code }))} codes={glCodes} placeholder="Select…" style={{ padding: "6px 8px", fontSize: 11, background: T.surface, borderRadius: 6 }} /></div>
                       <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Department</div><select value={resubEdits.department || ""} onChange={e => setResubEdits(p => ({ ...p, department: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{departments.filter(d => !d.parent_id).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></div>
                     </div>
                     <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Description</div><textarea value={resubEdits.description || ""} onChange={e => setResubEdits(p => ({ ...p, description: e.target.value }))} rows={2} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }} /></div>
