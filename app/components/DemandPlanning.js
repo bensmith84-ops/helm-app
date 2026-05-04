@@ -86,7 +86,15 @@ function SupplyChainView({ isMobile, orgId }) {
   const [skuOverrides, setSkuOverrides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState("overview");
-  const [rangeWeeks, setRangeWeeks] = useState(4); // 1=latest week, 4=last 4 weeks, 12, 26, 52, 0=custom
+  // Date range selection. We carry both the mode and a numeric value so the
+  // UI can offer day-based presets (Yesterday, 7d) alongside the existing
+  // week-based ones (4w, 12w, ...) without ambiguity.
+  //   mode = "weeks" + value 1|4|12|26|52
+  //   mode = "days"  + value 1|7   (1 = yesterday only)
+  //   mode = "custom"             (uses customFrom/customTo as daily range)
+  const [rangeMode, setRangeMode] = useState("weeks");
+  const [rangeWeeks, setRangeWeeks] = useState(4);
+  const [rangeDays, setRangeDays] = useState(1);
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [showOverrideManager, setShowOverrideManager] = useState(false);
@@ -208,19 +216,43 @@ function SupplyChainView({ isMobile, orgId }) {
   const weeks = [...new Set(weeklySales.map(r => r.week_start))].sort().reverse();
   const latestWeek = weeks[0];
 
-  // Compute the active date range based on user selection
+  // Compute the active date range based on user selection.
+  // - For "days" and "custom" modes we filter against the daily sale_date column.
+  // - For "weeks" mode we filter against the derived week_start (Monday) so the
+  //   existing aggregations and "X weeks in range" labels keep working.
   let rangeFrom = null;
   let rangeTo = null;
   let rangeLabel = "";
-  if (rangeWeeks === 0 && customFrom && customTo) {
+  let filterField = "week_start"; // which column drives r.X >= rangeFrom etc.
+
+  if (rangeMode === "custom" && customFrom && customTo) {
     rangeFrom = customFrom;
     rangeTo = customTo;
     rangeLabel = `${customFrom} → ${customTo}`;
-  } else if (rangeWeeks === 1) {
+    filterField = "sale_date";
+  } else if (rangeMode === "days") {
+    // 1 day = yesterday only; otherwise last N days inclusive of yesterday
+    const distinctDates = [...new Set(weeklySales.map(r => r.sale_date))].filter(Boolean).sort();
+    const lastDate = distinctDates[distinctDates.length - 1];
+    if (lastDate) {
+      // Compute yesterday from the latest synced date so this works even if the
+      // sync is a few days behind. "Yesterday" means the most recent sale_date
+      // we have on file; "7d" means the last 7 days of synced data.
+      const last = new Date(lastDate + "T00:00:00Z");
+      const start = new Date(last);
+      start.setUTCDate(start.getUTCDate() - (rangeDays - 1));
+      rangeFrom = start.toISOString().split("T")[0];
+      rangeTo = lastDate;
+      rangeLabel = rangeDays === 1 ? `Yesterday (${lastDate})` : `Last ${rangeDays} days (${rangeFrom} → ${rangeTo})`;
+      filterField = "sale_date";
+    } else {
+      rangeLabel = "No data";
+    }
+  } else if (rangeMode === "weeks" && rangeWeeks === 1) {
     rangeFrom = latestWeek;
     rangeTo = latestWeek;
     rangeLabel = `Week of ${latestWeek}`;
-  } else if (rangeWeeks > 1 && weeks.length > 0) {
+  } else if (rangeMode === "weeks" && rangeWeeks > 1 && weeks.length > 0) {
     const sortedAsc = [...weeks].sort();
     const startIdx = Math.max(0, sortedAsc.length - rangeWeeks);
     rangeFrom = sortedAsc[startIdx];
@@ -234,7 +266,9 @@ function SupplyChainView({ isMobile, orgId }) {
 
   const rangeSales = weeklySales.filter(r => {
     if (!rangeFrom || !rangeTo) return false;
-    return r.week_start >= rangeFrom && r.week_start <= rangeTo;
+    const v = r[filterField];
+    if (!v) return false;
+    return v >= rangeFrom && v <= rangeTo;
   });
   const weeksInRange = new Set(rangeSales.map(r => r.week_start)).size || 1;
   const isMultiWeek = weeksInRange > 1;
@@ -340,26 +374,39 @@ function SupplyChainView({ isMobile, orgId }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 10, color: T.text3 }}>Range:</span>
           {[
-            { v: 1, l: "1w" },
-            { v: 4, l: "4w" },
-            { v: 12, l: "12w" },
-            { v: 26, l: "26w" },
-            { v: 52, l: "52w" },
-            { v: 0, l: "Custom" },
-          ].map(opt => (
-            <button key={opt.v} onClick={() => setRangeWeeks(opt.v)}
-              style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, border: rangeWeeks === opt.v ? `1px solid ${T.accent}` : `1px solid ${T.border}`, background: rangeWeeks === opt.v ? T.accent : "transparent", color: rangeWeeks === opt.v ? "white" : T.text2, borderRadius: 4, cursor: "pointer" }}>
-              {opt.l}
-            </button>
-          ))}
-          {rangeWeeks === 0 && (
+            { mode: "days",   value: 1,  label: "Yesterday", title: "Most recent synced day" },
+            { mode: "days",   value: 7,  label: "7d",        title: "Last 7 days" },
+            { mode: "weeks",  value: 1,  label: "1w",        title: "Latest week" },
+            { mode: "weeks",  value: 4,  label: "4w",        title: "Last 4 weeks" },
+            { mode: "weeks",  value: 12, label: "12w",       title: "Last 12 weeks" },
+            { mode: "weeks",  value: 26, label: "26w",       title: "Last 26 weeks" },
+            { mode: "weeks",  value: 52, label: "52w",       title: "Last 52 weeks" },
+            { mode: "custom", value: 0,  label: "Custom",    title: "Pick a date range" },
+          ].map(opt => {
+            const active = rangeMode === opt.mode && (
+              opt.mode === "custom" ||
+              (opt.mode === "weeks" && rangeWeeks === opt.value) ||
+              (opt.mode === "days"  && rangeDays  === opt.value)
+            );
+            return (
+              <button key={`${opt.mode}-${opt.value}`} title={opt.title} onClick={() => {
+                setRangeMode(opt.mode);
+                if (opt.mode === "weeks") setRangeWeeks(opt.value);
+                if (opt.mode === "days")  setRangeDays(opt.value);
+              }}
+                style={{ padding: "4px 8px", fontSize: 10, fontWeight: 600, border: active ? `1px solid ${T.accent}` : `1px solid ${T.border}`, background: active ? T.accent : "transparent", color: active ? "white" : T.text2, borderRadius: 4, cursor: "pointer" }}>
+                {opt.label}
+              </button>
+            );
+          })}
+          {rangeMode === "custom" && (
             <>
               <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.cardBg, color: T.text }} />
               <span style={{ fontSize: 10, color: T.text3 }}>→</span>
               <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.cardBg, color: T.text }} />
             </>
           )}
-          <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>· {fmt(rangeSales.length)} records · {weeksInRange} {weeksInRange === 1 ? "week" : "weeks"}</span>
+          <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>· {fmt(rangeSales.length)} records · {rangeMode === "days" ? `${rangeDays} ${rangeDays === 1 ? "day" : "days"}` : `${weeksInRange} ${weeksInRange === 1 ? "week" : "weeks"}`}</span>
           <button onClick={() => setShowOverrideManager(true)}
             style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, background: skuOverrides.length > 0 ? "#f59e0b" : "transparent", color: skuOverrides.length > 0 ? "white" : T.text2, borderRadius: 4, cursor: "pointer", marginLeft: 8 }}>
             🛠 SKU Mappings{skuOverrides.length > 0 ? ` (${skuOverrides.length})` : ""}
