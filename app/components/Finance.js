@@ -3461,6 +3461,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   // return hasPlan: false anyway. The request being reviewed is excluded
   // from the "approved" totals so we don't double-count it.
   useEffect(() => {
+    const orgId = profile?.org_id;
     if (!selReq?.gl_code || !orgId) { setBudgetSnap(null); return; }
     let cancelled = false;
     setBudgetSnapLoading(true);
@@ -3475,7 +3476,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       if (!cancelled) { setBudgetSnap(null); setBudgetSnapLoading(false); }
     });
     return () => { cancelled = true; };
-  }, [selReq?.id, selReq?.gl_code, orgId]);
+  }, [selReq?.id, selReq?.gl_code, profile?.org_id]);
 
   const evaluateRules = (req) => {
     const hits = [];
@@ -3594,8 +3595,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       if (form.description) fields.push({ label: "Description", value: form.description.slice(0, 240) });
       // Budget impact for the parent category — best-effort, don't block submit if it fails.
       try {
-        if (form.gl_code) {
-          const snap = await getBudgetSnapshot({ glCode: form.gl_code, orgId, atDate: req.date, requestId: data?.id });
+        if (form.gl_code && profile?.org_id) {
+          const snap = await getBudgetSnapshot({ glCode: form.gl_code, orgId: profile.org_id, atDate: req.date, requestId: data?.id });
           if (snap?.hasPlan) {
             const monthAfter = snap.monthRemaining - amt;
             const ytdAfter = snap.ytdRemaining - amt;
