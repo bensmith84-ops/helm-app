@@ -44,6 +44,7 @@ export default function MetabaseSync({ onClose }) {
   const [error, setError] = useState(null);
   const [existingCounts, setExistingCounts] = useState({});
   const [weeksToSync, setWeeksToSync] = useState(12); // default 12 weeks
+  const [lastSync, setLastSync] = useState(null); // most recent metabase_sync_log row for this org
 
   useEffect(() => {
     // Load existing row counts
@@ -54,6 +55,11 @@ export default function MetabaseSync({ onClose }) {
         counts[t.key] = count || 0;
       }
       setExistingCounts(counts);
+      // Pull most recent sync log entry (cron + manual both write here)
+      const { data: ls } = await supabase.from("metabase_sync_log")
+        .select("started_at, finished_at, ok, source, summary")
+        .eq("org_id", orgId).order("started_at", { ascending: false }).limit(1).maybeSingle();
+      setLastSync(ls);
     })();
   }, []);
 
@@ -151,6 +157,27 @@ export default function MetabaseSync({ onClose }) {
           {/* Step 1: Select target table */}
           {step === "select_target" && !loading && (
             <div>
+              {/* Last sync — populated from metabase_sync_log (cron + manual) */}
+              {lastSync && (() => {
+                const ts = new Date(lastSync.started_at);
+                const ageMs = Date.now() - ts.getTime();
+                const hours = Math.round(ageMs / 3600000);
+                const ago = hours < 1 ? "just now" : hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
+                const totalSynced = (lastSync.summary || []).reduce((s, x) => s + (x.synced || 0), 0);
+                const failed = (lastSync.summary || []).filter(x => !x.ok).length;
+                const okColor = lastSync.ok && failed === 0 ? "#22c55e" : "#f59e0b";
+                return (
+                  <div style={{ padding: "10px 14px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, marginBottom: 12, display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: T.text3 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 4, background: okColor, flexShrink: 0 }} />
+                    <span>
+                      Last sync: <span style={{ color: T.text, fontWeight: 600 }}>{ago}</span> · {totalSynced.toLocaleString()} rows refreshed
+                      {failed > 0 && <span style={{ color: "#f59e0b" }}> · {failed} table{failed === 1 ? "" : "s"} failed</span>}
+                      {lastSync.source && <span style={{ marginLeft: 8, fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.surface, color: T.text3, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{lastSync.source}</span>}
+                    </span>
+                    <span style={{ marginLeft: "auto", fontSize: 10 }}>Auto-syncs daily at 1 AM ET</span>
+                  </div>
+                );
+              })()}
               {/* Quick sync all from Dashboard 56 */}
               <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.accent}30`, background: T.accent + "05", marginBottom: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
