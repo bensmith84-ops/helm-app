@@ -19,8 +19,37 @@ export default function AsanaImportModal({ onClose, onImported }) {
   const [importProgress, setImportProgress] = useState("");
   const [importResult, setImportResult] = useState(null);
   const [importedGids, setImportedGids] = useState(new Set());
+  // Cache of org profiles for resolving Asana assignees → Helm user IDs.
+  // emailMap is keyed by lowercased email; nameMap by lowercased display_name.
+  const [emailMap, setEmailMap] = useState({});
+  const [nameMap, setNameMap] = useState({});
 
-  useEffect(() => { fetchAsanaProjects(); loadImportedGids(); }, []);
+  useEffect(() => { fetchAsanaProjects(); loadImportedGids(); loadProfileMaps(); }, []);
+
+  const loadProfileMaps = async () => {
+    const { data } = await supabase.from("profiles").select("id, email, display_name").eq("org_id", orgId);
+    const em = {}, nm = {};
+    (data || []).forEach(p => {
+      if (p.email) em[p.email.toLowerCase().trim()] = p.id;
+      if (p.display_name) nm[p.display_name.toLowerCase().trim()] = p.id;
+    });
+    setEmailMap(em);
+    setNameMap(nm);
+  };
+
+  // Resolve an Asana assignee (name + optional email) to a Helm profile.id.
+  // Email match wins; falls back to display_name match. Returns null if no match.
+  const resolveAssignee = (assigneeName, assigneeEmail) => {
+    if (assigneeEmail) {
+      const hit = emailMap[assigneeEmail.toLowerCase().trim()];
+      if (hit) return hit;
+    }
+    if (assigneeName) {
+      const hit = nameMap[assigneeName.toLowerCase().trim()];
+      if (hit) return hit;
+    }
+    return null;
+  };
 
   const loadImportedGids = async () => {
     const { data } = await supabase.from("projects").select("metadata").eq("org_id", orgId).not("metadata", "is", null);
@@ -101,6 +130,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
     const tags = (task.tags || []).filter(t => t);
     const customFields = (task.custom_fields || []).reduce((acc, cf) => { if (cf.name && cf.value) acc[cf.name] = cf.value; return acc; }, {});
+    const assigneeId = resolveAssignee(task.assignee_name, task.assignee_email);
     const insertPayload = {
       org_id: orgId, project_id: projectId, section_id: parentTaskId ? null : sectionId,
       parent_task_id: parentTaskId,
@@ -110,11 +140,14 @@ export default function AsanaImportModal({ onClose, onImported }) {
       completed_at: task.completed_at || (task.completed ? new Date().toISOString() : null),
       start_date: task.start_on || null, due_date: task.due_on || null,
       sort_order: sortOrder, created_by: user?.id,
+      assignee_id: assigneeId,
       tags: tags.length > 0 ? tags : null,
       custom_fields: Object.keys(customFields).length > 0 ? customFields : null,
       metadata: { 
         asana_gid: taskGid,
         asana_assignee: task.assignee_name || null, 
+        asana_assignee_email: task.assignee_email || null,
+        asana_assignee_unmatched: !!task.assignee_name && !assigneeId,
         asana_followers: task.followers || [],
         asana_section: task.section_name || null,
         asana_html_notes: task.html_notes ? true : false,
@@ -176,6 +209,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
         // Leaf subtask — insert from data we already have, plus fetch comments/attachments
         const stTags = (st.tags || []).filter(t => t);
         const stCf = (st.custom_fields || []).reduce((acc, cf) => { if (cf.name && cf.value) acc[cf.name] = cf.value; return acc; }, {});
+        const stAssigneeId = resolveAssignee(st.assignee_name, st.assignee_email);
         const { data: stCreated, error: stErr } = await supabase.from("tasks").insert({
           org_id: orgId, project_id: projectId, parent_task_id: created.id,
           title: st.name, description: st.notes || "",
@@ -183,9 +217,15 @@ export default function AsanaImportModal({ onClose, onImported }) {
           completed_at: st.completed_at || (st.completed ? new Date().toISOString() : null),
           start_date: st.start_on || null, due_date: st.due_on || null,
           sort_order: si, created_by: user?.id,
+          assignee_id: stAssigneeId,
           tags: stTags.length > 0 ? stTags : null,
           custom_fields: Object.keys(stCf).length > 0 ? stCf : null,
-          metadata: { asana_gid: st.gid, asana_assignee: st.assignee_name || null },
+          metadata: {
+            asana_gid: st.gid,
+            asana_assignee: st.assignee_name || null,
+            asana_assignee_email: st.assignee_email || null,
+            asana_assignee_unmatched: !!st.assignee_name && !stAssigneeId,
+          },
         }).select().single();
         if (stErr) console.error("Subtask insert error:", stErr.message, stErr.code, st.name);
         if (stCreated) {
@@ -293,7 +333,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
 
       // Get existing sections and tasks
       const { data: existingSections } = await supabase.from("sections").select("id, name").eq("project_id", projId);
-      const { data: existingTasks } = await supabase.from("tasks").select("id, metadata").eq("project_id", projId);
+      const { data: existingTasks } = await supabase.from("tasks").select("id, metadata, assignee_id").eq("project_id", projId);
       const existingGids = new Set((existingTasks || []).map(t => t.metadata?.asana_gid).filter(Boolean));
       const sectionMap = {};
       (existingSections || []).forEach(s => { sectionMap[s.name] = s.id; });
@@ -304,21 +344,25 @@ export default function AsanaImportModal({ onClose, onImported }) {
       const upsertTaskTree = async (task, sectionId, sortOrder, parentTaskId = null) => {
         const taskGid = task.gid;
         const tags = (task.tags || []).filter(t => t);
+        const syncAssigneeId = resolveAssignee(task.assignee_name, task.assignee_email);
         let helmTaskId = null;
         
         // Check if task already exists by GID
         const existingTask = (existingTasks || []).find(t => t.metadata?.asana_gid === taskGid);
         
         if (existingTask) {
-          // Update existing task
-          helmTaskId = existingTask.id;
-          await supabase.from("tasks").update({
+          // Update existing task — refresh assignee_id only if currently null,
+          // so manual reassignments in Helm aren't overwritten by re-syncs.
+          const updatePatch = {
             title: task.name, description: task.notes || "",
             status: task.completed ? "done" : "todo",
             completed_at: task.completed ? new Date().toISOString() : null,
             start_date: task.start_on || null, due_date: task.due_on || null,
             tags: tags.length > 0 ? tags : null,
-          }).eq("id", helmTaskId);
+          };
+          if (!existingTask.assignee_id && syncAssigneeId) updatePatch.assignee_id = syncAssigneeId;
+          helmTaskId = existingTask.id;
+          await supabase.from("tasks").update(updatePatch).eq("id", helmTaskId);
           updatedTasks++;
         } else {
           // Create new task
@@ -330,8 +374,14 @@ export default function AsanaImportModal({ onClose, onImported }) {
             completed_at: task.completed ? new Date().toISOString() : null,
             start_date: task.start_on || null, due_date: task.due_on || null,
             sort_order: sortOrder, created_by: user?.id,
+            assignee_id: syncAssigneeId,
             tags: tags.length > 0 ? tags : null,
-            metadata: { asana_assignee: task.assignee_name || null, asana_gid: taskGid },
+            metadata: {
+              asana_gid: taskGid,
+              asana_assignee: task.assignee_name || null,
+              asana_assignee_email: task.assignee_email || null,
+              asana_assignee_unmatched: !!task.assignee_name && !syncAssigneeId,
+            },
           }).select().single();
           if (created) { helmTaskId = created.id; newTasks++; }
         }

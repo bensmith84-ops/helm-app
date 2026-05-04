@@ -91,16 +91,30 @@ export default function NotificationBell({ setActive }) {
 
     for (const task of (overdueTasks || [])) {
       const daysLate = Math.ceil((new Date() - new Date(task.due_date)) / 86400000);
-      // Try insert first — the unique index (notifications_dedupe_daily) will
-      // reject same-day duplicates atomically. Only fire Slack on a successful
-      // insert so racing tabs don't all spam the same alert.
+      // Pre-check existence to keep DevTools quiet — the unique index
+      // (notifications_dedupe_daily) is still the source of truth, but
+      // hitting it spams the console with 409s. SCANNED_USERS prevents
+      // rapid re-runs so this select-then-insert race window is tiny.
+      const sinceMidnightUtc = new Date();
+      sinceMidnightUtc.setUTCHours(0, 0, 0, 0);
+      const { data: existing } = await supabase.from("notifications")
+        .select("id").eq("user_id", user.id).eq("type", "task_overdue")
+        .eq("entity_id", task.id).gte("created_at", sinceMidnightUtc.toISOString())
+        .limit(1).maybeSingle();
+      if (existing) continue;
       const { data: inserted, error: insErr } = await supabase.from("notifications").insert({
         org_id: profile?.org_id, user_id: user.id, type: "task_overdue",
         title: `Task overdue: ${task.title}`,
         body: `${daysLate} day${daysLate !== 1 ? "s" : ""} late`,
         entity_type: "task", entity_id: task.id, link: "projects",
       }).select().maybeSingle();
-      if (!insErr && inserted) {
+      // If insErr is the unique violation (23505), another tab won the race —
+      // silently skip. Any other error is a real problem.
+      if (insErr) {
+        if (insErr.code !== "23505") console.warn("notif insert failed:", insErr);
+        continue;
+      }
+      if (inserted) {
         notifySlack({
           type: "task", title: `Task overdue: ${task.title}`,
           message: `${daysLate} day${daysLate !== 1 ? "s" : ""} late`,
@@ -108,7 +122,6 @@ export default function NotificationBell({ setActive }) {
           fields: [{ label: "Days Late", value: String(daysLate) }],
         });
       }
-      // 23505 (unique violation) = already notified today — silently skip.
     }
 
     // Check for KRs I own that haven't been checked in for 7+ days
