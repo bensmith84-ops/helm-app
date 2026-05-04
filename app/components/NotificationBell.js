@@ -5,6 +5,12 @@ import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 import { notifySlack } from "../lib/slack";
 
+// Module-level set so the scanner runs at most once per (user) per page load.
+// Without this, each NotificationBell mount/remount (route change, hot reload,
+// React strict-mode double-mount) re-queries everything and races itself,
+// producing duplicate Slack pings even though the tasks haven't changed.
+const SCANNED_USERS = new Set();
+
 const TYPE_CONFIG = {
   okr_deadline:   { icon:"◎", color:"#f97316", label:"OKR Deadline" },
   task_overdue:   { icon:"☐", color:"#ef4444", label:"Overdue Task" },
@@ -58,6 +64,8 @@ export default function NotificationBell({ setActive }) {
   // Auto-generate notifications for overdue tasks and OKR deadlines
   useEffect(() => {
     if (!user) return;
+    if (SCANNED_USERS.has(user.id)) return; // already scanned this session
+    SCANNED_USERS.add(user.id);
     generateNotifications();
   }, [user]);
 
@@ -83,24 +91,24 @@ export default function NotificationBell({ setActive }) {
 
     for (const task of (overdueTasks || [])) {
       const daysLate = Math.ceil((new Date() - new Date(task.due_date)) / 86400000);
-      const { data: existing } = await supabase.from("notifications")
-        .select("id").eq("user_id", user.id).eq("type", "task_overdue")
-        .eq("entity_id", task.id).gte("created_at", new Date(Date.now() - 86400000).toISOString())
-        .maybeSingle();
-      if (!existing) {
-        await supabase.from("notifications").insert({
-          org_id: profile?.org_id, user_id: user.id, type:"task_overdue",
-          title: `Task overdue: ${task.title}`,
-          body: `${daysLate} day${daysLate!==1?"s":""} late`,
-          entity_type: "task", entity_id: task.id, link: "projects",
-        });
+      // Try insert first — the unique index (notifications_dedupe_daily) will
+      // reject same-day duplicates atomically. Only fire Slack on a successful
+      // insert so racing tabs don't all spam the same alert.
+      const { data: inserted, error: insErr } = await supabase.from("notifications").insert({
+        org_id: profile?.org_id, user_id: user.id, type: "task_overdue",
+        title: `Task overdue: ${task.title}`,
+        body: `${daysLate} day${daysLate !== 1 ? "s" : ""} late`,
+        entity_type: "task", entity_id: task.id, link: "projects",
+      }).select().maybeSingle();
+      if (!insErr && inserted) {
         notifySlack({
           type: "task", title: `Task overdue: ${task.title}`,
-          message: `${daysLate} day${daysLate!==1?"s":""} late`,
+          message: `${daysLate} day${daysLate !== 1 ? "s" : ""} late`,
           channel: "ben", url: "https://helm-app-six.vercel.app",
           fields: [{ label: "Days Late", value: String(daysLate) }],
         });
       }
+      // 23505 (unique violation) = already notified today — silently skip.
     }
 
     // Check for KRs I own that haven't been checked in for 7+ days
