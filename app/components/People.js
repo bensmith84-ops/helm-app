@@ -197,6 +197,10 @@ export default function PeopleView() {
 
   const [keyResults, setKeyResults] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
+  // External collaborators — invited via project members, not part of org_memberships.
+  // Their profile rows have org_id = NULL, so we resolve them by joining
+  // project_members (which IS scoped to the org) → profiles by id.
+  const [externals, setExternals] = useState([]); // [{ profile, projects: [{id, name, role, access_scope}] }]
 
   useEffect(() => {
     if (!profile?.org_id) return;
@@ -213,6 +217,25 @@ export default function PeopleView() {
       ]);
       setMembers(mR.data || []); setMemberships(omR.data || []); setTasks(tR.data || []); setProjects(pR.data || []); setProjectMembers(pmR.data || []); setTeams(tmR.data || []); setTeamMembers(tmrR.data || []);
       setKeyResults(krR.data || []);
+      // Resolve external collaborators: project_members rows where invited_as_external = true.
+      // Pull their profile rows separately (org_id is NULL on those, so they're not in mR).
+      const externalPm = (pmR.data || []).filter(pm => pm.invited_as_external);
+      const externalUserIds = [...new Set(externalPm.map(pm => pm.user_id))];
+      let extProfiles = [];
+      if (externalUserIds.length) {
+        const { data: ep } = await supabase.from("profiles").select("*").in("id", externalUserIds);
+        extProfiles = ep || [];
+      }
+      const extByUser = extProfiles.map(prof => ({
+        profile: prof,
+        projects: externalPm
+          .filter(pm => pm.user_id === prof.id)
+          .map(pm => {
+            const proj = (pR.data || []).find(p => p.id === pm.project_id);
+            return { id: pm.project_id, name: proj?.name || "Unknown project", color: proj?.color, role: pm.role || "member", access_scope: pm.access_scope || { tasks: true } };
+          }),
+      }));
+      setExternals(extByUser);
       // Load recent check-ins
       if (krR.data?.length) {
         const { data: ciData } = await supabase.from("okr_check_ins")
@@ -1457,6 +1480,58 @@ export default function PeopleView() {
             </div>
           );
         })()}
+
+        {/* External collaborators — surfaced on cards/list view since they don't
+            appear in the standard internal-team grid. Lets you adjust scope or
+            remove without diving into individual project pages. */}
+        {(viewMode === "cards" || viewMode === "list") && externals.length > 0 && (
+          <div style={{ marginTop: 32 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>External Collaborators</span>
+              <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700, letterSpacing: 0.5 }}>{externals.length}</span>
+              <span style={{ fontSize: 11, color: T.text3 }}>People invited to specific projects only — no broader org access</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {externals.map(({ profile: ep, projects: eprojects }) => (
+                <div key={ep.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 16, background: "#f59e0b20", color: "#f59e0b", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>
+                      {(ep.display_name || ep.email || "?").slice(0, 2).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{ep.display_name || "Unknown"}</div>
+                      <div style={{ fontSize: 11, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ep.email}</div>
+                    </div>
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "#f59e0b15", color: "#f59e0b", letterSpacing: 0.5 }}>EXTERNAL</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingLeft: 42 }}>
+                    {eprojects.map(pj => {
+                      const scope = pj.access_scope || {};
+                      const scopeLabels = [
+                        scope.tasks ? "Tasks" : null,
+                        scope.documents ? "Docs" : null,
+                        scope.messages ? "Messages" : null,
+                      ].filter(Boolean);
+                      return (
+                        <div key={pj.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 11 }}>
+                          {pj.color && <span style={{ width: 6, height: 6, borderRadius: 3, background: pj.color, flexShrink: 0 }} />}
+                          <span style={{ color: T.text, fontWeight: 500 }}>{pj.name}</span>
+                          <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.surface2, color: T.text3, fontWeight: 600, textTransform: "capitalize" }}>{pj.role}</span>
+                          <span style={{ color: T.text3, marginLeft: "auto" }}>
+                            {scopeLabels.length > 0 ? `Access: ${scopeLabels.join(" · ")}` : <span style={{ color: "#EF4444" }}>No access</span>}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 6, paddingLeft: 42 }}>
+                    To change roles or fine-tune access, open the project and click <strong>Project Members</strong>.
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {viewMode !== "teams" && viewMode !== "orgchart" && <DetailPanel key={selected?.id || "none"} />}
       {viewMode === "orgchart" && selected && <DetailPanel key={selected?.id || "none"} />}

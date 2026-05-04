@@ -3349,6 +3349,15 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           await supabase.from("project_members").update({ role: newRole }).eq("project_id", activeProject).eq("user_id", uid);
           setProjMembersList(p => p.map(pm => (pm.project_id === activeProject && pm.user_id === uid) ? { ...pm, role: newRole } : pm));
         };
+        // Toggle a single access_scope key (tasks/documents/messages) for an
+        // external collaborator on this project. Internal members ignore scope
+        // entirely (RLS doesn't gate them) so this only fires for externals.
+        const updateAccessScope = async (uid, key, value) => {
+          const pm = projMembersList.find(x => x.project_id === activeProject && x.user_id === uid);
+          const next = { ...(pm?.access_scope || {}), [key]: value };
+          await supabase.from("project_members").update({ access_scope: next }).eq("project_id", activeProject).eq("user_id", uid);
+          setProjMembersList(p => p.map(x => (x.project_id === activeProject && x.user_id === uid) ? { ...x, access_scope: next } : x));
+        };
         return (
           <div onClick={() => setShowAddMember(false)} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
@@ -3373,24 +3382,46 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 })()}
                 {currentMembers.filter(m => m.user_id !== proj?.owner_id).map(m => {
                   const p = profiles[m.user_id]; const c = acol(m.user_id);
-                  const isExt = !!p?.is_external;
+                  const isExt = !!p?.is_external || !!m.invited_as_external;
                   const role = m.role || "member";
-                  return <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-                    <div style={{ width: 30, height: 30, borderRadius: 15, background: `${c}20`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{ini(m.user_id)}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.display_name || "Unknown"}</span>
-                        {isExt && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700, letterSpacing: 0.5 }}>EXTERNAL</span>}
+                  const scope = m.access_scope || { tasks: true };
+                  return <div key={m.user_id} style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: 15, background: `${c}20`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{ini(m.user_id)}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.display_name || "Unknown"}</span>
+                          {isExt && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700, letterSpacing: 0.5 }}>EXTERNAL</span>}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.email}</div>
                       </div>
-                      <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.email}</div>
+                      <select value={role} onChange={e => updateMemberRole(m.user_id, e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface2, color: T.text, outline: "none", cursor: "pointer" }}>
+                        <option value="editor">Editor</option>
+                        <option value="commenter">Commenter</option>
+                        <option value="viewer">Viewer</option>
+                        <option value="member">Member</option>
+                      </select>
+                      <button onClick={() => removeMember(m.user_id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11 }} title="Remove">✕</button>
                     </div>
-                    <select value={role} onChange={e => updateMemberRole(m.user_id, e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface2, color: T.text, outline: "none", cursor: "pointer" }}>
-                      <option value="editor">Editor</option>
-                      <option value="commenter">Commenter</option>
-                      <option value="viewer">Viewer</option>
-                      <option value="member">Member</option>
-                    </select>
-                    <button onClick={() => removeMember(m.user_id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11 }} title="Remove">✕</button>
+                    {isExt && (
+                      <div style={{ marginTop: 8, marginLeft: 40, padding: "6px 8px", background: T.surface2, borderRadius: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>Access:</span>
+                        {[
+                          { key: "tasks", label: "Tasks" },
+                          { key: "documents", label: "Docs" },
+                          { key: "messages", label: "Messages" },
+                        ].map(({ key, label }) => {
+                          const on = scope[key] === true;
+                          return (
+                            <label key={key} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: on ? T.text : T.text3, cursor: "pointer", userSelect: "none" }}>
+                              <input type="checkbox" checked={on} onChange={e => updateAccessScope(m.user_id, key, e.target.checked)}
+                                style={{ width: 12, height: 12, cursor: "pointer", accentColor: T.accent }} />
+                              {label}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>;
                 })}
 
