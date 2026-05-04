@@ -3567,6 +3567,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           message: `*${form.title}* submitted by ${requesterName}.`,
           fields,
           url: "https://helm-app-six.vercel.app",
+          actions: "approval",
+          request_id: data?.id,
         });
       }
     }
@@ -3577,7 +3579,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   };
 
   // ── Slack notification helper (status changes) ────────────────────────────
-  const notifyStatusChange = (req, { title, message, type = "approval", extraFields = [] } = {}) => {
+  const notifyStatusChange = (req, { title, message, type = "approval", extraFields = [], withApprovalButtons = false } = {}) => {
     if (!req) return;
     const requester = members.find(m => m.user_id === req.requester_id);
     const requesterName = requester?.profiles?.display_name || requester?.profiles?.email || "Unknown";
@@ -3599,6 +3601,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       message,
       fields,
       url: "https://helm-app-six.vercel.app",
+      ...(withApprovalButtons ? { actions: "approval", request_id: req.id } : {}),
     });
   };
 
@@ -3659,6 +3662,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       title: "Info submitted — ready to review 👀",
       message: `Additional info was provided on *${patch.title}*.`,
       extraFields: [{ label: "Info added", value: resubEdits.added_info.slice(0, 240) }],
+      withApprovalButtons: true,
     });
     setShowResubmit(false); setResubEdits({}); setSelected(null);
   };

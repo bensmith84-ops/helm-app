@@ -14,12 +14,12 @@ const EDGE_URL = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/slack-no
  * @param {string} [opts.url]       - Optional CTA link (opens in Helm)
  * @param {Array}  [opts.fields]    - Optional [{label, value}] shown as field columns
  */
-export async function notifySlack({ type = "info", title, message, channel = "ben", url, fields } = {}) {
+export async function notifySlack({ type = "info", title, message, channel = "ben", url, fields, actions, request_id } = {}) {
   try {
     const res = await fetch(EDGE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
-      body: JSON.stringify({ type, title, message, channel, url, fields }),
+      body: JSON.stringify({ type, title, message, channel, url, fields, actions, request_id }),
     });
     const data = await res.json();
     if (!data.success) console.warn("Slack notify failed:", data.error);
