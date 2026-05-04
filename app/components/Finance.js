@@ -5860,7 +5860,7 @@ function DepartmentsView({ isMobile, departments, setDepartments, members, reque
 function RulesView({ isMobile, rules, setRules, glCodes, departments = [], members, user }) {
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState(null); // null = new rule, rule.id = edit
-  const FORM_DEFAULT = { name: "", description: "", action: "require_manager", conditions: [{ field: "amount", operator: ">", value: "", join: null }] };
+  const FORM_DEFAULT = { name: "", description: "", action: "require_manager", conditions: [{ field: "amount", operator: ">", value: "", join: null }], require_person_id: "", require_person_name: "" };
   const [form, setForm] = useState(FORM_DEFAULT);
 
   const openNew = () => { setEditingId(null); setForm(FORM_DEFAULT); setShowNew(true); };
@@ -5877,6 +5877,8 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
         value: c.value ?? "",
         join: c.join ?? null,
       })),
+      require_person_id: rule.require_person_id || "",
+      require_person_name: rule.require_person_name || "",
     });
     setShowNew(true);
   };
@@ -5897,11 +5899,17 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
 
   const saveRule = async () => {
     if (!form.name.trim()) return;
+    if (form.action === "require_person" && !form.require_person_id) return; // person required
+    const isPerson = form.action === "require_person";
     const payload = {
       name: form.name,
       description: form.description,
       action: form.action,
       conditions: form.conditions,
+      // Always write both fields so flipping the action away from require_person
+      // clears any previously-stored person.
+      require_person_id: isPerson ? form.require_person_id : null,
+      require_person_name: isPerson ? form.require_person_name : null,
     };
     if (editingId) {
       const { data } = await supabase.from("af_rules").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", editingId).select().single();
@@ -5977,7 +5985,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                   </span>
                 ))}
                 <span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>→ THEN</span>
-                <span style={{ background: T.accent, color: "#fff", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{ACTION_LABELS[rule.action] || rule.action}</span>
+                <span style={{ background: T.accent, color: "#fff", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{ACTION_LABELS[rule.action] || rule.action}{rule.action === "require_person" && rule.require_person_name ? ` · ${rule.require_person_name}` : ""}</span>
               </div>
               {rule.description && <div style={{ fontSize: 11, color: T.text3 }}>{rule.description}</div>}
             </div>
@@ -6068,15 +6076,43 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
               {/* Action */}
               <div>
                 <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Action (THEN)</div>
-                <select value={form.action} onChange={e => setForm(f => ({ ...f, action: e.target.value }))}
+                <select value={form.action} onChange={e => {
+                  const next = e.target.value;
+                  // Clear the person fields if switching away from require_person.
+                  setForm(f => ({ ...f, action: next, ...(next !== "require_person" ? { require_person_id: "", require_person_name: "" } : {}) }));
+                }}
                   style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
                   {Object.entries(ACTION_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </div>
 
+              {/* Person picker — only when action requires it */}
+              {form.action === "require_person" && (
+                <div>
+                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Approver *</div>
+                  <select value={form.require_person_id} onChange={e => {
+                    const id = e.target.value;
+                    const m = (members || []).find(x => x.user_id === id);
+                    const name = m?.profiles?.display_name || m?.profiles?.email || "";
+                    setForm(f => ({ ...f, require_person_id: id, require_person_name: name }));
+                  }}
+                    style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
+                    <option value="">Select approver…</option>
+                    {(members || []).map(m => (
+                      <option key={m.user_id} value={m.user_id}>
+                        {m.profiles?.display_name || m.profiles?.email || m.user_id}
+                      </option>
+                    ))}
+                  </select>
+                  {!form.require_person_id && <div style={{ fontSize: 10, color: "#EF4444", marginTop: 4 }}>Pick the person who should approve when this rule fires.</div>}
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={closeForm} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
-                <button onClick={saveRule} disabled={!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null)} style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) ? 0.5 : 1 }}>{editingId ? "Update Rule" : "Save Rule"}</button>
+                <button onClick={saveRule}
+                  disabled={!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "require_person" && !form.require_person_id)}
+                  style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "require_person" && !form.require_person_id) ? 0.5 : 1 }}>{editingId ? "Update Rule" : "Save Rule"}</button>
               </div>
             </div>
           </div>
