@@ -10,12 +10,12 @@ const EDGE_UPDATE  = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/slac
  * Returns the response body, which on success includes { success, ts, channel }
  * so callers can persist the message coordinates to update it later.
  */
-export async function notifySlack({ type = "info", title, message, channel = "ben", url, fields, actions, request_id } = {}) {
+export async function notifySlack({ type = "info", title, message, channel = "ben", url, fields, actions, request_id, budget_context } = {}) {
   try {
     const res = await fetch(EDGE_NOTIFY, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
-      body: JSON.stringify({ type, title, message, channel, url, fields, actions, request_id }),
+      body: JSON.stringify({ type, title, message, channel, url, fields, actions, request_id, budget_context }),
     });
     const data = await res.json();
     if (!data.success) console.warn("Slack notify failed:", data.error);

@@ -3627,27 +3627,59 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       ];
       if (matchedRule) fields.push({ label: "Rule Applied", value: `⚡ ${matchedRule.name}` });
       if (form.description) fields.push({ label: "Description", value: form.description.slice(0, 240) });
+      let budgetContext = null;
       // Budget impact for the parent category — best-effort, don't block submit if it fails.
+      // Format mirrors the in-form pacing card: a status line ("on track" /
+      // "off track after this") plus the same YTD vs annual-budget comparison
+      // and year-elapsed % so the approver can read pace at a glance.
+      // Rendered as a full-width Slack section block (not a 2-col field) so the
+      // multi-line content has room to breathe.
       try {
         if (form.gl_code && profile?.org_id) {
           const snap = await getBudgetSnapshot({ glCode: form.gl_code, orgId: profile.org_id, atDate: req.date, requestId: data?.id });
           if (snap?.hasPlan) {
             if (snap.hasBudget) {
-              const monthAfter = snap.monthRemaining - amt;
-              const ytdAfter = snap.ytdRemaining - amt;
-              const monthPctAfter = snap.monthBudget > 0 ? Math.round(((snap.monthSpent + amt) / snap.monthBudget) * 100) : null;
-              const ytdPctAfter = snap.ytdBudget > 0 ? Math.round(((snap.ytdSpent + amt) / snap.ytdBudget) * 100) : null;
-              const flag = (monthAfter < 0 || ytdAfter < 0) ? "🚨 " : "";
-              fields.push({
-                label: "Budget Impact",
-                value: `${flag}*${snap.categoryName}*\nMonth: ${fmt(snap.monthSpent)}/${fmt(snap.monthBudget)} → after: ${fmt(monthAfter)} left${monthPctAfter != null ? ` (${monthPctAfter}%)` : ""}\nYTD: ${fmt(snap.ytdSpent)}/${fmt(snap.ytdBudget)} → after: ${fmt(ytdAfter)} left${ytdPctAfter != null ? ` (${ytdPctAfter}%)` : ""}`,
-              });
+              // Year-pace math (matches the in-form card).
+              const refDate = req.date ? new Date(req.date) : new Date();
+              const yearStart = new Date(Date.UTC(refDate.getUTCFullYear(), 0, 1));
+              const yearEnd = new Date(Date.UTC(refDate.getUTCFullYear() + 1, 0, 1));
+              const yearProgress = Math.max(0, Math.min(1, (refDate - yearStart) / (yearEnd - yearStart)));
+              const pctYearElapsed = Math.round(yearProgress * 100);
+
+              const ytdSpent = Number(snap.ytdSpent || 0);
+              const ytdBudget = Number(snap.ytdBudget || 0);
+              const annualBudget = (snap.monthBudget || 0) > 0
+                ? Number(snap.monthBudget) * 12
+                : (yearProgress > 0.01 ? ytdBudget / yearProgress : ytdBudget);
+              const paceActual = annualBudget > 0 ? ytdSpent / annualBudget : 0;
+              const paceAfter  = annualBudget > 0 ? (ytdSpent + amt) / annualBudget : 0;
+              const TOLERANCE = 0.02;
+              const onTrackBefore = paceActual <= yearProgress + TOLERANCE;
+              const onTrackAfter  = paceAfter  <= yearProgress + TOLERANCE;
+              const overspendPP = Math.round((paceAfter - yearProgress) * 100);
+              const overBudgetMonth = (snap.monthRemaining - amt) < 0;
+              const overBudgetYtd = (snap.ytdRemaining - amt) < 0;
+
+              const statusLine = (overBudgetMonth || overBudgetYtd)
+                ? `🚨 *Over budget* — this request would exceed the ${overBudgetYtd ? "YTD" : "monthly"} cap`
+                : onTrackAfter
+                  ? `✅ *On track* after this request`
+                  : onTrackBefore
+                    ? `⚠️ *Off track* after this request — ${overspendPP}pp ahead of year pace`
+                    : `⚠️ *Off track* — already ${overspendPP}pp ahead of year pace`;
+
+              const ytdAfter = ytdSpent + amt;
+              const ytdPctAfter = ytdBudget > 0 ? Math.round((ytdAfter / ytdBudget) * 100) : null;
+              budgetContext = [
+                `*📊 Budget Pacing · ${snap.categoryName}*`,
+                statusLine,
+                ``,
+                `\`Year elapsed:\` *${pctYearElapsed}%*`,
+                `\`YTD spend:   \` *${fmt(ytdSpent)}* of *${fmt(ytdBudget)}* YTD budget`,
+                `\`This adds:   \` *${fmt(amt)}*  →  *${fmt(ytdAfter)} / ${fmt(ytdBudget)}*${ytdPctAfter != null ? `  (*${ytdPctAfter}%*)` : ""}`,
+              ].join("\n");
             } else {
-              // Actuals exist but no budget set — still useful context.
-              fields.push({
-                label: "Spend So Far",
-                value: `*${snap.categoryName}* (no budget set)\nMonth: ${fmt(snap.monthSpent)} · YTD: ${fmt(snap.ytdSpent)}`,
-              });
+              budgetContext = `*📊 ${snap.categoryName}* _(no budget set)_\n\`Month-to-date:\` *${fmt(snap.monthSpent)}*  ·  \`YTD:\` *${fmt(snap.ytdSpent)}*`;
             }
           }
         }
@@ -3659,6 +3691,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           title: "Spend auto-approved ✅",
           message: `*${form.title}* — auto-approved within ${requesterName}'s spend limit.`,
           fields,
+          budget_context: budgetContext,
           url: "https://helm-app-six.vercel.app",
         });
       } else {
@@ -3670,6 +3703,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           title: requirePersonName ? `Spend approval needed — assigned to ${requirePersonName}` : "Spend approval needed",
           message: `*${form.title}* submitted by ${requesterName}.`,
           fields,
+          budget_context: budgetContext,
           url: "https://helm-app-six.vercel.app",
           actions: "approval",
           request_id: data?.id,
