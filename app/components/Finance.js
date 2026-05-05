@@ -189,7 +189,7 @@ const GLCodePicker = ({ value, onChange, codes, placeholder = "Select GL code…
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function FinanceView({ initialView, embedded, modulePerms = {} } = {}) {
+export default function FinanceView({ initialView, embedded, modulePerms = {}, pendingSubView, clearPendingSubView } = {}) {
   const { user, profile, orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState(initialView || "cfo");
@@ -244,6 +244,14 @@ export default function FinanceView({ initialView, embedded, modulePerms = {} } 
 
   // Sync view when embedded parent changes the initial view
   useEffect(() => { if (initialView && initialView !== view) setView(initialView); }, [initialView]);
+  // Apply a deep-link sub-view request (from CommandPalette etc.) on next tick
+  // so FinanceView reflects the chosen tab without a full reroute.
+  useEffect(() => {
+    if (pendingSubView) {
+      setView(pendingSubView);
+      clearPendingSubView?.();
+    }
+  }, [pendingSubView]);
 
   // ── CRUD helpers ───────────────────────────────────────────────────────────
   const addRequest = async (req) => {
@@ -3404,6 +3412,10 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   // much room they have in the parent bucket before clicking Approve.
   const [budgetSnap, setBudgetSnap] = useState(null);
   const [budgetSnapLoading, setBudgetSnapLoading] = useState(false);
+  // Form-side snapshot — same data, loaded as the requester is filling out the
+  // form so they see live pacing the moment they pick a GL.
+  const [formBudgetSnap, setFormBudgetSnap] = useState(null);
+  const [formBudgetSnapLoading, setFormBudgetSnapLoading] = useState(false);
   const [showRemoval, setShowRemoval] = useState(false);
   const [removalReason, setRemovalReason] = useState("");
 
@@ -3477,6 +3489,28 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     });
     return () => { cancelled = true; };
   }, [selReq?.id, selReq?.gl_code, profile?.org_id]);
+
+  // Live budget snapshot for the *new request* form. Fires whenever the user
+  // picks a different GL so they see pacing context immediately. Debounced
+  // by react's render cycle — the lookup itself is fast (sub-second) and we
+  // cache results per glCode so re-picks reuse the response.
+  useEffect(() => {
+    const orgId = profile?.org_id;
+    if (!form.gl_code || !orgId) { setFormBudgetSnap(null); return; }
+    let cancelled = false;
+    setFormBudgetSnapLoading(true);
+    getBudgetSnapshot({
+      glCode: form.gl_code,
+      orgId,
+      atDate: new Date().toISOString().slice(0, 10),
+      // No requestId — this snapshot is for an unsaved request, so nothing to exclude.
+    }).then(snap => {
+      if (!cancelled) { setFormBudgetSnap(snap); setFormBudgetSnapLoading(false); }
+    }).catch(() => {
+      if (!cancelled) { setFormBudgetSnap(null); setFormBudgetSnapLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [form.gl_code, profile?.org_id]);
 
   const evaluateRules = (req) => {
     const hits = [];
@@ -3915,6 +3949,102 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                   <GLCodePicker value={form.gl_code} onChange={code => setForm(f => ({ ...f, gl_code: code }))} codes={glCodes} />
                 </div>
               </div>
+
+              {/* Live pacing card — surfaces the moment a GL is picked so the
+                  requester knows whether they're on/off-track for the year.
+                  Off-track means we're spending FASTER than time-of-year would
+                  suggest; under-pace is fine and shown as on track. */}
+              {form.gl_code && (formBudgetSnapLoading || formBudgetSnap) && (() => {
+                if (formBudgetSnapLoading) {
+                  return <div style={{ background: T.surface2, borderRadius: 10, padding: "10px 14px", fontSize: 11, color: T.text3 }}>Loading budget pacing for this GL…</div>;
+                }
+                if (!formBudgetSnap?.hasPlan) return null;
+                const reqAmt = Number(form.amount) || 0;
+
+                // No-budget mode: show actuals only, no pacing chart possible.
+                if (!formBudgetSnap.hasBudget) {
+                  return (
+                    <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: T.surface, color: T.text3, letterSpacing: 0.5 }}>NO BUDGET SET</span>
+                      <span style={{ fontSize: 11, color: T.text }}>
+                        <strong>{formBudgetSnap.categoryName}</strong> · YTD spent: <strong>{fmt(formBudgetSnap.ytdSpent)}</strong>
+                      </span>
+                    </div>
+                  );
+                }
+
+                // Compute year pacing
+                const now = new Date();
+                const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+                const yearEnd   = new Date(Date.UTC(now.getUTCFullYear() + 1, 0, 1));
+                const totalMs = yearEnd - yearStart;
+                const elapsedMs = Math.max(0, Math.min(totalMs, now - yearStart));
+                const yearProgress = elapsedMs / totalMs; // 0..1
+                const pctYearElapsed = Math.round(yearProgress * 100);
+
+                const ytdSpent = Number(formBudgetSnap.ytdSpent || 0);
+                const ytdBudget = Number(formBudgetSnap.ytdBudget || 0);
+                const annualBudget = (formBudgetSnap.monthBudget || 0) > 0
+                  ? Number(formBudgetSnap.monthBudget) * 12 // not perfect but close enough as a sanity number
+                  : ytdBudget / Math.max(0.01, yearProgress); // imply annual from ytd budget pacing
+
+                // "Spend pace" = portion of annual budget consumed.
+                const paceActual = annualBudget > 0 ? ytdSpent / annualBudget : 0;
+                const paceAfter  = annualBudget > 0 ? (ytdSpent + reqAmt) / annualBudget : 0;
+                const TOLERANCE = 0.02; // 2 percentage points
+                const onTrackBefore = paceActual <= yearProgress + TOLERANCE;
+                const onTrackAfter  = paceAfter  <= yearProgress + TOLERANCE;
+                const overspendAfter = paceAfter - yearProgress; // positive = ahead of pace
+
+                // Color coding
+                const statusColor = onTrackAfter ? "#10B981" : (overspendAfter < 0.05 ? "#F59E0B" : "#EF4444");
+                const statusBg = onTrackAfter ? "#10B98115" : (overspendAfter < 0.05 ? "#F59E0B15" : "#EF444415");
+                const statusLabel = onTrackAfter
+                  ? "ON TRACK"
+                  : (onTrackBefore ? `OFF TRACK after this` : `OFF TRACK`);
+
+                return (
+                  <div style={{ background: T.surface2, border: `1px solid ${onTrackAfter ? T.border : statusColor + "60"}`, borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>Budget Pacing · {formBudgetSnap.categoryName}</span>
+                      </div>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: statusBg, color: statusColor, letterSpacing: 0.5 }}>{statusLabel}</span>
+                    </div>
+                    {/* Two-bar visualization: top is year-elapsed marker, bottom is spend pace */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.text3, marginBottom: 2 }}>
+                          <span>Year elapsed</span>
+                          <span>{pctYearElapsed}%</span>
+                        </div>
+                        <div style={{ height: 6, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ width: `${pctYearElapsed}%`, height: "100%", background: T.text3, borderRadius: 3 }} />
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.text3, marginBottom: 2 }}>
+                          <span>Spend (after this request)</span>
+                          <span style={{ color: statusColor, fontWeight: 700 }}>{Math.round(paceAfter * 100)}%{reqAmt > 0 && paceActual !== paceAfter ? ` (was ${Math.round(paceActual * 100)}%)` : ""}</span>
+                        </div>
+                        <div style={{ height: 6, background: T.border, borderRadius: 3, overflow: "hidden", position: "relative" }}>
+                          <div style={{ width: `${Math.min(100, paceActual * 100)}%`, height: "100%", background: statusColor, borderRadius: 3, opacity: 0.6, position: "absolute", top: 0, left: 0 }} />
+                          {reqAmt > 0 && paceAfter > paceActual && (
+                            <div style={{ position: "absolute", top: 0, left: `${Math.min(100, paceActual * 100)}%`, width: `${Math.min(100 - paceActual * 100, (paceAfter - paceActual) * 100)}%`, height: "100%", background: statusColor }} />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 8, lineHeight: 1.5 }}>
+                      YTD: <strong style={{ color: T.text }}>{fmt(ytdSpent)}</strong> of <strong style={{ color: T.text }}>{fmt(ytdBudget)}</strong> budget
+                      {reqAmt > 0 && <> · This request adds <strong style={{ color: T.text }}>{fmt(reqAmt)}</strong></>}
+                      {!onTrackAfter && (
+                        <> · <span style={{ color: statusColor, fontWeight: 600 }}>{Math.round(overspendAfter * 100)}pp ahead of year pace</span></>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {form.cost_type === "recurring" && (
                 <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>

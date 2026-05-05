@@ -363,7 +363,7 @@ export default function HelmApp() {
       case "plm": return <PLMView />;
       case "erp": return <ERPView modulePerms={allowedModules?.perms || {}} pendingSubView={pendingSubView} clearPendingSubView={() => setPendingSubView(null)} />;
       case "wms": return <WMSView />;
-      case "finance": return <FinanceView />;
+      case "finance": return <FinanceView pendingSubView={pendingSubView} clearPendingSubView={() => setPendingSubView(null)} />;
       case "automation": return <AutomationView />;
       case "reports": return <ReportsView />;
       case "people": return <PeopleView />;
@@ -444,7 +444,7 @@ export default function HelmApp() {
           </div>
         </div>
       </div>
-      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} setActive={setActive} />
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} setActive={navigateTo} />
       {globalToast && (
         <div style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", padding:"12px 24px", borderRadius:10,
           background:globalToast.color, color:"#fff", fontSize:13, fontWeight:600, zIndex:9999,

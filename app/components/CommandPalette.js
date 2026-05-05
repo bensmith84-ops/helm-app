@@ -4,6 +4,40 @@ import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { NAV_ITEMS } from "./Sidebar";
 
+// Static catalog of sub-routes (tabs within a top-level module). Selecting one
+// from search routes to the parent module *and* deep-links the right sub-view
+// via the navigateTo(module, subView) signature in page.js.
+//
+// Keep this list curated rather than auto-generated — we want the palette to
+// surface the things people actually want to land on, not every internal tab.
+const SUB_NAV = [
+  // Finance sub-views (FinanceView reads pendingSubView)
+  { module: "finance", sub: "requests",        label: "Spend Requests",      icon: "💸", aliases: ["spend", "request"] },
+  { module: "finance", sub: "budgets",         label: "Budgets",             icon: "📊", aliases: ["budget"] },
+  { module: "finance", sub: "budget_planner",  label: "Budget Planner",      icon: "🗒️", aliases: ["planner"] },
+  { module: "finance", sub: "rules",           label: "Spend Rules",         icon: "⚡", aliases: ["rule", "approval rule"] },
+  { module: "finance", sub: "cfo",             label: "CFO Dashboard",       icon: "📈", aliases: ["cfo dashboard"] },
+  { module: "finance", sub: "pl_explorer",     label: "P&L Explorer",        icon: "📊", aliases: ["p&l", "pl", "profit"] },
+  { module: "finance", sub: "cash_flow",       label: "Cash Flow",           icon: "💧", aliases: ["cash"] },
+  { module: "finance", sub: "vendors",         label: "Vendor Intelligence", icon: "🏢", aliases: ["vendor"] },
+  { module: "finance", sub: "ap_aging",        label: "AP / AR",             icon: "⏳", aliases: ["ap", "ar", "aging", "payables", "receivables"] },
+  { module: "finance", sub: "txn_search",      label: "Transaction Search",  icon: "🔍", aliases: ["transactions", "search transactions"] },
+  { module: "finance", sub: "revenue",         label: "Revenue Analytics",   icon: "💰", aliases: ["revenue"] },
+  { module: "finance", sub: "audit",           label: "Audit Log",           icon: "📜", aliases: ["audit"] },
+  { module: "finance", sub: "vendor_spend",    label: "Vendor Spend",        icon: "💵", aliases: ["spend by vendor"] },
+  // ERP sub-views (ERPView reads pendingSubView)
+  { module: "erp", sub: "demand_planning",  label: "Demand Planning", icon: "📐", aliases: ["demand", "dp", "planning"] },
+  { module: "erp", sub: "products",         label: "Products",        icon: "📦", aliases: ["product", "sku", "skus"] },
+  { module: "erp", sub: "suppliers",        label: "Suppliers",       icon: "🏭", aliases: ["supplier", "vendor mgmt"] },
+  { module: "erp", sub: "purchase_orders",  label: "Purchase Orders", icon: "📋", aliases: ["po", "pos", "purchase order"] },
+  { module: "erp", sub: "inventory",        label: "Inventory",       icon: "📊", aliases: ["stock", "inventory"] },
+  { module: "erp", sub: "manufacturing",    label: "Manufacturing",   icon: "⚙", aliases: ["mfg", "production"] },
+  { module: "erp", sub: "orders",           label: "Orders",          icon: "🛒", aliases: ["order"] },
+  { module: "erp", sub: "customers",        label: "Customers",       icon: "👥", aliases: ["customer"] },
+  { module: "erp", sub: "shipping",         label: "Shipping",        icon: "🚚", aliases: ["ship"] },
+  { module: "erp", sub: "returns",          label: "Returns",         icon: "↩️", aliases: ["return", "rma"] },
+];
+
 export default function CommandPalette({ open, onClose, setActive }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -35,10 +69,19 @@ export default function CommandPalette({ open, onClose, setActive }) {
         supabase.from("objectives").select("id,title,health").is("deleted_at", null).ilike("title", `%${query}%`).limit(3),
         supabase.from("plm_programs").select("id,name,current_stage").is("deleted_at", null).ilike("name", `%${query}%`).limit(3),
       ]);
-      const nav = NAV_ITEMS.filter(n => n.label.toLowerCase().includes(query.toLowerCase()))
+      const q = query.toLowerCase();
+      const nav = NAV_ITEMS.filter(n => n.label.toLowerCase().includes(q))
         .map(n => ({ type: "nav", id: n.key, title: n.label, sub: "Navigate", icon: n.icon || "→" }));
+      // Sub-nav matches: match label OR any alias substring. e.g. "demand"
+      // hits "Demand Planning"; "spend" hits "Spend Requests". We dedupe so a
+      // user typing "demand planning" exactly doesn't see two near-identical
+      // rows from label vs alias.
+      const subnav = SUB_NAV
+        .filter(s => s.label.toLowerCase().includes(q) || (s.aliases || []).some(a => a.includes(q) || q.includes(a)))
+        .map(s => ({ type: "subnav", id: `${s.module}:${s.sub}`, title: s.label, sub: `Navigate · ${s.module === "finance" ? "Finance" : "ERP"}`, icon: s.icon, module: s.module, subRoute: s.sub }));
       setResults([
         ...nav,
+        ...subnav,
         ...(projects||[]).map(p => ({ type: "project", id: p.id, title: `${p.emoji||""} ${p.name}`.trim(), sub: "Project", icon: "◼", color: p.color })),
         ...(tasks||[]).map(t => ({ type: "task", id: t.id, title: t.title, sub: `Task · ${t.status}`, icon: "☐" })),
         ...(krs||[]).map(k => ({ type: "kr", id: k.id, title: k.title, sub: `Key Result · ${Math.round(k.progress||0)}%`, icon: "◎" })),
@@ -52,6 +95,13 @@ export default function CommandPalette({ open, onClose, setActive }) {
   }, [query]);
 
   const handleSelect = (item) => {
+    // Sub-nav: route to parent module and deep-link the tab via setActive
+    // signature (page.js's navigateTo(module, subView) is wired through here).
+    if (item.type === "subnav") {
+      setActive(item.module, item.subRoute);
+      onClose();
+      return;
+    }
     const map = { nav: item.id, action: item.action, project: "projects", task: "projects", doc: "docs", okr: "okrs", kr: "okrs", plm: "plm" };
     setActive(map[item.type] || "dashboard");
     onClose();
@@ -64,7 +114,7 @@ export default function CommandPalette({ open, onClose, setActive }) {
     else if (e.key === "Escape") { onClose(); }
   };
 
-  const typeGroup = (t) => ({ nav: "Navigate", action: "Quick Actions", project: "Projects", task: "Tasks", kr: "OKRs", okr: "OKRs", doc: "Docs", plm: "PLM" }[t] || "Other");
+  const typeGroup = (t) => ({ nav: "Navigate", subnav: "Navigate", action: "Quick Actions", project: "Projects", task: "Tasks", kr: "OKRs", okr: "OKRs", doc: "Docs", plm: "PLM" }[t] || "Other");
 
   const grouped = results.reduce((acc, item, i) => {
     const g = typeGroup(item.type);
