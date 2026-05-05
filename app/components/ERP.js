@@ -619,7 +619,9 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
           supabase.from("qbo_bills").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }).limit(1000),
           supabase.from("qbo_customers").select("*").eq("org_id", orgId).order("display_name"),
           supabase.from("qbo_invoices").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }),
-          supabase.from("qbo_pl").select("*").eq("org_id", orgId).order("account_type").order("account_name"),
+          // qbo_pl_ytd: live YTD aggregate of qbo_pl_monthly. The legacy
+          // qbo_pl table was no longer being kept current by the QBO sync.
+          supabase.from("qbo_pl_ytd").select("*").eq("org_id", orgId).order("account_type").order("account_name"),
         ]);
         setQboAccounts(qa || []); setQboVendors(qv || []); setQboBills(qb || []); setQboCustomers(qc || []); setQboInvoices(qi || []); setQboPL(qp || []);
       } catch (e) { console.error("[ERP] QBO load error:", e); }

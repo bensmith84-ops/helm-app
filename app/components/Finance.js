@@ -380,8 +380,12 @@ function RevenueAnalytics({ isMobile }) {
 
   useEffect(() => {
     (async () => {
+      // qbo_pl_ytd is a server-side view that aggregates qbo_pl_monthly to
+      // YTD totals. We use it instead of the legacy qbo_pl table because
+      // qbo_pl is no longer kept current by the QBO sync (frozen at Jan 2026
+      // for Earth Breeze) — qbo_pl_monthly is the live source.
       const [r1, r2] = await Promise.all([
-        supabase.from("qbo_pl").select("*").eq("org_id", orgId).eq("classification", "Revenue"),
+        supabase.from("qbo_pl_ytd").select("*").eq("org_id", orgId).eq("classification", "Revenue"),
         supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).eq("classification", "Revenue").order("period_month"),
       ]);
       setPLYTD(r1.data || []); setPLMonthly(r2.data || []);
@@ -2620,7 +2624,9 @@ function PLExplorer({ isMobile }) {
     (async () => {
       const [r1, r2, r3, r4] = await Promise.all([
         supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).order("period_month"),
-        supabase.from("qbo_pl").select("*"),
+        // qbo_pl_ytd: server-side view aggregating qbo_pl_monthly to YTD.
+        // Replaces qbo_pl which is no longer kept current by the QBO sync.
+        supabase.from("qbo_pl_ytd").select("*"),
         supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo").eq("org_id", orgId),
         supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo").eq("org_id", orgId).limit(5000),
       ]);
@@ -3004,7 +3010,10 @@ function CFODashboard({ isMobile }) {
   useEffect(() => {
     (async () => {
       const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12] = await Promise.all([
-        supabase.from("qbo_pl").select("*").eq("org_id", orgId),
+        // qbo_pl_ytd: live YTD aggregate of qbo_pl_monthly. Replaces qbo_pl
+        // which was frozen at Jan 2026 — Revenue/Expense/Net Income tiles
+        // were showing only ~\$5K when the real YTD is \$29M revenue.
+        supabase.from("qbo_pl_ytd").select("*").eq("org_id", orgId),
         supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).order("period_month"),
         supabase.from("qbo_balance_sheet").select("*"),
         supabase.from("qbo_bills").select("vendor_name,total_amount,balance,payment_status,txn_date,gl_accounts").eq("org_id", orgId),
@@ -4885,7 +4894,10 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     if (!orgId) return;
     (async () => {
       const [{ data: pl }, { data: maps }, { data: bills }, { data: purchases }, { data: plm }] = await Promise.all([
-        supabase.from("qbo_pl").select("*").eq("org_id", orgId).eq("classification", "Expense"),
+        // qbo_pl_ytd: live YTD rollup from qbo_pl_monthly. The legacy qbo_pl
+        // table was no longer being kept current, so QBO actuals on the
+        // Budgets page were showing only Jan data.
+        supabase.from("qbo_pl_ytd").select("*").eq("org_id", orgId).eq("classification", "Expense"),
         supabase.from("qbo_category_mappings").select("*").eq("org_id", orgId),
         supabase.from("qbo_bills").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }),
         supabase.from("qbo_purchases").select("*").eq("org_id", orgId).limit(5000).order("txn_date", { ascending: false }),
@@ -6773,9 +6785,12 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
             supabase.from("fin_vendor_spend").insert(rows.slice(i, i + 100).map(r => ({ ...r, org_id: orgId }))).then(() => {});
           }
         }
-        // Load QBO P&L and Bills
+        // Load QBO P&L (YTD via the live qbo_pl_ytd view) and Bills.
+        // Note: this view's other data source, fin_vendor_spend, is itself
+        // stale (last manual upload Mar 22, only Jan 2026 data). Flagged
+        // separately — needs a re-upload or a fresh pipeline.
         const [{ data: pl }, { data: bills }] = await Promise.all([
-          supabase.from("qbo_pl").select("*").order("account_type, account_name"),
+          supabase.from("qbo_pl_ytd").select("*").order("account_type, account_name"),
           supabase.from("qbo_bills").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }),
         ]);
         setQboPL(pl || []);
