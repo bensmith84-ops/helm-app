@@ -3416,10 +3416,15 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   // form so they see live pacing the moment they pick a GL.
   const [formBudgetSnap, setFormBudgetSnap] = useState(null);
   const [formBudgetSnapLoading, setFormBudgetSnapLoading] = useState(false);
+  // Match candidates from fin_find_match_candidates RPC. Populated on demand
+  // when the user opens the detail modal of an approved-and-not-yet-fulfilled
+  // request. Sorted by score desc.
+  const [matchCandidates, setMatchCandidates] = useState([]);
+  const [matchLoading, setMatchLoading] = useState(false);
   const [showRemoval, setShowRemoval] = useState(false);
   const [removalReason, setRemovalReason] = useState("");
 
-  const FORM_INIT = { title: "", amount: "", gl_code: "", description: "", cost_type: "one_time", recurring_frequency: "monthly", recurring_amount: "", first_amount: "", recurring_end_date: "", department: "", budget_accounted_for: "", quotes_obtained: "" };
+  const FORM_INIT = { title: "", amount: "", gl_code: "", vendor_name: "", description: "", cost_type: "one_time", recurring_frequency: "monthly", recurring_amount: "", first_amount: "", recurring_end_date: "", department: "", budget_accounted_for: "", quotes_obtained: "" };
   const [form, setForm] = useState(FORM_INIT);
   const [editMode, setEditMode] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -3459,14 +3464,97 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (isApprover && r.status === "pending") return true; // pending items visible to approvers
     return false;
   });
+
   const filtered = myRequests.filter(r => {
     if (filter === "all") return true;
     if (filter === "pending") return ["pending", "conditionally_approved", "conditionally_approved_info_added"].includes(r.status);
+    if (filter === "awaiting") {
+      // Approved but not yet matched to actual spend (or partially matched / stale).
+      return r.status === "approved" &&
+        (r.fulfillment_status === "awaiting_payment" ||
+         r.fulfillment_status === "partially_matched" ||
+         r.fulfillment_status === "stale");
+    }
+    if (filter === "fulfilled") {
+      return r.status === "approved" && r.fulfillment_status === "fulfilled";
+    }
     return r.status === filter;
   });
   const selReq = requests.find(r => r.id === selected);
   const isMyRequest = selReq?.requester_id === user?.id;
   const canEditRequest = isMyRequest && (selReq?.status === "pending" || selReq?.status === "resubmit");
+
+  // Load match candidates when the detail modal opens for an approved
+  // request that's not yet fulfilled. Uses the fin_find_match_candidates
+  // RPC; results pre-sorted by score desc.
+  useEffect(() => {
+    if (!selReq?.id || selReq.status !== "approved" || selReq.fulfillment_status === "fulfilled") {
+      setMatchCandidates([]); return;
+    }
+    let cancelled = false;
+    setMatchLoading(true);
+    supabase.rpc("fin_find_match_candidates", { p_request_id: selReq.id })
+      .then(({ data }) => { if (!cancelled) { setMatchCandidates(data || []); setMatchLoading(false); } })
+      .catch(() => { if (!cancelled) { setMatchCandidates([]); setMatchLoading(false); } });
+    return () => { cancelled = true; };
+  }, [selReq?.id, selReq?.fulfillment_status]);
+
+  // Confirm a candidate as the actual match — appends it to matched_actuals
+  // and bumps fulfillment_status. Mirrors what fin_run_match_pass would do
+  // for an auto-match, but driven by user click on a suggested candidate.
+  const confirmMatch = async (candidate) => {
+    if (!selReq) return;
+    const newEntry = {
+      vendor_spend_id: candidate.vendor_spend_id,
+      period: candidate.period,
+      vendor_name: candidate.c_vendor_name,
+      gl_account: candidate.gl_account,
+      amount: Number(candidate.amount),
+      score: candidate.score,
+      matched_at: new Date().toISOString(),
+      auto: false,
+    };
+    const newMatched = [...(selReq.matched_actuals || []), newEntry];
+    const newTotal = (Number(selReq.matched_amount) || 0) + Number(candidate.amount);
+    const isFulfilled = Math.abs(newTotal - Number(selReq.amount)) <= Number(selReq.amount) * 0.05;
+    await updateRequest(selReq.id, {
+      matched_actuals: newMatched,
+      matched_amount: newTotal,
+      fulfillment_status: isFulfilled ? "fulfilled" : "partially_matched",
+      last_match_check_at: new Date().toISOString(),
+    });
+    addAuditEntry("Spend matched to actual",
+      `"${selReq.title}" matched to ${candidate.c_vendor_name} ${fmt(candidate.amount)} (${candidate.period})`,
+      selReq.id);
+    setMatchCandidates(p => p.filter(c => c.vendor_spend_id !== candidate.vendor_spend_id));
+  };
+
+  const dismissCandidate = async (candidate) => {
+    if (!selReq) return;
+    await supabase.from("fin_match_dismissals").insert({
+      org_id: profile?.org_id,
+      request_id: selReq.id,
+      vendor_spend_id: candidate.vendor_spend_id,
+      dismissed_by: user?.id,
+    });
+    setMatchCandidates(p => p.filter(c => c.vendor_spend_id !== candidate.vendor_spend_id));
+  };
+
+  const unmatchActual = async (vendorSpendId) => {
+    if (!selReq) return;
+    const remaining = (selReq.matched_actuals || []).filter(m => m.vendor_spend_id !== vendorSpendId);
+    const removed = (selReq.matched_actuals || []).find(m => m.vendor_spend_id === vendorSpendId);
+    const newTotal = Math.max(0, (Number(selReq.matched_amount) || 0) - Number(removed?.amount || 0));
+    const newStatus = remaining.length === 0
+      ? "awaiting_payment"
+      : (Math.abs(newTotal - Number(selReq.amount)) <= Number(selReq.amount) * 0.05 ? "fulfilled" : "partially_matched");
+    await updateRequest(selReq.id, {
+      matched_actuals: remaining,
+      matched_amount: newTotal,
+      fulfillment_status: newStatus,
+    });
+    addAuditEntry("Spend match removed", `"${selReq.title}" — match removed manually`, selReq.id);
+  };
 
   // Load the budget snapshot whenever a different request is selected.
   // Only run when we actually have a GL code — otherwise the helper would
@@ -3596,6 +3684,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       const req = {
         requester_id: user.id, title: form.title, amount: amt,
         gl_code: form.gl_code, budget_category_id: glEntry?.budget_category_id || null,
+        vendor_name: form.vendor_name?.trim() || null,
         department: form.department, description: form.description,
         cost_type: form.cost_type,
         recurring_frequency: form.cost_type === "recurring" ? form.recurring_frequency : null,
@@ -3613,6 +3702,9 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         quotes_obtained: form.quotes_obtained || null,
         attachments: formAttachments.length > 0 ? formAttachments : null,
         date: new Date().toISOString().slice(0, 10),
+        // If auto-approved at submit time, kick off fulfillment tracking
+        // immediately so it shows up in the Awaiting Fulfillment tab.
+        fulfillment_status: isAuto ? "awaiting_payment" : null,
       };
       const data = await addRequest(req);
       addAuditEntry("Request submitted", `"${form.title}" for ${fmt(amt)}${matchedRule ? ` — rule: ${matchedRule.name}` : ""}`, data?.id);
@@ -3788,6 +3880,9 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       approval_step: newStep,
       status: done ? "approved" : "pending",
       approvals: [...(selReq.approvals || []), { step: selReq.approval_step, by: user.id, at: new Date().toISOString().slice(0, 10) }],
+      // Kick off fulfillment tracking the moment a request becomes fully
+      // approved. Nightly cron will start trying to match it against actuals.
+      fulfillment_status: done ? "awaiting_payment" : selReq.fulfillment_status,
     };
     await updateRequest(selReq.id, patch);
     addAuditEntry(done ? "Request approved" : `Approval step ${newStep} completed`, `"${selReq.title}" ${done ? "fully approved" : "step approved"}`, selReq.id);
@@ -3902,14 +3997,57 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         <button onClick={() => setShowNew(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Request</button>
       </div>
 
-      {/* Status filters */}
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {["all", "pending", "approved", "conditionally_approved", "rejected", "removed"].map(s => (
-          <button key={s} onClick={() => setFilter(s)}
-            style={{ padding: "5px 12px", borderRadius: 16, border: `1px solid ${filter === s ? T.accent : T.border}`, background: filter === s ? T.accentDim : "transparent", color: filter === s ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-            {s === "all" ? "All" : STATUS_LABELS[s] || s}
+      {/* Status filters — Awaiting Fulfillment surfaces approved requests
+          we haven't yet seen actual spend for. The matcher runs nightly;
+          users can also click 'Run match' below to run it on demand. */}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+        {(() => {
+          const counts = {
+            all:       myRequests.length,
+            pending:   myRequests.filter(r => ["pending","conditionally_approved","conditionally_approved_info_added"].includes(r.status)).length,
+            awaiting:  myRequests.filter(r => r.status === "approved" && (r.fulfillment_status === "awaiting_payment" || r.fulfillment_status === "partially_matched" || r.fulfillment_status === "stale")).length,
+            fulfilled: myRequests.filter(r => r.status === "approved" && r.fulfillment_status === "fulfilled").length,
+            approved:  myRequests.filter(r => r.status === "approved").length,
+            conditionally_approved: myRequests.filter(r => r.status === "conditionally_approved").length,
+            rejected:  myRequests.filter(r => r.status === "rejected").length,
+            removed:   myRequests.filter(r => r.status === "removed").length,
+          };
+          const tabs = [
+            { k: "all",       l: "All" },
+            { k: "pending",   l: "Pending" },
+            { k: "awaiting",  l: "Awaiting Fulfillment" },
+            { k: "fulfilled", l: "Fulfilled" },
+            { k: "approved",  l: STATUS_LABELS.approved },
+            { k: "conditionally_approved", l: STATUS_LABELS.conditionally_approved },
+            { k: "rejected",  l: STATUS_LABELS.rejected },
+            { k: "removed",   l: "Removed" },
+          ];
+          return tabs.map(({ k, l }) => (
+            <button key={k} onClick={() => setFilter(k)}
+              style={{ padding: "5px 12px", borderRadius: 16, border: `1px solid ${filter === k ? T.accent : T.border}`, background: filter === k ? T.accentDim : "transparent", color: filter === k ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
+              {l}
+              {counts[k] > 0 && <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 8, background: filter === k ? T.accent : T.border, color: filter === k ? "#fff" : T.text3, fontWeight: 700 }}>{counts[k]}</span>}
+            </button>
+          ));
+        })()}
+        {filter === "awaiting" && (
+          <button onClick={async () => {
+            const orgId = profile?.org_id;
+            if (!orgId) return;
+            const { data, error } = await supabase.rpc("fin_run_match_pass", { p_org_id: orgId });
+            if (error) {
+              alert("Match pass failed: " + error.message);
+            } else {
+              const auto = (data || []).filter(r => r.out_action === "auto_matched").length;
+              const sugg = (data || []).filter(r => r.out_action === "suggested").length;
+              const stale = (data || []).filter(r => r.out_action === "marked_stale").length;
+              alert(`Match pass complete: ${auto} auto-matched · ${sugg} suggestions · ${stale} marked stale`);
+              window.location.reload();
+            }
+          }} style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 16, border: `1px solid ${T.accent}`, background: "transparent", color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+            🔄 Run match now
           </button>
-        ))}
+        )}
       </div>
 
       {/* Request list */}
@@ -3940,11 +4078,36 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                     {fmt(req.amount)}{req.cost_type === "recurring" && freqShort && <span style={{ fontSize: 10, color: T.text3, fontWeight: 500 }}>/{freqShort}</span>}
                   </div>
                   <Badge status={req.status} />
+                  {req.status === "approved" && req.fulfillment_status && (() => {
+                    const FULFILL_LABELS = {
+                      awaiting_payment:   { label: "Awaiting payment", bg: "#EFF6FF", color: "#1D4ED8" },
+                      partially_matched:  { label: "Partially matched", bg: "#FEF3C7", color: "#92400E" },
+                      fulfilled:          { label: "✓ Fulfilled",       bg: "#D1FAE5", color: "#065F46" },
+                      stale:              { label: "Stale (60d+)",      bg: "#F3F4F6", color: "#4B5563" },
+                    };
+                    const f = FULFILL_LABELS[req.fulfillment_status];
+                    if (!f) return null;
+                    return <div style={{ marginTop: 4, display: "inline-block", fontSize: 10, padding: "2px 6px", borderRadius: 4, background: f.bg, color: f.color, fontWeight: 700, letterSpacing: 0.3 }}>{f.label}</div>;
+                  })()}
                 </div>
               </div>
               {req.status === "pending" && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
                   <ApprovalChain req={req} members={members} />
+                </div>
+              )}
+              {req.status === "approved" && (req.fulfillment_status === "partially_matched" || req.fulfillment_status === "fulfilled") && Number(req.matched_amount) > 0 && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span>Approved: <strong style={{ color: T.text }}>{fmt(req.amount)}</strong></span>
+                  <span>· Actual so far: <strong style={{ color: T.text }}>{fmt(req.matched_amount)}</strong></span>
+                  {(() => {
+                    const variance = Number(req.matched_amount) - Number(req.amount);
+                    const pct = Number(req.amount) > 0 ? Math.round((variance / Number(req.amount)) * 100) : 0;
+                    if (Math.abs(pct) < 1) return <span style={{ color: "#10B981", fontWeight: 600 }}>· On budget</span>;
+                    return <span style={{ color: variance > 0 ? "#EF4444" : "#10B981", fontWeight: 600 }}>
+                      · {variance > 0 ? "+" : ""}{pct}% vs approved
+                    </span>;
+                  })()}
                 </div>
               )}
             </Card>
@@ -3982,6 +4145,18 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                   <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>GL Code</div>
                   <GLCodePicker value={form.gl_code} onChange={code => setForm(f => ({ ...f, gl_code: code }))} codes={glCodes} />
                 </div>
+              </div>
+
+              {/* Vendor — used at fulfillment-match time to pair this approval
+                  with a fin_vendor_spend row. Optional today (legacy requests
+                  don't have it) but strongly encouraged for new ones. */}
+              <div>
+                <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  Vendor
+                  <span style={{ fontSize: 10, fontWeight: 400, color: T.text3 }}>· Helps Helm match this approval to the actual QBO transaction later</span>
+                </div>
+                <input type="text" value={form.vendor_name} onChange={e => setForm(f => ({ ...f, vendor_name: e.target.value }))} placeholder="e.g. Datadog, Acme Co, Adobe"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
               </div>
 
               {/* Live pacing card — surfaces the moment a GL is picked so the
@@ -4295,6 +4470,99 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 </div>
               );
             })()}
+
+            {/* Fulfillment Match — only for approved requests. Shows already-
+                matched actuals (with unmatch button), suggested candidates
+                (with confirm/dismiss), and a summary of variance vs approved. */}
+            {selReq.status === "approved" && (
+              <div style={{ background: T.surface2, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>Fulfillment</div>
+                  {selReq.fulfillment_status && (() => {
+                    const map = {
+                      awaiting_payment:  { l: "Awaiting payment", bg: "#EFF6FF", c: "#1D4ED8" },
+                      partially_matched: { l: "Partially matched", bg: "#FEF3C7", c: "#92400E" },
+                      fulfilled:         { l: "✓ Fulfilled", bg: "#D1FAE5", c: "#065F46" },
+                      stale:             { l: "Stale (60d+)", bg: "#F3F4F6", c: "#4B5563" },
+                    };
+                    const m = map[selReq.fulfillment_status];
+                    if (!m) return null;
+                    return <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: m.bg, color: m.c }}>{m.l}</span>;
+                  })()}
+                  <span style={{ marginLeft: "auto", fontSize: 10, color: T.text3 }}>
+                    Approved {fmt(selReq.amount)} · Matched {fmt(selReq.matched_amount || 0)}
+                    {(() => {
+                      if (!Number(selReq.matched_amount)) return null;
+                      const variance = Number(selReq.matched_amount) - Number(selReq.amount);
+                      const pct = Number(selReq.amount) > 0 ? Math.round((variance / Number(selReq.amount)) * 100) : 0;
+                      if (Math.abs(pct) < 1) return <> · <span style={{ color: "#10B981", fontWeight: 700 }}>on budget</span></>;
+                      return <> · <span style={{ color: variance > 0 ? "#EF4444" : "#10B981", fontWeight: 700 }}>{variance > 0 ? "+" : ""}{pct}% vs approved</span></>;
+                    })()}
+                  </span>
+                </div>
+
+                {/* Already matched actuals */}
+                {(selReq.matched_actuals || []).length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Matched transactions</div>
+                    {(selReq.matched_actuals || []).map(m => (
+                      <div key={m.vendor_spend_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "#D1FAE530", borderRadius: 6, fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ fontSize: 14 }}>✓</span>
+                        <span style={{ fontWeight: 600, color: T.text }}>{m.vendor_name}</span>
+                        <span style={{ color: T.text3 }}>· {m.period}</span>
+                        <span style={{ marginLeft: "auto", fontWeight: 700, color: T.text }}>{fmt(m.amount)}</span>
+                        <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: m.auto ? "#D1FAE5" : "#FEF3C7", color: m.auto ? "#065F46" : "#92400E", fontWeight: 700 }}>
+                          {m.auto ? "AUTO" : "MANUAL"}
+                        </span>
+                        <button onClick={() => unmatchActual(m.vendor_spend_id)}
+                          style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11, padding: "2px 6px" }}
+                          title="Remove this match">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Suggested candidates */}
+                {selReq.fulfillment_status !== "fulfilled" && (
+                  <div>
+                    <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 4 }}>
+                      {matchLoading ? "Looking for matches…" :
+                       matchCandidates.length === 0 ? "No actual transactions found yet for this GL since approval." :
+                       `Suggested matches (${matchCandidates.length})`}
+                    </div>
+                    {matchCandidates.map(c => {
+                      const variance = Number(c.amount) - Number(selReq.amount);
+                      const variancePct = Number(selReq.amount) > 0 ? Math.round((variance / Number(selReq.amount)) * 100) : 0;
+                      const scoreColor = c.score >= 80 ? "#10B981" : c.score >= 60 ? "#F59E0B" : "#9CA3AF";
+                      return (
+                        <div key={c.vendor_spend_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: scoreColor + "20", color: scoreColor }}>{c.score}</span>
+                          <span style={{ fontWeight: 600, color: T.text }}>{c.c_vendor_name}</span>
+                          <span style={{ color: T.text3 }}>· {c.period}</span>
+                          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontWeight: 700, color: T.text }}>{fmt(c.amount)}</span>
+                            {Math.abs(variancePct) >= 1 && (
+                              <span style={{ fontSize: 10, color: variance > 0 ? "#EF4444" : "#10B981", fontWeight: 600 }}>
+                                ({variance > 0 ? "+" : ""}{variancePct}%)
+                              </span>
+                            )}
+                            <button onClick={() => confirmMatch(c)}
+                              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>
+                              ✓ Confirm
+                            </button>
+                            <button onClick={() => dismissCandidate(c)}
+                              style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, borderRadius: 5, cursor: "pointer" }}
+                              title="Not this one — don't suggest again">
+                              ✕
+                            </button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Approval chain */}
             <div style={{ background: T.surface2, borderRadius: 10, padding: 16, marginBottom: 16 }}>
