@@ -2447,7 +2447,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
 // Each channel has period inputs (W1, W2, ... or M1, M2, ...) configured by type.
 // ─────────────────────────────────────────────────────────────────────────────
 function MarketingChannelsSection({ launch, launchMarketingChannels, launchMarketingPeriods, updateLaunch, addMarketingChannel, updateMarketingChannel, deleteMarketingChannel, upsertMarketingPeriod, T, isMobile }) {
-  const periodType = launch.period_type || "week";
+  const periodType = launch.period_type || "month";
   const periodCount = parseInt(launch.forecast_periods) || 12;
   const periodLabel = periodType === "month" ? "M" : "W";
   const periods = Array.from({ length: periodCount }, (_, i) => i + 1);
@@ -2873,7 +2873,7 @@ function CapacityDosSection({ launch, totalUnits, peakUnits, maxMonthlyCapacity,
 // (separate funnel from Hero GWP — its own spend, CPA, or direct orders)
 // ─────────────────────────────────────────────────────────────────────────────
 function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod, updateUpsell, T, isMobile }) {
-  const periodType = launch.period_type || "week";
+  const periodType = launch.period_type || "month";
   const periodCount = parseInt(launch.forecast_periods) || 12;
   const periodLabel = periodType === "month" ? "M" : "W";
   const periods = Array.from({ length: periodCount }, (_, i) => i + 1);
@@ -2999,7 +2999,7 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
 // Used by MonthlyDemandSchedule (rendering) AND CapacityDosSection (peak/avg).
 // ─────────────────────────────────────────────────────────────────────────────
 function computeMonthlyDemand({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, upsellPeriods }) {
-  const periodType = launch.period_type || "week";
+  const periodType = launch.period_type || "month";
   const periodCount = parseInt(launch.forecast_periods) || 12;
   const totalMonths = periodType === "month" ? Math.max(12, periodCount) : Math.max(12, Math.ceil(periodCount / 4.33));
   const months = Array.from({ length: totalMonths }, (_, i) => i + 1);
@@ -3610,6 +3610,12 @@ function LaunchPlannerView({ isMobile, orgId }) {
       unit_cost: parseFloat(form.unit_cost) || null, retail_price: parseFloat(form.retail_price) || null,
       target_margin_pct: parseFloat(form.target_margin_pct) || null,
       forecast_period_weeks: parseInt(form.forecast_period_weeks) || 12,
+      // Default Spend & CAC inputs to monthly so they align with rebill
+      // cohort cadence. 12 months gives plenty of room for the launch ramp
+      // and several rebill cycles. Users can flip to 'week' or change the
+      // count per-launch from the period toggle.
+      period_type: "month",
+      forecast_periods: 12,
       supplier: form.supplier || null,
       max_monthly_capacity: parseInt(form.max_monthly_capacity) || null,
       target_days_of_supply: parseInt(form.target_days_of_supply) || 60,
