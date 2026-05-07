@@ -684,15 +684,28 @@ export default function PeopleView() {
             <EditableField value={selected.email || ""} placeholder="Email address"
               style={{ fontSize: 12, color: T.text3, marginTop: 2, width: "100%" }}
               onSave={async (v) => {
-                await supabase.from("profiles").update({ email: v }).eq("org_id", orgId).eq("id", selected.id);
-                setSelected(s => ({ ...s, email: v })); setMembers(p => p.map(m => m.id === selected.id ? { ...m, email: v } : m));
+                // Update auth first — if that fails, we don't want a profile/auth
+                // mismatch where profiles.email says one thing and auth.users
+                // says another. Both endpoints need the anon-key Authorization
+                // header (without it the edge-function gateway returns 400 even
+                // when verify_jwt is false on the function itself).
                 const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/invite-user", {
-                  method: "POST", headers: { "Content-Type": "application/json" },
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4",
+                  },
                   body: JSON.stringify({ action: "update_email", user_id: selected.id, email: v }),
                 });
-                const result = await res.json();
-                if (result.error) showToast("Profile updated. Auth: " + result.error);
-                else showToast("Email updated", "success");
+                const result = await res.json().catch(() => ({ error: "Network error" }));
+                if (result.error) {
+                  showToast("Email update failed: " + result.error);
+                  return; // bail — leave profile unchanged so it stays in sync with auth
+                }
+                await supabase.from("profiles").update({ email: v }).eq("org_id", orgId).eq("id", selected.id);
+                setSelected(s => ({ ...s, email: v }));
+                setMembers(p => p.map(m => m.id === selected.id ? { ...m, email: v } : m));
+                showToast("Email updated", "success");
               }} />
           </div>
         </div>
