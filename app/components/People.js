@@ -326,10 +326,40 @@ export default function PeopleView() {
     const isDefaultDeny = perms._default_deny === true;
     let updated;
     if (isDefaultDeny) {
-      // Allow-list mode: toggle the explicit `true` flag for this module
-      const currentlyAllowed = perms[mod] === true;
-      updated = { ...perms, [mod]: !currentlyAllowed };
-      if (currentlyAllowed) delete updated[mod]; // remove the key entirely instead of setting false
+      // Allow-list mode. The toggle shows whatever hasModuleAccess says, which
+      // can include an inherited ON from a parent ancestor. So when the user
+      // clicks, we have to flip the *displayed* state, not just the literal
+      // perms[mod] value — otherwise clicking a sub-toggle that's ON-via-
+      // ancestor does nothing visible (it just sets perms[mod]=true on top of
+      // an already-true ancestor and the toggle re-renders in the same place).
+      const literal = perms[mod];                  // true | false | undefined
+      const displayedAsOn = hasModuleAccess(uid, mod);
+      updated = { ...perms };
+      if (literal === true) {
+        // Currently explicitly granted. Remove the grant. If an ancestor still
+        // grants it, hasModuleAccess will fall back to inherited ON — so to
+        // produce a visible flip we also set an explicit deny.
+        delete updated[mod];
+        // Walk ancestors to see if any explicit grant remains; if so, we need
+        // an explicit deny on this key to override.
+        const parts = mod.split(".");
+        let inheritedFromAncestor = false;
+        for (let i = 1; i < parts.length; i++) {
+          if (perms[parts.slice(0, i).join(".")] === true) { inheritedFromAncestor = true; break; }
+        }
+        if (inheritedFromAncestor) updated[mod] = false;
+      } else if (literal === false) {
+        // Currently explicitly denied (overriding an ancestor grant). Remove
+        // the deny so the ancestor grant can take effect again.
+        delete updated[mod];
+      } else if (displayedAsOn) {
+        // No explicit value, but currently shown ON via ancestor inheritance.
+        // The user wants OFF, so write an explicit deny.
+        updated[mod] = false;
+      } else {
+        // No explicit value, displayed OFF. User wants ON. Write explicit grant.
+        updated[mod] = true;
+      }
     } else {
       // Legacy block mode: toggle the explicit `false` flag
       const currentlyAllowed = perms[mod] !== false;
@@ -399,9 +429,14 @@ export default function PeopleView() {
     const perms = om.module_permissions || {};
     const isDefaultDeny = perms._default_deny === true;
     if (isDefaultDeny) {
-      // Allow-list mode: only show as ON if explicitly granted
+      // Allow-list mode. Resolution order:
+      //   1. Explicit grant on the exact key  → ON
+      //   2. Explicit deny on the exact key   → OFF (overrides ancestor grant
+      //      so users can enable a parent module while excluding a sub-feature)
+      //   3. Any explicit grant on an ancestor → ON (inherited)
+      //   4. Otherwise → OFF (default-deny)
       if (perms[mod] === true) return true;
-      // Check ancestor grants too
+      if (perms[mod] === false) return false;
       const parts = mod.split(".");
       for (let i = 1; i < parts.length; i++) {
         const ancestor = parts.slice(0, i).join(".");
