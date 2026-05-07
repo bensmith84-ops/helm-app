@@ -3648,13 +3648,16 @@ function LaunchPlannerView({ isMobile, orgId }) {
 
   const deleteLaunch = async (id, productName) => {
     if (!confirm(`Delete launch "${productName}"? This will also remove all channels, periods, POs, email sends, variants, GWP tiers, upsells, geo splits, and rebill rates tied to it. This cannot be undone.`)) return;
-    // Cascade deletes for child tables (FK ON DELETE CASCADE handles new ones, but explicit for old)
+    // Cascade deletes for child tables. Three of these (dp_launch_periods,
+    // dp_launch_email_sends, dp_launch_variant_splits) hang off
+    // dp_launch_channels — not directly off the launch — so they have a
+    // channel_id column, NOT a launch_id column. Trying to delete them by
+    // launch_id was returning 400 from PostgREST ('column does not exist').
+    // The DB already handles those via ON DELETE CASCADE on dp_launch_channels,
+    // so we just delete the channels and let Postgres clean up the rest.
     await Promise.all([
       supabase.from("dp_launch_channels").delete().eq("launch_id", id),
       supabase.from("dp_launch_pos").delete().eq("launch_id", id),
-      supabase.from("dp_launch_periods").delete().eq("launch_id", id),
-      supabase.from("dp_launch_email_sends").delete().eq("launch_id", id),
-      supabase.from("dp_launch_variant_splits").delete().eq("launch_id", id),
       supabase.from("dp_launch_gwp_tiers").delete().eq("launch_id", id),
       supabase.from("dp_launch_upsells").delete().eq("launch_id", id),
       supabase.from("dp_launch_geo_split").delete().eq("launch_id", id),
