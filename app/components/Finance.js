@@ -2412,19 +2412,25 @@ function CashFlowView({ isMobile }) {
         supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").eq("org_id", orgId).limit(5000).order("txn_date"),
         supabase.from("qbo_transfers").select("*").order("txn_date"),
         supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,payment_status").eq("org_id", orgId).order("txn_date"),
-        // Latest inventory snapshot. Order by report_date desc, take the
-        // freshest day's rows, filter to inventory accounts client-side.
-        supabase.from("qbo_balance_sheet").select("account_name,amount,report_date,synced_at").eq("org_id", orgId).order("report_date", { ascending: false }).limit(200),
+        // Latest inventory snapshot. Pull both data and summary rows so we
+        // can prefer QBO's own 'Total ... Inventory' subtotal when it exists
+        // (matches the BS report exactly), and fall back to summing the
+        // inventory-named asset accounts if the summary row isn't present
+        // (e.g. on a pre-v31 sync snapshot).
+        supabase.from("qbo_balance_sheet").select("account_name,amount,report_date,synced_at,is_summary,group_name,section").eq("org_id", orgId).order("report_date", { ascending: false }).limit(400),
       ]);
       setDeposits(r1.data || []); setPayments(r2.data || []);
       setPurchases(r3.data || []); setTransfers(r4.data || []); setBills(r5.data || []);
-      // Filter the balance sheet rows to inventory accounts on the latest
-      // report date. Doing this client-side avoids a second roundtrip and
-      // keeps the SQL-injection surface minimal.
       const bs = rInv.data || [];
       if (bs.length) {
         const latest = bs[0].report_date;
-        const invs = bs.filter(r => r.report_date === latest && /inventory/i.test(r.account_name || ""));
+        // Only Data rows (per-account) feed the breakdown list. Summary rows
+        // like 'Total 10200 Inventory' would double-count if mixed in here.
+        const invs = bs.filter(r =>
+          r.report_date === latest
+          && !r.is_summary
+          && /inventory/i.test(r.account_name || "")
+        );
         setInventoryRows(invs);
         setInventoryAsOf(latest);
       }
@@ -3139,10 +3145,28 @@ function CFODashboard({ isMobile }) {
   const netIncome = revenue - expenses;
   const grossMargin = revenue > 0 ? ((revenue - pl.filter(r => r.account_type === "Cost of Goods Sold").reduce((s, r) => s + Number(r.amount), 0)) / revenue * 100) : 0;
 
-  const totalAssets = bs.filter(r => r.section === "Asset").reduce((s, r) => s + Number(r.amount), 0);
-  const totalLiabilities = bs.filter(r => r.section === "Liability").reduce((s, r) => s + Number(r.amount), 0);
-  const totalEquity = bs.filter(r => r.section === "Equity").reduce((s, r) => s + Number(r.amount), 0);
-  const cashAccounts = bs.filter(r => r.section === "Asset" && (r.account_name.toLowerCase().includes("checking") || r.account_name.toLowerCase().includes("savings") || r.account_name.toLowerCase().includes("cash")));
+  // Use QBO's own summary rows from the BS report for section totals. These
+  // are pre-signed (contra-equity reduces equity, contra-asset reduces assets)
+  // so they match what QBO prints. Falls back to summing data rows ONLY if the
+  // sync hasn't captured summaries yet (older snapshots). Filter to the most
+  // recent report_date so an older partial snapshot can't pollute totals.
+  const bsLatest = (() => {
+    if (!bs.length) return null;
+    return bs.reduce((m, r) => r.report_date > m ? r.report_date : m, "");
+  })();
+  const bsToday = bsLatest ? bs.filter(r => r.report_date === bsLatest) : [];
+  const bsDataRows = bsToday.filter(r => !r.is_summary);
+  // Match summary rows by group label so a chart-of-accounts rename can't
+  // break the lookup. QBO's exact strings are 'TOTAL ASSETS', 'Total Liabilities',
+  // 'Total Equity', 'TOTAL LIABILITIES AND EQUITY'.
+  const findSummary = (predicate) => bsToday.find(r => r.is_summary && predicate(r));
+  const totalAssetsSummary = findSummary(r => /^total assets$/i.test(r.account_name || ""));
+  const totalLiabSummary   = findSummary(r => /^total liabilities$/i.test(r.account_name || ""));
+  const totalEquitySummary = findSummary(r => /^total equity$/i.test(r.account_name || ""));
+  const totalAssets      = totalAssetsSummary ? Number(totalAssetsSummary.amount) : bsDataRows.filter(r => r.section === "Asset").reduce((s, r) => s + Number(r.amount), 0);
+  const totalLiabilities = totalLiabSummary   ? Number(totalLiabSummary.amount)   : bsDataRows.filter(r => r.section === "Liability").reduce((s, r) => s + Number(r.amount), 0);
+  const totalEquity      = totalEquitySummary ? Number(totalEquitySummary.amount) : bsDataRows.filter(r => r.section === "Equity").reduce((s, r) => s + Number(r.amount), 0);
+  const cashAccounts = bsDataRows.filter(r => r.section === "Asset" && (r.account_name.toLowerCase().includes("checking") || r.account_name.toLowerCase().includes("savings") || r.account_name.toLowerCase().includes("cash")));
   const totalCashBS = cashAccounts.reduce((s, r) => s + Number(r.amount), 0);
   // Use bank accounts from COA (more current than Balance Sheet)
   const bankTotal = bankAccounts.filter(a => a.current_balance > 0).reduce((s, a) => s + Number(a.current_balance), 0);
@@ -3369,16 +3393,22 @@ function CFODashboard({ isMobile }) {
           })()}
         </div>
 
-        {/* Balance Sheet Summary */}
+        {/* Balance Sheet Summary — section totals come from QBO Summary rows
+            (already loaded into totalAssets / totalLiabilities / totalEquity
+            with correct signs). Per-account list excludes Summary rows so the
+            'Total ...' rows aren't shown as if they were accounts. */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Balance Sheet Summary</div>
-          {bs.length === 0 ? (
+          {bsToday.length === 0 ? (
             <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>Run a sync to populate Balance Sheet data</div>
           ) : (
             <>
-              {[{ section: "Asset", color: T.green, label: "Assets" }, { section: "Liability", color: T.red, label: "Liabilities" }, { section: "Equity", color: T.purple, label: "Equity" }].map(({ section, color, label }) => {
-                const items = bs.filter(r => r.section === section).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
-                const total = items.reduce((s, r) => s + Number(r.amount), 0);
+              {[
+                { section: "Asset",     color: T.green,  label: "Assets",      total: totalAssets },
+                { section: "Liability", color: T.red,    label: "Liabilities", total: totalLiabilities },
+                { section: "Equity",    color: T.purple, label: "Equity",      total: totalEquity },
+              ].map(({ section, color, label, total }) => {
+                const items = bsDataRows.filter(r => r.section === section).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
                 return (
                   <div key={section} style={{ marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -3459,15 +3489,11 @@ function BalanceSheetView({ isMobile }) {
   useEffect(() => {
     if (!orgId) return;
     (async () => {
-      // Pull only the latest report_date worth of rows. We don't know that date
-      // up-front, so we order desc and grab a generous batch (200) — well above
-      // the ~95-account count Earth Breeze produces — then filter to the most
-      // recent date client-side. One roundtrip, no nested query.
       const { data } = await supabase.from("qbo_balance_sheet")
-        .select("section,account_name,account_type,amount,report_date,synced_at")
+        .select("section,account_name,account_type,amount,report_date,synced_at,is_summary,group_name")
         .eq("org_id", orgId)
         .order("report_date", { ascending: false })
-        .limit(200);
+        .limit(400);
       const all = data || [];
       if (all.length) {
         const latest = all[0].report_date;
@@ -3481,45 +3507,88 @@ function BalanceSheetView({ isMobile }) {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading balance sheet…</div>;
   if (!rows.length) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>No balance sheet data. Run a QBO sync to populate.</div>;
 
-  const sectionTotal = (s) => rows.filter(r => r.section === s).reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const totalAssets    = sectionTotal("Asset");
-  const totalLiabs     = sectionTotal("Liability");
-  const totalEquity    = sectionTotal("Equity");
-  const totalLE        = totalLiabs + totalEquity;
-  // Tolerate small rounding (sub-$10) — anything bigger is a real signal.
+  const dataRows    = rows.filter(r => !r.is_summary);
+  const summaryRows = rows.filter(r => r.is_summary);
+
+  // Resolve QBO's pre-signed section totals by name. These ARE the numbers
+  // QBO would print on the actual report — already net of any contra rows.
+  const findSummary = (predicate) => summaryRows.find(r => predicate((r.account_name || "")));
+  const totalAssetsRow  = findSummary(n => /^total assets$/i.test(n));
+  const totalLiabsRow   = findSummary(n => /^total liabilities$/i.test(n));
+  const totalEquityRow  = findSummary(n => /^total equity$/i.test(n));
+  const totalLERow      = findSummary(n => /^total liabilities and equity$/i.test(n));
+
+  // Per-section totals: prefer QBO's summary row. Fallback (only used on a
+  // pre-v31 snapshot before the summary capture) re-sums data rows by section.
+  const fallbackTotal = (sect) => dataRows.filter(r => r.section === sect).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalAssets = totalAssetsRow ? Number(totalAssetsRow.amount) : fallbackTotal("Asset");
+  const totalLiabs  = totalLiabsRow  ? Number(totalLiabsRow.amount)  : fallbackTotal("Liability");
+  const totalEquity = totalEquityRow ? Number(totalEquityRow.amount) : fallbackTotal("Equity");
+  const totalLE     = totalLERow     ? Number(totalLERow.amount)     : totalLiabs + totalEquity;
+  // QBO's BS always balances when it comes out of the API, so this is just a
+  // sanity check that we captured the summary rows correctly. Off by ≥$10 is
+  // a real signal (likely a missing summary row).
   const imbalance = totalAssets - totalLE;
   const imbalanced = Math.abs(imbalance) >= 10;
 
-  const SectionBlock = ({ title, sectionKey, color, totalLabel }) => {
-    const allItems = rows.filter(r => r.section === sectionKey);
-    const items = (hideZeros ? allItems.filter(r => Number(r.amount || 0) !== 0) : allItems)
-      .sort((a, b) => Math.abs(Number(b.amount || 0)) - Math.abs(Number(a.amount || 0)));
-    const total = sectionTotal(sectionKey);
+  // Per-account section block, grouped by QBO's sub-section labels (group_name)
+  // so the UI mirrors how the BS report reads: 'Bank Accounts' rows, then
+  // 'Total Bank Accounts' subtotal, then 'Other Current Assets' rows, then
+  // 'Total Other Current Assets', etc.
+  const SectionBlock = ({ title, sectionKey, color }) => {
+    const sectionData = dataRows.filter(r => r.section === sectionKey);
+    const sectionSummaries = summaryRows.filter(r => r.section === sectionKey);
+    // Section subtotal: QBO summary row whose name is exactly 'Total <section>'
+    // matches the section top-level total we already computed; for the per-group
+    // breakdown we use ALL other summary rows whose group_name matches one of
+    // our data row groups.
+    const groupsInOrder = []; // ordered list of {groupName, dataRows, subtotalRow}
+    const seenGroups = new Set();
+    for (const dr of sectionData) {
+      const g = dr.group_name || "(ungrouped)";
+      if (!seenGroups.has(g)) {
+        seenGroups.add(g);
+        const subtotal = sectionSummaries.find(s => s.group_name === g && !/^total (assets|liabilities|equity|liabilities and equity)$/i.test(s.account_name || ""));
+        groupsInOrder.push({ groupName: g, drs: sectionData.filter(d => (d.group_name || "(ungrouped)") === g), subtotal });
+      }
+    }
+    const totalForSection = sectionKey === "Asset" ? totalAssets : sectionKey === "Liability" ? totalLiabs : totalEquity;
+    const accountCount = sectionData.filter(d => Number(d.amount || 0) !== 0 || !hideZeros).length;
+
     return (
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 14 : 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 800, color }}>{title}</div>
-            <div style={{ fontSize: 10, color: T.text3 }}>{items.length} {items.length === 1 ? "account" : "accounts"}{hideZeros && allItems.length !== items.length ? ` · ${allItems.length - items.length} hidden ($0)` : ""}</div>
+            <div style={{ fontSize: 10, color: T.text3 }}>{accountCount} {accountCount === 1 ? "account" : "accounts"} across {groupsInOrder.length} {groupsInOrder.length === 1 ? "group" : "groups"}</div>
           </div>
-          <div style={{ fontSize: 20, fontWeight: 900, color }}>{fmtK(total)}</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color }}>{fmtK(totalForSection)}</div>
         </div>
-        {items.length === 0 ? (
+        {groupsInOrder.length === 0 ? (
           <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: "6px 0" }}>No accounts in this section.</div>
-        ) : items.map(r => {
-          const amt = Number(r.amount || 0);
-          // Share is by absolute value — a contra-asset (negative) row still
-          // visually represents some non-zero portion of the section total.
-          const pct = total !== 0 ? Math.abs(amt) / Math.abs(total) * 100 : 0;
-          const isContra = amt < 0;
+        ) : groupsInOrder.map(({ groupName, drs, subtotal }) => {
+          const visible = hideZeros ? drs.filter(d => Number(d.amount || 0) !== 0) : drs;
+          const sortedVisible = [...visible].sort((a, b) => Math.abs(Number(b.amount || 0)) - Math.abs(Number(a.amount || 0)));
+          if (sortedVisible.length === 0 && !subtotal) return null;
           return (
-            <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
-              <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
-              <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
-                <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: isContra ? T.red : color, borderRadius: 2 }} />
-              </div>
-              <span style={{ fontSize: 11, fontWeight: 600, color: isContra ? T.red : T.text, minWidth: 80, textAlign: "right" }}>{fmt(amt)}</span>
-              <span style={{ fontSize: 9, color: T.text3, minWidth: 38, textAlign: "right" }}>{pct.toFixed(1)}%</span>
+            <div key={groupName} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 8, marginBottom: 2 }}>{groupName}</div>
+              {sortedVisible.map(r => {
+                const amt = Number(r.amount || 0);
+                const isContra = amt < 0;
+                return (
+                  <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0 4px 8px", borderBottom: `1px solid ${T.border}10` }}>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: isContra ? T.red : T.text, minWidth: 90, textAlign: "right" }}>{fmt(amt)}</span>
+                  </div>
+                );
+              })}
+              {subtotal && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0 5px 8px", borderTop: `1px solid ${T.border}40`, marginTop: 2 }}>
+                  <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: T.text }}>{subtotal.account_name}</div>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: Number(subtotal.amount) < 0 ? T.red : color, minWidth: 90, textAlign: "right" }}>{fmt(Number(subtotal.amount))}</span>
+                </div>
+              )}
             </div>
           );
         })}
@@ -3534,7 +3603,7 @@ function BalanceSheetView({ isMobile }) {
           <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>Balance Sheet</div>
           <div style={{ fontSize: 12, color: T.text3 }}>
             From QuickBooks Online · as of {reportDate ? new Date(reportDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}
-            {" · "}{rows.length} accounts
+            {" · "}{dataRows.length} accounts
           </div>
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text3, cursor: "pointer" }}>
@@ -3543,10 +3612,8 @@ function BalanceSheetView({ isMobile }) {
         </label>
       </div>
 
-      {/* Summary tiles. Total Assets, Total Liabilities, Total Equity, Net Worth.
-          Net Worth = Assets − Liabilities, which on a balanced BS equals Equity.
-          The imbalance flag below the tiles surfaces any drift between the two
-          measures so it doesn't just disappear into the math. */}
+      {/* Summary tiles, sourced from QBO's own subtotal rows so they match the
+          QBO BS report exactly (contra-equity is netted, etc.). */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Total Assets</div>
@@ -3561,24 +3628,24 @@ function BalanceSheetView({ isMobile }) {
           <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 900, color: T.purple }}>{fmtK(totalEquity)}</div>
         </div>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Net Worth (A − L)</div>
-          <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 900, color: (totalAssets - totalLiabs) >= 0 ? T.text : T.red }}>{fmtK(totalAssets - totalLiabs)}</div>
-          <div style={{ fontSize: 10, color: T.text3 }}>Equity book value: {fmtK(totalEquity)}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>L + E</div>
+          <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 900, color: T.text }}>{fmtK(totalLE)}</div>
+          <div style={{ fontSize: 10, color: imbalanced ? T.yellow : T.green, fontWeight: 600 }}>
+            {imbalanced ? `Off by ${fmt(Math.abs(imbalance))}` : "Balances ✓"}
+          </div>
         </div>
       </div>
 
-      {/* Imbalance warning. A real BS must balance: A = L + E. If we're off by
-          more than $10 (rounding tolerance), the most likely cause is a
-          contra-equity account (e.g. Owner Distributions) that QBO returns
-          as a positive number but which should reduce equity. Surface it
-          rather than hide the discrepancy. */}
+      {/* Imbalance warning only shows for a real drift between summary rows.
+          With the v31 sync the BS comes out balanced; this should now be hidden
+          on normal data. Kept as a tripwire in case a future schema change
+          drops a Summary row. */}
       {imbalanced && (
         <div style={{ background: T.yellow + "15", border: `1px solid ${T.yellow}`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: T.text2, display: "flex", gap: 10, alignItems: "center" }}>
           <span style={{ fontSize: 16 }}>⚠️</span>
           <div style={{ flex: 1 }}>
             <strong style={{ color: T.text }}>Balance sheet doesn't balance by {fmt(Math.abs(imbalance))}.</strong>{" "}
-            Total Assets ({fmtK(totalAssets)}) {imbalance > 0 ? "exceeds" : "is below"} Liabilities + Equity ({fmtK(totalLE)}).
-            Most often caused by a contra-equity account (e.g. Owner Distributions) being stored with the wrong sign in the daily QBO sync. The QBO report itself is correct; this is a Helm-side data hygiene issue.
+            QBO's own subtotals usually agree exactly. If you see this, the most likely cause is a stale BS snapshot — run a QBO sync.
           </div>
         </div>
       )}
