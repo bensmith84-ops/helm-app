@@ -2392,14 +2392,18 @@ function CashFlowView({ isMobile }) {
   const [purchases, setPurchases] = useState([]);
   const [transfers, setTransfers] = useState([]);
   const [bills, setBills] = useState([]);
-  // Real-time inventory value from QBO Balance Sheet. We pick up every
-  // 'Inventory'-named asset account on the most recent BS report so the
-  // total reflects the live balance — Other Inventory + In Transit +
-  // Donation Inventory + Tariffs Paid + Inventory Allowance (the latter
-  // is a contra-asset and may be negative). The full QBO sync runs daily,
-  // so this lags by at most ~24 hours; if the latest sync was today it's
-  // current to today.
+  // Inventory snapshot: two buckets pulled from qbo_balance_sheet on the most
+  // recent report date.
+  //  • inventoryRows — every Data row in the QBO 'Inventory' group (Finished
+  //    Goods US/UK/OFS, Raw Materials, WIP, Packaging, Tariffs, Allowance,
+  //    Donation, Inventory in Transit, Other Inventory, etc.). Sums to the
+  //    QBO 'Total Inventory' subtotal exactly.
+  //  • ginrRows — Goods Invoiced Not Received accounts. Lives in QBO under
+  //    'Other Current Assets', but it's inventory we've been billed for and
+  //    not yet received, so we treat it as inventory-in-flight here.
+  // Both refresh daily with the QBO sync.
   const [inventoryRows, setInventoryRows] = useState([]);
+  const [ginrRows, setGinrRows] = useState([]);
   const [inventoryAsOf, setInventoryAsOf] = useState(null);
   const [period, setPeriod] = useState("monthly"); // weekly, monthly
   const [expandedPeriod, setExpandedPeriod] = useState(null);
@@ -2424,14 +2428,29 @@ function CashFlowView({ isMobile }) {
       const bs = rInv.data || [];
       if (bs.length) {
         const latest = bs[0].report_date;
-        // Only Data rows (per-account) feed the breakdown list. Summary rows
-        // like 'Total 10200 Inventory' would double-count if mixed in here.
-        const invs = bs.filter(r =>
-          r.report_date === latest
-          && !r.is_summary
-          && /inventory/i.test(r.account_name || "")
+        const latestRows = bs.filter(r => r.report_date === latest);
+        // Inventory bucket: every Data row whose group_name is the QBO
+        // 'Inventory' parent (Earth Breeze's chart calls it "10200 Inventory").
+        // This captures Finished Goods, Raw Materials, WIP, Packaging, etc. —
+        // the full inventory roll-up that adds to the QBO 'Total Inventory'
+        // summary row, not just accounts whose name happens to contain the
+        // word 'inventory'.
+        const inv = latestRows.filter(r =>
+          !r.is_summary
+          && (r.section === "Asset" || !r.section)
+          && /inventory/i.test(r.group_name || "")
         );
-        setInventoryRows(invs);
+        // Goods Invoiced Not Received: inventory we've been billed for but
+        // hasn't physically arrived yet. Sits in the Other Current Assets
+        // group on the BS, but is functionally inventory-in-flight, so we
+        // include it here per Ben's call.
+        const ginr = latestRows.filter(r =>
+          !r.is_summary
+          && (r.section === "Asset" || !r.section)
+          && /goods invoiced not received/i.test(r.account_name || "")
+        );
+        setInventoryRows(inv);
+        setGinrRows(ginr);
         setInventoryAsOf(latest);
       }
       setLoading(false);
@@ -2503,58 +2522,103 @@ function CashFlowView({ isMobile }) {
         <KPI label="Total Cash Out" value={fmtK(totalOut)} color={T.red} sub={`${purchases.length + payments.filter(p => p.payment_type === "made").length} outflows`} />
         <KPI label="Net Cash Flow" value={fmtK(netFlow)} color={netFlow >= 0 ? T.green : T.red} sub={netFlow >= 0 ? "Net positive YTD" : "Net negative YTD"} />
         <KPI label="Avg Monthly Burn" value={fmtK(periods.length > 0 ? totalOut / periods.length : 0)} color={T.yellow} sub={`across ${periods.length} ${period === "weekly" ? "weeks" : "months"}`} />
-        {/* Inventory value tile. Pulled in real time from qbo_balance_sheet
-            (the QBO Balance Sheet report's Inventory accounts). Sum across
-            every Inventory-* account on the most recent report date so the
-            number matches what shows on the BS. Updates daily with the QBO
-            sync; "as of" tells the user how fresh it is. */}
-        <KPI
-          label="Inventory Value"
-          value={inventoryRows.length ? fmtK(inventoryRows.reduce((s, r) => s + Number(r.amount || 0), 0)) : "—"}
-          color={T.accent}
-          sub={inventoryAsOf ? `as of ${new Date(inventoryAsOf + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "QBO sync needed"}
-        />
+        {/* Inventory value tile. Shows the QBO 'Total Inventory' roll-up
+            ($3.6M for Earth Breeze — Finished Goods, Raw Materials, WIP,
+            Packaging, etc.) PLUS Goods Invoiced Not Received ($4.1M of
+            inventory billed but not yet received). Total ~= $7.7M. Matches
+            the QBO BS report exactly account-for-account. Updates daily. */}
+        {(() => {
+          const invTotal  = inventoryRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+          const ginrTotal = ginrRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+          const grand     = invTotal + ginrTotal;
+          const hasData   = inventoryRows.length || ginrRows.length;
+          return (
+            <KPI
+              label="Inventory Value"
+              value={hasData ? fmtK(grand) : "—"}
+              color={T.accent}
+              sub={inventoryAsOf
+                ? `${fmtK(invTotal)} on hand · ${fmtK(ginrTotal)} in flight`
+                : "QBO sync needed"}
+            />
+          );
+        })()}
       </div>
 
-      {/* Inventory breakdown — one row per inventory-class account on the BS.
-          Earth Breeze tracks inventory at the account level rather than per
-          SKU in QBO (items are typed Service/NonInventory, no QtyOnHand),
-          so this is the most granular view available without a separate
-          per-SKU stock feed. Hidden until there's data. */}
-      {inventoryRows.length > 0 && (
-        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Inventory Detail</div>
-              <div style={{ fontSize: 10, color: T.text3 }}>From QBO Balance Sheet · {inventoryAsOf ? `as of ${inventoryAsOf}` : ""}</div>
+      {/* Inventory breakdown — split into two groups so the user can see
+          how the headline figure decomposes:
+            • On Hand: the QBO 'Total Inventory' group (Finished Goods,
+              Raw Materials, WIP, Packaging, etc.). Sums to QBO's
+              'Total 10200 Inventory' subtotal.
+            • In Flight: Goods Invoiced Not Received — billed but not
+              physically arrived yet. Lives in QBO under 'Other Current
+              Assets' but is logically part of the inventory pipeline.
+          Hidden until the sync has loaded data. */}
+      {(inventoryRows.length > 0 || ginrRows.length > 0) && (() => {
+        const invTotal  = inventoryRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+        const ginrTotal = ginrRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+        const grand     = invTotal + ginrTotal;
+        const visibleInv  = inventoryRows.filter(r => Number(r.amount || 0) !== 0).sort((a, b) => Math.abs(Number(b.amount || 0)) - Math.abs(Number(a.amount || 0)));
+        const visibleGinr = ginrRows.filter(r => Number(r.amount || 0) !== 0).sort((a, b) => Math.abs(Number(b.amount || 0)) - Math.abs(Number(a.amount || 0)));
+        const Row = ({ r }) => {
+          const amt = Number(r.amount || 0);
+          const pct = grand > 0 ? Math.abs(amt) / grand * 100 : 0;
+          const isContra = amt < 0 || /allowance/i.test(r.account_name || "");
+          return (
+            <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+              <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
+                <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: isContra ? T.red : T.accent, borderRadius: 2 }} />
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 600, color: isContra ? T.red : T.text, minWidth: 80, textAlign: "right" }}>{fmt(amt)}</span>
+              <span style={{ fontSize: 9, color: T.text3, minWidth: 38, textAlign: "right" }}>{pct.toFixed(1)}%</span>
             </div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: T.accent }}>
-              {fmtK(inventoryRows.reduce((s, r) => s + Number(r.amount || 0), 0))}
+          );
+        };
+        return (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Inventory Detail</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>From QBO Balance Sheet · as of {inventoryAsOf || ""}</div>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: T.accent }}>{fmtK(grand)}</div>
             </div>
-          </div>
-          {inventoryRows
-            .filter(r => Number(r.amount || 0) !== 0)  // hide empty $0 accounts so the card stays useful
-            .sort((a, b) => Math.abs(Number(b.amount || 0)) - Math.abs(Number(a.amount || 0)))
-            .map(r => {
-              const total = inventoryRows.reduce((s, x) => s + Number(x.amount || 0), 0);
-              const pct = total > 0 ? (Number(r.amount || 0) / total) * 100 : 0;
-              const isContra = Number(r.amount || 0) < 0 || /allowance/i.test(r.account_name || "");
-              return (
-                <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
-                  <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
-                    <div style={{ width: `${Math.min(Math.abs(pct), 100)}%`, height: "100%", background: isContra ? T.red : T.accent, borderRadius: 2 }} />
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: isContra ? T.red : T.text, minWidth: 70, textAlign: "right" }}>{fmt(Number(r.amount || 0))}</span>
-                  <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right" }}>{pct.toFixed(1)}%</span>
+
+            {/* On Hand */}
+            {visibleInv.length > 0 && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>On Hand</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: T.text2 }}>{fmtK(invTotal)}</span>
                 </div>
-              );
-            })}
-          {inventoryRows.every(r => Number(r.amount || 0) === 0) && (
-            <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: "8px 0" }}>All inventory accounts at $0 on the latest report.</div>
-          )}
-        </div>
-      )}
+                {visibleInv.map(r => <Row key={r.account_name} r={r} />)}
+              </>
+            )}
+
+            {/* In Flight */}
+            {visibleGinr.length > 0 && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 12, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>In Flight (Goods Invoiced Not Received)</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: T.text2 }}>{fmtK(ginrTotal)}</span>
+                </div>
+                {visibleGinr.map(r => <Row key={r.account_name} r={r} />)}
+              </>
+            )}
+
+            {/* Grand total */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 12, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: T.text }}>Total Inventory Value</span>
+              <span style={{ fontSize: 14, fontWeight: 900, color: T.accent }}>{fmt(grand)}</span>
+            </div>
+
+            {visibleInv.length === 0 && visibleGinr.length === 0 && (
+              <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: "8px 0" }}>All inventory accounts at $0 on the latest report.</div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Bar chart */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
