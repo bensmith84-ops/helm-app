@@ -115,6 +115,7 @@ const ERP_NAV = [
   { id: "cfo_dash", label: "CFO Dashboard", icon: "📈" },
   { id: "pl_explorer", label: "P&L Explorer", icon: "📊" },
   { id: "cash_flow", label: "Cash Flow", icon: "💧" },
+  { id: "balance_sheet", label: "Balance Sheet", icon: "⚖️" },
   { id: "vendor_intel", label: "Vendor Intelligence", icon: "🏢" },
   { id: "ap_aging", label: "AP / AR", icon: "⏳" },
   { id: "txn_search", label: "Transaction Search", icon: "🔍" },
@@ -703,9 +704,9 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
           {view === "entities" && <EntitiesView entities={entities} setEntities={setEntities} facilities={facilities} currencies={currencies} exchangeRates={exchangeRates} suppliers={suppliers} isMobile={isMobile} />}
           {view === "reports" && <ReportsView products={products} variants={variants} suppliers={suppliers} purchaseOrders={purchaseOrders} poItems={poItems} inventory={inventory} lots={lots} orders={orders} orderItems={orderItems} customers={customers} workOrders={workOrders} facilities={facilities} entities={entities} supplierItems={supplierItems} boms={boms} bomItems={bomItems} isMobile={isMobile} />}
           {/* Finance module views (embedded from Finance.js) */}
-          {["cfo_dash", "pl_explorer", "cash_flow", "vendor_intel", "ap_aging", "txn_search", "revenue", "fin_requests", "fin_budgets", "fin_budget_planner", "fin_rules", "fin_audit"].some(v => view === v) && (
+          {["cfo_dash", "pl_explorer", "cash_flow", "balance_sheet", "vendor_intel", "ap_aging", "txn_search", "revenue", "fin_requests", "fin_budgets", "fin_budget_planner", "fin_rules", "fin_audit"].some(v => view === v) && (
             <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 13 }}>Loading Finance…</div>}>
-              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", vendor_intel: "vendors", ap_aging: "ap_aging", txn_search: "txn_search", revenue: "revenue", fin_requests: "requests", fin_budgets: "budgets", fin_budget_planner: "budget_planner", fin_rules: "rules", fin_audit: "audit" }[view] || "cfo"} embedded={true} modulePerms={modulePerms} />
+              <FinanceEmbed initialView={{ cfo_dash: "cfo", pl_explorer: "pl_explorer", cash_flow: "cash_flow", balance_sheet: "balance_sheet", vendor_intel: "vendors", ap_aging: "ap_aging", txn_search: "txn_search", revenue: "revenue", fin_requests: "requests", fin_budgets: "budgets", fin_budget_planner: "budget_planner", fin_rules: "rules", fin_audit: "audit" }[view] || "cfo"} embedded={true} modulePerms={modulePerms} />
             </Suspense>
           )}
         </div>

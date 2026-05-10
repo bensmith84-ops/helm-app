@@ -347,6 +347,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {}, p
         {view === "cfo" && <CFODashboard isMobile={isMobile} />}
         {view === "pl_explorer" && <PLExplorer isMobile={isMobile} />}
         {view === "cash_flow" && <CashFlowView isMobile={isMobile} />}
+        {view === "balance_sheet" && <BalanceSheetView isMobile={isMobile} />}
         {view === "vendors" && <VendorIntelligence isMobile={isMobile} />}
         {view === "ap_aging" && <APAgingView isMobile={isMobile} />}
         {view === "txn_search" && <TransactionSearch isMobile={isMobile} />}
@@ -3431,6 +3432,165 @@ function CFODashboard({ isMobile }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BALANCE SHEET VIEW — sectioned view of the latest QBO BS snapshot.
+// Sources from qbo_balance_sheet, refreshed daily by the qbo-sync edge function.
+// Shows Assets / Liabilities / Equity with per-account amounts, share-of-section
+// percentages, and a footer that flags any imbalance (Assets ≠ Liabilities + Equity)
+// so the user knows when a sync is stale or a contra-account sign needs review.
+// ═══════════════════════════════════════════════════════════════════════════════
+function BalanceSheetView({ isMobile }) {
+  const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
+    ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B",purple:"#8B5CF6" }
+    : { bg:"#f8f9fc",surface:"#ffffff",surface2:"#f4f5f8",surface3:"#ecedf2",text:"#1a1a2e",text2:"#4a4a5e",text3:"#8a8a9e",border:"#e2e3e8",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B",purple:"#8B5CF6" };
+  const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  const fmtK = n => Math.abs(n) >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : Math.abs(n) >= 1_000 ? `$${(n / 1_000).toFixed(0)}K` : fmt(n);
+
+  const { orgId } = useAuth();
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [reportDate, setReportDate] = useState(null);
+  const [hideZeros, setHideZeros] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    (async () => {
+      // Pull only the latest report_date worth of rows. We don't know that date
+      // up-front, so we order desc and grab a generous batch (200) — well above
+      // the ~95-account count Earth Breeze produces — then filter to the most
+      // recent date client-side. One roundtrip, no nested query.
+      const { data } = await supabase.from("qbo_balance_sheet")
+        .select("section,account_name,account_type,amount,report_date,synced_at")
+        .eq("org_id", orgId)
+        .order("report_date", { ascending: false })
+        .limit(200);
+      const all = data || [];
+      if (all.length) {
+        const latest = all[0].report_date;
+        setRows(all.filter(r => r.report_date === latest));
+        setReportDate(latest);
+      }
+      setLoading(false);
+    })();
+  }, [orgId]);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading balance sheet…</div>;
+  if (!rows.length) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>No balance sheet data. Run a QBO sync to populate.</div>;
+
+  const sectionTotal = (s) => rows.filter(r => r.section === s).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const totalAssets    = sectionTotal("Asset");
+  const totalLiabs     = sectionTotal("Liability");
+  const totalEquity    = sectionTotal("Equity");
+  const totalLE        = totalLiabs + totalEquity;
+  // Tolerate small rounding (sub-$10) — anything bigger is a real signal.
+  const imbalance = totalAssets - totalLE;
+  const imbalanced = Math.abs(imbalance) >= 10;
+
+  const SectionBlock = ({ title, sectionKey, color, totalLabel }) => {
+    const allItems = rows.filter(r => r.section === sectionKey);
+    const items = (hideZeros ? allItems.filter(r => Number(r.amount || 0) !== 0) : allItems)
+      .sort((a, b) => Math.abs(Number(b.amount || 0)) - Math.abs(Number(a.amount || 0)));
+    const total = sectionTotal(sectionKey);
+    return (
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 14 : 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color }}>{title}</div>
+            <div style={{ fontSize: 10, color: T.text3 }}>{items.length} {items.length === 1 ? "account" : "accounts"}{hideZeros && allItems.length !== items.length ? ` · ${allItems.length - items.length} hidden ($0)` : ""}</div>
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 900, color }}>{fmtK(total)}</div>
+        </div>
+        {items.length === 0 ? (
+          <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: "6px 0" }}>No accounts in this section.</div>
+        ) : items.map(r => {
+          const amt = Number(r.amount || 0);
+          // Share is by absolute value — a contra-asset (negative) row still
+          // visually represents some non-zero portion of the section total.
+          const pct = total !== 0 ? Math.abs(amt) / Math.abs(total) * 100 : 0;
+          const isContra = amt < 0;
+          return (
+            <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+              <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
+                <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: isContra ? T.red : color, borderRadius: 2 }} />
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 600, color: isContra ? T.red : T.text, minWidth: 80, textAlign: "right" }}>{fmt(amt)}</span>
+              <span style={{ fontSize: 9, color: T.text3, minWidth: 38, textAlign: "right" }}>{pct.toFixed(1)}%</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>Balance Sheet</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>
+            From QuickBooks Online · as of {reportDate ? new Date(reportDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}
+            {" · "}{rows.length} accounts
+          </div>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text3, cursor: "pointer" }}>
+          <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} />
+          Hide $0 accounts
+        </label>
+      </div>
+
+      {/* Summary tiles. Total Assets, Total Liabilities, Total Equity, Net Worth.
+          Net Worth = Assets − Liabilities, which on a balanced BS equals Equity.
+          The imbalance flag below the tiles surfaces any drift between the two
+          measures so it doesn't just disappear into the math. */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Total Assets</div>
+          <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 900, color: T.green }}>{fmtK(totalAssets)}</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Total Liabilities</div>
+          <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 900, color: T.red }}>{fmtK(totalLiabs)}</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Total Equity</div>
+          <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 900, color: T.purple }}>{fmtK(totalEquity)}</div>
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Net Worth (A − L)</div>
+          <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 900, color: (totalAssets - totalLiabs) >= 0 ? T.text : T.red }}>{fmtK(totalAssets - totalLiabs)}</div>
+          <div style={{ fontSize: 10, color: T.text3 }}>Equity book value: {fmtK(totalEquity)}</div>
+        </div>
+      </div>
+
+      {/* Imbalance warning. A real BS must balance: A = L + E. If we're off by
+          more than $10 (rounding tolerance), the most likely cause is a
+          contra-equity account (e.g. Owner Distributions) that QBO returns
+          as a positive number but which should reduce equity. Surface it
+          rather than hide the discrepancy. */}
+      {imbalanced && (
+        <div style={{ background: T.yellow + "15", border: `1px solid ${T.yellow}`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: T.text2, display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <strong style={{ color: T.text }}>Balance sheet doesn't balance by {fmt(Math.abs(imbalance))}.</strong>{" "}
+            Total Assets ({fmtK(totalAssets)}) {imbalance > 0 ? "exceeds" : "is below"} Liabilities + Equity ({fmtK(totalLE)}).
+            Most often caused by a contra-equity account (e.g. Owner Distributions) being stored with the wrong sign in the daily QBO sync. The QBO report itself is correct; this is a Helm-side data hygiene issue.
+          </div>
+        </div>
+      )}
+
+      {/* Sections side-by-side on desktop, stacked on mobile */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+        <SectionBlock title="Assets" sectionKey="Asset" color={T.green} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <SectionBlock title="Liabilities" sectionKey="Liability" color={T.red} />
+          <SectionBlock title="Equity" sectionKey="Equity" color={T.purple} />
+        </div>
+      </div>
     </div>
   );
 }
