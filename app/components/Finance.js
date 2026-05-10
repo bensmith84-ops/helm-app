@@ -2907,13 +2907,19 @@ function PLExplorer({ isMobile }) {
                   const expAccts = allAccounts.filter(a => getClassification(a) === "Expense");
                   const revRow = ["Total Revenue", "Revenue", ...buckets.map(b => b.months.reduce((s, m) => s + revAccts.reduce((s2, a) => s2 + Math.abs(Number(plMonthly.find(r => r.period_month === m && r.account_name === a)?.amount) || 0), 0), 0))];
                   revRow.push(revRow.slice(2).reduce((s, v) => s + v, 0));
-                  const expRow = ["Total Expenses", "Expense", ...buckets.map(b => b.months.reduce((s, m) => s + Math.abs(Number(plMonthly.find(r => r.period_month === m && r.account_name === a)?.amount) || 0), 0))];
-                  // Fix: compute expense row properly
-                  const expRowFixed = ["Total Expenses", "Expense", ...buckets.map(b => b.months.reduce((s, m) => s + expAccts.reduce((s2, a) => s2 + Math.abs(Number(plMonthly.find(r => r.period_month === m && r.account_name === a)?.amount) || 0), 0), 0))];
-                  expRowFixed.push(expRowFixed.slice(2).reduce((s, v) => s + v, 0));
+                  // Sum expense actuals across all expense accounts for each
+                  // bucket. The earlier draft of this line referenced `a`
+                  // without it being declared in scope — and since `a` is
+                  // also `const`-declared later in this same handler (the
+                  // CSV download anchor), the reference fell into the TDZ
+                  // and crashed the click with "Cannot access 'a' before
+                  // initialization." Fix is to wrap the inner sum in
+                  // expAccts.reduce so `a` is the bound parameter.
+                  const expRow = ["Total Expenses", "Expense", ...buckets.map(b => b.months.reduce((s, m) => s + expAccts.reduce((s2, a) => s2 + Math.abs(Number(plMonthly.find(r => r.period_month === m && r.account_name === a)?.amount) || 0), 0), 0))];
+                  expRow.push(expRow.slice(2).reduce((s, v) => s + v, 0));
                   rows.push(revRow);
-                  rows.push(expRowFixed);
-                  const netRow = ["Net Income", "", ...buckets.map((b, i) => revRow[i + 2] - expRowFixed[i + 2])];
+                  rows.push(expRow);
+                  const netRow = ["Net Income", "", ...buckets.map((b, i) => revRow[i + 2] - expRow[i + 2])];
                   netRow.push(netRow.slice(2).reduce((s, v) => s + v, 0));
                   rows.push(netRow);
                 } else {
@@ -2963,10 +2969,13 @@ function PLExplorer({ isMobile }) {
                 }
                 const blob = new Blob([csv], { type: "text/csv" });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `PL_Export_${startMonth}_to_${endMonth}_${granularity}.csv`;
-                a.click();
+                // Use a distinct name (anchor) so a stray reference to `a`
+                // earlier in this handler can't fall into TDZ — that bit us
+                // once already with the Total Expenses row above.
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = `PL_Export_${startMonth}_to_${endMonth}_${granularity}.csv`;
+                anchor.click();
                 URL.revokeObjectURL(url);
                 setShowExport(false);
               }}
