@@ -2391,20 +2391,42 @@ function CashFlowView({ isMobile }) {
   const [purchases, setPurchases] = useState([]);
   const [transfers, setTransfers] = useState([]);
   const [bills, setBills] = useState([]);
+  // Real-time inventory value from QBO Balance Sheet. We pick up every
+  // 'Inventory'-named asset account on the most recent BS report so the
+  // total reflects the live balance — Other Inventory + In Transit +
+  // Donation Inventory + Tariffs Paid + Inventory Allowance (the latter
+  // is a contra-asset and may be negative). The full QBO sync runs daily,
+  // so this lags by at most ~24 hours; if the latest sync was today it's
+  // current to today.
+  const [inventoryRows, setInventoryRows] = useState([]);
+  const [inventoryAsOf, setInventoryAsOf] = useState(null);
   const [period, setPeriod] = useState("monthly"); // weekly, monthly
   const [expandedPeriod, setExpandedPeriod] = useState(null);
 
   useEffect(() => {
     (async () => {
-      const [r1, r2, r3, r4, r5] = await Promise.all([
+      const [r1, r2, r3, r4, r5, rInv] = await Promise.all([
         supabase.from("qbo_deposits").select("*").eq("org_id", orgId).order("txn_date"),
         supabase.from("qbo_payments").select("*").order("txn_date"),
         supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,payment_type").eq("org_id", orgId).limit(5000).order("txn_date"),
         supabase.from("qbo_transfers").select("*").order("txn_date"),
         supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,payment_status").eq("org_id", orgId).order("txn_date"),
+        // Latest inventory snapshot. Order by report_date desc, take the
+        // freshest day's rows, filter to inventory accounts client-side.
+        supabase.from("qbo_balance_sheet").select("account_name,amount,report_date,synced_at").eq("org_id", orgId).order("report_date", { ascending: false }).limit(200),
       ]);
       setDeposits(r1.data || []); setPayments(r2.data || []);
       setPurchases(r3.data || []); setTransfers(r4.data || []); setBills(r5.data || []);
+      // Filter the balance sheet rows to inventory accounts on the latest
+      // report date. Doing this client-side avoids a second roundtrip and
+      // keeps the SQL-injection surface minimal.
+      const bs = rInv.data || [];
+      if (bs.length) {
+        const latest = bs[0].report_date;
+        const invs = bs.filter(r => r.report_date === latest && /inventory/i.test(r.account_name || ""));
+        setInventoryRows(invs);
+        setInventoryAsOf(latest);
+      }
       setLoading(false);
     })();
   }, []);
@@ -2468,13 +2490,64 @@ function CashFlowView({ isMobile }) {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
+      {/* KPIs — 5 cards on desktop, 2 cols on mobile */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10 }}>
         <KPI label="Total Cash In" value={fmtK(totalIn)} color={T.green} sub={`${deposits.length + payments.filter(p => p.payment_type === "received").length} inflows`} />
         <KPI label="Total Cash Out" value={fmtK(totalOut)} color={T.red} sub={`${purchases.length + payments.filter(p => p.payment_type === "made").length} outflows`} />
         <KPI label="Net Cash Flow" value={fmtK(netFlow)} color={netFlow >= 0 ? T.green : T.red} sub={netFlow >= 0 ? "Net positive YTD" : "Net negative YTD"} />
         <KPI label="Avg Monthly Burn" value={fmtK(periods.length > 0 ? totalOut / periods.length : 0)} color={T.yellow} sub={`across ${periods.length} ${period === "weekly" ? "weeks" : "months"}`} />
+        {/* Inventory value tile. Pulled in real time from qbo_balance_sheet
+            (the QBO Balance Sheet report's Inventory accounts). Sum across
+            every Inventory-* account on the most recent report date so the
+            number matches what shows on the BS. Updates daily with the QBO
+            sync; "as of" tells the user how fresh it is. */}
+        <KPI
+          label="Inventory Value"
+          value={inventoryRows.length ? fmtK(inventoryRows.reduce((s, r) => s + Number(r.amount || 0), 0)) : "—"}
+          color={T.accent}
+          sub={inventoryAsOf ? `as of ${new Date(inventoryAsOf + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "QBO sync needed"}
+        />
       </div>
+
+      {/* Inventory breakdown — one row per inventory-class account on the BS.
+          Earth Breeze tracks inventory at the account level rather than per
+          SKU in QBO (items are typed Service/NonInventory, no QtyOnHand),
+          so this is the most granular view available without a separate
+          per-SKU stock feed. Hidden until there's data. */}
+      {inventoryRows.length > 0 && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Inventory Detail</div>
+              <div style={{ fontSize: 10, color: T.text3 }}>From QBO Balance Sheet · {inventoryAsOf ? `as of ${inventoryAsOf}` : ""}</div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: T.accent }}>
+              {fmtK(inventoryRows.reduce((s, r) => s + Number(r.amount || 0), 0))}
+            </div>
+          </div>
+          {inventoryRows
+            .filter(r => Number(r.amount || 0) !== 0)  // hide empty $0 accounts so the card stays useful
+            .sort((a, b) => Math.abs(Number(b.amount || 0)) - Math.abs(Number(a.amount || 0)))
+            .map(r => {
+              const total = inventoryRows.reduce((s, x) => s + Number(x.amount || 0), 0);
+              const pct = total > 0 ? (Number(r.amount || 0) / total) * 100 : 0;
+              const isContra = Number(r.amount || 0) < 0 || /allowance/i.test(r.account_name || "");
+              return (
+                <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+                  <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}>
+                    <div style={{ width: `${Math.min(Math.abs(pct), 100)}%`, height: "100%", background: isContra ? T.red : T.accent, borderRadius: 2 }} />
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: isContra ? T.red : T.text, minWidth: 70, textAlign: "right" }}>{fmt(Number(r.amount || 0))}</span>
+                  <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right" }}>{pct.toFixed(1)}%</span>
+                </div>
+              );
+            })}
+          {inventoryRows.every(r => Number(r.amount || 0) === 0) && (
+            <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", padding: "8px 0" }}>All inventory accounts at $0 on the latest report.</div>
+          )}
+        </div>
+      )}
 
       {/* Bar chart */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
