@@ -3228,20 +3228,71 @@ function CFODashboard({ isMobile }) {
 
       {/* REVENUE BREAKDOWN + BALANCE SHEET */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-        {/* Revenue by channel */}
+        {/* Revenue by channel.
+            Splits revenue accounts into gross-revenue (positive) and contra-
+            revenue (negative — refunds, discounts, rebates). Percentages are
+            computed against gross revenue only, so a CFO reads "Shopify =
+            73% of gross revenue" instead of the previous "Shopify = 86% of
+            net revenue, and Shopify Discounts = -11% of net revenue" —
+            negatives-against-net produced wonky numbers that summed to
+            well over 100% on the positives and meaningless negatives on
+            the discounts. */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Revenue Breakdown</div>
-          {revenueAccts.map(r => {
-            const pctVal = revenue > 0 ? (Number(r.amount) / revenue * 100) : 0;
+          {(() => {
+            const gross = revenueAccts.filter(r => Number(r.amount) >= 0);
+            const contra = revenueAccts.filter(r => Number(r.amount) < 0);
+            const grossTotal = gross.reduce((s, r) => s + Number(r.amount), 0);
+            const contraTotal = contra.reduce((s, r) => s + Number(r.amount), 0); // negative
             return (
-              <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
-                <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}><div style={{ width: `${Math.min(pctVal, 100)}%`, height: "100%", background: T.green, borderRadius: 2 }} /></div>
-                <span style={{ fontSize: 11, fontWeight: 600, color: T.green, minWidth: 55, textAlign: "right" }}>{fmtK(Number(r.amount))}</span>
-                <span style={{ fontSize: 9, color: T.text3, minWidth: 28, textAlign: "right" }}>{pctVal.toFixed(0)}%</span>
-              </div>
+              <>
+                {gross.map(r => {
+                  const pctVal = grossTotal > 0 ? (Number(r.amount) / grossTotal * 100) : 0;
+                  return (
+                    <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
+                      <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+                      <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}><div style={{ width: `${Math.min(pctVal, 100)}%`, height: "100%", background: T.green, borderRadius: 2 }} /></div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: T.green, minWidth: 55, textAlign: "right" }}>{fmtK(Number(r.amount))}</span>
+                      <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right" }}>{pctVal.toFixed(1)}%</span>
+                    </div>
+                  );
+                })}
+                {/* Gross subtotal so the 100% baseline is visible */}
+                {gross.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: `1px solid ${T.border}`, marginTop: 4, fontSize: 11, fontWeight: 700, color: T.text }}>
+                    <div style={{ flex: 1 }}>Gross Revenue</div>
+                    <div style={{ width: 50 }} />
+                    <span style={{ minWidth: 55, textAlign: "right" }}>{fmtK(grossTotal)}</span>
+                    <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right" }}>100%</span>
+                  </div>
+                )}
+                {contra.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 12, marginBottom: 4 }}>Contra-Revenue</div>
+                    {contra.map(r => {
+                      // % of gross — useful for "discounts are 13% of gross."
+                      // Stays positive because we're sizing impact, not net share.
+                      const pctVal = grossTotal > 0 ? (Math.abs(Number(r.amount)) / grossTotal * 100) : 0;
+                      return (
+                        <div key={r.account_name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}10` }}>
+                          <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account_name}</div>
+                          <div style={{ width: 50, height: 4, borderRadius: 2, background: T.surface3, overflow: "hidden", flexShrink: 0 }}><div style={{ width: `${Math.min(pctVal, 100)}%`, height: "100%", background: T.red, borderRadius: 2 }} /></div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: T.red, minWidth: 55, textAlign: "right" }}>{fmtK(Number(r.amount))}</span>
+                          <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right" }}>{pctVal.toFixed(1)}%</span>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                {/* Net revenue footer so the CFO can see the bottom line */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0 0", borderTop: `1px solid ${T.border}`, marginTop: 6, fontSize: 12, fontWeight: 800, color: T.text }}>
+                  <div style={{ flex: 1 }}>Net Revenue</div>
+                  <span style={{ minWidth: 55, textAlign: "right" }}>{fmtK(grossTotal + contraTotal)}</span>
+                  <span style={{ fontSize: 10, color: T.text3, minWidth: 40, textAlign: "right" }}>{grossTotal > 0 ? `${((grossTotal + contraTotal) / grossTotal * 100).toFixed(1)}%` : "—"}</span>
+                </div>
+              </>
             );
-          })}
+          })()}
         </div>
 
         {/* Balance Sheet Summary */}
