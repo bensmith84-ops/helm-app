@@ -10,15 +10,36 @@ const EDGE_UPDATE  = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/slac
  * Returns the response body, which on success includes { success, ts, channel }
  * so callers can persist the message coordinates to update it later.
  */
-export async function notifySlack({ type = "info", title, message, channel = "ben", url, fields, actions, request_id, budget_context } = {}) {
+export async function notifySlack({ type = "info", title, message, channel = "ben", url, fields, actions, request_id, budget_context, approver_user_ids } = {}) {
+  // When approver_user_ids is provided, slack-notify fans out a DM to each
+  // approver and ignores `channel`. The response body changes shape too:
+  // results: [{user_id, slack_user_id, status, ts, channel}], so callers
+  // that want to persist a single message ts should pick from results[0]
+  // when only one approver was targeted.
   try {
+    const payload = { type, title, message, url, fields, actions, request_id, budget_context };
+    if (Array.isArray(approver_user_ids) && approver_user_ids.length > 0) {
+      payload.approver_user_ids = approver_user_ids;
+    } else {
+      payload.channel = channel;
+    }
     const res = await fetch(EDGE_NOTIFY, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
-      body: JSON.stringify({ type, title, message, channel, url, fields, actions, request_id, budget_context }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!data.success) console.warn("Slack notify failed:", data.error);
+    // Normalize: for single-approver fan-out, surface the first result's
+    // ts/channel at the top level so legacy callers that read .ts / .channel
+    // still work without per-call updates.
+    if (data.mode === "per_approver_dm" && Array.isArray(data.results)) {
+      const firstSent = data.results.find(r => r.status === "sent");
+      if (firstSent) {
+        data.ts = firstSent.ts;
+        data.channel = firstSent.channel;
+      }
+    }
     return data;
   } catch (e) {
     console.warn("Slack notify error:", e);

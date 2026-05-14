@@ -4224,7 +4224,13 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         // status changes can update that same message (strip buttons, show outcome).
         notifySlack({
           type: "approval",
-          channel: "ben",
+          // When a rule assigned a specific approver, DM that person directly
+          // (slack-notify resolves their slack_user_id from profiles). Falls
+          // back to the default Slack channel for the high-value / standard
+          // approval chains where no single approver is named.
+          ...(requirePersonId
+            ? { approver_user_ids: [requirePersonId] }
+            : { channel: "ben" }),
           title: requirePersonName ? `Spend approval needed — assigned to ${requirePersonName}` : "Spend approval needed",
           message: `*${form.title}* submitted by ${requesterName}.`,
           fields,

@@ -55,6 +55,9 @@ export default function SettingsView({ isAdmin }) {
   const [timezone, setTimezone] = useState("");
   const [title, setTitle] = useState("");
   const [bio, setBio] = useState("");
+  // Slack user ID lets slack-notify DM this person directly when they're
+  // assigned as an approver via a finance rule. Looks like "U05BJ0CCPQS".
+  const [slackUserId, setSlackUserId] = useState("");
 
   // New Org creation
   const [newOrgName, setNewOrgName] = useState("");
@@ -108,6 +111,7 @@ export default function SettingsView({ isAdmin }) {
       setTimezone(profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
       setTitle(profile.title || "");
       setBio(profile.bio || "");
+      setSlackUserId(profile.slack_user_id || "");
       // Init nav order
       const nonDividerItems = NAV_ITEMS.filter(n => !n.type);
       const savedOrder = profile?.nav_order;
@@ -149,6 +153,7 @@ export default function SettingsView({ isAdmin }) {
     setSaving(true);
     await supabase.from("profiles").update({
       display_name: displayName.trim(), timezone, title: title.trim(), bio: bio.trim(),
+      slack_user_id: slackUserId.trim() || null,
       updated_at: new Date().toISOString(),
     }).eq("org_id", orgId).eq("id", user.id);
     setSaving(false);
@@ -251,6 +256,9 @@ export default function SettingsView({ isAdmin }) {
                 <select value={timezone} onChange={e=>setTimezone(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
                   {TIMEZONES.map(tz=><option key={tz} value={tz}>{tz.replace(/_/g," ")}</option>)}
                 </select>
+              </Field>
+              <Field label="Slack User ID" hint="Optional. Used to DM you directly when you're assigned to approve a spend request. Find your ID in Slack profile → ⋮ menu → Copy Member ID. Format: U05BJ0CCPQS">
+                <input value={slackUserId} onChange={e=>setSlackUserId(e.target.value)} style={inp} placeholder="U05BJ0CCPQS" maxLength={50} />
               </Field>
               <button onClick={saveProfile} disabled={saving} style={{ padding:"10px 24px", fontSize:13, fontWeight:700, borderRadius:8, border:"none", background:T.accent, color:"#fff", cursor:saving?"wait":"pointer", opacity:saving?0.6:1 }}>
                 {saving?"Saving…":"Save Changes"}
