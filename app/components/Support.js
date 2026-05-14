@@ -171,6 +171,8 @@ export default function SupportView() {
   // ─── Phase 3d state: coverage tracking ───
   const [coverageGrid, setCoverageGrid] = useState([]);
   const [coverageConfig, setCoverageConfig] = useState(null);
+  // ─── Phase 3e: post type filter for Ads & Posts ───
+  const [adsTypeFilter, setAdsTypeFilter] = useState("all");
   const chatEndRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -2547,9 +2549,30 @@ export default function SupportView() {
             attention_score so the busiest / riskiest posts are top. */}
         {tab === "ads" && (
           <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>📣 Ads &amp; Posts</h2>
               <div style={{ fontSize: 11, color: T.text3 }}>Sorted by attention · {socialPosts.length} posts</div>
+            </div>
+            {/* Post type filter — distinguish organic feed posts from paid /
+                boosted / dark (ad-only) creative. Comments on dark posts often
+                need different moderation policy. */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+              {[
+                { key: "all", label: "All posts" },
+                { key: "organic", label: "📢 Organic" },
+                { key: "boosted", label: "🚀 Boosted" },
+                { key: "dark", label: "🎯 Dark (ad-only)" },
+                { key: "unknown", label: "❔ Unknown" },
+              ].map(f => (
+                <button key={f.key} onClick={() => setAdsTypeFilter(f.key)}
+                  style={{ padding: "4px 12px", fontSize: 11, fontWeight: 600,
+                    background: adsTypeFilter === f.key ? T.accent : T.surface2,
+                    color: adsTypeFilter === f.key ? "#fff" : T.text2,
+                    border: `1px solid ${adsTypeFilter === f.key ? T.accent : T.border}`,
+                    borderRadius: 5, cursor: "pointer" }}>
+                  {f.label}
+                </button>
+              ))}
             </div>
             {socialPosts.length === 0 ? (
               <div style={{ padding: 60, textAlign: "center", color: T.text3 }}>
@@ -2559,7 +2582,9 @@ export default function SupportView() {
               </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 12 }}>
-                {[...socialPosts].sort((a, b) => Number(b.attention_score || 0) - Number(a.attention_score || 0)).map(post => {
+                {[...socialPosts]
+                  .filter(p => adsTypeFilter === "all" || (p.post_type || "unknown") === adsTypeFilter)
+                  .sort((a, b) => Number(b.attention_score || 0) - Number(a.attention_score || 0)).map(post => {
                   const totalComments = Number(post.comment_count || 0);
                   const pos = Number(post.positive_count || 0);
                   const neg = Number(post.negative_count || 0);
@@ -2572,6 +2597,19 @@ export default function SupportView() {
                       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text3 }}>
                         <span style={{ fontSize: 14 }}>{platformIcon}</span>
                         <span style={{ textTransform: "uppercase", fontWeight: 700 }}>{post.platform}</span>
+                        {post.post_type && post.post_type !== "unknown" && (() => {
+                          const TYPE_BADGE = {
+                            organic: { bg: "#22c55e15", color: "#22c55e", icon: "📢", label: "Organic" },
+                            boosted: { bg: "#3b82f615", color: "#3b82f6", icon: "🚀", label: "Boosted" },
+                            dark:    { bg: "#a855f720", color: "#a855f7", icon: "🎯", label: "Dark" },
+                          }[post.post_type];
+                          if (!TYPE_BADGE) return null;
+                          return (
+                            <span title={post.post_type === "dark" ? "Ad-only post — never appeared on the organic feed" : post.post_type === "boosted" ? "Organic post that was boosted with ad spend" : "Regular post on the brand feed"} style={{ padding: "1px 6px", borderRadius: 3, background: TYPE_BADGE.bg, color: TYPE_BADGE.color, fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>
+                              {TYPE_BADGE.icon} {TYPE_BADGE.label}
+                            </span>
+                          );
+                        })()}
                         <span>·</span>
                         <span>{post.posted_at ? new Date(post.posted_at).toLocaleDateString() : ""}</span>
                         {post.post_url && <a href={post.post_url} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", fontSize: 10, color: T.accent, textDecoration: "none" }}>↗ Open</a>}
