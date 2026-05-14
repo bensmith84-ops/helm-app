@@ -7147,6 +7147,10 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
   const [gaFilter, setGaFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("Actual"); // Actual or Budget
+  // periodFilter is "all" or a specific "YYYY-MM". Default "" means
+  // "the latest period found in data" (resolved at filter time so it
+  // updates automatically as new months sync in).
+  const [periodFilter, setPeriodFilter] = useState("");
   const [editingTeam, setEditingTeam] = useState(null);
   const [editingGA, setEditingGA] = useState(null);
   const [sortBy, setSortBy] = useState("total");
@@ -7197,13 +7201,24 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
   useEffect(() => {
     (async () => {
       try {
-        // Try DB first
-        const { data: dbData } = await supabase.from("fin_vendor_spend").select("*").eq("period", "2026-01").limit(1);
+        // Try DB first. fin_vendor_spend is now auto-refreshed hourly from
+        // qbo_bills via fin_refresh_vendor_spend(), so it covers every month
+        // we have bills for (Jan 2026 through current).
+        const { data: dbData } = await supabase
+          .from("fin_vendor_spend")
+          .select("*")
+          .eq("org_id", orgId)
+          .limit(1);
         if (dbData && dbData.length > 0) {
-          const { data: all } = await supabase.from("fin_vendor_spend").select("*").eq("period", "2026-01");
+          const { data: all } = await supabase
+            .from("fin_vendor_spend")
+            .select("*")
+            .eq("org_id", orgId);
           setData(all || []);
         } else {
-          // Seed from JSON
+          // Seed from JSON only if the table is completely empty for this
+          // org. With the auto-refresh function in place this branch is
+          // effectively unreachable for any org that has qbo_bills synced.
           const res = await fetch("/vendor_spend_seed.json");
           const seed = await res.json();
           const rows = seed.map(r => ({
@@ -7216,9 +7231,6 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
           }
         }
         // Load QBO P&L (YTD via the live qbo_pl_ytd view) and Bills.
-        // Note: this view's other data source, fin_vendor_spend, is itself
-        // stale (last manual upload Mar 22, only Jan 2026 data). Flagged
-        // separately — needs a re-upload or a fresh pipeline.
         const [{ data: pl }, { data: bills }] = await Promise.all([
           supabase.from("qbo_pl_ytd").select("*").order("account_type, account_name"),
           supabase.from("qbo_bills").select("*").eq("org_id", orgId).order("txn_date", { ascending: false }),
@@ -7237,11 +7249,19 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
     })();
   }, []);
 
+  // Compute the distinct periods currently in the data, and resolve the
+  // "default = latest" sentinel. New months arriving via the hourly
+  // fin_refresh_vendor_spend cron just appear in this list with no UI work.
+  const availablePeriods = [...new Set(data.map(r => r.period).filter(Boolean))].sort();
+  const latestPeriod = availablePeriods[availablePeriods.length - 1] || null;
+  const effectivePeriod = periodFilter === "" ? latestPeriod : periodFilter;
+
   // Filtered data
   const filtered = data.filter(r => {
     if (typeFilter !== "all" && r.budget_or_actual !== typeFilter) return false;
     if (gaFilter !== "all" && r.ga_category !== gaFilter) return false;
     if (teamFilter !== "all" && r.team !== teamFilter) return false;
+    if (effectivePeriod && effectivePeriod !== "all" && r.period !== effectivePeriod) return false;
     if (search && !r.vendor_name?.toLowerCase().includes(search.toLowerCase()) && !r.gl_description?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -7285,14 +7305,17 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
   // Edit team for a vendor
   const updateVendorTeam = async (vendorName, newTeam) => {
     setData(p => p.map(r => r.vendor_name === vendorName ? { ...r, team: newTeam } : r));
-    await supabase.from("fin_vendor_spend").update({ team: newTeam }).eq("vendor_name", vendorName).eq("period", "2026-01");
+    // Apply team tag across every period row for this vendor — team
+    // attribution is a vendor-level property, not a per-month one.
+    await supabase.from("fin_vendor_spend").update({ team: newTeam }).eq("org_id", orgId).eq("vendor_name", vendorName);
     setEditingTeam(null);
   };
 
   // Edit G&A category for a vendor
   const updateVendorGA = async (vendorName, newGA) => {
     setData(p => p.map(r => r.vendor_name === vendorName ? { ...r, ga_category: newGA } : r));
-    await supabase.from("fin_vendor_spend").update({ ga_category: newGA }).eq("vendor_name", vendorName).eq("period", "2026-01");
+    // Same reasoning as updateVendorTeam — apply across all periods.
+    await supabase.from("fin_vendor_spend").update({ ga_category: newGA }).eq("org_id", orgId).eq("vendor_name", vendorName);
     setEditingGA(null);
   };
 
@@ -7328,6 +7351,15 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
           <button key={k} onClick={() => setSubView(k)} style={{ padding: "6px 14px", borderRadius: 8, background: subView === k ? T.accent : T.surface2, color: subView === k ? "#fff" : T.text3, border: `1px solid ${subView === k ? T.accent : T.border}`, fontSize: 12, fontWeight: subView === k ? 700 : 500, cursor: "pointer" }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
+        {/* Period selector. "Latest" tracks the newest month in the data
+            (auto-advances as new months sync in via fin_refresh_vendor_spend). */}
+        {availablePeriods.length > 1 && (
+          <select value={periodFilter} onChange={e => setPeriodFilter(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11 }}>
+            <option value="">Latest ({latestPeriod})</option>
+            <option value="all">All periods (sum)</option>
+            {availablePeriods.slice().reverse().map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        )}
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11 }}>
           <option value="Actual">Actuals Only</option>
           <option value="Budget">Budget Only</option>
