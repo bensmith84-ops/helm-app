@@ -168,6 +168,9 @@ export default function SupportView() {
   const [appreciationLoading, setAppreciationLoading] = useState(false);
   const [showAppreciationConfig, setShowAppreciationConfig] = useState(false);
   const [editingDraft, setEditingDraft] = useState(null);  // {id, subject, body}
+  // ─── Phase 3d state: coverage tracking ───
+  const [coverageGrid, setCoverageGrid] = useState([]);
+  const [coverageConfig, setCoverageConfig] = useState(null);
   const chatEndRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -182,7 +185,7 @@ export default function SupportView() {
 
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes, fulfillRes, agentRevRes, competitorRes, apprDraftsRes, apprCfgRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes, fulfillRes, agentRevRes, competitorRes, apprDraftsRes, apprCfgRes, coverageRes, coverageCfgRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -211,6 +214,9 @@ export default function SupportView() {
         // Phase 3c
         supabase.from("cx_appreciation_drafts").select("*").eq("org_id", orgId).in("status", ["queued", "approved"]).order("created_at", { ascending: false }).limit(50),
         supabase.from("cx_appreciation_config").select("*").eq("org_id", orgId).maybeSingle(),
+        // Phase 3d: coverage
+        supabase.from("cx_coverage_by_hour").select("*").eq("org_id", orgId),
+        supabase.from("cx_coverage_config").select("*").eq("org_id", orgId).maybeSingle(),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -237,6 +243,8 @@ export default function SupportView() {
       setCompetitors(competitorRes.data || []);
       setAppreciationDrafts(apprDraftsRes.data || []);
       setAppreciationConfig(apprCfgRes.data || null);
+      setCoverageGrid(coverageRes.data || []);
+      setCoverageConfig(coverageCfgRes.data || null);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -807,6 +815,7 @@ export default function SupportView() {
     { key: "automations", label: "Automations", icon: "⚡" },
     { key: "exports", label: "Exports", icon: "📤" },
     { key: "appreciation", label: "Appreciation", icon: "💛", count: appreciationDrafts.length },
+    { key: "coverage", label: "Coverage", icon: "🌐" },
     { key: "analytics", label: "Analytics", icon: "📊" },
   ];
 
@@ -2745,6 +2754,161 @@ export default function SupportView() {
             )}
           </div>
         )}
+
+        {/* ───────────── COVERAGE TAB (Phase 3d) ─────────────
+            7-day × 24-hour heatmap of human-agent response coverage over
+            the trailing 28 days. Highlights gaps where incoming items
+            arrived without a human response, and especially within the
+            "expected coverage" window the team configured. */}
+        {tab === "coverage" && (() => {
+          // Build a sparse 7x24 grid keyed by `dow,hour`. The view already
+          // returns one row per (dow,hour) combination that had activity;
+          // missing slots default to zero coverage / zero incoming.
+          const cells = {};
+          let totalAgentResponses = 0;
+          let totalIncoming = 0;
+          for (const c of coverageGrid) {
+            const k = `${c.dow},${c.hour}`;
+            cells[k] = c;
+            totalAgentResponses += Number(c.agent_responses || 0);
+            totalIncoming += Number(c.incoming_count || 0);
+          }
+          const isExpected = (dow, hour) => {
+            const eh = coverageConfig?.expected_hours || [];
+            return eh.some(w => Number(w.dow) === dow && hour >= Number(w.start_hour) && hour < Number(w.end_hour));
+          };
+
+          // Daily totals for the right rail
+          const dailyIncoming = Array.from({ length: 7 }, () => 0);
+          const dailyResponses = Array.from({ length: 7 }, () => 0);
+          for (let d = 0; d < 7; d++) {
+            for (let h = 0; h < 24; h++) {
+              const c = cells[`${d},${h}`];
+              if (c) {
+                dailyIncoming[d] += Number(c.incoming_count || 0);
+                dailyResponses[d] += Number(c.agent_responses || 0);
+              }
+            }
+          }
+
+          // Gaps: expected hours with incoming volume but zero coverage
+          const gaps = [];
+          const dowNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+          for (let d = 0; d < 7; d++) {
+            for (let h = 0; h < 24; h++) {
+              const c = cells[`${d},${h}`];
+              if (isExpected(d, h) && c && Number(c.incoming_count || 0) > 0 && Number(c.agent_responses || 0) === 0) {
+                gaps.push({ dow: d, hour: h, incoming: c.incoming_count, label: `${dowNames[d]} ${String(h).padStart(2,"0")}:00` });
+              }
+            }
+          }
+
+          return (
+            <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div>
+                  <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>🌐 Coverage</h2>
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Human-agent response coverage by hour of day, last 28 days. Times in UTC.</div>
+                </div>
+                <div style={{ fontSize: 11, color: T.text3 }}>
+                  {totalAgentResponses} responses · {totalIncoming} incoming
+                </div>
+              </div>
+
+              {/* Gap callouts */}
+              {gaps.length > 0 && (
+                <div style={{ padding: 12, background: "#ef444415", border: `1px solid #ef444440`, borderRadius: 8, marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 6 }}>🚨 {gaps.length} coverage gap{gaps.length === 1 ? "" : "s"} in your expected hours</div>
+                  <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>Incoming items arrived during expected coverage with zero human response. Showing top 8:</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {gaps.slice(0, 8).map(g => (
+                      <span key={`${g.dow}-${g.hour}`} style={{ padding: "3px 9px", fontSize: 10, fontWeight: 600, background: "#ef444420", color: "#ef4444", borderRadius: 4 }}>
+                        {g.label} — {g.incoming} item{g.incoming === 1 ? "" : "s"} unhandled
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* The grid: 7 rows (days) × 24 cols (hours) */}
+              <div style={{ padding: 14, border: `1px solid ${T.border}`, borderRadius: 10, background: T.surface, overflowX: "auto" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "auto repeat(24, 1fr) auto", gap: 2, minWidth: 720, alignItems: "center" }}>
+                  <div />
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <div key={h} style={{ fontSize: 9, color: T.text3, textAlign: "center" }}>{h}</div>
+                  ))}
+                  <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, paddingLeft: 6 }}>Day</div>
+
+                  {Array.from({ length: 7 }, (_, d) => {
+                    const dayCells = [];
+                    dayCells.push(<div key={`label-${d}`} style={{ fontSize: 10, fontWeight: 700, color: T.text2, paddingRight: 6 }}>{dowNames[d]}</div>);
+                    for (let h = 0; h < 24; h++) {
+                        const c = cells[`${d},${h}`];
+                        const incoming = Number(c?.incoming_count || 0);
+                        const responses = Number(c?.agent_responses || 0);
+                        const expected = isExpected(d, h);
+                        // Color logic:
+                        //   no incoming + no responses → blank (light)
+                        //   responses > 0 → green, opacity by intensity
+                        //   incoming but no responses → red if expected, yellow if not
+                        let bg = T.surface2;
+                        let border = "transparent";
+                        if (responses > 0) {
+                          const intensity = Math.min(0.85, 0.25 + responses / 10);
+                          bg = `rgba(34, 197, 94, ${intensity})`;
+                        } else if (incoming > 0) {
+                          if (expected) {
+                            const intensity = Math.min(0.85, 0.35 + incoming / 10);
+                            bg = `rgba(239, 68, 68, ${intensity})`;
+                          } else {
+                            const intensity = Math.min(0.55, 0.2 + incoming / 15);
+                            bg = `rgba(245, 158, 11, ${intensity})`;
+                          }
+                        }
+                        if (expected) border = T.accent + "60";
+                        dayCells.push(
+                          <div key={`cell-${d}-${h}`}
+                            title={`${dowNames[d]} ${String(h).padStart(2,"0")}:00 UTC · ${responses} responses · ${incoming} incoming${expected ? " · expected hour" : ""}`}
+                            style={{ height: 24, borderRadius: 3, background: bg, border: `1px solid ${border}`, cursor: "default" }} />
+                        );
+                      }
+                    dayCells.push(<div key={`total-${d}`} style={{ fontSize: 10, color: T.text3, paddingLeft: 6 }}>
+                      {dailyResponses[d]}/{dailyIncoming[d]}
+                    </div>);
+                    return dayCells;
+                  })}
+                </div>
+
+                {/* Legend */}
+                <div style={{ display: "flex", gap: 14, marginTop: 14, fontSize: 10, color: T.text3, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ width: 14, height: 14, background: "rgba(34, 197, 94, 0.6)", borderRadius: 3, display: "inline-block" }} />
+                    Human responses
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ width: 14, height: 14, background: "rgba(239, 68, 68, 0.55)", borderRadius: 3, display: "inline-block" }} />
+                    Incoming with no response (expected hours)
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ width: 14, height: 14, background: "rgba(245, 158, 11, 0.4)", borderRadius: 3, display: "inline-block" }} />
+                    Incoming with no response (off-hours)
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ width: 14, height: 14, background: T.surface2, borderRadius: 3, border: `1px solid ${T.accent}60`, display: "inline-block" }} />
+                    Expected coverage window
+                  </div>
+                </div>
+              </div>
+
+              {/* Expected hours hint */}
+              {(!coverageConfig?.expected_hours || coverageConfig.expected_hours.length === 0) && (
+                <div style={{ padding: 12, background: T.surface2, borderRadius: 8, marginTop: 16, fontSize: 11, color: T.text3 }}>
+                  💡 No expected coverage hours configured. Add some in cx_coverage_config.expected_hours to surface red gaps where the team missed expected coverage.
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {tab === "analytics" && (
           <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
