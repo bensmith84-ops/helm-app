@@ -101,6 +101,18 @@ export default function SupportView() {
   const [agentAssistLoading, setAgentAssistLoading] = useState(false);
   const [ticketLockWarning, setTicketLockWarning] = useState(null);
   const [exportForm, setExportForm] = useState({ scope: "tickets", format: "csv" });
+  // ─── Phase 2 state ───
+  const [showRevenueModal, setShowRevenueModal] = useState(false);
+  const [revenueForm, setRevenueForm] = useState({ amount_cents: "", order_ids: "" });
+  const [activeBrandId, setActiveBrandId] = useState(null);  // null = all brands
+  const [fulfillmentAlerts, setFulfillmentAlerts] = useState([]);
+  const [showFulfillmentDrawer, setShowFulfillmentDrawer] = useState(false);
+  const [agentRevenue, setAgentRevenue] = useState([]);
+  const [qaScores, setQaScores] = useState([]);  // for current ticket
+  const [showQaModal, setShowQaModal] = useState(false);
+  const [qaForm, setQaForm] = useState({ tone_score: 4, accuracy_score: 4, resolution_score: 4, policy_score: 4, notes: "", flags: [] });
+  const [showTagsModal, setShowTagsModal] = useState(false);  // tags manager modal
+  const [newTagForm, setNewTagForm] = useState({ name: "", color: "#6b7280", parent_id: null });
   const chatEndRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -115,7 +127,7 @@ export default function SupportView() {
 
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes, fulfillRes, agentRevRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -136,6 +148,9 @@ export default function SupportView() {
         supabase.from("cx_social_posts").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(50),
         supabase.from("cx_export_jobs").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(20),
         supabase.from("cx_kb_gap_reports").select("*").eq("org_id", orgId).eq("status", "open").order("occurrence_count", { ascending: false }).limit(20),
+        // Phase 2
+        supabase.from("cx_fulfillment_alerts").select("*").eq("org_id", orgId).eq("resolved", false).order("detected_at", { ascending: false }).limit(50),
+        supabase.from("cx_agent_revenue").select("*").eq("org_id", orgId).order("week", { ascending: false }).limit(100),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -157,6 +172,8 @@ export default function SupportView() {
       setSocialPosts(postsRes.data || []);
       setExportJobs(exportRes.data || []);
       setKbGapReports(gapRes.data || []);
+      setFulfillmentAlerts(fulfillRes.data || []);
+      setAgentRevenue(agentRevRes.data || []);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -205,6 +222,14 @@ export default function SupportView() {
         if (assist) setAgentAssist(assist);
         else setAgentAssist(null);
       })();
+      // Load any QA scores already recorded for this ticket so the toolbar
+      // can show a history if the score was given by someone else.
+      (async () => {
+        const { data } = await supabase.from("cx_qa_scores")
+          .select("*").eq("ticket_id", selected.id)
+          .order("created_at", { ascending: false });
+        setQaScores(data || []);
+      })();
       return () => {
         supabase.rpc("cx_release_ticket", { p_ticket_id: selected.id }).then(() => {}).catch(() => {});
       };
@@ -213,6 +238,11 @@ export default function SupportView() {
 
   const filteredTickets = tickets.filter(t => {
     if (filter.status.length && !filter.status.includes(t.status)) return false;
+    // Brand filter from the admin row. activeBrandId is null when "All brands"
+    // is selected. Tickets without a brand_id show up when filtered by any
+    // brand only if you're on "All" — keeps legacy unbranded tickets visible
+    // until they're explicitly tagged.
+    if (activeBrandId && t.brand_id !== activeBrandId) return false;
     if (filter.search) {
       const s = filter.search.toLowerCase();
       return (t.subject || "").toLowerCase().includes(s) || (t.customer_name || "").toLowerCase().includes(s) || (t.customer_email || "").toLowerCase().includes(s) || String(t.ticket_number).includes(s);
@@ -472,6 +502,74 @@ export default function SupportView() {
     setSpikeAlerts(p => p.filter(s => s.id !== id));
   };
 
+  // ────────── Phase 2 handlers ──────────
+
+  // Save revenue attribution on the current ticket. order_ids is a free-text
+  // comma-separated input that we split into a Postgres text[].
+  const saveRevenueAttribution = async () => {
+    if (!selected) return;
+    const cents = Math.round(parseFloat(revenueForm.amount_cents || "0") * 100);
+    const ids = revenueForm.order_ids.split(",").map(s => s.trim()).filter(Boolean);
+    await supabase.from("cx_tickets").update({
+      revenue_attributed_cents: cents,
+      revenue_order_ids: ids,
+    }).eq("id", selected.id);
+    setTickets(p => p.map(t => t.id === selected.id ? { ...t, revenue_attributed_cents: cents, revenue_order_ids: ids } : t));
+    setSelected(s => s ? { ...s, revenue_attributed_cents: cents, revenue_order_ids: ids } : null);
+    setShowRevenueModal(false);
+  };
+
+  // Submit a QA score for the selected ticket. The reviewer scores up to
+  // four rubric dimensions (1-5 each); the DB trigger computes the overall.
+  const submitQaScore = async () => {
+    if (!selected || !selected.assigned_to) {
+      alert("This ticket has no assigned agent to score.");
+      return;
+    }
+    const { error } = await supabase.from("cx_qa_scores").insert({
+      org_id: orgId,
+      ticket_id: selected.id,
+      scored_user_id: selected.assigned_to,
+      scored_by: user.id,
+      scored_by_type: "human",
+      tone_score: qaForm.tone_score,
+      accuracy_score: qaForm.accuracy_score,
+      resolution_score: qaForm.resolution_score,
+      policy_score: qaForm.policy_score,
+      notes: qaForm.notes || null,
+      flags: qaForm.flags || [],
+    });
+    if (error) { alert(error.message); return; }
+    setShowQaModal(false);
+    setQaForm({ tone_score: 4, accuracy_score: 4, resolution_score: 4, policy_score: 4, notes: "", flags: [] });
+    // Refetch the agent revenue rollup since QA may surface alongside it.
+    const { data } = await supabase.from("cx_qa_scores").select("*").eq("ticket_id", selected.id).order("created_at", { ascending: false });
+    setQaScores(data || []);
+  };
+
+  // Create or update a tag. parent_id may be null (top-level) or a UUID
+  // (nested child). The Tags modal handles both cases.
+  const createTag = async () => {
+    if (!newTagForm.name.trim()) return;
+    const { data, error } = await supabase.from("cx_tags").insert({
+      org_id: orgId,
+      name: newTagForm.name.trim(),
+      color: newTagForm.color,
+      parent_id: newTagForm.parent_id || null,
+      sort_order: tags.filter(t => t.parent_id === (newTagForm.parent_id || null)).length,
+    }).select().single();
+    if (error) { alert(error.message); return; }
+    setTags(p => [...p, data]);
+    setNewTagForm({ name: "", color: "#6b7280", parent_id: null });
+  };
+
+  const deleteTag = async (id) => {
+    if (!confirm("Delete this tag? Children will be unlinked but kept.")) return;
+    // Children get their parent_id set to NULL by the ON DELETE SET NULL rule.
+    await supabase.from("cx_tags").delete().eq("id", id);
+    setTags(p => p.filter(t => t.id !== id).map(t => t.parent_id === id ? { ...t, parent_id: null } : t));
+  };
+
   const TABS = [
     { key: "inbox", label: "Inbox", icon: "📥", count: stats.open + stats.pending },
     { key: "ai_agent", label: "AI Agent", icon: "🤖" },
@@ -503,6 +601,30 @@ export default function SupportView() {
             {t.count > 0 && <span style={{ background: T.accent, color: "#fff", borderRadius: 10, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>{t.count}</span>}
           </button>
         ))}
+      </div>
+
+      {/* ─── Admin row: brand selector + tags manager + fulfillment alerts ─── */}
+      <div style={{ display: "flex", gap: 8, padding: "6px 16px", borderBottom: `1px solid ${T.border}40`, alignItems: "center", flexShrink: 0, flexWrap: "wrap", fontSize: 11 }}>
+        {brands.length > 1 && (
+          <>
+            <span style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Brand:</span>
+            <select value={activeBrandId || ""} onChange={e => setActiveBrandId(e.target.value || null)}
+              style={{ padding: "3px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface2, color: T.text, outline: "none" }}>
+              <option value="">All brands</option>
+              {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </>
+        )}
+        <button onClick={() => setShowTagsModal(true)}
+          style={{ padding: "3px 10px", fontSize: 11, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontWeight: 600, cursor: "pointer" }}>
+          🏷️ Manage tags {tags.length > 0 ? `(${tags.length})` : ""}
+        </button>
+        <button onClick={() => setShowFulfillmentDrawer(true)}
+          style={{ padding: "3px 10px", fontSize: 11, background: fulfillmentAlerts.length > 0 ? "#f59e0b15" : T.surface2, color: fulfillmentAlerts.length > 0 ? "#f59e0b" : T.text2, border: `1px solid ${fulfillmentAlerts.length > 0 ? "#f59e0b40" : T.border}`, borderRadius: 5, fontWeight: 600, cursor: "pointer" }}>
+          📦 Fulfillment alerts {fulfillmentAlerts.length > 0 ? `(${fulfillmentAlerts.length})` : ""}
+        </button>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setShowNewTicket(true)} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>+ New ticket</button>
       </div>
 
       {/* ─── Crisis Mode banner (active state) ─── */}
@@ -710,6 +832,24 @@ export default function SupportView() {
                   style={{ padding: "4px 10px", background: agentAssist ? T.accentDim : T.surface2, color: agentAssist ? T.accent : T.text2, border: `1px solid ${agentAssist ? T.accent : T.border}40`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: agentAssistLoading ? "wait" : "pointer" }}>
                   {agentAssistLoading ? "..." : agentAssist ? "🪄 Assist ready" : "🪄 Agent assist"}
                 </button>
+                {/* Revenue attribution — opens modal pre-populated with what's already on the ticket */}
+                <button onClick={() => {
+                  setRevenueForm({
+                    amount_cents: selected.revenue_attributed_cents ? (Number(selected.revenue_attributed_cents) / 100).toFixed(2) : "",
+                    order_ids: (selected.revenue_order_ids || []).join(", "),
+                  });
+                  setShowRevenueModal(true);
+                }}
+                  style={{ padding: "4px 10px", background: Number(selected.revenue_attributed_cents) > 0 ? "#22c55e15" : T.surface2, color: Number(selected.revenue_attributed_cents) > 0 ? "#22c55e" : T.text2, border: `1px solid ${Number(selected.revenue_attributed_cents) > 0 ? "#22c55e40" : T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  💵 {Number(selected.revenue_attributed_cents) > 0 ? `$${(Number(selected.revenue_attributed_cents) / 100).toFixed(0)} attributed` : "Log revenue"}
+                </button>
+                {/* QA scoring — only meaningful if there's an assigned agent and the ticket is resolved/closed */}
+                {selected.assigned_to && (selected.status === "resolved" || selected.status === "closed") && (
+                  <button onClick={() => setShowQaModal(true)}
+                    style={{ padding: "4px 10px", background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                    ⭐ QA score
+                  </button>
+                )}
                 {selected.snoozed_until && (
                   <span style={{ padding: "3px 9px", borderRadius: 5, background: "#a855f720", color: "#a855f7", fontWeight: 600, fontSize: 10, display: "flex", alignItems: "center", gap: 4 }}>
                     💤 Snoozed until {new Date(selected.snoozed_until).toLocaleString()}
@@ -768,6 +908,23 @@ export default function SupportView() {
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* QA scores already given on this ticket */}
+              {qaScores.length > 0 && (
+                <div style={{ padding: "8px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 11 }}>
+                  <strong style={{ color: T.text3, fontSize: 10, textTransform: "uppercase" }}>QA history:</strong>
+                  {qaScores.slice(0, 3).map(s => {
+                    const overall = Number(s.overall_score || 0);
+                    const bg = overall >= 4.5 ? "#22c55e15" : overall >= 3.5 ? "#f59e0b15" : "#ef444415";
+                    const color = overall >= 4.5 ? "#22c55e" : overall >= 3.5 ? "#f59e0b" : "#ef4444";
+                    return (
+                      <span key={s.id} title={s.notes || ""} style={{ padding: "3px 9px", borderRadius: 4, background: bg, color, fontWeight: 700, fontSize: 11 }}>
+                        ⭐ {overall.toFixed(1)} · {new Date(s.created_at).toLocaleDateString()}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
 
@@ -2205,6 +2362,51 @@ export default function SupportView() {
                 </div>
               ))}
             </div>
+
+            {/* ─── Agent Revenue Leaderboard (Phase 2) ───
+                Pulled from cx_agent_revenue view. Aggregates the per-agent
+                weekly rows up to a single rollup for the last 30 days. */}
+            {agentRevenue.length > 0 && (() => {
+              const cutoff = Date.now() - 30 * 86400000;
+              const byAgent = {};
+              for (const r of agentRevenue) {
+                if (!r.agent_id || !r.week) continue;
+                if (new Date(r.week).getTime() < cutoff) continue;
+                const a = byAgent[r.agent_id] = byAgent[r.agent_id] || { agent_id: r.agent_id, revenue_cents: 0, revenue_tickets: 0, total_tickets: 0, happy: 0, csat_sum: 0, csat_count: 0 };
+                a.revenue_cents += Number(r.revenue_cents || 0);
+                a.revenue_tickets += Number(r.revenue_tickets || 0);
+                a.total_tickets += Number(r.total_tickets || 0);
+                a.happy += Number(r.happy_customers || 0);
+                if (r.avg_csat) { a.csat_sum += Number(r.avg_csat); a.csat_count += 1; }
+              }
+              const rows = Object.values(byAgent).sort((a, b) => b.revenue_cents - a.revenue_cents).slice(0, 10);
+              const totalRev = rows.reduce((s, r) => s + r.revenue_cents, 0);
+              if (rows.length === 0) return null;
+              return (
+                <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>💵 Agent Revenue Leaderboard</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>Last 30 days · ${(totalRev / 100).toLocaleString()} total attributed</div>
+                  </div>
+                  {rows.map((r, i) => {
+                    const pct = totalRev > 0 ? (r.revenue_cents / totalRev) * 100 : 0;
+                    const avgCsat = r.csat_count > 0 ? (r.csat_sum / r.csat_count).toFixed(1) : "—";
+                    return (
+                      <div key={r.agent_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: i < rows.length - 1 ? `1px solid ${T.border}30` : "none" }}>
+                        <span style={{ width: 18, fontSize: 11, fontWeight: 700, color: i < 3 ? T.accent : T.text3, textAlign: "center" }}>{i + 1}</span>
+                        <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.text }}>{r.agent_id.slice(0, 8)}…</span>
+                        <div style={{ flex: 2, height: 5, background: T.surface2, borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ width: `${pct}%`, height: "100%", background: "#22c55e", borderRadius: 3 }} />
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#22c55e", minWidth: 70, textAlign: "right" }}>${(r.revenue_cents / 100).toLocaleString()}</span>
+                        <span style={{ fontSize: 10, color: T.text3, minWidth: 90, textAlign: "right" }}>{r.revenue_tickets}/{r.total_tickets} · CSAT {avgCsat}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
             {/* Tickets by Channel */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
               <div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
@@ -2500,6 +2702,175 @@ export default function SupportView() {
                 <div key={m.id} style={{ padding: "10px 12px", borderRadius: 8, background: m.direction === "outbound" ? T.accentDim : T.surface2, alignSelf: m.direction === "outbound" ? "flex-end" : "flex-start", maxWidth: "85%" }}>
                   <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>{m.sender_name || m.sender_email} · {timeAgo(m.created_at)}</div>
                   <div style={{ fontSize: 12, color: T.text, whiteSpace: "pre-wrap" }}>{m.body_text}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── REVENUE ATTRIBUTION MODAL ─── */}
+      {showRevenueModal && selected && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowRevenueModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 440, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 4 }}>💵 Log revenue from this ticket</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 14 }}>Track revenue you rescued, retained, or upsold through this interaction. Used for agent leaderboards in Analytics.</div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Amount ($)</label>
+            <input type="number" step="0.01" value={revenueForm.amount_cents} onChange={e => setRevenueForm(f => ({ ...f, amount_cents: e.target.value }))}
+              placeholder="42.95"
+              style={{ width: "100%", marginTop: 4, marginBottom: 12, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Related Shopify order IDs (optional, comma-separated)</label>
+            <input value={revenueForm.order_ids} onChange={e => setRevenueForm(f => ({ ...f, order_ids: e.target.value }))}
+              placeholder="1234, 1235"
+              style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setShowRevenueModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button onClick={saveRevenueAttribution} style={{ padding: "8px 18px", background: "#22c55e", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>💵 Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── QA SCORING MODAL ─── */}
+      {showQaModal && selected && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowQaModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 480, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 4 }}>⭐ QA Score</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 14 }}>Score this ticket's handling. Used for coaching and team performance trends.</div>
+            {[
+              { key: "tone_score", label: "Tone", help: "Empathy, professionalism, brand voice" },
+              { key: "accuracy_score", label: "Accuracy", help: "Correct information, no misstatements" },
+              { key: "resolution_score", label: "Resolution", help: "Did this actually solve the customer's problem?" },
+              { key: "policy_score", label: "Policy adherence", help: "Followed refund / escalation rules" },
+            ].map(d => (
+              <div key={d.key} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.text2 }}>{d.label}</span>
+                  <span style={{ fontSize: 10, color: T.text3 }}>{d.help}</span>
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <button key={n} onClick={() => setQaForm(f => ({ ...f, [d.key]: n }))}
+                      style={{ flex: 1, padding: "8px 0", fontSize: 13, fontWeight: 700,
+                        background: qaForm[d.key] === n ? T.accent : T.surface2,
+                        color: qaForm[d.key] === n ? "#fff" : T.text3,
+                        border: `1px solid ${qaForm[d.key] === n ? T.accent : T.border}`,
+                        borderRadius: 5, cursor: "pointer" }}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Notes (optional)</label>
+            <textarea value={qaForm.notes} onChange={e => setQaForm(f => ({ ...f, notes: e.target.value }))} rows={3}
+              placeholder="Coaching feedback, what to call out, what to repeat..."
+              style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setShowQaModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button onClick={submitQaScore} style={{ padding: "8px 18px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>⭐ Submit score</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── TAGS MANAGER MODAL ─── */}
+      {showTagsModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowTagsModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 560, maxHeight: "85vh", overflow: "auto", background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 4 }}>🏷️ Manage tags</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 14 }}>Organize tags hierarchically. Parent tags can have children — e.g., "Refund" with children "Damaged", "Wrong item", "Late delivery".</div>
+
+            {/* Add tag form */}
+            <div style={{ padding: 12, background: T.surface2, borderRadius: 8, marginBottom: 14, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 180px" }}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Tag name</label>
+                <input value={newTagForm.name} onChange={e => setNewTagForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Damaged shipment"
+                  style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Color</label>
+                <input type="color" value={newTagForm.color} onChange={e => setNewTagForm(f => ({ ...f, color: e.target.value }))}
+                  style={{ width: 50, height: 32, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, cursor: "pointer" }} />
+              </div>
+              <div style={{ flex: "1 1 180px" }}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Parent (optional)</label>
+                <select value={newTagForm.parent_id || ""} onChange={e => setNewTagForm(f => ({ ...f, parent_id: e.target.value || null }))}
+                  style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none" }}>
+                  <option value="">— Top level —</option>
+                  {tags.filter(t => !t.parent_id).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+              <button onClick={createTag} disabled={!newTagForm.name.trim()}
+                style={{ padding: "7px 14px", background: newTagForm.name.trim() ? T.accent : T.surface3, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: newTagForm.name.trim() ? "pointer" : "not-allowed" }}>
+                + Add
+              </button>
+            </div>
+
+            {/* Tag tree */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {tags.filter(t => !t.parent_id).map(parent => {
+                const children = tags.filter(t => t.parent_id === parent.id);
+                return (
+                  <div key={parent.id}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", background: T.surface2, borderRadius: 6 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: parent.color }} />
+                      <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.text }}>{parent.name}</span>
+                      <span style={{ fontSize: 10, color: T.text3 }}>{children.length > 0 ? `${children.length} child${children.length === 1 ? "" : "ren"}` : ""}</span>
+                      <button onClick={() => deleteTag(parent.id)} style={{ background: "none", border: "none", color: T.text3, fontSize: 14, cursor: "pointer" }}>×</button>
+                    </div>
+                    {children.map(child => (
+                      <div key={child.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px 5px 28px", marginTop: 1 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: child.color }} />
+                        <span style={{ flex: 1, fontSize: 11, color: T.text2 }}>↳ {child.name}</span>
+                        <button onClick={() => deleteTag(child.id)} style={{ background: "none", border: "none", color: T.text3, fontSize: 13, cursor: "pointer" }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {tags.length === 0 && (
+                <div style={{ padding: 20, textAlign: "center", color: T.text3, fontSize: 12 }}>No tags yet. Add one above.</div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setShowTagsModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── FULFILLMENT ALERTS DRAWER ─── */}
+      {showFulfillmentDrawer && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(0,0,0,0.4)" }} onClick={() => setShowFulfillmentDrawer(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 520, maxWidth: "100vw", background: T.surface, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => setShowFulfillmentDrawer(false)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: T.text3 }}>✕</button>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📦 Fulfillment SLA alerts</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>{fulfillmentAlerts.length} open · Crawler runs daily</div>
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: 12 }}>
+              {fulfillmentAlerts.length === 0 ? (
+                <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>No fulfillment alerts</div>
+                  <div style={{ fontSize: 11, marginTop: 4 }}>The crawler hasn't run yet, or there's nothing stuck. Alerts surface orders with no scan, stale tracking, or delayed delivery.</div>
+                </div>
+              ) : fulfillmentAlerts.map(a => (
+                <div key={a.id} style={{ padding: 10, marginBottom: 8, background: a.severity === "critical" ? "#ef444415" : "#f59e0b15", border: `1px solid ${a.severity === "critical" ? "#ef444440" : "#f59e0b40"}`, borderRadius: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                    <strong style={{ fontSize: 12, color: T.text }}>Order #{a.shopify_order_id}</strong>
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: a.severity === "critical" ? "#ef4444" : "#f59e0b", color: "#fff", fontWeight: 700 }}>{a.alert_type.replace(/_/g, " ")}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.text2 }}>{a.customer_name || a.customer_email}</div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>
+                    Ordered {a.days_since_order}d ago · {a.last_scan_status ? `Last scan ${a.days_since_last_scan}d ago: ${a.last_scan_status}` : "No tracking yet"}
+                  </div>
+                  {a.tracking_url && <a href={a.tracking_url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 6, fontSize: 10, color: T.accent }}>↗ View tracking</a>}
                 </div>
               ))}
             </div>
