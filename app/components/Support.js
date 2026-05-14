@@ -158,6 +158,10 @@ export default function SupportView() {
   // ─── Phase 3 state: tone check ───
   const [toneCheck, setToneCheck] = useState(null);        // {severity, flags, summary}
   const [toneCheckLoading, setToneCheckLoading] = useState(false);
+  // ─── Phase 3b state: competitor tracking ───
+  const [competitors, setCompetitors] = useState([]);
+  const [showCompetitorsModal, setShowCompetitorsModal] = useState(false);
+  const [newCompetitorForm, setNewCompetitorForm] = useState({ name: "", keywords: "", instagram: "", facebook: "", tiktok: "", youtube: "", twitter: "", linkedin: "" });
   const chatEndRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -172,7 +176,7 @@ export default function SupportView() {
 
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes, fulfillRes, agentRevRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes, fulfillRes, agentRevRes, competitorRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -196,6 +200,8 @@ export default function SupportView() {
         // Phase 2
         supabase.from("cx_fulfillment_alerts").select("*").eq("org_id", orgId).eq("resolved", false).order("detected_at", { ascending: false }).limit(50),
         supabase.from("cx_agent_revenue").select("*").eq("org_id", orgId).order("week", { ascending: false }).limit(100),
+        // Phase 3b
+        supabase.from("cx_competitors").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -219,6 +225,7 @@ export default function SupportView() {
       setKbGapReports(gapRes.data || []);
       setFulfillmentAlerts(fulfillRes.data || []);
       setAgentRevenue(agentRevRes.data || []);
+      setCompetitors(competitorRes.data || []);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -615,6 +622,50 @@ export default function SupportView() {
     setTags(p => p.filter(t => t.id !== id).map(t => t.parent_id === id ? { ...t, parent_id: null } : t));
   };
 
+  // ─── Competitor tracking (Phase 3b) ───
+  // Add a competitor. handles is a jsonb keyed by platform — we build it
+  // from per-platform inputs in the modal form.
+  const addCompetitor = async () => {
+    if (!newCompetitorForm.name.trim()) return;
+    const handles = {};
+    for (const k of ["instagram", "facebook", "tiktok", "youtube", "twitter", "linkedin"]) {
+      const v = newCompetitorForm[k]?.trim();
+      if (v) handles[k] = v.replace(/^@/, "");  // strip leading @ since some users include it
+    }
+    const keywords = newCompetitorForm.keywords.split(",").map(s => s.trim()).filter(Boolean);
+    const { data, error } = await supabase.from("cx_competitors").insert({
+      org_id: orgId,
+      name: newCompetitorForm.name.trim(),
+      handles,
+      keywords,
+      is_active: true,
+    }).select().single();
+    if (error) { alert(error.message); return; }
+    setCompetitors(p => [data, ...p]);
+    setNewCompetitorForm({ name: "", keywords: "", instagram: "", facebook: "", tiktok: "", youtube: "", twitter: "", linkedin: "" });
+    // Kick the classifier so newly-added competitor catches up to existing
+    // mentions instead of waiting up to 15 minutes for the cron.
+    runCompetitorClassifier();
+  };
+
+  const toggleCompetitorActive = async (id, isActive) => {
+    await supabase.from("cx_competitors").update({ is_active: !isActive }).eq("id", id);
+    setCompetitors(p => p.map(c => c.id === id ? { ...c, is_active: !isActive } : c));
+  };
+
+  const deleteCompetitor = async (id) => {
+    if (!confirm("Delete this competitor? Existing mentions stay flagged but won't get newly classified.")) return;
+    await supabase.from("cx_competitors").delete().eq("id", id);
+    setCompetitors(p => p.filter(c => c.id !== id));
+  };
+
+  // Trigger the classifier RPC. Idempotent; safe to call as often as we want.
+  const runCompetitorClassifier = async () => {
+    try {
+      await supabase.rpc("cx_classify_competitor_mentions", { p_org_id: orgId, p_limit: 5000 });
+    } catch (e) { console.warn("Classifier:", e); }
+  };
+
   // Tone check on the current draft. Fires cx-tone-check. Doesn't block
   // anything — the agent always retains the choice to send. Useful as a
   // last-look on tricky replies (refunds denied, frustrated customers).
@@ -691,6 +742,10 @@ export default function SupportView() {
         <button onClick={() => setShowFulfillmentDrawer(true)}
           style={{ padding: "3px 10px", fontSize: 11, background: fulfillmentAlerts.length > 0 ? "#f59e0b15" : T.surface2, color: fulfillmentAlerts.length > 0 ? "#f59e0b" : T.text2, border: `1px solid ${fulfillmentAlerts.length > 0 ? "#f59e0b40" : T.border}`, borderRadius: 5, fontWeight: 600, cursor: "pointer" }}>
           📦 Fulfillment alerts {fulfillmentAlerts.length > 0 ? `(${fulfillmentAlerts.length})` : ""}
+        </button>
+        <button onClick={() => setShowCompetitorsModal(true)}
+          style={{ padding: "3px 10px", fontSize: 11, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontWeight: 600, cursor: "pointer" }}>
+          🎯 Competitors {competitors.length > 0 ? `(${competitors.length})` : ""}
         </button>
         <div style={{ flex: 1 }} />
         <button onClick={() => setShowNewTicket(true)} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>+ New ticket</button>
@@ -1896,6 +1951,16 @@ export default function SupportView() {
                   <option value="all">All Sentiment</option><option value="positive">😊 Positive</option>
                   <option value="neutral">😐 Neutral</option><option value="negative">😠 Negative</option>
                 </select>
+                {/* Competitor filter — hides or focuses on mentions that named a tracked competitor.
+                    Only renders when there's at least one active competitor configured. */}
+                {competitors.some(c => c.is_active) && (
+                  <select value={socialFilter.competitor || "all"} onChange={e => setSocialFilter(f => ({ ...f, competitor: e.target.value }))}
+                    style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, cursor: "pointer" }}>
+                    <option value="all">All mentions</option>
+                    <option value="hide">🎯 Hide competitor mentions</option>
+                    <option value="only">🎯 Only competitor mentions</option>
+                  </select>
+                )}
                 <div style={{ flex: 1 }} />
                 <button onClick={async () => {
                   const unmoderated = socialMentions.filter(m => m.moderation_status === "pending" || !m.moderation_status);
@@ -1930,6 +1995,13 @@ export default function SupportView() {
                   .filter(m => (socialFilter.platform === "all" || m.platform === socialFilter.platform))
                   .filter(m => (socialFilter.status === "all" || m.status === socialFilter.status))
                   .filter(m => (socialFilter.sentiment === "all" || m.sentiment === socialFilter.sentiment))
+                  .filter(m => {
+                    // Competitor filter — only applies when explicitly selected
+                    if (!socialFilter.competitor || socialFilter.competitor === "all") return true;
+                    if (socialFilter.competitor === "hide") return !m.is_competitor_mention;
+                    if (socialFilter.competitor === "only") return !!m.is_competitor_mention;
+                    return true;
+                  })
                   .map(m => {
                     const PLAT = { instagram: { icon: "📸", color: "#E1306C" }, facebook: { icon: "📘", color: "#1877F2" }, tiktok: { icon: "🎵", color: "#010101" }, twitter: { icon: "🐦", color: "#1DA1F2" }, youtube: { icon: "📺", color: "#FF0000" } };
                     const p = PLAT[m.platform] || { icon: "📱", color: T.text3 };
@@ -1963,6 +2035,14 @@ export default function SupportView() {
                         {/* Row 3: Status badges — always visible */}
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                           <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: stb.bg, color: stb.color, textTransform: "uppercase" }}>{stb.label}</span>
+                          {m.is_competitor_mention && (() => {
+                            const comp = competitors.find(c => c.id === m.competitor_id);
+                            return (
+                              <span title={comp ? `Tracked competitor: ${comp.name}` : "Tracked competitor"} style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "#a855f720", color: "#a855f7", textTransform: "uppercase" }}>
+                                🎯 {comp?.name || "Competitor"}
+                              </span>
+                            );
+                          })()}
                           {m.sentiment && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: s.color + "12", color: s.color }}>{s.icon} {m.sentiment}</span>}
                           {m.intent && m.intent !== "general" && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: T.surface2, color: T.text3, textTransform: "capitalize" }}>{m.intent.replace("_", " ")}</span>}
                           {m.moderation_risk && m.moderation_risk !== "safe" && <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: m.moderation_risk === "critical" ? "#ef444420" : "#f97316" + "20", color: m.moderation_risk === "critical" ? "#ef4444" : "#f97316" }}>⚠ {m.moderation_risk}</span>}
@@ -2959,6 +3039,96 @@ export default function SupportView() {
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
               <button onClick={() => setShowTagsModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── COMPETITORS MODAL ─── */}
+      {showCompetitorsModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowCompetitorsModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 640, maxHeight: "85vh", overflow: "auto", background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>🎯 Competitor tracking</div>
+              <button onClick={runCompetitorClassifier} title="Re-run the classifier against existing mentions"
+                style={{ padding: "4px 10px", fontSize: 10, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontWeight: 600, cursor: "pointer" }}>
+                🔄 Re-classify
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>
+              When mentions reference a competitor by handle or keyword, they get flagged so you can sort or hide them from your main inbox. Classifier runs every 15 minutes and any time you add a new competitor.
+            </div>
+
+            {/* Add competitor form */}
+            <div style={{ padding: 14, background: T.surface2, borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text2, marginBottom: 10 }}>Add a competitor</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Name *</label>
+                  <input value={newCompetitorForm.name} onChange={e => setNewCompetitorForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Seventh Generation"
+                    style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Keywords (comma-separated)</label>
+                  <input value={newCompetitorForm.keywords} onChange={e => setNewCompetitorForm(f => ({ ...f, keywords: e.target.value }))}
+                    placeholder="seventh generation, 7th gen"
+                    style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 10 }}>
+                {["instagram","facebook","tiktok","youtube","twitter","linkedin"].map(plat => (
+                  <div key={plat}>
+                    <label style={{ fontSize: 10, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3, textTransform: "capitalize" }}>{plat} handle</label>
+                    <input value={newCompetitorForm[plat]} onChange={e => setNewCompetitorForm(f => ({ ...f, [plat]: e.target.value }))}
+                      placeholder={plat === "youtube" ? "@channelname" : "@handle"}
+                      style={{ width: "100%", padding: "6px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                ))}
+              </div>
+              <button onClick={addCompetitor} disabled={!newCompetitorForm.name.trim()}
+                style={{ padding: "7px 16px", fontSize: 12, fontWeight: 700, background: newCompetitorForm.name.trim() ? T.accent : T.surface3, color: "#fff", border: "none", borderRadius: 6, cursor: newCompetitorForm.name.trim() ? "pointer" : "not-allowed" }}>
+                + Add competitor
+              </button>
+            </div>
+
+            {/* Existing competitors list */}
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.text2, marginBottom: 8 }}>Tracked competitors</div>
+            {competitors.length === 0 ? (
+              <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 11 }}>None yet. Add one above.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {competitors.map(c => {
+                  const handleEntries = Object.entries(c.handles || {});
+                  return (
+                    <div key={c.id} style={{ padding: 10, border: `1px solid ${T.border}`, borderRadius: 6, background: c.is_active ? T.surface : T.surface2, opacity: c.is_active ? 1 : 0.55 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <strong style={{ fontSize: 12, color: T.text, flex: 1 }}>{c.name}</strong>
+                        <button onClick={() => toggleCompetitorActive(c.id, c.is_active)}
+                          style={{ padding: "3px 8px", fontSize: 10, background: c.is_active ? "#22c55e15" : T.surface3, color: c.is_active ? "#22c55e" : T.text3, border: `1px solid ${c.is_active ? "#22c55e40" : T.border}`, borderRadius: 4, fontWeight: 600, cursor: "pointer" }}>
+                          {c.is_active ? "Active" : "Paused"}
+                        </button>
+                        <button onClick={() => deleteCompetitor(c.id)} style={{ background: "none", border: "none", color: T.text3, fontSize: 14, cursor: "pointer" }}>×</button>
+                      </div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {handleEntries.length > 0 && (
+                          <span>📱 {handleEntries.map(([p, h]) => `${p}:@${h}`).join(" · ")}</span>
+                        )}
+                        {(c.keywords || []).length > 0 && (
+                          <span>🔤 {(c.keywords || []).join(", ")}</span>
+                        )}
+                        {handleEntries.length === 0 && (c.keywords || []).length === 0 && (
+                          <span style={{ fontStyle: "italic" }}>No handles or keywords — won't match anything yet</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setShowCompetitorsModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Done</button>
             </div>
           </div>
         </div>
