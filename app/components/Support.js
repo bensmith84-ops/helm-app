@@ -106,6 +106,12 @@ export default function SupportView() {
   const [aiDraft, setAiDraft] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiConfig, setAiConfig] = useState(null);
+  // Phase 3e: per-brand AI config. aiConfigs holds every row (default +
+  // any per-brand overrides). aiConfigBrandId is the currently-edited
+  // brand: null means the default row. setAiConfig is kept as the "active"
+  // row so existing handlers keep working without rewriting them.
+  const [aiConfigs, setAiConfigs] = useState([]);
+  const [aiConfigBrandId, setAiConfigBrandId] = useState(null);
   const [testMsgs, setTestMsgs] = useState([]);
   const [testInput, setTestInput] = useState("");
   const [testLoading, setTestLoading] = useState(false);
@@ -194,7 +200,7 @@ export default function SupportView() {
         supabase.from("cx_tags").select("*").eq("org_id", orgId).order("name"),
         supabase.from("cx_views").select("*").eq("org_id", orgId).order("name"),
         supabase.from("cx_contacts").select("*").eq("org_id", orgId).order("last_contact_at", { ascending: false }).limit(50),
-        supabase.from("cx_ai_config").select("*").eq("org_id", orgId).single(),
+        supabase.from("cx_ai_config").select("*").eq("org_id", orgId),
         supabase.from("cx_social_accounts").select("*").eq("org_id", orgId).order("platform"),
         supabase.from("cx_social_mentions").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(200),
         supabase.from("cx_social_rules").select("*").eq("org_id", orgId).order("name"),
@@ -227,7 +233,14 @@ export default function SupportView() {
       setTags(tagRes.data || []);
       setViews(viewRes.data || []);
       setContacts(contactRes.data || []);
-      if (aiConfRes.data) setAiConfig(aiConfRes.data);
+      if (aiConfRes.data) {
+        const rows = Array.isArray(aiConfRes.data) ? aiConfRes.data : [aiConfRes.data];
+        setAiConfigs(rows);
+        // Pick the org default (brand_id IS NULL) as the starting view.
+        const defaultRow = rows.find(r => !r.brand_id) || rows[0] || null;
+        setAiConfig(defaultRow);
+        setAiConfigBrandId(defaultRow?.brand_id || null);
+      }
       setSocialAccounts(socialAcctRes.data || []);
       setSocialMentions(socialMentRes.data || []);
       setSocialRules(socialRuleRes.data || []);
@@ -1359,8 +1372,74 @@ export default function SupportView() {
           );
           const TagInput = CxTagInput;
           const samples = aiConfig.sample_responses || [];
+          // Brand picker: switch between editing the org default and any
+          // per-brand override row. Creating a new override clones the
+          // default's values so the user has a starting point.
+          const switchToBrand = (brandIdOrNull) => {
+            const row = aiConfigs.find(r => (r.brand_id || null) === (brandIdOrNull || null));
+            if (row) {
+              setAiConfig(row);
+              setAiConfigBrandId(brandIdOrNull);
+            } else if (brandIdOrNull) {
+              // No override row exists yet for this brand. Offer to create
+              // one. Cloning a row strips id, brand_id, timestamps so the
+              // insert lands cleanly.
+              if (!confirm("Create a per-brand AI config override for this brand? It starts as a copy of the default config so you can tweak voice/tone independently.")) return;
+              const seed = aiConfigs.find(r => !r.brand_id) || aiConfigs[0];
+              if (!seed) { alert("No default config to clone from"); return; }
+              const { id, created_at, updated_at, ...rest } = seed;
+              const insertPayload = { ...rest, org_id: orgId, brand_id: brandIdOrNull };
+              supabase.from("cx_ai_config").insert(insertPayload).select().single().then(({ data, error }) => {
+                if (error) { alert(`Override create failed: ${error.message}`); return; }
+                setAiConfigs(p => [...p, data]);
+                setAiConfig(data);
+                setAiConfigBrandId(brandIdOrNull);
+              });
+            }
+          };
+
+          const deleteCurrentOverride = async () => {
+            if (!aiConfig?.brand_id) return;  // can't delete the org default
+            if (!confirm("Delete this per-brand override? Tickets for this brand will fall back to the org default AI config.")) return;
+            await supabase.from("cx_ai_config").delete().eq("id", aiConfig.id);
+            const next = aiConfigs.filter(r => r.id !== aiConfig.id);
+            setAiConfigs(next);
+            const fallback = next.find(r => !r.brand_id) || next[0] || null;
+            setAiConfig(fallback);
+            setAiConfigBrandId(fallback?.brand_id || null);
+          };
+
           return (
             <div style={{ flex: 1, overflow: "auto", padding: 24, maxWidth: 800, margin: "0 auto" }}>
+              {/* Per-brand picker. Only renders when the org has multiple
+                  brands defined. With one brand it would just be visual noise. */}
+              {brands.length > 1 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, padding: "10px 14px", background: T.surface2, borderRadius: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>Editing config for:</span>
+                  <select value={aiConfigBrandId || ""} onChange={e => switchToBrand(e.target.value || null)}
+                    style={{ padding: "5px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, cursor: "pointer", flex: 1 }}>
+                    <option value="">Default (all brands)</option>
+                    {brands.map(b => {
+                      const hasOverride = aiConfigs.some(r => r.brand_id === b.id);
+                      return (
+                        <option key={b.id} value={b.id}>
+                          {b.name}{hasOverride ? " · override" : " · uses default (click to create)"}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {aiConfig?.brand_id && (
+                    <button onClick={deleteCurrentOverride}
+                      title="Remove this per-brand override; tickets for this brand will fall back to the default"
+                      style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, background: "#ef444415", color: "#ef4444", border: `1px solid #ef444440`, borderRadius: 5, cursor: "pointer" }}>
+                      🗑 Remove override
+                    </button>
+                  )}
+                  <span style={{ fontSize: 10, color: T.text3 }}>
+                    {aiConfig?.brand_id ? "Brand-specific" : "Default — applies to brands without an override"}
+                  </span>
+                </div>
+              )}
               {/* Agent Identity */}
               <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28, padding: 20, borderRadius: 12, background: `linear-gradient(135deg, #a855f710 0%, #3b82f610 100%)`, border: `1px solid ${T.border}` }}>
                 <div onClick={() => {
