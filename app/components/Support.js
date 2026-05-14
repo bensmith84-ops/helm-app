@@ -162,6 +162,12 @@ export default function SupportView() {
   const [competitors, setCompetitors] = useState([]);
   const [showCompetitorsModal, setShowCompetitorsModal] = useState(false);
   const [newCompetitorForm, setNewCompetitorForm] = useState({ name: "", keywords: "", instagram: "", facebook: "", tiktok: "", youtube: "", twitter: "", linkedin: "" });
+  // ─── Phase 3c state: appreciation outreach ───
+  const [appreciationDrafts, setAppreciationDrafts] = useState([]);
+  const [appreciationConfig, setAppreciationConfig] = useState(null);
+  const [appreciationLoading, setAppreciationLoading] = useState(false);
+  const [showAppreciationConfig, setShowAppreciationConfig] = useState(false);
+  const [editingDraft, setEditingDraft] = useState(null);  // {id, subject, body}
   const chatEndRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -176,7 +182,7 @@ export default function SupportView() {
 
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes, fulfillRes, agentRevRes, competitorRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes, fulfillRes, agentRevRes, competitorRes, apprDraftsRes, apprCfgRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -202,6 +208,9 @@ export default function SupportView() {
         supabase.from("cx_agent_revenue").select("*").eq("org_id", orgId).order("week", { ascending: false }).limit(100),
         // Phase 3b
         supabase.from("cx_competitors").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+        // Phase 3c
+        supabase.from("cx_appreciation_drafts").select("*").eq("org_id", orgId).in("status", ["queued", "approved"]).order("created_at", { ascending: false }).limit(50),
+        supabase.from("cx_appreciation_config").select("*").eq("org_id", orgId).maybeSingle(),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -226,6 +235,8 @@ export default function SupportView() {
       setFulfillmentAlerts(fulfillRes.data || []);
       setAgentRevenue(agentRevRes.data || []);
       setCompetitors(competitorRes.data || []);
+      setAppreciationDrafts(apprDraftsRes.data || []);
+      setAppreciationConfig(apprCfgRes.data || null);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -666,6 +677,99 @@ export default function SupportView() {
     } catch (e) { console.warn("Classifier:", e); }
   };
 
+  // ─── Appreciation outreach (Phase 3c) ───
+  // Trigger the AI drafter on demand. Also fires weekly via cron.
+  const runAppreciationDrafter = async () => {
+    setAppreciationLoading(true);
+    try {
+      const res = await fetch(`${EFN_BASE}/cx-appreciation-drafter`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ org_id: orgId, force: true }),
+      });
+      const data = await res.json();
+      if (data.error) { alert(`Drafter: ${data.error}`); }
+      // Refresh the queue regardless — partial successes still show progress.
+      const { data: refreshed } = await supabase.from("cx_appreciation_drafts")
+        .select("*").eq("org_id", orgId).in("status", ["queued", "approved"])
+        .order("created_at", { ascending: false }).limit(50);
+      setAppreciationDrafts(refreshed || []);
+    } catch (e) { console.error(e); }
+    setAppreciationLoading(false);
+  };
+
+  // Approve a draft. Doesn't auto-send — Mandy specifically wanted human-eyeball
+  // on every appreciation email. Status flips to 'approved' so it's clear who
+  // signed off, then the agent can hit Send when ready.
+  const approveAppreciationDraft = async (id) => {
+    await supabase.from("cx_appreciation_drafts").update({
+      status: "approved",
+      reviewed_by: user?.id || null,
+      reviewed_at: new Date().toISOString(),
+    }).eq("id", id);
+    setAppreciationDrafts(p => p.map(d => d.id === id ? { ...d, status: "approved", reviewed_by: user?.id, reviewed_at: new Date().toISOString() } : d));
+  };
+
+  const rejectAppreciationDraft = async (id) => {
+    await supabase.from("cx_appreciation_drafts").update({
+      status: "rejected",
+      reviewed_by: user?.id || null,
+      reviewed_at: new Date().toISOString(),
+    }).eq("id", id);
+    // Remove from the visible queue
+    setAppreciationDrafts(p => p.filter(d => d.id !== id));
+  };
+
+  // Send an approved appreciation draft. Marks it sent and updates the
+  // contact's last_outreach_at so the picker won't recommend them again
+  // for cfg.min_days_since_outreach days. Email transmission itself goes
+  // through cx-email; for now we just record the intent so the audit trail
+  // is complete and the de-dupe logic works.
+  const sendAppreciationDraft = async (draft) => {
+    if (!confirm(`Send to ${draft.customer_email}?`)) return;
+    const nowIso = new Date().toISOString();
+    await supabase.from("cx_appreciation_drafts").update({
+      status: "sent", sent_at: nowIso,
+    }).eq("id", draft.id);
+    if (draft.contact_id) {
+      await supabase.from("cx_contacts").update({ last_outreach_at: nowIso }).eq("id", draft.contact_id);
+    }
+    // Actual email send — fire-and-forget; not blocking. If cx-email isn't
+    // configured for outbound this will quietly no-op.
+    try {
+      await fetch(`${EFN_BASE}/cx-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({
+          action: "send",
+          org_id: orgId,
+          to: draft.customer_email,
+          subject: draft.subject,
+          body: draft.body_text,
+          tag: "appreciation",
+        }),
+      });
+    } catch (e) { console.warn("Email send dispatch failed:", e); }
+    setAppreciationDrafts(p => p.filter(d => d.id !== draft.id));
+  };
+
+  // Save edits to a draft (in-place; status stays 'queued' or 'approved').
+  const saveAppreciationEdit = async () => {
+    if (!editingDraft) return;
+    await supabase.from("cx_appreciation_drafts").update({
+      subject: editingDraft.subject,
+      body_text: editingDraft.body_text,
+    }).eq("id", editingDraft.id);
+    setAppreciationDrafts(p => p.map(d => d.id === editingDraft.id ? { ...d, subject: editingDraft.subject, body_text: editingDraft.body_text } : d));
+    setEditingDraft(null);
+  };
+
+  const saveAppreciationConfig = async (patch) => {
+    const next = { ...appreciationConfig, ...patch, updated_at: new Date().toISOString() };
+    await supabase.from("cx_appreciation_config").update(patch).eq("org_id", orgId);
+    setAppreciationConfig(next);
+  };
+
   // Tone check on the current draft. Fires cx-tone-check. Doesn't block
   // anything — the agent always retains the choice to send. Useful as a
   // last-look on tricky replies (refunds denied, frustrated customers).
@@ -702,6 +806,7 @@ export default function SupportView() {
     { key: "sla", label: "SLA", icon: "⏱" },
     { key: "automations", label: "Automations", icon: "⚡" },
     { key: "exports", label: "Exports", icon: "📤" },
+    { key: "appreciation", label: "Appreciation", icon: "💛", count: appreciationDrafts.length },
     { key: "analytics", label: "Analytics", icon: "📊" },
   ];
 
@@ -2542,6 +2647,105 @@ export default function SupportView() {
           </div>
         )}
 
+        {/* ───────────── APPRECIATION OUTREACH TAB ─────────────
+            Queue of AI-drafted thank-you emails to high-LTV happy customers.
+            Every draft requires human review before sending. */}
+        {tab === "appreciation" && (
+          <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>💛 Appreciation outreach</h2>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>AI picks high-LTV happy customers, drafts a thank-you. You approve and send.</div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setShowAppreciationConfig(true)}
+                  style={{ padding: "6px 12px", fontSize: 11, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 6, fontWeight: 600, cursor: "pointer" }}>
+                  ⚙️ Config
+                </button>
+                <button onClick={runAppreciationDrafter} disabled={appreciationLoading}
+                  style={{ padding: "6px 14px", fontSize: 11, background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontWeight: 700, cursor: appreciationLoading ? "wait" : "pointer", opacity: appreciationLoading ? 0.6 : 1 }}>
+                  {appreciationLoading ? "Drafting…" : "✨ Generate new drafts"}
+                </button>
+              </div>
+            </div>
+
+            {/* Config banner — visible when feature is off */}
+            {appreciationConfig && !appreciationConfig.is_enabled && (
+              <div style={{ padding: 12, background: "#f59e0b15", border: `1px solid #f59e0b40`, borderRadius: 8, marginBottom: 16, fontSize: 12, color: "#f59e0b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>⚠️ Weekly auto-drafting is paused. You can still generate drafts manually with the button above.</span>
+                <button onClick={() => saveAppreciationConfig({ is_enabled: true })} style={{ padding: "4px 12px", fontSize: 11, background: "#f59e0b", color: "#fff", border: "none", borderRadius: 5, fontWeight: 700, cursor: "pointer" }}>Enable weekly</button>
+              </div>
+            )}
+
+            {appreciationDrafts.length === 0 ? (
+              <div style={{ padding: 60, textAlign: "center", color: T.text3 }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>💌</div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>No drafts queued yet</div>
+                <div style={{ fontSize: 11, marginTop: 4 }}>Click "Generate new drafts" to have AI pick some customers and draft thank-you emails.</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {appreciationDrafts.map(d => {
+                  const isApproved = d.status === "approved";
+                  const isEditing = editingDraft?.id === d.id;
+                  return (
+                    <div key={d.id} style={{ padding: 14, border: `1px solid ${isApproved ? "#22c55e40" : T.border}`, borderRadius: 10, background: T.surface }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>
+                            {d.customer_name || d.customer_email.split("@")[0]}
+                            <span style={{ fontSize: 11, fontWeight: 400, color: T.text3, marginLeft: 8 }}>{d.customer_email}</span>
+                          </div>
+                          <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+                            <span style={{ padding: "2px 6px", borderRadius: 3, background: T.surface2, color: T.text2, fontWeight: 600, textTransform: "uppercase" }}>{d.reason_code.replace(/_/g, " ")}</span>
+                            {d.reason_detail ? <span style={{ marginLeft: 8 }}>{d.reason_detail}</span> : null}
+                          </div>
+                        </div>
+                        <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 10, fontWeight: 700, textTransform: "uppercase", background: isApproved ? "#22c55e15" : "#f59e0b15", color: isApproved ? "#22c55e" : "#f59e0b" }}>
+                          {isApproved ? "Approved" : "Queued"}
+                        </span>
+                      </div>
+
+                      {isEditing ? (
+                        <div style={{ marginTop: 10 }}>
+                          <input value={editingDraft.subject} onChange={e => setEditingDraft(f => ({ ...f, subject: e.target.value }))}
+                            placeholder="Subject"
+                            style={{ width: "100%", padding: "7px 10px", fontSize: 12, fontWeight: 600, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
+                          <textarea value={editingDraft.body_text} onChange={e => setEditingDraft(f => ({ ...f, body_text: e.target.value }))} rows={6}
+                            style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 8 }}>
+                            <button onClick={() => setEditingDraft(null)} style={{ padding: "5px 12px", fontSize: 11, background: T.surface3, color: T.text2, border: "none", borderRadius: 5, cursor: "pointer" }}>Cancel</button>
+                            <button onClick={saveAppreciationEdit} style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>Save edits</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ padding: 10, background: T.surface2, borderRadius: 6, marginBottom: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>{d.subject}</div>
+                            <div style={{ fontSize: 12, color: T.text2, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{d.body_text}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                            <button onClick={() => setEditingDraft({ id: d.id, subject: d.subject, body_text: d.body_text })}
+                              style={{ padding: "5px 12px", fontSize: 11, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontWeight: 600, cursor: "pointer" }}>✏️ Edit</button>
+                            <button onClick={() => rejectAppreciationDraft(d.id)}
+                              style={{ padding: "5px 12px", fontSize: 11, background: T.surface2, color: T.text3, border: `1px solid ${T.border}`, borderRadius: 5, fontWeight: 600, cursor: "pointer" }}>🗑 Reject</button>
+                            {!isApproved && (
+                              <button onClick={() => approveAppreciationDraft(d.id)}
+                                style={{ padding: "5px 12px", fontSize: 11, background: "#22c55e15", color: "#22c55e", border: `1px solid #22c55e40`, borderRadius: 5, fontWeight: 700, cursor: "pointer" }}>✓ Approve</button>
+                            )}
+                            <button onClick={() => sendAppreciationDraft(d)}
+                              style={{ padding: "5px 14px", fontSize: 11, background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontWeight: 700, cursor: "pointer" }}>💌 Send</button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === "analytics" && (
           <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -3039,6 +3243,66 @@ export default function SupportView() {
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
               <button onClick={() => setShowTagsModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── APPRECIATION CONFIG MODAL ─── */}
+      {showAppreciationConfig && appreciationConfig && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowAppreciationConfig(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 480, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 4 }}>⚙️ Appreciation config</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>Controls how the picker selects customers and how often it runs.</div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface2, borderRadius: 8, marginBottom: 14 }}>
+              <input type="checkbox" checked={!!appreciationConfig.is_enabled} onChange={e => saveAppreciationConfig({ is_enabled: e.target.checked })} style={{ width: 16, height: 16, cursor: "pointer" }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>Weekly auto-drafting</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>Runs Tuesdays at 14:00 UTC. You can always trigger manually too.</div>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Drafts per run</label>
+                <input type="number" min={1} max={20} value={appreciationConfig.drafts_per_run || 5} onChange={e => saveAppreciationConfig({ drafts_per_run: Number(e.target.value) })}
+                  style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Minimum LTV ($)</label>
+                <input type="number" min={0} value={appreciationConfig.min_ltv || 0} onChange={e => saveAppreciationConfig({ min_ltv: Number(e.target.value) })}
+                  style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Minimum CSAT</label>
+                <input type="number" min={1} max={5} step={0.1} value={appreciationConfig.min_csat || 4.0} onChange={e => saveAppreciationConfig({ min_csat: Number(e.target.value) })}
+                  style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Days since last outreach</label>
+                <input type="number" min={1} value={appreciationConfig.min_days_since_outreach || 90} onChange={e => saveAppreciationConfig({ min_days_since_outreach: Number(e.target.value) })}
+                  style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Days since last ticket</label>
+              <input type="number" min={1} value={appreciationConfig.min_days_since_ticket || 30} onChange={e => saveAppreciationConfig({ min_days_since_ticket: Number(e.target.value) })}
+                style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>Avoid reaching anyone who's in the middle of a complaint.</div>
+            </div>
+
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Custom prompt addendum (optional)</label>
+            <textarea value={appreciationConfig.custom_prompt || ""} onChange={e => saveAppreciationConfig({ custom_prompt: e.target.value })}
+              rows={3} placeholder="e.g. Always mention our sustainability mission. Never offer discounts unless I approve."
+              style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setShowAppreciationConfig(false)} style={{ padding: "8px 16px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Done</button>
             </div>
           </div>
         </div>
