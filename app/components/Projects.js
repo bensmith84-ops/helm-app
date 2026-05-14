@@ -568,9 +568,51 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   }, [showToast]);
   const getBlockedBy = (tid) => dependencies.filter(d => d.successor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.predecessor_id) })).filter(d => d.task);
   const getBlocking = (tid) => dependencies.filter(d => d.predecessor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.successor_id) })).filter(d => d.task);
-  const createTask = async (sid) => { if (!newTitle.trim()) return; const st = tasks.filter(t => t.section_id === sid && !t.parent_task_id); const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: sid, title: newTitle.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create task"); setTasks(p => [...p, data]); setNewTitle(""); showToast("Task created", "success"); executeRules(data.id, "__created", true, null, data); };
+  // Resolve the org_id to write on rows being created in this project.
+  // External collaborators may have profile.org_id pointing to a different
+  // org (or null), so we read it from the project itself when possible.
+  // This is what unblocks external collaborators creating tasks/comments.
+  const resolveOrgId = (projectId) => {
+    if (projectId) {
+      const proj = projects.find(p => p.id === projectId);
+      if (proj?.org_id) return proj.org_id;
+    }
+    return profile?.org_id || null;
+  };
+
+  const createTask = async (sid) => {
+    if (!newTitle.trim()) return;
+    const st = tasks.filter(t => t.section_id === sid && !t.parent_task_id);
+    const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    // Use the project's org_id so external collaborators (whose profile.org_id
+    // may be null or point to a different org) can create tasks. Without this,
+    // the insert hits a NOT NULL violation on tasks.org_id.
+    const orgIdForInsert = resolveOrgId(activeProject);
+    if (!orgIdForInsert) return showToast("Cannot create task: no org context");
+    const { data, error } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: sid, title: newTitle.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single();
+    if (error) return showToast("Failed to create task: " + error.message);
+    setTasks(p => [...p, data]);
+    setNewTitle("");
+    showToast("Task created", "success");
+    executeRules(data.id, "__created", true, null, data);
+  };
   const createStandaloneTask = async (title) => { if (!title?.trim() || !profile?.org_id) return; const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, title: title.trim(), status: "todo", priority: "none", assignee_id: user.id, sort_order: 0, created_by: user.id }).select().single(); if (error) return showToast("Failed to create task"); setTasks(p => [...p, data]); showToast("Personal task created", "success"); };
-  const createSubtask = async (parentTask, titleOverride) => { const title = titleOverride || _newSubTitleRef.current || newSubtaskTitle; if (!title.trim()) return; const currentTasks = _tasksRef.current; const mx = currentTasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id, title: title.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single(); if (error) return showToast("Failed to create subtask"); setTasks(p => [...p, data]); setExpandedTasks(p => ({ ...p, [parentTask.id]: true })); setNewSubtaskTitle(""); setAddingSubtaskTo(null); executeRules(data.id, "__created", true, null, data); };
+  const createSubtask = async (parentTask, titleOverride) => {
+    const title = titleOverride || _newSubTitleRef.current || newSubtaskTitle;
+    if (!title.trim()) return;
+    const currentTasks = _tasksRef.current;
+    const mx = currentTasks.filter(t => t.parent_task_id === parentTask.id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    // Same fix as createTask: resolve org_id from the project so externals can use this too.
+    const orgIdForInsert = resolveOrgId(parentTask.project_id || activeProject);
+    if (!orgIdForInsert) return showToast("Cannot create subtask: no org context");
+    const { data, error } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: parentTask.section_id, parent_task_id: parentTask.id, title: title.trim(), status: "todo", priority: "none", sort_order: mx + 1, created_by: user.id }).select().single();
+    if (error) return showToast("Failed to create subtask: " + error.message);
+    setTasks(p => [...p, data]);
+    setExpandedTasks(p => ({ ...p, [parentTask.id]: true }));
+    setNewSubtaskTitle("");
+    setAddingSubtaskTo(null);
+    executeRules(data.id, "__created", true, null, data);
+  };
   const startAddSubtask = (task, e) => { e?.stopPropagation(); setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); setExpandedTasks(p => ({ ...p, [task.id]: true })); };
   const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("org_id", orgId).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); return; } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); }
     // Notify on assignment
@@ -623,7 +665,16 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     }
   };
   const deleteTask = async (taskId) => { const ok = await showConfirm("Delete Task", "Are you sure?"); if (!ok) return; await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", taskId); setTasks(p => p.filter(t => t.id !== taskId)); if (selectedTask?.id === taskId) setSelectedTask(null); };
-  const duplicateTask = async (task) => { const mx = tasks.filter(t => t.section_id === task.section_id && !t.parent_task_id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0); const { data, error } = await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: activeProject, section_id: task.section_id, title: task.title + " (copy)", status: task.status, priority: task.priority, assignee_id: task.assignee_id, due_date: task.due_date, sort_order: mx + 1, created_by: user.id }).select().single(); if (!error && data) { setTasks(p => [...p, data]); executeRules(data.id, "__created", true, null, data); } };
+  const duplicateTask = async (task) => {
+    const mx = tasks.filter(t => t.section_id === task.section_id && !t.parent_task_id).reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    const orgIdForInsert = resolveOrgId(task.project_id || activeProject);
+    if (!orgIdForInsert) return showToast("Cannot duplicate: no org context");
+    const { data, error } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: task.section_id, title: task.title + " (copy)", status: task.status, priority: task.priority, assignee_id: task.assignee_id, due_date: task.due_date, sort_order: mx + 1, created_by: user.id }).select().single();
+    if (!error && data) {
+      setTasks(p => [...p, data]);
+      executeRules(data.id, "__created", true, null, data);
+    }
+  };
   const createSection = async () => { if (!newSectionName.trim()) return; const mx = projSections.reduce((m, s) => Math.max(m, s.sort_order || 0), 0); const { data, error } = await supabase.from("sections").insert({ project_id: activeProject, name: newSectionName.trim(), sort_order: mx + 1 }).select().single(); if (!error && data) setSections(p => [...p, data]); setNewSectionName(""); setAddingSection(false); };
   const renameSection = async (secId) => { if (!editingSectionName.trim()) return; await supabase.from("sections").update({ name: editingSectionName.trim() }).eq("id", secId); setSections(p => p.map(s => s.id === secId ? { ...s, name: editingSectionName.trim() } : s)); setEditingSectionId(null); };
   const deleteSection = async (secId) => { const st = tasks.filter(t => t.section_id === secId); const ok = await showConfirm("Delete Section", st.length ? `Delete ${st.length} task(s) too?` : "Delete this section?"); if (!ok) return; if (st.length) await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("section_id", secId); await supabase.from("sections").delete().eq("id", secId); setSections(p => p.filter(s => s.id !== secId)); setTasks(p => p.filter(t => t.section_id !== secId)); };
@@ -811,8 +862,27 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     await supabase.from("comments").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", id);
     setComments(p => p.filter(c => c.id !== id));
   };
-  const addComment = async () => { if (!newComment.trim() || !selectedTask) return; const { data, error } = await supabase.from("comments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: newComment.trim() }).select().single(); if (!error && data) setComments(p => [...p, data]); setNewComment(""); };
-  const uploadAttachment = async (file) => { if (!selectedTask) return; const path = `${profile.org_id}/${selectedTask.id}/${Date.now()}_${file.name}`; const { error: ue } = await supabase.storage.from("attachments").upload(path, file); if (ue) return showToast("Upload failed"); const { data, error } = await supabase.from("attachments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: selectedTask.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user.id }).select().single(); if (!error && data) setAttachments(p => [...p, data]); };
+  const addComment = async () => {
+    if (!newComment.trim() || !selectedTask) return;
+    // Resolve org from the task's project so external collaborators can comment.
+    const orgIdForInsert = resolveOrgId(selectedTask.project_id);
+    if (!orgIdForInsert) return showToast("Cannot comment: no org context");
+    const { data, error } = await supabase.from("comments").insert({ org_id: orgIdForInsert, entity_type: "task", entity_id: selectedTask.id, author_id: user.id, content: newComment.trim() }).select().single();
+    if (!error && data) setComments(p => [...p, data]);
+    else if (error) showToast("Comment failed: " + error.message);
+    setNewComment("");
+  };
+  const uploadAttachment = async (file) => {
+    if (!selectedTask) return;
+    const orgIdForInsert = resolveOrgId(selectedTask.project_id);
+    if (!orgIdForInsert) return showToast("Cannot upload: no org context");
+    const path = `${orgIdForInsert}/${selectedTask.id}/${Date.now()}_${file.name}`;
+    const { error: ue } = await supabase.storage.from("attachments").upload(path, file);
+    if (ue) return showToast("Upload failed: " + ue.message);
+    const { data, error } = await supabase.from("attachments").insert({ org_id: orgIdForInsert, entity_type: "task", entity_id: selectedTask.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user.id }).select().single();
+    if (!error && data) setAttachments(p => [...p, data]);
+    else if (error) showToast("Attach failed: " + error.message);
+  };
   const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("org_id", orgId).eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
   const addDependency = async (pre, suc) => { if (pre === suc || dependencies.some(d => d.predecessor_id === pre && d.successor_id === suc)) return; const { data, error } = await supabase.from("task_dependencies").insert({ predecessor_id: pre, successor_id: suc, dependency_type: "finish_to_start" }).select().single(); if (!error && data) setDependencies(p => [...p, data]); };
   const removeDependency = async (depId) => { await supabase.from("task_dependencies").delete().eq("id", depId); setDependencies(p => p.filter(d => d.id !== depId)); };
