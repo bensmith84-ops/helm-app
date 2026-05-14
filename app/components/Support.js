@@ -38,6 +38,48 @@ const timeAgo = (d) => {
   return new Date(d).toLocaleDateString();
 };
 
+// ───────────── Deep-link helper ─────────────
+// Given a social mention's platform + post_url + external_id, return the
+// best URL we can build to land on the SPECIFIC comment when possible.
+// Falls back to the post URL when the platform doesn't support comment
+// deep linking, or when the comment id is missing.
+function commentDeepLink(mention) {
+  if (!mention) return null;
+  const platform = (mention.platform || "").toLowerCase();
+  const postUrl = mention.post_url;
+  const commentId = mention.external_id;
+  if (!postUrl) return null;
+  if (!commentId || mention.is_dm) return postUrl;  // DMs don't have a public link
+
+  try {
+    if (platform === "instagram") {
+      // IG: https://www.instagram.com/p/{shortcode}/ → append /c/{comment_id}/
+      const match = postUrl.match(/instagram\.com\/(p|reel|tv)\/([^\/?#]+)/);
+      if (match) return `https://www.instagram.com/${match[1]}/${match[2]}/c/${encodeURIComponent(commentId)}/`;
+      return postUrl;
+    }
+    if (platform === "facebook") {
+      // FB: append ?comment_id={id} to whatever the post URL is
+      const sep = postUrl.includes("?") ? "&" : "?";
+      return `${postUrl}${sep}comment_id=${encodeURIComponent(commentId)}`;
+    }
+    if (platform === "youtube") {
+      // YT: ?lc={comment_id} on the watch page
+      const sep = postUrl.includes("?") ? "&" : "?";
+      return `${postUrl}${sep}lc=${encodeURIComponent(commentId)}`;
+    }
+    if (platform === "linkedin") {
+      // LinkedIn doesn't have a clean comment deep-link; the post URL with a
+      // commentUrn anchor works in the app but not in browsers consistently.
+      return postUrl;
+    }
+    // TikTok and X: only post-level links are reliable
+    return postUrl;
+  } catch (_) {
+    return postUrl;
+  }
+}
+
 export default function SupportView() {
   const { orgId } = useAuth();
   const T = TK;
@@ -113,6 +155,9 @@ export default function SupportView() {
   const [qaForm, setQaForm] = useState({ tone_score: 4, accuracy_score: 4, resolution_score: 4, policy_score: 4, notes: "", flags: [] });
   const [showTagsModal, setShowTagsModal] = useState(false);  // tags manager modal
   const [newTagForm, setNewTagForm] = useState({ name: "", color: "#6b7280", parent_id: null });
+  // ─── Phase 3 state: tone check ───
+  const [toneCheck, setToneCheck] = useState(null);        // {severity, flags, summary}
+  const [toneCheckLoading, setToneCheckLoading] = useState(false);
   const chatEndRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -570,6 +615,30 @@ export default function SupportView() {
     setTags(p => p.filter(t => t.id !== id).map(t => t.parent_id === id ? { ...t, parent_id: null } : t));
   };
 
+  // Tone check on the current draft. Fires cx-tone-check. Doesn't block
+  // anything — the agent always retains the choice to send. Useful as a
+  // last-look on tricky replies (refunds denied, frustrated customers).
+  const runToneCheck = async () => {
+    if (!selected || !replyText.trim()) return;
+    setToneCheckLoading(true);
+    setToneCheck(null);
+    try {
+      const res = await fetch(`${EFN_BASE}/cx-tone-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ ticket_id: selected.id, draft_text: replyText }),
+      });
+      const data = await res.json();
+      if (data.error) { console.error("Tone check:", data.error); }
+      else { setToneCheck(data); }
+    } catch (e) { console.error(e); }
+    setToneCheckLoading(false);
+  };
+
+  // Clear tone-check whenever the draft changes — the warning is for the
+  // text that was checked, not for what the agent typed afterward.
+  useEffect(() => { if (toneCheck) setToneCheck(null); }, [replyText]);
+
   const TABS = [
     { key: "inbox", label: "Inbox", icon: "📥", count: stats.open + stats.pending },
     { key: "ai_agent", label: "AI Agent", icon: "🤖" },
@@ -1023,15 +1092,54 @@ export default function SupportView() {
                     ))}
                   </div>
                 )}
-                {/* Textarea + send */}
+                {/* Tone-check warning panel — only renders when there are flags.
+                    Clears automatically when the draft changes (see useEffect
+                    above). Doesn't block sending; the agent always decides. */}
+                {toneCheck && (toneCheck.severity !== "ok" || (toneCheck.flags || []).length > 0) && (() => {
+                  const sev = toneCheck.severity;
+                  const bg = sev === "block_suggested" ? "#ef444415" : "#f59e0b15";
+                  const border = sev === "block_suggested" ? "#ef444440" : "#f59e0b40";
+                  const color = sev === "block_suggested" ? "#ef4444" : "#f59e0b";
+                  const icon = sev === "block_suggested" ? "🚨" : "⚠️";
+                  return (
+                    <div style={{ padding: "8px 12px", background: bg, border: `1px solid ${border}`, borderRadius: 8, marginBottom: 8, fontSize: 11 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                        <strong style={{ color, fontSize: 12 }}>{icon} {sev === "block_suggested" ? "Tone check: serious issue" : "Tone check: worth a look"}</strong>
+                        <button onClick={() => setToneCheck(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>×</button>
+                      </div>
+                      {toneCheck.summary && <div style={{ color: T.text2, marginBottom: 4 }}>{toneCheck.summary}</div>}
+                      {(toneCheck.flags || []).map((f, i) => (
+                        <div key={i} style={{ display: "flex", gap: 6, marginTop: 2 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: color + "20", color, textTransform: "uppercase", flexShrink: 0, alignSelf: "flex-start" }}>{(f.type || "issue").replace(/_/g, " ")}</span>
+                          <span style={{ color: T.text2, fontSize: 11 }}>{f.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+                {toneCheck && toneCheck.severity === "ok" && (toneCheck.flags || []).length === 0 && (
+                  <div style={{ padding: "6px 12px", background: "#22c55e15", border: `1px solid #22c55e40`, borderRadius: 8, marginBottom: 8, fontSize: 11, color: "#22c55e", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>✓ Tone check: reads clean. Ready to send.</span>
+                    <button onClick={() => setToneCheck(null)} style={{ background: "none", border: "none", color: "#22c55e", cursor: "pointer", fontSize: 12 }}>×</button>
+                  </div>
+                )}
+
+                {/* Textarea + send + tone check */}
                 <div style={{ display: "flex", gap: 8 }}>
                   <textarea value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Type your reply..."
                     rows={3} style={{ flex: 1, padding: "8px 12px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, outline: "none", resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
                     onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendReply(replyText); } }} />
-                  <button onClick={() => sendReply(replyText)} disabled={!replyText.trim() || sending}
-                    style={{ padding: "8px 16px", background: T.accent, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", alignSelf: "flex-end", opacity: !replyText.trim() || sending ? 0.5 : 1 }}>
-                    {sending ? "..." : "Send"}
-                  </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, alignSelf: "flex-end" }}>
+                    <button onClick={runToneCheck} disabled={!replyText.trim() || toneCheckLoading}
+                      title="AI check for tone, missed questions, factual concerns. Doesn't block sending."
+                      style={{ padding: "6px 12px", background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: !replyText.trim() || toneCheckLoading ? "not-allowed" : "pointer", opacity: !replyText.trim() || toneCheckLoading ? 0.5 : 1, whiteSpace: "nowrap" }}>
+                      {toneCheckLoading ? "..." : "🔍 Tone check"}
+                    </button>
+                    <button onClick={() => sendReply(replyText)} disabled={!replyText.trim() || sending}
+                      style={{ padding: "8px 16px", background: T.accent, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: !replyText.trim() || sending ? 0.5 : 1 }}>
+                      {sending ? "..." : "Send"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1927,7 +2035,21 @@ export default function SupportView() {
                                   style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>🚫 Hide</button>
                                 <button onClick={async (e) => { e.stopPropagation(); await supabase.from("cx_social_mentions").update({ status: "ignored" }).eq("id", m.id); setSocialMentions(p => p.map(x => x.id === m.id ? { ...x, status: "ignored" } : x)); }}
                                   style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text3, cursor: "pointer" }}>⚫ Ignore</button>
-                                {m.post_url && <a href={m.post_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.accent, cursor: "pointer", textDecoration: "none" }}>↗ Open</a>}
+                                {(() => {
+                                  // Build the most specific link we can: an exact-comment link
+                                  // for IG/FB/YouTube, post-level otherwise. Renders nothing
+                                  // when there's no link to build.
+                                  const link = commentDeepLink(m);
+                                  if (!link) return null;
+                                  // Show different label based on whether we got a comment-level
+                                  // link or just the post. The helper returns the post URL when
+                                  // it couldn't build a comment link.
+                                  const isCommentLink = link !== m.post_url;
+                                  const label = isCommentLink ? "↗ Open comment" : (m.is_dm ? "↗ Open DM" : "↗ Open post");
+                                  return (
+                                    <a href={link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title={isCommentLink ? "Jumps to the exact comment in the platform" : "Opens the parent post"} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.accent, cursor: "pointer", textDecoration: "none" }}>{label}</a>
+                                  );
+                                })()}
                               </div>
                             )}
                       </div>
