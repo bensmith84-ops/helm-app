@@ -80,6 +80,27 @@ export default function SupportView() {
   const [automations, setAutomations] = useState([]);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
+  // ─── Phase 1 (Mandy wishlist) state ───
+  const [brands, setBrands] = useState([]);
+  const [crisisMode, setCrisisMode] = useState(null);
+  const [spikeAlerts, setSpikeAlerts] = useState([]);
+  const [socialPosts, setSocialPosts] = useState([]);
+  const [exportJobs, setExportJobs] = useState([]);
+  const [kbGapReports, setKbGapReports] = useState([]);
+  const [kbGapLoading, setKbGapLoading] = useState(false);
+  const [sideConversations, setSideConversations] = useState([]);
+  const [selectedSideConv, setSelectedSideConv] = useState(null);
+  const [sideConvMessages, setSideConvMessages] = useState([]);
+  const [showSideConvModal, setShowSideConvModal] = useState(false);
+  const [sideConvForm, setSideConvForm] = useState({ subject: "", participant_type: "vendor", participant_email: "", participant_name: "", body: "" });
+  const [showSnoozeModal, setShowSnoozeModal] = useState(false);
+  const [snoozeForm, setSnoozeForm] = useState({ duration: "4h", reason: "" });
+  const [showCrisisModal, setShowCrisisModal] = useState(false);
+  const [crisisForm, setCrisisForm] = useState({ reason: "", public_statement: "", holding_macro_id: null });
+  const [agentAssist, setAgentAssist] = useState(null);
+  const [agentAssistLoading, setAgentAssistLoading] = useState(false);
+  const [ticketLockWarning, setTicketLockWarning] = useState(null);
+  const [exportForm, setExportForm] = useState({ scope: "tickets", format: "csv" });
   const chatEndRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -94,7 +115,7 @@ export default function SupportView() {
 
       if (!orgId) return;
 
-      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes] = await Promise.all([
+      const [ticketRes, macroRes, kbRes, tagRes, viewRes, contactRes, aiConfRes, socialAcctRes, socialMentRes, socialRuleRes, modRuleRes, slaRes, autoRes, brandRes, crisisRes, spikeRes, postsRes, exportRes, gapRes] = await Promise.all([
         supabase.from("cx_tickets").select("*").eq("org_id", orgId).in("status", ["open", "pending", "waiting"]).order("created_at", { ascending: false }).limit(100),
         supabase.from("cx_macros").select("*").eq("org_id", orgId).eq("is_active", true).order("usage_count", { ascending: false }),
         supabase.from("cx_kb_articles").select("*").eq("org_id", orgId).eq("status", "published").order("view_count", { ascending: false }),
@@ -108,6 +129,13 @@ export default function SupportView() {
         supabase.from("cx_moderation_rules").select("*").eq("org_id", orgId).order("priority", { ascending: false }),
         supabase.from("cx_sla_policies").select("*").eq("org_id", orgId).order("priority"),
         supabase.from("cx_automations").select("*").eq("org_id", orgId).order("created_at", { ascending: false }),
+        // Phase 1 wishlist additions
+        supabase.from("cx_brands").select("*").eq("org_id", orgId).eq("is_active", true).order("sort_order"),
+        supabase.from("cx_crisis_mode").select("*").eq("org_id", orgId).maybeSingle(),
+        supabase.from("cx_spike_alerts").select("*").eq("org_id", orgId).eq("acknowledged", false).order("created_at", { ascending: false }).limit(20),
+        supabase.from("cx_social_posts").select("*").eq("org_id", orgId).order("posted_at", { ascending: false }).limit(50),
+        supabase.from("cx_export_jobs").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(20),
+        supabase.from("cx_kb_gap_reports").select("*").eq("org_id", orgId).eq("status", "open").order("occurrence_count", { ascending: false }).limit(20),
       ]);
 
       setTickets(ticketRes.data || []);
@@ -123,6 +151,12 @@ export default function SupportView() {
       setModerationRules(modRuleRes.data || []);
       setSlaPolicies(slaRes.data || []);
       setAutomations(autoRes.data || []);
+      setBrands(brandRes.data || []);
+      setCrisisMode(crisisRes.data || null);
+      setSpikeAlerts(spikeRes.data || []);
+      setSocialPosts(postsRes.data || []);
+      setExportJobs(exportRes.data || []);
+      setKbGapReports(gapRes.data || []);
 
       // Compute stats
       const all = ticketRes.data || [];
@@ -142,15 +176,39 @@ export default function SupportView() {
     load();
   }, []);
 
-  // Load messages when ticket selected
+  // Load messages when ticket selected. Also load side conversations and
+  // claim the ticket so another agent doesn't reply in parallel.
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) { setTicketLockWarning(null); setSideConversations([]); setAgentAssist(null); return; }
     const loadMsgs = async () => {
       const { data } = await supabase.from("cx_messages").select("*").eq("org_id", orgId).eq("ticket_id", selected.id).order("created_at");
       setMessages(data || []);
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     };
     loadMsgs();
+    // Only run claim/side conv logic on ACTUAL tickets, not on KB articles or
+    // other entities that share the `selected` state. cx_tickets always has
+    // a ticket_number; KB articles don't.
+    if (selected.ticket_number != null) {
+      loadSideConvs(selected.id);
+      (async () => {
+        try {
+          const { data } = await supabase.rpc("cx_claim_ticket", { p_ticket_id: selected.id, p_lease_minutes: 5 });
+          if (data && data.success === false) setTicketLockWarning(data);
+          else setTicketLockWarning(null);
+        } catch (_) {}
+      })();
+      (async () => {
+        const { data: assist } = await supabase.from("cx_agent_assist")
+          .select("*").eq("ticket_id", selected.id)
+          .order("generated_at", { ascending: false }).limit(1).maybeSingle();
+        if (assist) setAgentAssist(assist);
+        else setAgentAssist(null);
+      })();
+      return () => {
+        supabase.rpc("cx_release_ticket", { p_ticket_id: selected.id }).then(() => {}).catch(() => {});
+      };
+    }
   }, [selected?.id]);
 
   const filteredTickets = tickets.filter(t => {
@@ -282,6 +340,138 @@ export default function SupportView() {
     setAiLoading(false);
   };
 
+  // ────────── Phase 1 (Mandy wishlist) handlers ──────────
+  const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4";
+  const EFN_BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
+
+  // Snooze the selected ticket. Server-side cron auto-wakes it.
+  const snoozeSelected = async () => {
+    if (!selected) return;
+    const m = /^(\d+)([hdw])$/.exec(snoozeForm.duration);
+    if (!m) { alert("Invalid duration"); return; }
+    const n = parseInt(m[1], 10), unit = m[2];
+    const ms = unit === "h" ? n * 3600000 : unit === "d" ? n * 86400000 : n * 7 * 86400000;
+    const until = new Date(Date.now() + ms).toISOString();
+    await supabase.from("cx_tickets").update({
+      status: "waiting", snoozed_until: until,
+      snooze_reason: snoozeForm.reason || null,
+      snoozed_by: user?.id || null,
+    }).eq("id", selected.id);
+    setTickets(p => p.map(t => t.id === selected.id ? { ...t, status: "waiting", snoozed_until: until, snooze_reason: snoozeForm.reason } : t));
+    setSelected(s => s ? { ...s, status: "waiting", snoozed_until: until } : null);
+    setShowSnoozeModal(false);
+  };
+  const unsnoozeTicket = async (ticketId) => {
+    await supabase.from("cx_tickets").update({ status: "open", snoozed_until: null, snooze_reason: null, snoozed_by: null }).eq("id", ticketId);
+    setTickets(p => p.map(t => t.id === ticketId ? { ...t, status: "open", snoozed_until: null, snooze_reason: null } : t));
+    if (selected?.id === ticketId) setSelected(s => ({ ...s, status: "open", snoozed_until: null }));
+  };
+
+  // Side conversations (loop in 3PL / vendor / warehouse)
+  const loadSideConvs = async (ticketId) => {
+    const { data } = await supabase.from("cx_side_conversations").select("*").eq("ticket_id", ticketId).order("created_at", { ascending: false });
+    setSideConversations(data || []);
+  };
+  const openSideConv = async (sc) => {
+    setSelectedSideConv(sc);
+    const { data } = await supabase.from("cx_side_messages").select("*").eq("side_conversation_id", sc.id).order("created_at", { ascending: true });
+    setSideConvMessages(data || []);
+  };
+  const createSideConv = async () => {
+    if (!selected || !sideConvForm.subject || !sideConvForm.participant_email || !sideConvForm.body) return;
+    const { data: sc, error } = await supabase.from("cx_side_conversations").insert({
+      org_id: orgId, ticket_id: selected.id, subject: sideConvForm.subject,
+      participant_type: sideConvForm.participant_type,
+      participant_email: sideConvForm.participant_email,
+      participant_name: sideConvForm.participant_name || null,
+      channel: "email", status: "open", created_by: user.id,
+      last_message_at: new Date().toISOString(),
+    }).select().single();
+    if (error) { alert(error.message); return; }
+    await supabase.from("cx_side_messages").insert({
+      org_id: orgId, side_conversation_id: sc.id, direction: "outbound",
+      sender_type: "agent", sender_id: user.id,
+      sender_name: profile?.full_name || user.email, sender_email: user.email,
+      body_text: sideConvForm.body,
+    });
+    setSideConvForm({ subject: "", participant_type: "vendor", participant_email: "", participant_name: "", body: "" });
+    setShowSideConvModal(false);
+    loadSideConvs(selected.id);
+  };
+
+  // Agent assist (in-ticket AI)
+  const runAgentAssist = async (force = false) => {
+    if (!selected) return;
+    setAgentAssistLoading(true);
+    try {
+      const res = await fetch(`${EFN_BASE}/cx-agent-assist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ ticket_id: selected.id, force_refresh: force }),
+      });
+      const data = await res.json();
+      if (data.error) { console.error("Agent assist:", data.error); }
+      else { setAgentAssist(data); }
+    } catch (e) { console.error(e); }
+    setAgentAssistLoading(false);
+  };
+
+  // Crisis mode toggle
+  const toggleCrisisMode = async (turnOn) => {
+    if (!crisisMode) return;
+    const now = new Date().toISOString();
+    const entry = { at: now, by: user?.id, by_name: profile?.full_name || user?.email, action: turnOn ? "activated" : "deactivated", reason: turnOn ? crisisForm.reason : null };
+    const updates = turnOn ? {
+      is_active: true, activated_by: user.id, activated_at: now, deactivated_at: null,
+      reason: crisisForm.reason || null, public_statement: crisisForm.public_statement || null,
+      holding_macro_id: crisisForm.holding_macro_id || null,
+      history: [...(crisisMode.history || []), entry], updated_at: now,
+    } : { is_active: false, deactivated_at: now, history: [...(crisisMode.history || []), entry], updated_at: now };
+    const { data } = await supabase.from("cx_crisis_mode").update(updates).eq("org_id", orgId).select().single();
+    setCrisisMode(data);
+    setShowCrisisModal(false);
+  };
+
+  // Exports
+  const queueExport = async (filters = {}) => {
+    const { data, error } = await supabase.from("cx_export_jobs").insert({
+      org_id: orgId, requested_by: user.id, scope: exportForm.scope,
+      filters, format: exportForm.format, status: "queued",
+    }).select().single();
+    if (error) { alert(error.message); return; }
+    setExportJobs(p => [data, ...p]);
+    fetch(`${EFN_BASE}/cx-export-runner`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+      body: JSON.stringify({ job_id: data.id }),
+    }).then(() => refreshExportJobs()).catch(() => {});
+  };
+  const refreshExportJobs = async () => {
+    const { data } = await supabase.from("cx_export_jobs").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(20);
+    setExportJobs(data || []);
+  };
+
+  // KB gap report
+  const runKbGapReport = async () => {
+    setKbGapLoading(true);
+    try {
+      await fetch(`${EFN_BASE}/cx-kb-gap-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ org_id: orgId, days: 7 }),
+      });
+      const { data } = await supabase.from("cx_kb_gap_reports").select("*").eq("org_id", orgId).eq("status", "open").order("occurrence_count", { ascending: false }).limit(20);
+      setKbGapReports(data || []);
+    } catch (e) { console.error(e); }
+    setKbGapLoading(false);
+  };
+
+  // Acknowledge a spike alert so it stops nagging
+  const ackSpike = async (id) => {
+    await supabase.from("cx_spike_alerts").update({ acknowledged: true, acknowledged_by: user.id, acknowledged_at: new Date().toISOString() }).eq("id", id);
+    setSpikeAlerts(p => p.filter(s => s.id !== id));
+  };
+
   const TABS = [
     { key: "inbox", label: "Inbox", icon: "📥", count: stats.open + stats.pending },
     { key: "ai_agent", label: "AI Agent", icon: "🤖" },
@@ -289,9 +479,11 @@ export default function SupportView() {
     { key: "macros", label: "Macros", icon: "⚡" },
     { key: "contacts", label: "Contacts", icon: "👥" },
     { key: "social", label: "Social", icon: "📱" },
+    { key: "ads", label: "Ads & Posts", icon: "📣", count: socialPosts.reduce((s, p) => s + Number(p.unhandled_count || 0), 0) },
     { key: "moderation", label: "Moderation", icon: "🛡" },
     { key: "sla", label: "SLA", icon: "⏱" },
     { key: "automations", label: "Automations", icon: "⚡" },
+    { key: "exports", label: "Exports", icon: "📤" },
     { key: "analytics", label: "Analytics", icon: "📊" },
   ];
 
@@ -312,6 +504,40 @@ export default function SupportView() {
           </button>
         ))}
       </div>
+
+      {/* ─── Crisis Mode banner (active state) ─── */}
+      {crisisMode?.is_active && (
+        <div style={{ padding: "10px 16px", background: "#ef4444", color: "#fff", borderBottom: `1px solid #b91c1c`, display: "flex", gap: 12, alignItems: "center", flexShrink: 0 }}>
+          <span style={{ fontSize: 16 }}>🚨</span>
+          <div style={{ flex: 1, fontSize: 12 }}>
+            <strong>CRISIS MODE ACTIVE</strong>
+            {crisisMode.reason && <span> — {crisisMode.reason}</span>}
+            {crisisMode.public_statement && <div style={{ fontSize: 11, marginTop: 2, opacity: 0.9 }}>Holding statement: {crisisMode.public_statement}</div>}
+          </div>
+          <button onClick={() => toggleCrisisMode(false)} style={{ padding: "5px 12px", background: "rgba(255,255,255,0.2)", color: "#fff", border: "1px solid rgba(255,255,255,0.4)", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Deactivate</button>
+        </div>
+      )}
+      {/* Crisis Mode activate button (inactive state) */}
+      {!crisisMode?.is_active && (
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 16px", borderBottom: `1px solid ${T.border}40`, flexShrink: 0 }}>
+          <button onClick={() => setShowCrisisModal(true)} style={{ padding: "4px 10px", background: "transparent", color: "#ef4444", border: `1px solid #ef444440`, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>🚨 Activate Crisis Mode</button>
+        </div>
+      )}
+
+      {/* ─── Spike Alerts banner ─── */}
+      {spikeAlerts.length > 0 && (
+        <div style={{ padding: "8px 16px", background: "#f59e0b15", borderBottom: `1px solid #f59e0b30`, display: "flex", gap: 12, alignItems: "center", flexShrink: 0, overflowX: "auto" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b", whiteSpace: "nowrap" }}>📈 Spike detected</span>
+          {spikeAlerts.slice(0, 3).map(s => (
+            <button key={s.id} onClick={() => ackSpike(s.id)} title="Click to acknowledge"
+              style={{ fontSize: 10, padding: "3px 9px", borderRadius: 4, border: `1px solid ${s.severity === "critical" ? "#ef4444" : "#f59e0b"}40`,
+                background: (s.severity === "critical" ? "#ef4444" : "#f59e0b") + "15",
+                color: s.severity === "critical" ? "#ef4444" : "#f59e0b", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+              {s.metric.replace(/_/g, " ")} {s.platform ? `on ${s.platform}` : ""} · {Number(s.ratio).toFixed(1)}× baseline · ack
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Brand Risk Alert Banner */}
       {(() => {
@@ -469,6 +695,94 @@ export default function SupportView() {
                   </select>
                 </div>
               </div>
+
+              {/* ─── Phase 1 action toolbar: Snooze / Side Conv / Agent Assist ─── */}
+              <div style={{ padding: "6px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", flexShrink: 0, fontSize: 11 }}>
+                <button onClick={() => setShowSnoozeModal(true)}
+                  style={{ padding: "4px 10px", background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  💤 Snooze
+                </button>
+                <button onClick={() => setShowSideConvModal(true)}
+                  style={{ padding: "4px 10px", background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  💬 Side conversation {sideConversations.length > 0 ? `(${sideConversations.length})` : ""}
+                </button>
+                <button onClick={() => runAgentAssist(!!agentAssist)} disabled={agentAssistLoading}
+                  style={{ padding: "4px 10px", background: agentAssist ? T.accentDim : T.surface2, color: agentAssist ? T.accent : T.text2, border: `1px solid ${agentAssist ? T.accent : T.border}40`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: agentAssistLoading ? "wait" : "pointer" }}>
+                  {agentAssistLoading ? "..." : agentAssist ? "🪄 Assist ready" : "🪄 Agent assist"}
+                </button>
+                {selected.snoozed_until && (
+                  <span style={{ padding: "3px 9px", borderRadius: 5, background: "#a855f720", color: "#a855f7", fontWeight: 600, fontSize: 10, display: "flex", alignItems: "center", gap: 4 }}>
+                    💤 Snoozed until {new Date(selected.snoozed_until).toLocaleString()}
+                    <button onClick={() => unsnoozeTicket(selected.id)} style={{ background: "none", border: "none", color: "#a855f7", cursor: "pointer", padding: 0, fontSize: 11 }}>· wake now</button>
+                  </span>
+                )}
+              </div>
+
+              {/* Ticket lock warning when another agent has the active claim */}
+              {ticketLockWarning && (
+                <div style={{ padding: "8px 16px", background: "#f59e0b15", borderBottom: `1px solid #f59e0b30`, fontSize: 11, color: "#f59e0b", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  ⚠️ <strong>{ticketLockWarning.claimer_name || "Another agent"}</strong> is currently working this ticket. Hold off to avoid a duplicate response.
+                </div>
+              )}
+
+              {/* Agent assist panel */}
+              {agentAssist && (
+                <div style={{ padding: "10px 16px", background: T.accentDim + "30", borderBottom: `1px solid ${T.accent}30`, flexShrink: 0, fontSize: 11, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>🪄 Agent assist</span>
+                    {agentAssist.vip_score >= 50 && (
+                      <span style={{ padding: "2px 8px", borderRadius: 4, background: "#f59e0b20", color: "#f59e0b", fontWeight: 700, fontSize: 10 }}>
+                        VIP {agentAssist.vip_score}/100 — {(agentAssist.vip_reasons || []).join(", ")}
+                      </span>
+                    )}
+                    <button onClick={() => runAgentAssist(true)} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, fontSize: 11, cursor: "pointer" }}>↻ Refresh</button>
+                    <button onClick={() => setAgentAssist(null)} style={{ background: "none", border: "none", color: T.text3, fontSize: 14, cursor: "pointer" }}>×</button>
+                  </div>
+                  {agentAssist.thread_summary && (
+                    <div><strong style={{ color: T.text2 }}>Summary:</strong> <span style={{ color: T.text2 }}>{agentAssist.thread_summary}</span></div>
+                  )}
+                  {(agentAssist.tone_flags || []).length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                      <strong style={{ color: T.text2 }}>Tone flags:</strong>
+                      {agentAssist.tone_flags.map(t => (
+                        <span key={t} style={{ padding: "1px 6px", borderRadius: 3, background: "#ef444415", color: "#ef4444", fontWeight: 600, fontSize: 10 }}>{t.replace(/_/g, " ")}</span>
+                      ))}
+                    </div>
+                  )}
+                  {agentAssist.suggested_reply && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 4 }}>SUGGESTED REPLY</div>
+                      <div style={{ padding: 10, background: T.surface, borderRadius: 6, color: T.text2, whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.4 }}>{agentAssist.suggested_reply}</div>
+                      <button onClick={() => setReplyText(agentAssist.suggested_reply)}
+                        style={{ marginTop: 4, padding: "4px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                        Use this draft
+                      </button>
+                      {agentAssist.suggested_macro_id && macros.find(m => m.id === agentAssist.suggested_macro_id) && (
+                        <button onClick={() => {
+                          const macro = macros.find(m => m.id === agentAssist.suggested_macro_id);
+                          if (macro) setReplyText(macro.content.replace(/\{customer_name\}/g, selected.customer_name || "there"));
+                        }}
+                          style={{ marginTop: 4, marginLeft: 6, padding: "4px 10px", background: T.surface3, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                          Use macro: {macros.find(m => m.id === agentAssist.suggested_macro_id)?.name}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Side conversations strip */}
+              {sideConversations.length > 0 && (
+                <div style={{ padding: "8px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", fontSize: 11 }}>
+                  <strong style={{ color: T.text3, fontSize: 10, textTransform: "uppercase" }}>Side convos:</strong>
+                  {sideConversations.map(sc => (
+                    <button key={sc.id} onClick={() => openSideConv(sc)}
+                      style={{ padding: "3px 9px", borderRadius: 4, background: sc.status === "closed" ? T.surface3 : T.surface2, color: T.text2, border: `1px solid ${T.border}`, fontSize: 10, cursor: "pointer" }}>
+                      💬 {sc.participant_name || sc.participant_email} — {sc.subject}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Messages */}
               <div style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1017,12 +1331,50 @@ export default function SupportView() {
               <div style={{ padding: 10, borderBottom: `1px solid ${T.border}`, display: "flex", gap: 6, alignItems: "center" }}>
                 <span style={{ fontSize: 14 }}>📖</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1 }}>Knowledge Base</span>
-                <span style={{ fontSize: 10, color: T.text3 }}>{kbArticles.length} articles</span>
+                <span style={{ fontSize: 10, color: T.text3 }}>{kbArticles.length}</span>
+                <button onClick={runKbGapReport} disabled={kbGapLoading} title="Analyze recent tickets and surface the topics customers ask about most"
+                  style={{ padding: "4px 9px", background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: kbGapLoading ? "wait" : "pointer" }}>
+                  {kbGapLoading ? "..." : "🔎 Gaps"}
+                </button>
                 <button onClick={async () => {
                   const { data } = await supabase.from("cx_kb_articles").insert({ org_id: profile?.org_id, title: "New Article", content: "", category: "general", status: "draft", created_by: user?.id }).select().single();
                   if (data) { setKbArticles(p => [data, ...p]); setSelected(data); setTab("kb"); }
                 }} style={{ padding: "4px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>+</button>
               </div>
+
+              {/* Gap report bar — shows when there are open gap findings */}
+              {kbGapReports.length > 0 && (
+                <div style={{ padding: 10, borderBottom: `1px solid ${T.border}`, background: T.surface2, fontSize: 11, maxHeight: 280, overflow: "auto" }}>
+                  <div style={{ fontWeight: 700, color: T.text, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>🔎 Top topics customers asked</span>
+                    <span style={{ fontSize: 9, color: T.text3 }}>{kbGapReports.filter(g => !g.has_kb_coverage).length} gaps</span>
+                  </div>
+                  {kbGapReports.slice(0, 6).map(g => (
+                    <div key={g.id} title={g.has_kb_coverage ? "Covered by an existing article" : "Gap — no matching KB article. Click to draft."}
+                      style={{ padding: "5px 7px", marginBottom: 4, background: g.has_kb_coverage ? T.surface : "#f59e0b15", borderRadius: 4, borderLeft: `3px solid ${g.has_kb_coverage ? "#22c55e" : "#f59e0b"}`, cursor: g.has_kb_coverage ? "default" : "pointer" }}
+                      onClick={async () => {
+                        if (g.has_kb_coverage) return;
+                        const { data } = await supabase.from("cx_kb_articles").insert({
+                          org_id: orgId,
+                          title: g.suggested_article_title || g.topic,
+                          content: g.suggested_article_body || "",
+                          category: "general",
+                          status: "draft",
+                          created_by: user?.id,
+                        }).select().single();
+                        if (data) {
+                          await supabase.from("cx_kb_gap_reports").update({ status: "addressed", matched_kb_article_id: data.id }).eq("id", g.id);
+                          setKbGapReports(p => p.filter(x => x.id !== g.id));
+                          setKbArticles(p => [data, ...p]);
+                          setSelected(data);
+                        }
+                      }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{g.topic}</div>
+                      <div style={{ fontSize: 9, color: T.text3 }}>{g.occurrence_count} mentions · {g.has_kb_coverage ? "✓ covered" : "→ click to draft article"}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ flex: 1, overflow: "auto" }}>
                 {kbArticles.map(a => {
                   const catColors = { shipping: "#3b82f6", subscription: "#8b5cf6", product: "#f97316", billing: "#f59e0b", account: "#06b6d4", troubleshooting: "#ef4444", returns: "#22c55e", general: "#6b7280", policy: "#dc2626", faq: "#8b5cf6" };
@@ -1717,6 +2069,120 @@ export default function SupportView() {
           </div>
         )}
 
+        {/* ───────────── ADS & POSTS TAB ─────────────
+            Per-post comment rollup from cx_social_posts view. Sorts by
+            attention_score so the busiest / riskiest posts are top. */}
+        {tab === "ads" && (
+          <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>📣 Ads &amp; Posts</h2>
+              <div style={{ fontSize: 11, color: T.text3 }}>Sorted by attention · {socialPosts.length} posts</div>
+            </div>
+            {socialPosts.length === 0 ? (
+              <div style={{ padding: 60, textAlign: "center", color: T.text3 }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>No posts captured yet</div>
+                <div style={{ fontSize: 11, marginTop: 4 }}>Connect a social account on the Social tab to start tracking ad comments.</div>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 12 }}>
+                {[...socialPosts].sort((a, b) => Number(b.attention_score || 0) - Number(a.attention_score || 0)).map(post => {
+                  const totalComments = Number(post.comment_count || 0);
+                  const pos = Number(post.positive_count || 0);
+                  const neg = Number(post.negative_count || 0);
+                  const neu = Number(post.neutral_count || 0);
+                  const unhandled = Number(post.unhandled_count || 0);
+                  const highRisk = Number(post.high_risk_count || 0);
+                  const platformIcon = ({ facebook: "📘", instagram: "📸", tiktok: "🎵", youtube: "📺", twitter: "🐦", linkedin: "💼" })[post.platform] || "📱";
+                  return (
+                    <div key={`${post.platform}-${post.post_id}`} style={{ padding: 14, border: `1px solid ${T.border}`, borderRadius: 10, background: T.surface, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text3 }}>
+                        <span style={{ fontSize: 14 }}>{platformIcon}</span>
+                        <span style={{ textTransform: "uppercase", fontWeight: 700 }}>{post.platform}</span>
+                        <span>·</span>
+                        <span>{post.posted_at ? new Date(post.posted_at).toLocaleDateString() : ""}</span>
+                        {post.post_url && <a href={post.post_url} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", fontSize: 10, color: T.accent, textDecoration: "none" }}>↗ Open</a>}
+                      </div>
+                      <div style={{ fontSize: 12, color: T.text, lineHeight: 1.4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>
+                        {post.post_text || <span style={{ color: T.text3, fontStyle: "italic" }}>No post text captured</span>}
+                      </div>
+                      {totalComments > 0 && (
+                        <div style={{ height: 6, display: "flex", borderRadius: 3, overflow: "hidden", background: T.surface2 }}>
+                          {pos > 0 && <div style={{ width: `${(pos / totalComments) * 100}%`, background: "#22c55e" }} title={`${pos} positive`} />}
+                          {neu > 0 && <div style={{ width: `${(neu / totalComments) * 100}%`, background: "#6b7280" }} title={`${neu} neutral`} />}
+                          {neg > 0 && <div style={{ width: `${(neg / totalComments) * 100}%`, background: "#ef4444" }} title={`${neg} negative`} />}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 10, fontSize: 11, color: T.text2, flexWrap: "wrap" }}>
+                        <span>💬 {totalComments}</span>
+                        {pos > 0 && <span style={{ color: "#22c55e" }}>👍 {pos}</span>}
+                        {neg > 0 && <span style={{ color: "#ef4444" }}>👎 {neg}</span>}
+                        {highRisk > 0 && <span style={{ color: "#ef4444", fontWeight: 700 }}>🚨 {highRisk}</span>}
+                        {unhandled > 0 && <span style={{ color: T.accent, fontWeight: 700 }}>⏳ {unhandled} unhandled</span>}
+                        <span style={{ marginLeft: "auto", color: T.text3 }}>♥ {post.total_likes || 0}</span>
+                      </div>
+                      <button onClick={() => { setTab("social"); setSocialFilter(f => ({ ...f, post_id: post.post_id })); }}
+                        style={{ marginTop: 4, padding: "6px 10px", fontSize: 11, fontWeight: 600, background: T.accentDim, color: T.accent, border: "none", borderRadius: 6, cursor: "pointer" }}>
+                        View {totalComments} comments →
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ───────────── EXPORTS TAB ─────────────
+            Queue + history of CSV exports. Edge function runner picks them
+            up every minute and stores results in storage. */}
+        {tab === "exports" && (
+          <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>📤 Exports</h2>
+              <button onClick={refreshExportJobs} style={{ padding: "6px 12px", fontSize: 11, background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer" }}>🔄 Refresh</button>
+            </div>
+            <div style={{ padding: 16, border: `1px solid ${T.border}`, borderRadius: 10, background: T.surface, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>Generate a new export</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Scope</label>
+                  <select value={exportForm.scope} onChange={e => setExportForm(f => ({ ...f, scope: e.target.value }))}
+                    style={{ padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none" }}>
+                    <option value="tickets">Tickets</option>
+                    <option value="mentions">Social mentions / comments</option>
+                    <option value="conversation">Full conversation (email + DMs + comments)</option>
+                  </select>
+                </div>
+                <button onClick={() => queueExport({})} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>📥 Queue export</button>
+                <div style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>CSV. Up to 10K rows per export.</div>
+              </div>
+            </div>
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, background: T.surface, overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 13, fontWeight: 700, color: T.text }}>Export history</div>
+              {exportJobs.length === 0 ? (
+                <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 12 }}>No exports yet. Queue one above.</div>
+              ) : exportJobs.map(j => (
+                <div key={j.id} style={{ padding: "10px 14px", borderTop: `1px solid ${T.border}30`, display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{j.scope} export</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>{new Date(j.created_at).toLocaleString()} · {(j.format || "csv").toUpperCase()}{j.row_count != null ? ` · ${j.row_count} rows` : ""}</div>
+                  </div>
+                  <span style={{
+                    padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                    color: j.status === "done" ? "#22c55e" : j.status === "error" ? "#ef4444" : j.status === "running" ? "#3b82f6" : "#f59e0b",
+                    background: (j.status === "done" ? "#22c55e" : j.status === "error" ? "#ef4444" : j.status === "running" ? "#3b82f6" : "#f59e0b") + "20"
+                  }}>{j.status}</span>
+                  {j.status === "done" && j.file_url && (
+                    <a href={j.file_url} target="_blank" rel="noreferrer" style={{ padding: "5px 12px", background: T.accent, color: "#fff", borderRadius: 6, fontSize: 11, fontWeight: 700, textDecoration: "none" }}>⬇ Download</a>
+                  )}
+                  {j.status === "error" && <span title={j.error_message} style={{ fontSize: 10, color: "#ef4444", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.error_message}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {tab === "analytics" && (
           <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -1907,6 +2373,139 @@ export default function SupportView() {
           </div>
         )}
       </div>
+
+      {/* ─── SNOOZE MODAL ─── */}
+      {showSnoozeModal && selected && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowSnoozeModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 420, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 14 }}>💤 Snooze ticket</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Auto-wakes back to "open" after the duration.</div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Duration</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6, marginBottom: 12 }}>
+              {["1h", "4h", "1d", "3d", "1w"].map(d => (
+                <button key={d} onClick={() => setSnoozeForm(f => ({ ...f, duration: d }))}
+                  style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600,
+                    background: snoozeForm.duration === d ? T.accent : T.surface2,
+                    color: snoozeForm.duration === d ? "#fff" : T.text2,
+                    border: `1px solid ${snoozeForm.duration === d ? T.accent : T.border}`,
+                    borderRadius: 6, cursor: "pointer" }}>
+                  {d === "1h" ? "1 hour" : d === "4h" ? "4 hours" : d === "1d" ? "1 day" : d === "3d" ? "3 days" : "1 week"}
+                </button>
+              ))}
+            </div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Reason (optional)</label>
+            <input value={snoozeForm.reason} onChange={e => setSnoozeForm(f => ({ ...f, reason: e.target.value }))}
+              placeholder="e.g. waiting on 3PL response"
+              style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setShowSnoozeModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button onClick={snoozeSelected} style={{ padding: "8px 18px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>💤 Snooze</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SIDE CONVERSATION MODAL ─── */}
+      {showSideConvModal && selected && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowSideConvModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 540, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 14 }}>💬 Start a side conversation</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Loop in a 3PL, warehouse, or vendor. The customer won't see this thread.</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Recipient type</label>
+                <select value={sideConvForm.participant_type} onChange={e => setSideConvForm(f => ({ ...f, participant_type: e.target.value }))}
+                  style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none" }}>
+                  <option value="3pl">3PL</option>
+                  <option value="warehouse">Warehouse</option>
+                  <option value="vendor">Vendor</option>
+                  <option value="team">Internal team</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Channel</label>
+                <input value="email" disabled style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface3, color: T.text3, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Recipient name</label>
+                <input value={sideConvForm.participant_name} onChange={e => setSideConvForm(f => ({ ...f, participant_name: e.target.value }))} placeholder="John at Acme 3PL"
+                  style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Recipient email *</label>
+                <input value={sideConvForm.participant_email} onChange={e => setSideConvForm(f => ({ ...f, participant_email: e.target.value }))} placeholder="john@acme.com"
+                  style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Subject *</label>
+            <input value={sideConvForm.subject} onChange={e => setSideConvForm(f => ({ ...f, subject: e.target.value }))} placeholder="Order #1234 missing tracking"
+              style={{ width: "100%", marginTop: 4, marginBottom: 10, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Message *</label>
+            <textarea value={sideConvForm.body} onChange={e => setSideConvForm(f => ({ ...f, body: e.target.value }))} rows={5} placeholder="Hi John, customer is asking about..."
+              style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={() => setShowSideConvModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button onClick={createSideConv} style={{ padding: "8px 18px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>💬 Start conversation</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── CRISIS MODE MODAL ─── */}
+      {showCrisisModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)" }} onClick={() => setShowCrisisModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 520, background: T.surface, borderRadius: 12, border: `2px solid #ef4444`, padding: 22 }}>
+            <div style={{ fontSize: 17, fontWeight: 900, color: "#ef4444", marginBottom: 6 }}>🚨 Activate Crisis Mode</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 16 }}>
+              Use when something has gone wrong publicly. New tickets get flagged as crisis-priority, a holding statement is pinned across the team, and every action is logged for post-mortem.
+            </div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Reason *</label>
+            <input value={crisisForm.reason} onChange={e => setCrisisForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g. Shopify outage, recall on Lot #42"
+              style={{ width: "100%", marginTop: 4, marginBottom: 12, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", boxSizing: "border-box" }} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Public holding statement (optional)</label>
+            <textarea value={crisisForm.public_statement} onChange={e => setCrisisForm(f => ({ ...f, public_statement: e.target.value }))} rows={3} placeholder="What agents should communicate right now."
+              style={{ width: "100%", marginTop: 4, marginBottom: 12, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Holding macro</label>
+            <select value={crisisForm.holding_macro_id || ""} onChange={e => setCrisisForm(f => ({ ...f, holding_macro_id: e.target.value || null }))}
+              style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none" }}>
+              <option value="">— None —</option>
+              {macros.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={() => setShowCrisisModal(false)} style={{ padding: "8px 16px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => toggleCrisisMode(true)} disabled={!crisisForm.reason} style={{ padding: "8px 18px", background: crisisForm.reason ? "#ef4444" : T.surface3, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: crisisForm.reason ? "pointer" : "not-allowed" }}>🚨 Activate</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SIDE CONVERSATION VIEWER ─── */}
+      {selectedSideConv && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(0,0,0,0.4)" }} onClick={() => setSelectedSideConv(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 480, maxWidth: "100vw", background: T.surface, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => setSelectedSideConv(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: T.text3 }}>✕</button>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{selectedSideConv.subject}</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>{selectedSideConv.participant_type} · {selectedSideConv.participant_name || selectedSideConv.participant_email}</div>
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+              {sideConvMessages.length === 0 ? (
+                <div style={{ color: T.text3, fontSize: 12, textAlign: "center", padding: 30 }}>No messages yet.</div>
+              ) : sideConvMessages.map(m => (
+                <div key={m.id} style={{ padding: "10px 12px", borderRadius: 8, background: m.direction === "outbound" ? T.accentDim : T.surface2, alignSelf: m.direction === "outbound" ? "flex-end" : "flex-start", maxWidth: "85%" }}>
+                  <div style={{ fontSize: 10, color: T.text3, marginBottom: 4 }}>{m.sender_name || m.sender_email} · {timeAgo(m.created_at)}</div>
+                  <div style={{ fontSize: 12, color: T.text, whiteSpace: "pre-wrap" }}>{m.body_text}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Simulate Inbound Email / New Ticket Modal */}
       {showNewTicket && (
