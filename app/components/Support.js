@@ -179,6 +179,18 @@ export default function SupportView() {
   const [coverageConfig, setCoverageConfig] = useState(null);
   // ─── Phase 3e: post type filter for Ads & Posts ───
   const [adsTypeFilter, setAdsTypeFilter] = useState("all");
+  // ─── Phase 3f: Shopify refund/cancel modal ───
+  // shopifyLookup holds the result of cx-shopify-actions lookup_order:
+  //   { found, order:{id,name,total_price,refundable_amount,...}, eligibility:{refundable, cancellable} }
+  const [shopifyLookup, setShopifyLookup] = useState(null);
+  const [shopifyLoading, setShopifyLoading] = useState(false);
+  const [showShopifyModal, setShowShopifyModal] = useState(false);
+  // Form state: reason ("customer", "fraudulent", etc), note (free text for the
+  // internal audit log), refund_full (full vs partial), refund_amount (string,
+  // ignored when refund_full=true), send_notification (email customer).
+  const [shopifyActionForm, setShopifyActionForm] = useState({
+    reason: "", note: "", refund_full: true, refund_amount: "", send_notification: true,
+  });
   const chatEndRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -513,6 +525,100 @@ export default function SupportView() {
     setSideConvForm({ subject: "", participant_type: "vendor", participant_email: "", participant_name: "", body: "" });
     setShowSideConvModal(false);
     loadSideConvs(selected.id);
+  };
+
+  // ─── Phase 3f: Shopify actions ───
+  // Lookup the most relevant order in Shopify for the selected ticket. The
+  // edge function matches by customer_email and tries to find an order number
+  // in the ticket subject. On success it returns {order, eligibility}; on no
+  // match {found:false, message}. Action is logged regardless of outcome to
+  // cx_shopify_actions_log.
+  const lookupShopifyOrder = async () => {
+    if (!selected) return;
+    setShopifyLoading(true);
+    setShopifyLookup(null);
+    setShowShopifyModal(true);
+    try {
+      const res = await fetch(`${EFN_BASE}/cx-shopify-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ action: "lookup_order", ticket_id: selected.id }),
+      });
+      const data = await res.json();
+      setShopifyLookup(data);
+    } catch (e) {
+      setShopifyLookup({ found: false, error: e.message });
+    }
+    setShopifyLoading(false);
+  };
+
+  const issueShopifyRefund = async () => {
+    if (!shopifyLookup?.order) return;
+    const label = shopifyActionForm.refund_full || !shopifyActionForm.refund_amount
+      ? "FULL" : `$${shopifyActionForm.refund_amount}`;
+    if (!confirm(`Issue ${label} refund for ${shopifyLookup.order.name}? This will charge back to the original payment method and ${shopifyActionForm.send_notification ? "email" : "NOT email"} the customer.`)) return;
+    setShopifyLoading(true);
+    try {
+      const body = {
+        action: "refund_order",
+        ticket_id: selected.id,
+        agent_user_id: user?.id,
+        order_id: shopifyLookup.order.id,
+        reason: shopifyActionForm.reason,
+        note: shopifyActionForm.note,
+        refund_full: shopifyActionForm.refund_full,
+        refund_amount: shopifyActionForm.refund_full ? undefined : (shopifyActionForm.refund_amount || undefined),
+        send_notification: shopifyActionForm.send_notification,
+      };
+      const res = await fetch(`${EFN_BASE}/cx-shopify-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Refund issued. $${(data.refunded_amount || 0).toFixed(2)} returned.`);
+        setShowShopifyModal(false);
+        // Reload messages so the internal_note audit row appears in the thread.
+        const { data: refreshedMsgs } = await supabase.from("cx_messages").select("*").eq("ticket_id", selected.id).order("created_at");
+        if (refreshedMsgs) setMessages(refreshedMsgs);
+      } else {
+        alert(`Refund failed: ${JSON.stringify(data.error || data).slice(0, 300)}`);
+      }
+    } catch (e) { alert(`Refund error: ${e.message}`); }
+    setShopifyLoading(false);
+  };
+
+  const cancelShopifyOrder = async () => {
+    if (!shopifyLookup?.order) return;
+    if (!confirm(`Cancel order ${shopifyLookup.order.name}? ${shopifyActionForm.refund_full ? "A FULL refund will also be issued." : "No refund will be issued."} ${shopifyActionForm.send_notification ? "Customer will be emailed." : "Customer will NOT be emailed."}`)) return;
+    setShopifyLoading(true);
+    try {
+      const res = await fetch(`${EFN_BASE}/cx-shopify-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({
+          action: "cancel_order",
+          ticket_id: selected.id,
+          agent_user_id: user?.id,
+          order_id: shopifyLookup.order.id,
+          reason: shopifyActionForm.reason || "customer",
+          refund_full: shopifyActionForm.refund_full,
+          send_notification: shopifyActionForm.send_notification,
+          note: shopifyActionForm.note,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Order canceled.");
+        setShowShopifyModal(false);
+        const { data: refreshedMsgs } = await supabase.from("cx_messages").select("*").eq("ticket_id", selected.id).order("created_at");
+        if (refreshedMsgs) setMessages(refreshedMsgs);
+      } else {
+        alert(`Cancel failed: ${JSON.stringify(data.error || data).slice(0, 300)}`);
+      }
+    } catch (e) { alert(`Cancel error: ${e.message}`); }
+    setShopifyLoading(false);
   };
 
   // Agent assist (in-ticket AI)
@@ -1080,6 +1186,13 @@ export default function SupportView() {
                 <button onClick={() => setShowSideConvModal(true)}
                   style={{ padding: "4px 10px", background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                   💬 Side conversation {sideConversations.length > 0 ? `(${sideConversations.length})` : ""}
+                </button>
+                {/* Phase 3f: Shopify lookup. Opens a modal that pulls the
+                    most relevant order from Shopify for this customer and
+                    offers refund / cancel actions. */}
+                <button onClick={lookupShopifyOrder}
+                  style={{ padding: "4px 10px", background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  🛍 Shopify order
                 </button>
                 <button onClick={() => runAgentAssist(!!agentAssist)} disabled={agentAssistLoading}
                   style={{ padding: "4px 10px", background: agentAssist ? T.accentDim : T.surface2, color: agentAssist ? T.accent : T.text2, border: `1px solid ${agentAssist ? T.accent : T.border}40`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: agentAssistLoading ? "wait" : "pointer" }}>
@@ -3262,6 +3375,128 @@ export default function SupportView() {
           </div>
         )}
       </div>
+
+      {/* ─── SHOPIFY ACTIONS MODAL (Phase 3f) ─── */}
+      {showShopifyModal && selected && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowShopifyModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "90vh", overflow: "auto", background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>🛍 Shopify order</div>
+              <button onClick={() => setShowShopifyModal(false)} style={{ background: "none", border: "none", color: T.text3, fontSize: 18, cursor: "pointer" }}>✕</button>
+            </div>
+
+            {shopifyLoading && !shopifyLookup && (
+              <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 12 }}>Looking up order in Shopify…</div>
+            )}
+
+            {shopifyLookup && shopifyLookup.found === false && (
+              <div style={{ padding: 14, background: T.surface2, borderRadius: 8, fontSize: 12, color: T.text2 }}>
+                {shopifyLookup.message || shopifyLookup.error || "No matching order found in Shopify."}
+                <div style={{ marginTop: 8, fontSize: 11, color: T.text3 }}>
+                  Tried matching by email ({selected.customer_email || "no email"}) and order number in subject.
+                </div>
+              </div>
+            )}
+
+            {shopifyLookup?.order && (
+              <>
+                {/* Order summary card */}
+                <div style={{ padding: 14, background: T.surface2, borderRadius: 8, marginBottom: 14, fontSize: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontWeight: 700, color: T.text }}>{shopifyLookup.order.name}</span>
+                    <a href={shopifyLookup.order.shopify_admin_url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: T.accent, textDecoration: "none" }}>Open in Shopify ↗</a>
+                  </div>
+                  <div style={{ color: T.text3, fontSize: 11, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <span>{shopifyLookup.order.email}</span>
+                    <span>·</span>
+                    <span>{new Date(shopifyLookup.order.created_at).toLocaleDateString()}</span>
+                    <span>·</span>
+                    <span>{shopifyLookup.order.line_item_count} items</span>
+                  </div>
+                  <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 10 }}>
+                    <span style={{ padding: "2px 7px", borderRadius: 4, background: shopifyLookup.order.financial_status === "paid" ? "#22c55e15" : "#f59e0b15", color: shopifyLookup.order.financial_status === "paid" ? "#22c55e" : "#f59e0b", fontWeight: 700 }}>
+                      💳 {shopifyLookup.order.financial_status || "unknown"}
+                    </span>
+                    <span style={{ padding: "2px 7px", borderRadius: 4, background: shopifyLookup.order.fulfillment_status === "fulfilled" ? "#22c55e15" : "#8b5cf615", color: shopifyLookup.order.fulfillment_status === "fulfilled" ? "#22c55e" : "#8b5cf6", fontWeight: 700 }}>
+                      📦 {shopifyLookup.order.fulfillment_status || "unfulfilled"}
+                    </span>
+                    {shopifyLookup.order.cancelled_at && (
+                      <span style={{ padding: "2px 7px", borderRadius: 4, background: "#ef444415", color: "#ef4444", fontWeight: 700 }}>
+                        CANCELLED {new Date(shopifyLookup.order.cancelled_at).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: T.text }}>
+                    {shopifyLookup.order.currency} ${Number(shopifyLookup.order.total_price).toFixed(2)}
+                    {shopifyLookup.order.refundable_amount > 0 && shopifyLookup.order.refundable_amount !== shopifyLookup.order.total_price && (
+                      <span style={{ fontSize: 10, fontWeight: 500, color: T.text3, marginLeft: 8 }}>
+                        (${Number(shopifyLookup.order.refundable_amount).toFixed(2)} still refundable)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Form */}
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Reason (sent to Shopify)</label>
+                  <select value={shopifyActionForm.reason} onChange={e => setShopifyActionForm(f => ({ ...f, reason: e.target.value }))}
+                    style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }}>
+                    <option value="">— select —</option>
+                    <option value="customer">Customer request</option>
+                    <option value="declined">Payment declined</option>
+                    <option value="fraud">Fraud</option>
+                    <option value="inventory">Inventory issue</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Internal note (audit log only)</label>
+                  <textarea value={shopifyActionForm.note} onChange={e => setShopifyActionForm(f => ({ ...f, note: e.target.value }))}
+                    placeholder="Optional. Visible to your team, not the customer."
+                    style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, minHeight: 50, resize: "vertical", fontFamily: "inherit" }} />
+                </div>
+
+                <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 14 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text2, display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+                    <input type="checkbox" checked={shopifyActionForm.refund_full} onChange={e => setShopifyActionForm(f => ({ ...f, refund_full: e.target.checked }))} />
+                    Full refund
+                  </label>
+                  {!shopifyActionForm.refund_full && (
+                    <input type="number" step="0.01" min="0" placeholder="Partial amount"
+                      value={shopifyActionForm.refund_amount}
+                      onChange={e => setShopifyActionForm(f => ({ ...f, refund_amount: e.target.value }))}
+                      style={{ width: 130, padding: "5px 8px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }} />
+                  )}
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.text2, display: "flex", alignItems: "center", gap: 5, cursor: "pointer", marginLeft: "auto" }}>
+                    <input type="checkbox" checked={shopifyActionForm.send_notification} onChange={e => setShopifyActionForm(f => ({ ...f, send_notification: e.target.checked }))} />
+                    Email customer
+                  </label>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => setShowShopifyModal(false)}
+                    style={{ padding: "8px 14px", background: T.surface3, color: T.text2, border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    Close
+                  </button>
+                  {shopifyLookup.eligibility?.cancellable && (
+                    <button onClick={cancelShopifyOrder} disabled={shopifyLoading}
+                      style={{ padding: "8px 14px", background: "#f59e0b", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: shopifyLoading ? "wait" : "pointer" }}>
+                      🛑 Cancel order
+                    </button>
+                  )}
+                  {shopifyLookup.eligibility?.refundable && (
+                    <button onClick={issueShopifyRefund} disabled={shopifyLoading}
+                      style={{ padding: "8px 14px", background: "#ef4444", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: shopifyLoading ? "wait" : "pointer" }}>
+                      💰 Issue refund
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ─── SNOOZE MODAL ─── */}
       {showSnoozeModal && selected && (
