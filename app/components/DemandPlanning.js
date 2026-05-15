@@ -2192,22 +2192,24 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
                   <colgroup>
                     <col style={{ width: "20%" }} />
-                    <col style={{ width: "10%" }} />
-                    <col style={{ width: "10%" }} />
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "10%" }} />
-                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "9%" }} />
+                    <col style={{ width: "9%" }} />
+                    <col style={{ width: "11%" }} />
+                    <col style={{ width: "11%" }} />
+                    <col style={{ width: "11%" }} />
+                    <col style={{ width: "9%" }} />
+                    <col style={{ width: "9%" }} />
                     <col style={{ width: "6%" }} />
-                    <col style={{ width: "6%" }} />
+                    <col style={{ width: "5%" }} />
                   </colgroup>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                       <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Variant</th>
                       <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Qty</th>
                       <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Take %</th>
-                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>OTP Price</th>
-                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Sub Price</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>OTP</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>First Sub</th>
+                      <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Rebill</th>
                       <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.text3 }}>Orders</th>
                       <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.accent }}>Units</th>
                       <th style={{ textAlign: "right", padding: "6px 4px", fontSize: 8, fontWeight: 700, color: T.green }}>Rev</th>
@@ -2220,9 +2222,16 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                       const vUnits = Math.round(vOrders * (v.units_per_variant || 1));
                       const otpOrders = Math.round(vOrders * ((ch.otp_pct || 30) / 100));
                       const subOrders = vOrders - otpOrders;
+                      // 3-tier per-variant pricing. New fields fall back to legacy
+                      // subscription_price so existing data renders identically.
+                      const firstSubPx = v.first_sub_price != null ? v.first_sub_price : v.subscription_price;
+                      const rebillPx = v.recurring_sub_price != null ? v.recurring_sub_price : v.subscription_price;
                       const otpRev = otpOrders * (v.first_purchase_price || 0);
-                      const subRev = subOrders * (v.subscription_price || 0);
-                      const vRev = otpRev + subRev;
+                      const firstSubRev = subOrders * (firstSubPx || 0);
+                      // Rebill revenue carries through the rebill curve (per-variant if set, else channel)
+                      const vRates = Array.isArray(v.rebill_rates) ? v.rebill_rates : (Array.isArray(ch.rebill_rates) ? ch.rebill_rates : []);
+                      const rebillRev = vRates.reduce((s, r) => s + Math.round(subOrders * (r / 100)) * (rebillPx || 0), 0);
+                      const vRev = otpRev + firstSubRev + rebillRev;
                       const inp3 = { width: "100%", padding: "4px 4px", fontSize: 11, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
                       return (
                         <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
@@ -2242,7 +2251,15 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                             <FmtInput defaultValue={v.first_purchase_price ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { first_purchase_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
                           </td>
                           <td style={{ padding: "4px 4px" }}>
-                            <FmtInput defaultValue={v.subscription_price ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { subscription_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
+                            {/* First Sub Price — the price the customer pays on their FIRST subscription order.
+                                Falls back to legacy subscription_price when not yet set, so untouched
+                                variants render and calculate exactly as before. */}
+                            <FmtInput defaultValue={(v.first_sub_price != null ? v.first_sub_price : v.subscription_price) ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { first_sub_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
+                          </td>
+                          <td style={{ padding: "4px 4px" }}>
+                            {/* Recurring Sub Price — the rebill price (every order after the first sub).
+                                Falls back to legacy subscription_price likewise. */}
+                            <FmtInput defaultValue={(v.recurring_sub_price != null ? v.recurring_sub_price : v.subscription_price) ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { recurring_sub_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
                           </td>
                           <td style={{ padding: "4px 4px", textAlign: "right", fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "—"}</td>
                           <td style={{ padding: "4px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "—"}</td>
@@ -2268,9 +2285,16 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                       </td>
                       <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: T.green }}>
                         {totalOrders > 0 ? "$" + fmt(Math.round(splits.reduce((s, v) => {
+                          // Total revenue rolling up OTP + first sub + every rebill.
+                          // Mirrors the per-row calc above so the totals match.
                           const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
                           const otpO = Math.round(vOrders * ((ch.otp_pct || 30) / 100));
-                          return s + otpO * (v.first_purchase_price || 0) + (vOrders - otpO) * (v.subscription_price || 0);
+                          const subO = vOrders - otpO;
+                          const firstSubPx = v.first_sub_price != null ? v.first_sub_price : v.subscription_price;
+                          const rebillPx = v.recurring_sub_price != null ? v.recurring_sub_price : v.subscription_price;
+                          const vRates = Array.isArray(v.rebill_rates) ? v.rebill_rates : (Array.isArray(ch.rebill_rates) ? ch.rebill_rates : []);
+                          const rebillRev = vRates.reduce((acc, r) => acc + Math.round(subO * (r / 100)) * (rebillPx || 0), 0);
+                          return s + otpO * (v.first_purchase_price || 0) + subO * (firstSubPx || 0) + rebillRev;
                         }, 0))) : "—"}
                       </td>
                       <td style={{ padding: "6px 2px" }}></td>
@@ -3927,7 +3951,10 @@ function LaunchPlannerView({ isMobile, orgId }) {
       const { data } = await supabase.from("dp_launch_variant_splits").insert({
         org_id: orgId, channel_id: targetChannelId, variant_label: src.variant_label,
         units_per_variant: src.units_per_variant, take_rate_pct: src.take_rate_pct,
-        first_purchase_price: src.first_purchase_price, subscription_price: src.subscription_price,
+        first_purchase_price: src.first_purchase_price,
+        subscription_price: src.subscription_price,
+        first_sub_price: src.first_sub_price,
+        recurring_sub_price: src.recurring_sub_price,
         rebill_rates: src.rebill_rates,
         reorder_frequency_weeks: src.reorder_frequency_weeks,
         churn_m1: src.churn_m1, churn_m2: src.churn_m2, churn_m3: src.churn_m3, churn_m4_plus: src.churn_m4_plus,
@@ -4020,16 +4047,20 @@ function LaunchPlannerView({ isMobile, orgId }) {
         const vOrders = Math.round(chOrders * ((v.take_rate_pct || 0) / 100));
         const vUnits = Math.round(vOrders * (v.units_per_variant || 1));
         totalUnits += vUnits;
-        // Revenue: OTP orders × OTP price + Sub orders × Sub price
+        // Revenue (3-tier per variant): OTP × OTP price + First Sub × First Sub price
+        // + every rebill cohort × Recurring Sub price.
+        // New fields fall back to legacy subscription_price so old launches don't break.
         const otpOrders = Math.round(vOrders * ((ch.otp_pct || 30) / 100));
         const subOrders = vOrders - otpOrders;
-        totalRevenue += otpOrders * (v.first_purchase_price || 0) + subOrders * (v.subscription_price || 0);
+        const firstSubPx = v.first_sub_price != null ? v.first_sub_price : v.subscription_price;
+        const rebillPx = v.recurring_sub_price != null ? v.recurring_sub_price : v.subscription_price;
+        totalRevenue += otpOrders * (v.first_purchase_price || 0) + subOrders * (firstSubPx || 0);
         // Rebill revenue
         const vRates = Array.isArray(v.rebill_rates) ? v.rebill_rates : (Array.isArray(ch.rebill_rates) ? ch.rebill_rates : []);
         vRates.forEach(rate => {
           const rebillOrders = Math.round(subOrders * (rate / 100));
           totalRebillOrders += rebillOrders;
-          totalRevenue += rebillOrders * (v.subscription_price || 0);
+          totalRevenue += rebillOrders * (rebillPx || 0);
           totalUnits += Math.round(rebillOrders * (v.units_per_variant || 1));
         });
       });
@@ -4107,9 +4138,10 @@ function LaunchPlannerView({ isMobile, orgId }) {
                 placeholder="Search SKU or product title…"
               />
             </div>
+            {/* Product Details intentionally NOT carrying price/cost — pricing now
+                lives per-pack-size in the Hero GWP section (Acquisition Funnel);
+                unit_cost lives in Supply & Manufacturing. */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <I label="Retail Price" value={selected.retail_price} onChange={v => updateLaunch(selected.id, "retail_price", v)} type="number" prefix="$" />
-              <I label="Unit Cost" value={selected.unit_cost} onChange={v => updateLaunch(selected.id, "unit_cost", v)} type="number" prefix="$" />
               <I label="Target Margin %" value={selected.target_margin_pct} onChange={v => updateLaunch(selected.id, "target_margin_pct", v)} type="number" suffix="%" />
               <I label="Launch Date" value={selected.launch_date} onChange={v => updateLaunch(selected.id, "launch_date", v)} type="date" />
             </div>
@@ -4117,6 +4149,8 @@ function LaunchPlannerView({ isMobile, orgId }) {
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>🏭 Supply & Manufacturing</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {/* Unit cost lives here so margin can be computed against per-pack-size pricing in Hero GWP. */}
+              <I label="Unit Cost" value={selected.unit_cost} onChange={v => updateLaunch(selected.id, "unit_cost", v)} type="number" prefix="$" />
               <I label="MOQ" value={selected.moq} onChange={v => updateLaunch(selected.id, "moq", v)} type="number" suffix="units" />
               <I label="Lead Time" value={selected.lead_time_days} onChange={v => updateLaunch(selected.id, "lead_time_days", v)} type="number" suffix="days" />
               <I label="Max Monthly Capacity" value={selected.max_monthly_capacity} onChange={v => updateLaunch(selected.id, "max_monthly_capacity", v)} type="number" suffix="units/mo" placeholder="e.g. 200000" />
@@ -4599,7 +4633,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
             <I label="Launch Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Q3 Lemon Launch" />
             <I label="Launch Date" value={form.launch_date} onChange={v => setForm(f => ({ ...f, launch_date: v }))} type="date" />
             <I label="Unit Cost" value={form.unit_cost} onChange={v => setForm(f => ({ ...f, unit_cost: v }))} type="number" prefix="$" />
-            <I label="Retail Price" value={form.retail_price} onChange={v => setForm(f => ({ ...f, retail_price: v }))} type="number" prefix="$" />
+            {/* Retail price removed — pricing now lives per-pack-size in Hero GWP variant table. */}
             <I label="MOQ" value={form.moq} onChange={v => setForm(f => ({ ...f, moq: v }))} type="number" suffix="units" />
             <I label="Lead Time" value={form.lead_time_days} onChange={v => setForm(f => ({ ...f, lead_time_days: v }))} type="number" suffix="days" />
             <I label="Supplier" value={form.supplier} onChange={v => setForm(f => ({ ...f, supplier: v }))} />
