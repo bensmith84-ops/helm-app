@@ -919,34 +919,14 @@ export default function ScoreboardView() {
             const get7d = (key) => (daily[key]||[]).slice(0,7).reverse();
             const sum7d = (key) => (daily[key]||[]).slice(0,7).reduce((s,r)=>s+r.value,0);
 
-            // All available metrics with labels
-            const ALL_METRICS = [
-              { key:"revenue", label:"Revenue", unit:"$", color:"#22c55e" },
-              { key:"ad_spend", label:"Ad Spend", unit:"$", color:"#f97316" },
-              { key:"net_dollars", label:"Net $", unit:"$", color:getDayVal("net_dollars")>=0?"#22c55e":"#ef4444" },
-              { key:"traffic", label:"Sessions", unit:"#", color:"#4f7fff" },
-              { key:"blended_cvr", label:"Blended CVR", unit:"%", color:"#8b5cf6" },
-              { key:"new_orders", label:"New Orders", unit:"#", color:"#22c55e" },
-              { key:"net_daily_subs", label:"Net Daily Subs", unit:"#", color:"#4f7fff" },
-              { key:"daily_cancels", label:"Cancels", unit:"#", color:"#ef4444" },
-              { key:"total_orders", label:"Total Orders", unit:"#", color:"#22c55e" },
-              { key:"new_gwp_subs", label:"New GWP Subs", unit:"#", color:"#22c55e" },
-              { key:"new_shopify_subs", label:"New Shopify Subs", unit:"#", color:"#06b6d4" },
-              { key:"gwp_cpa", label:"GWP CPA", unit:"$", color:"#f97316" },
-              { key:"cpa", label:"CPA", unit:"$", color:"#f97316" },
-              { key:"dtc_cac", label:"DTC CAC", unit:"$", color:"#f97316" },
-              { key:"x_cac", label:"X-CAC", unit:"$", color:"#ef4444" },
-              { key:"nc_aov", label:"NC AOV", unit:"$", color:"#22c55e" },
-              { key:"sub_rate", label:"Sub Rate", unit:"%", color:"#8b5cf6" },
-              { key:"upsell_take_rate", label:"Upsell Take Rate", unit:"%", color:"#8b5cf6" },
-              { key:"opex_pct_rev", label:"OpEx % Rev", unit:"%", color:"#eab308" },
-              { key:"dtc_new_customers", label:"DTC New Customers", unit:"#", color:"#22c55e" },
-              { key:"comp_yago", label:"Comp YAGO", unit:"%", color:"#4f7fff" },
-              { key:"amazon_revenue", label:"Amazon Revenue", unit:"$", color:"#f59e0b" },
-              { key:"amazon_total_orders", label:"Amazon Orders", unit:"#", color:"#f59e0b" },
-              { key:"amz_net_subs", label:"AMZ Net Subs", unit:"#", color:"#f59e0b" },
-              { key:"amz_new_customers", label:"AMZ New Customers", unit:"#", color:"#f59e0b" },
-            ];
+            // All available metrics. Source of truth is sheets-daily-sync
+            // METRIC_MAP — every metric_key emitted there should appear here.
+            // The Net $ color is dynamic (green when positive, red when negative);
+            // everything else uses a category-based color.
+            const ALL_METRICS = SCOREBOARD_METRICS_CATALOG.map(m => ({
+              ...m,
+              color: m.key === "net_dollars" ? (getDayVal("net_dollars") >= 0 ? "#22c55e" : "#ef4444") : m.color,
+            }));
 
             const DEFAULT_KEYS = ["revenue","ad_spend","net_dollars","traffic","blended_cvr","new_orders","net_daily_subs","daily_cancels"];
 
@@ -1012,7 +992,12 @@ export default function ScoreboardView() {
                         const v = getDayVal(key);
                         const chg = getDayChange(key);
                         const spark = get7d(key);
-                        const isFlow = ["revenue","ad_spend","net_dollars","new_orders","total_orders","new_gwp_subs","daily_cancels","net_daily_subs","dtc_new_customers","traffic"].includes(key);
+                        // isFlow: metric is summed across the period (rev, spend,
+                        // counts). Rates / percentages / averages are NOT in this list —
+                        // those are time-averaged or last-value. Sourced from
+                        // SCOREBOARD_METRICS_CATALOG with unit "$" or "#".
+                        const flowMetric = SCOREBOARD_METRICS_CATALOG.find(m => m.key === key);
+                        const isFlow = flowMetric ? (flowMetric.unit === "$" || flowMetric.unit === "#") : false;
 
                         // Daily ARR = today × 365
                         const dailyArr = isFlow && v != null ? v * 365 : null;
@@ -1506,33 +1491,9 @@ export default function ScoreboardView() {
 
       {/* Card Customization Modal */}
       {showCardCustomize && (() => {
-        const ALL_METRICS = [
-          { key:"revenue", label:"Revenue", unit:"$", color:"#22c55e" },
-          { key:"ad_spend", label:"Ad Spend", unit:"$", color:"#f97316" },
-          { key:"net_dollars", label:"Net $", unit:"$", color:"#22c55e" },
-          { key:"traffic", label:"Sessions", unit:"#", color:"#4f7fff" },
-          { key:"blended_cvr", label:"Blended CVR", unit:"%", color:"#8b5cf6" },
-          { key:"new_orders", label:"New Orders", unit:"#", color:"#22c55e" },
-          { key:"net_daily_subs", label:"Net Daily Subs", unit:"#", color:"#4f7fff" },
-          { key:"daily_cancels", label:"Cancels", unit:"#", color:"#ef4444" },
-          { key:"total_orders", label:"Total Orders", unit:"#", color:"#22c55e" },
-          { key:"new_gwp_subs", label:"New GWP Subs", unit:"#", color:"#22c55e" },
-          { key:"new_shopify_subs", label:"New Shopify Subs", unit:"#", color:"#06b6d4" },
-          { key:"gwp_cpa", label:"GWP CPA", unit:"$", color:"#f97316" },
-          { key:"cpa", label:"CPA", unit:"$", color:"#f97316" },
-          { key:"dtc_cac", label:"DTC CAC", unit:"$", color:"#f97316" },
-          { key:"x_cac", label:"X-CAC", unit:"$", color:"#ef4444" },
-          { key:"nc_aov", label:"NC AOV", unit:"$", color:"#22c55e" },
-          { key:"sub_rate", label:"Sub Rate", unit:"%", color:"#8b5cf6" },
-          { key:"upsell_take_rate", label:"Upsell Take Rate", unit:"%", color:"#8b5cf6" },
-          { key:"opex_pct_rev", label:"OpEx % Rev", unit:"%", color:"#eab308" },
-          { key:"dtc_new_customers", label:"DTC New Customers", unit:"#", color:"#22c55e" },
-          { key:"comp_yago", label:"Comp YAGO", unit:"%", color:"#4f7fff" },
-          { key:"amazon_revenue", label:"Amazon Revenue", unit:"$", color:"#f59e0b" },
-          { key:"amazon_total_orders", label:"Amazon Orders", unit:"#", color:"#f59e0b" },
-          { key:"amz_net_subs", label:"AMZ Net Subs", unit:"#", color:"#f59e0b" },
-          { key:"amz_new_customers", label:"AMZ New Customers", unit:"#", color:"#f59e0b" },
-        ];
+        // Picker shares the master catalog so this list stays in sync
+        // with what the daily sync function emits.
+        const ALL_METRICS = SCOREBOARD_METRICS_CATALOG;
         const DEFAULT_KEYS = ["revenue","ad_spend","net_dollars","traffic","blended_cvr","new_orders","net_daily_subs","daily_cancels"];
         const currentKeys = new Set(userCards ? userCards.map(c => c.metric_key) : DEFAULT_KEYS);
 
@@ -1584,27 +1545,74 @@ export default function ScoreboardView() {
                 </div>
                 <button onClick={() => setShowCardCustomize(false)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:18 }}>×</button>
               </div>
+              {/* Search + category-grouped picker. With 100+ metrics the flat
+                  list was unusable; the search input matches against label and key,
+                  and groups are collapsed by default with a header chip showing how
+                  many in each group are currently selected. */}
+              <div style={{ padding:"10px 20px 0 20px" }}>
+                <input
+                  type="text"
+                  value={cardSearch}
+                  onChange={e => setCardSearch(e.target.value)}
+                  placeholder="Search metrics…"
+                  style={{ width:"100%", padding:"8px 12px", fontSize:12, border:`1px solid ${T.border}`, borderRadius:8, background:T.surface2, color:T.text, outline:"none" }}
+                />
+              </div>
               <div style={{ flex:1, overflow:"auto", padding:"12px 20px" }}>
-                {ALL_METRICS.map(metric => {
-                  const isActive = currentKeys.has(metric.key);
-                  return (
-                    <div key={metric.key} onClick={() => toggleCard(metric)}
-                      style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 12px", borderRadius:8, cursor:"pointer", marginBottom:4,
-                        background:isActive ? T.accentDim : "transparent", border:`1px solid ${isActive ? T.accent+"40" : "transparent"}` }}
-                      onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.surface2; }}
-                      onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
-                      <div style={{ width:10, height:10, borderRadius:5, background:metric.color, flexShrink:0 }} />
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, fontWeight:isActive ? 600 : 400, color:T.text }}>{metric.label}</div>
-                        <div style={{ fontSize:10, color:T.text3 }}>{metric.key} · {metric.unit === "$" ? "Dollar" : metric.unit === "%" ? "Percentage" : "Count"}</div>
-                      </div>
-                      <div style={{ width:20, height:20, borderRadius:4, border:`2px solid ${isActive ? T.accent : T.border}`, background:isActive ? T.accent : "transparent",
-                        display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", flexShrink:0 }}>
-                        {isActive && "✓"}
-                      </div>
-                    </div>
+                {(() => {
+                  const q = (cardSearch || "").trim().toLowerCase();
+                  // Group key → ordered metric list (preserves catalog order within group).
+                  const grouped = {};
+                  ALL_METRICS.forEach(m => {
+                    const matchesSearch = !q || m.label.toLowerCase().includes(q) || m.key.toLowerCase().includes(q);
+                    if (!matchesSearch) return;
+                    const g = m.group || "Other";
+                    if (!grouped[g]) grouped[g] = [];
+                    grouped[g].push(m);
+                  });
+                  // Group order matches GROUP_ORDER so the headline stuff comes first.
+                  const groupNames = SCOREBOARD_GROUP_ORDER.filter(g => grouped[g]).concat(
+                    Object.keys(grouped).filter(g => !SCOREBOARD_GROUP_ORDER.includes(g))
                   );
-                })}
+                  if (groupNames.length === 0) {
+                    return <div style={{ fontSize:12, color:T.text3, padding:"20px 4px", textAlign:"center" }}>No metrics match “{cardSearch}”</div>;
+                  }
+                  return groupNames.map(group => {
+                    const items = grouped[group];
+                    const activeInGroup = items.filter(m => currentKeys.has(m.key)).length;
+                    return (
+                      <div key={group} style={{ marginBottom:14 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, padding:"4px 2px 6px 2px", borderBottom:`1px solid ${T.border}`, marginBottom:6 }}>
+                          <div style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5 }}>{group}</div>
+                          {activeInGroup > 0 && (
+                            <div style={{ fontSize:9, fontWeight:700, color:T.accent, background:T.accentDim, padding:"1px 6px", borderRadius:8 }}>{activeInGroup}</div>
+                          )}
+                          <div style={{ marginLeft:"auto", fontSize:9, color:T.text3 }}>{items.length}</div>
+                        </div>
+                        {items.map(metric => {
+                          const isActive = currentKeys.has(metric.key);
+                          return (
+                            <div key={metric.key} onClick={() => toggleCard(metric)}
+                              style={{ display:"flex", alignItems:"center", gap:12, padding:"8px 12px", borderRadius:8, cursor:"pointer", marginBottom:3,
+                                background:isActive ? T.accentDim : "transparent", border:`1px solid ${isActive ? T.accent+"40" : "transparent"}` }}
+                              onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.surface2; }}
+                              onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                              <div style={{ width:10, height:10, borderRadius:5, background:metric.color, flexShrink:0 }} />
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontSize:13, fontWeight:isActive ? 600 : 400, color:T.text }}>{metric.label}</div>
+                                <div style={{ fontSize:10, color:T.text3 }}>{metric.key} · {metric.unit === "$" ? "Dollar" : metric.unit === "%" ? "Percentage" : "Count"}</div>
+                              </div>
+                              <div style={{ width:20, height:20, borderRadius:4, border:`2px solid ${isActive ? T.accent : T.border}`, background:isActive ? T.accent : "transparent",
+                                display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", flexShrink:0 }}>
+                                {isActive && "✓"}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
               <div style={{ padding:"12px 20px", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <button onClick={resetToDefaults} style={{ fontSize:11, color:T.text3, background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>Reset to defaults</button>
