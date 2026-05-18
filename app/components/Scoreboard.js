@@ -53,6 +53,178 @@ const METRIC_META = {
   blended_cvr:      { label:"Blended CVR",              unit:"%",  group:"Marketing",    color:"#22c55e" },
 };
 
+// SCOREBOARD_METRICS_CATALOG
+// ─────────────────────────────────────────────────────────────────────────────
+// Single source of truth for every card that can appear on the scoreboard.
+// Mirrored from the metric_keys emitted by the sheets-daily-sync edge function;
+// when you add a new metric there, add it here too with a group + unit + color.
+//
+// `group` drives the category headers in the picker; `SCOREBOARD_GROUP_ORDER`
+// below decides the display order of those headers (anything not listed falls
+// to the end alphabetically).
+//
+// Units: "$" (dollars), "#" (counts), "%" (percentages), "x" (ratios).
+// Money/count metrics get summed across periods; "%" / "x" are averaged.
+const SCOREBOARD_GROUP_ORDER = [
+  "Headline", "Revenue", "Recurring Rev", "Orders", "Subs", "Churn",
+  "Ad Spend - DTC", "Ad Spend - Retail", "GWP", "Amazon", "Walmart",
+  "Upsell", "Unit Economics", "OpEx & Costs", "Traffic",
+];
+
+const SCOREBOARD_METRICS_CATALOG = [
+  // Headline P&L
+  { key:"revenue",                     label:"Revenue",                   unit:"$", color:"#22c55e", group:"Headline" },
+  { key:"net_dollars",                 label:"Net $",                     unit:"$", color:"#22c55e", group:"Headline" },
+  { key:"ad_spend",                    label:"Ad Spend",                  unit:"$", color:"#f97316", group:"Headline" },
+  { key:"comp_yago",                   label:"Comp YAGO",                 unit:"%", color:"#4f7fff", group:"Headline" },
+  { key:"roas",                        label:"ROAS",                      unit:"x", color:"#4f7fff", group:"Headline" },
+  { key:"opex_pct_rev",                label:"OpEx % Rev",                unit:"%", color:"#eab308", group:"Headline" },
+
+  // Revenue breakouts
+  { key:"shopify_revenue",             label:"Shopify Revenue",           unit:"$", color:"#22c55e", group:"Revenue" },
+  { key:"hydrogen_total_sales",        label:"Hydrogen Total Sales",      unit:"$", color:"#22c55e", group:"Revenue" },
+  { key:"hydrogen_gross_sales",        label:"Hydrogen Gross Sales",      unit:"$", color:"#22c55e", group:"Revenue" },
+  { key:"hydrogen_discounts",          label:"Hydrogen Discounts",        unit:"$", color:"#ef4444", group:"Revenue" },
+  { key:"hydrogen_tax",                label:"Hydrogen Tax",              unit:"$", color:"#94a3b8", group:"Revenue" },
+  { key:"hydrogen_returns",            label:"Hydrogen Returns",          unit:"$", color:"#ef4444", group:"Revenue" },
+  { key:"hydrogen_voided_returns",     label:"Hydrogen Voided Returns",   unit:"$", color:"#94a3b8", group:"Revenue" },
+  { key:"tryeb_total_sales",           label:"TryEB Total Sales",         unit:"$", color:"#22c55e", group:"Revenue" },
+  { key:"new_order_revenue",           label:"New Order Revenue",         unit:"$", color:"#22c55e", group:"Revenue" },
+  { key:"new_customer_revenue",        label:"New Customer Revenue",      unit:"$", color:"#22c55e", group:"Revenue" },
+  { key:"new_rev",                     label:"New Revenue",               unit:"$", color:"#22c55e", group:"Revenue" },
+  { key:"sub_rev",                     label:"Subscription Revenue",      unit:"$", color:"#06b6d4", group:"Revenue" },
+
+  // Recurring revenue
+  { key:"hydrogen_recurring_rev",      label:"Hydrogen Recurring Rev",    unit:"$", color:"#06b6d4", group:"Recurring Rev" },
+  { key:"hydrogen_recurring_rev_new",  label:"Hydrogen Recurring (New)",  unit:"$", color:"#06b6d4", group:"Recurring Rev" },
+  { key:"tryeb_recurring_rev",         label:"TryEB Recurring Rev",       unit:"$", color:"#06b6d4", group:"Recurring Rev" },
+  { key:"legacy_recurring_rev",        label:"Legacy Recurring Rev",      unit:"$", color:"#94a3b8", group:"Recurring Rev" },
+
+  // Ad spend (DTC channels)
+  { key:"meta_dtc_spend",              label:"Meta DTC Spend",            unit:"$", color:"#1877f2", group:"Ad Spend - DTC" },
+  { key:"google_spend",                label:"Google Spend",              unit:"$", color:"#4285f4", group:"Ad Spend - DTC" },
+  { key:"youtube_spend",               label:"YouTube Spend",             unit:"$", color:"#ef4444", group:"Ad Spend - DTC" },
+  { key:"tatari_tv_spend",             label:"Tatari TV Spend",           unit:"$", color:"#8b5cf6", group:"Ad Spend - DTC" },
+  { key:"microsoft_spend",             label:"Microsoft Spend",           unit:"$", color:"#00a4ef", group:"Ad Spend - DTC" },
+  { key:"tiktok_spend",                label:"TikTok Spend",              unit:"$", color:"#000000", group:"Ad Spend - DTC" },
+  { key:"applovin_spend",              label:"AppLovin Spend",            unit:"$", color:"#f97316", group:"Ad Spend - DTC" },
+  { key:"spotify_spend",               label:"Spotify Spend",             unit:"$", color:"#1db954", group:"Ad Spend - DTC" },
+  { key:"taboola_spend",               label:"Taboola Spend",             unit:"$", color:"#8b5cf6", group:"Ad Spend - DTC" },
+  { key:"podcast_spend",               label:"Podcast Spend",             unit:"$", color:"#f59e0b", group:"Ad Spend - DTC" },
+  { key:"agentio_spend",               label:"Agentio Spend",             unit:"$", color:"#8b5cf6", group:"Ad Spend - DTC" },
+  { key:"pinterest_spend",             label:"Pinterest Spend",           unit:"$", color:"#e60023", group:"Ad Spend - DTC" },
+  { key:"tv_spend",                    label:"TV Spend",                  unit:"$", color:"#8b5cf6", group:"Ad Spend - DTC" },
+  { key:"meta_spend",                  label:"Meta Spend",                unit:"$", color:"#1877f2", group:"Ad Spend - DTC" },
+  { key:"meta_ad_spend",               label:"Meta Ad Spend",             unit:"$", color:"#1877f2", group:"Ad Spend - DTC" },
+
+  // Ad spend (Retail)
+  { key:"meta_retail_spend",           label:"Meta Retail Spend",         unit:"$", color:"#1877f2", group:"Ad Spend - Retail" },
+  { key:"google_retail_spend",         label:"Google Retail Spend",       unit:"$", color:"#4285f4", group:"Ad Spend - Retail" },
+  { key:"retail_meta_spend",           label:"Retail Meta Spend",         unit:"$", color:"#1877f2", group:"Ad Spend - Retail" },
+  { key:"walmart_ad_spend",            label:"Walmart Ad Spend",          unit:"$", color:"#0071dc", group:"Ad Spend - Retail" },
+  { key:"wmt_ad_spend",                label:"WMT Ad Spend",              unit:"$", color:"#0071dc", group:"Ad Spend - Retail" },
+  { key:"amazon_adspend",              label:"Amazon Adspend",            unit:"$", color:"#f59e0b", group:"Ad Spend - Retail" },
+
+  // GWP funnel
+  { key:"new_gwp_subs",                label:"New GWP Subs",              unit:"#", color:"#22c55e", group:"GWP" },
+  { key:"gwp_cpa",                     label:"GWP CPA",                   unit:"$", color:"#f97316", group:"GWP" },
+  { key:"laundry_gwp_subs",            label:"Laundry GWP Subs",          unit:"#", color:"#22c55e", group:"GWP" },
+  { key:"laundry_gwp_cpa",             label:"Laundry GWP CPA",           unit:"$", color:"#f97316", group:"GWP" },
+  { key:"laundry_gwp_adspend",         label:"Laundry GWP Adspend",       unit:"$", color:"#f97316", group:"GWP" },
+  { key:"laundry_sub_rate",            label:"Laundry Sub Rate %",        unit:"%", color:"#8b5cf6", group:"GWP" },
+  { key:"dish_gwp_subs",               label:"Dish GWP Subs",             unit:"#", color:"#22c55e", group:"GWP" },
+  { key:"dish_gwp_cpa",                label:"Dish GWP CPA",              unit:"$", color:"#f97316", group:"GWP" },
+  { key:"dish_gwp_spend",              label:"Dish GWP Spend",            unit:"$", color:"#f97316", group:"GWP" },
+  { key:"dish_sub_rate",               label:"Dish Sub Rate %",           unit:"%", color:"#8b5cf6", group:"GWP" },
+
+  // Orders
+  { key:"total_orders",                label:"Total Orders",              unit:"#", color:"#22c55e", group:"Orders" },
+  { key:"new_orders",                  label:"New Orders",                unit:"#", color:"#22c55e", group:"Orders" },
+  { key:"shopify_hydrogen_orders",     label:"Shopify Hydrogen Orders",   unit:"#", color:"#22c55e", group:"Orders" },
+  { key:"shopify_tryeb_orders",        label:"Shopify TryEB Orders",      unit:"#", color:"#22c55e", group:"Orders" },
+  { key:"recurring_orders",            label:"Recurring Orders",          unit:"#", color:"#06b6d4", group:"Orders" },
+  { key:"upsell_voided_orders",        label:"Upsell Voided Orders",      unit:"#", color:"#ef4444", group:"Orders" },
+  { key:"refund_voided_orders",        label:"Refund & Voided Orders",    unit:"#", color:"#ef4444", group:"Orders" },
+  { key:"draft_orders_cs",             label:"Draft Orders (CS)",         unit:"#", color:"#94a3b8", group:"Orders" },
+  { key:"qa_test_orders",              label:"QA / Test Orders",          unit:"#", color:"#94a3b8", group:"Orders" },
+
+  // Subs
+  { key:"net_daily_subs",              label:"Net Daily Subs",            unit:"#", color:"#4f7fff", group:"Subs" },
+  { key:"new_shopify_subs",            label:"New Shopify Subs",          unit:"#", color:"#06b6d4", group:"Subs" },
+  { key:"sub_rate",                    label:"Sub Rate",                  unit:"%", color:"#8b5cf6", group:"Subs" },
+  { key:"inactive_subs",               label:"Inactive Subs",             unit:"#", color:"#94a3b8", group:"Subs" },
+  { key:"regular_sub_order_rate",      label:"Regular Sub Order Rate",    unit:"%", color:"#8b5cf6", group:"Subs" },
+  { key:"annual_sub_order_rate",       label:"Annual Sub Order Rate",     unit:"%", color:"#8b5cf6", group:"Subs" },
+  { key:"otp_order_rate",              label:"OTP Order Rate",            unit:"%", color:"#8b5cf6", group:"Subs" },
+  { key:"dtc_new_customers",           label:"DTC New Customers",         unit:"#", color:"#22c55e", group:"Subs" },
+
+  // Churn
+  { key:"daily_cancels",               label:"Daily Cancels",             unit:"#", color:"#ef4444", group:"Churn" },
+  { key:"tryeb_customer_cancels",      label:"TryEB Customer Cancels",    unit:"#", color:"#ef4444", group:"Churn" },
+  { key:"hydrogen_customer_cancels",   label:"Hydrogen Customer Cancels", unit:"#", color:"#ef4444", group:"Churn" },
+  { key:"monthly_churn",               label:"Monthly Churn",             unit:"#", color:"#ef4444", group:"Churn" },
+  { key:"monthly_churn_pct",           label:"Monthly Churn %",           unit:"%", color:"#ef4444", group:"Churn" },
+
+  // Unit economics
+  { key:"cpa",                         label:"CPA",                       unit:"$", color:"#f97316", group:"Unit Economics" },
+  { key:"dtc_cac",                     label:"DTC CAC",                   unit:"$", color:"#f97316", group:"Unit Economics" },
+  { key:"x_cac",                       label:"X-CAC",                     unit:"$", color:"#ef4444", group:"Unit Economics" },
+  { key:"nc_aov",                      label:"NC AOV",                    unit:"$", color:"#22c55e", group:"Unit Economics" },
+  { key:"cashflow_net_per_new_sub",    label:"Cashflow Net $ / New Sub",  unit:"$", color:"#22c55e", group:"Unit Economics" },
+  { key:"payback_period_months",       label:"Payback Period (mo)",       unit:"#", color:"#8b5cf6", group:"Unit Economics" },
+  { key:"est_day1_gross_profit",       label:"Est Day-1 Gross Profit",    unit:"$", color:"#22c55e", group:"Unit Economics" },
+  { key:"negative_cm_d1",              label:"Neg Contribution Margin D1",unit:"$", color:"#ef4444", group:"Unit Economics" },
+  { key:"cash_to_recoup_d1",           label:"Cash to Recoup D1",         unit:"$", color:"#ef4444", group:"Unit Economics" },
+  { key:"contribution_margin_pct_rev", label:"Contribution Margin % Rev", unit:"%", color:"#22c55e", group:"Unit Economics" },
+  { key:"nc_gross_profit",             label:"NC Gross Profit",           unit:"$", color:"#22c55e", group:"Unit Economics" },
+  { key:"nb_new_visit_pct_meta",       label:"NB New Visit % (Meta)",     unit:"%", color:"#1877f2", group:"Unit Economics" },
+
+  // Operating costs
+  { key:"opex",                        label:"OPEX",                      unit:"$", color:"#eab308", group:"OpEx & Costs" },
+  { key:"opex_budget_10m",             label:"$10M OPEX Budget",          unit:"$", color:"#94a3b8", group:"OpEx & Costs" },
+  { key:"interest_expense",            label:"Interest Expense",          unit:"$", color:"#ef4444", group:"OpEx & Costs" },
+  { key:"marketing_other",             label:"Marketing Other",           unit:"$", color:"#f97316", group:"OpEx & Costs" },
+  { key:"marketing_total",             label:"Marketing (Total)",         unit:"$", color:"#f97316", group:"OpEx & Costs" },
+  { key:"sampling_spend",              label:"Sampling",                  unit:"$", color:"#94a3b8", group:"OpEx & Costs" },
+  { key:"impact_1pct",                 label:"Impact 1%",                 unit:"$", color:"#22c55e", group:"OpEx & Costs" },
+  { key:"dtc_processing_fees",         label:"DTC Processing Fees",       unit:"$", color:"#94a3b8", group:"OpEx & Costs" },
+  { key:"cogs",                        label:"COGS",                      unit:"$", color:"#ef4444", group:"OpEx & Costs" },
+  { key:"sales_tax",                   label:"Sales Tax",                 unit:"$", color:"#94a3b8", group:"OpEx & Costs" },
+  { key:"az_cogs_fees_tax",            label:"Amazon COGS + Fees + Tax",  unit:"$", color:"#f59e0b", group:"OpEx & Costs" },
+
+  // Traffic
+  { key:"traffic",                     label:"Sessions",                  unit:"#", color:"#4f7fff", group:"Traffic" },
+  { key:"blended_cvr",                 label:"Blended CVR",               unit:"%", color:"#8b5cf6", group:"Traffic" },
+  { key:"tryeb_sessions",              label:"TryEB Sessions",            unit:"#", color:"#4f7fff", group:"Traffic" },
+  { key:"pages_sessions",              label:"Pages Sessions",            unit:"#", color:"#4f7fff", group:"Traffic" },
+  { key:"hydrogen_sessions",           label:"Hydrogen Sessions",         unit:"#", color:"#4f7fff", group:"Traffic" },
+
+  // Amazon
+  { key:"amazon_revenue",              label:"Amazon Revenue",            unit:"$", color:"#f59e0b", group:"Amazon" },
+  { key:"amazon_direct",               label:"Amazon Direct",             unit:"$", color:"#f59e0b", group:"Amazon" },
+  { key:"amazon_total_orders",         label:"Amazon Orders",             unit:"#", color:"#f59e0b", group:"Amazon" },
+  { key:"amz_net_subs",                label:"AMZ Net Subs",              unit:"#", color:"#f59e0b", group:"Amazon" },
+  { key:"amz_new_customers",           label:"AMZ New Customers",         unit:"#", color:"#f59e0b", group:"Amazon" },
+  { key:"amz_new_customers_weekly",    label:"AMZ New Customers (Weekly)",unit:"#", color:"#f59e0b", group:"Amazon" },
+  { key:"amazon_glance_views",         label:"Amazon Glance Views",       unit:"#", color:"#f59e0b", group:"Amazon" },
+  { key:"amazon_cvr",                  label:"Amazon CVR",                unit:"%", color:"#f59e0b", group:"Amazon" },
+
+  // Walmart
+  { key:"wmt_daily_sales",             label:"Walmart Digital Sales",     unit:"$", color:"#0071dc", group:"Walmart" },
+
+  // Upsell
+  { key:"upsell_take_rate",            label:"Upsell Take Rate",          unit:"%", color:"#8b5cf6", group:"Upsell" },
+  { key:"laundry_upsell_take_rate",    label:"Laundry Upsell Take Rate",  unit:"%", color:"#8b5cf6", group:"Upsell" },
+  { key:"laundry_upsell_rev",          label:"Laundry Upsell Rev",        unit:"$", color:"#06b6d4", group:"Upsell" },
+  { key:"laundry_upsell_product_rev_pct", label:"Laundry Upsell % Rev",   unit:"%", color:"#8b5cf6", group:"Upsell" },
+  { key:"dish_upsell_take_rate",       label:"Dish Upsell Take Rate",     unit:"%", color:"#8b5cf6", group:"Upsell" },
+  { key:"dish_upsell_product_rev",     label:"Dish Upsell Product Rev",   unit:"$", color:"#06b6d4", group:"Upsell" },
+  { key:"dish_upsell_product_rev_pct", label:"Dish Upsell % Rev",         unit:"%", color:"#8b5cf6", group:"Upsell" },
+
+  // Misc
+  { key:"units_shipped",               label:"Units Shipped",             unit:"#", color:"#4f7fff", group:"Other" },
+];
+
 const fmtVal = (v, unit, compact=true) => {
   if (v == null || v === undefined) return "—";
   const n = Number(v);
@@ -647,6 +819,8 @@ export default function ScoreboardView() {
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
   const [userCards, setUserCards] = useState(null); // null = use defaults, [] = custom
   const [showCardCustomize, setShowCardCustomize] = useState(false);
+  // Search query for the customize-cards modal; reset on close.
+  const [cardSearch, setCardSearch] = useState("");
   const [userId, setUserId] = useState(null);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
