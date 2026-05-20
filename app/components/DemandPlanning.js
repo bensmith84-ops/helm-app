@@ -86,6 +86,12 @@ function SupplyChainView({ isMobile, orgId }) {
   const [skuOverrides, setSkuOverrides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState("overview");
+  // Product search filter shared across the By Product / Inventory / By Location
+  // / By Channel sub-tabs. Empty string = no filter. Case-insensitive substring
+  // match against any combination of: SKU, product_title, variant_title,
+  // base_product, product_category. The Overview sub-tab ignores this filter
+  // because it shows aggregate metrics, not product lists.
+  const [productSearch, setProductSearch] = useState("");
   // Date range selection. We carry both the mode and a numeric value so the
   // UI can offer day-based presets (Yesterday, 7d) alongside the existing
   // week-based ones (4w, 12w, ...) without ambiguity.
@@ -352,6 +358,20 @@ function SupplyChainView({ isMobile, orgId }) {
   const avgWos = totalWeeklyDemand > 0 ? totalOnHand / totalWeeklyDemand : 0;
   const criticalCount = invItems.filter(i => i.wos < 4 && i.weeklyDemand > 0).length;
 
+  // matchesProductSearch — returns true when the search field is empty (no
+  // filter active) OR when any of the passed fields contains the query as a
+  // case-insensitive substring. Used by all list-based sub-tabs so a single
+  // search box filters the whole Supply Chain view consistently.
+  const _q = (productSearch || "").trim().toLowerCase();
+  const matchesProductSearch = (...fields) => {
+    if (!_q) return true;
+    for (const f of fields) {
+      if (f == null) continue;
+      if (String(f).toLowerCase().includes(_q)) return true;
+    }
+    return false;
+  };
+
   const SUB_TABS = [
     { id: "overview", label: "Overview", icon: "📊" },
     { id: "products", label: "By Product", icon: "📦" },
@@ -363,13 +383,34 @@ function SupplyChainView({ isMobile, orgId }) {
   return (
     <div>
       {/* Sub-tabs */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {SUB_TABS.map(t => (
           <button key={t.id} onClick={() => setSubTab(t.id)}
             style={{ padding: "6px 14px", fontSize: 11, fontWeight: subTab === t.id ? 700 : 500, borderRadius: 6, border: `1px solid ${subTab === t.id ? T.accent + "40" : T.border}`, background: subTab === t.id ? T.accentDim : "transparent", color: subTab === t.id ? T.accent : T.text3, cursor: "pointer" }}>
             {t.icon} {t.label}
           </button>
         ))}
+        {/* Product search input — visible on every sub-tab except Overview,
+            which shows aggregate metrics rather than a list. The empty state
+            (productSearch === "") leaves every list unfiltered. */}
+        {subTab !== "overview" && (
+          <div style={{ position: "relative", marginLeft: 8 }}>
+            <input
+              type="text"
+              value={productSearch}
+              onChange={e => setProductSearch(e.target.value)}
+              placeholder="🔍 Search SKU, product, variant…"
+              style={{ width: 280, padding: "6px 28px 6px 10px", fontSize: 11, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, outline: "none" }}
+            />
+            {productSearch && (
+              <button
+                onClick={() => setProductSearch("")}
+                title="Clear search"
+                style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", width: 20, height: 20, borderRadius: 10, border: "none", background: "transparent", color: T.text3, cursor: "pointer", fontSize: 14, lineHeight: 1 }}
+              >×</button>
+            )}
+          </div>
+        )}
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 10, color: T.text3 }}>Range:</span>
@@ -493,7 +534,7 @@ function SupplyChainView({ isMobile, orgId }) {
                   <th key={h} style={{ textAlign: h === "#" ? "center" : "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
                 ))}
               </tr></thead>
-              <tbody>{topBaseProducts.map((p, i) => (
+              <tbody>{topBaseProducts.filter(p => matchesProductSearch(p.baseProduct, p.category)).map((p, i) => (
                 <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
                   <td style={{ padding: "6px 10px", color: T.text3, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
                   <td style={{ padding: "6px 10px", color: T.text, fontWeight: 600, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.baseProduct}</td>
@@ -519,7 +560,7 @@ function SupplyChainView({ isMobile, orgId }) {
                       <th key={h} style={{ textAlign: "left", padding: "5px 8px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
                     ))}
                   </tr></thead>
-                  <tbody>{skuMaster.sort((a, b) => (a.base_product || "").localeCompare(b.base_product || "")).map((s, i) => (
+                  <tbody>{skuMaster.filter(s => matchesProductSearch(s.sku, s.product_title, s.variant_title, s.base_product, s.product_category)).sort((a, b) => (a.base_product || "").localeCompare(b.base_product || "")).map((s, i) => (
                     <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "20", opacity: s.status === "discontinued" ? 0.5 : 1 }}>
                       <td style={{ padding: "4px 8px", fontFamily: "monospace", fontSize: 9 }}>{s.sku}</td>
                       <td style={{ padding: "4px 8px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.product_title}</td>
@@ -555,7 +596,7 @@ function SupplyChainView({ isMobile, orgId }) {
                   <th key={h} style={{ textAlign: "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
                 ))}
               </tr></thead>
-              <tbody>{invItems.filter(i => i.on_hand > 0 || i.weeklyDemand > 0).map((inv, i) => {
+              <tbody>{invItems.filter(i => (i.on_hand > 0 || i.weeklyDemand > 0) && matchesProductSearch(i.sku, i.name)).map((inv, i) => {
                 const risk = getRisk(inv.wos);
                 return (
                   <tr key={i} style={{ background: risk === "critical" ? "#ef444408" : risk === "red" ? "#f9731608" : i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
@@ -619,7 +660,7 @@ function SupplyChainView({ isMobile, orgId }) {
                         <th key={h} style={{ textAlign: "left", padding: "6px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
                       ))}
                     </tr></thead>
-                    <tbody>{w.items.sort((a, b) => (b.quantity_on_hand || 0) - (a.quantity_on_hand || 0)).slice(0, 20).map((r, ri) => {
+                    <tbody>{w.items.filter(r => matchesProductSearch(r.sku, skuMap[r.sku]?.product_title, skuMap[r.sku]?.variant_title, skuMap[r.sku]?.base_product, skuMap[r.sku]?.product_category)).sort((a, b) => (b.quantity_on_hand || 0) - (a.quantity_on_hand || 0)).slice(0, 20).map((r, ri) => {
                       const master = skuMap[r.sku];
                       const available = (r.quantity_on_hand || 0) - (r.quantity_reserved || 0);
                       return (
@@ -658,7 +699,7 @@ function SupplyChainView({ isMobile, orgId }) {
               </div>
               {/* Top SKUs for this channel */}
               <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Top SKUs</div>
-              {latestSales.filter(r => r.channel === ch.channel).sort((a, b) => (b.units_sold || 0) - (a.units_sold || 0)).slice(0, 5).map((r, ri) => (
+              {latestSales.filter(r => r.channel === ch.channel && matchesProductSearch(r.sku, r.product_title)).sort((a, b) => (b.units_sold || 0) - (a.units_sold || 0)).slice(0, 5).map((r, ri) => (
                 <div key={ri} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 10, color: T.text2 }}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.product_title || r.sku}</span>
                   <span style={{ fontWeight: 700, color: T.text, marginLeft: 8 }}>{fmt(r.units_sold)}</span>
