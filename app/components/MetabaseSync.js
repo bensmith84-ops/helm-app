@@ -202,9 +202,12 @@ export default function MetabaseSync({ onClose }) {
                         // carry heavy jsonb payloads (orders) to pull through the browser. The edge
                         // function streams Metabase CSV row-by-row into Postgres, so memory stays bounded.
                         if (mapping.table === "dp_daily_sales_by_warehouse" || mapping.table === "dp_orders") {
-                          // Both cards require date template tags. Window in 7-day chunks (warehouse) or
-                          // 2-day chunks (orders — jsonb-heavy rows make 7-day chunks risk OOM).
-                          const chunkDays = mapping.table === "dp_orders" ? 2 : 7;
+                          // Both cards require date template tags. The edge function has a 150s
+                          // wall-clock per request, and each chunk = 1 BigQuery roundtrip + insert.
+                          // BigQuery can take 30-90s for a cold-read of older data, so we keep chunks
+                          // small enough that even a slow query + insert finishes comfortably.
+                          // Orders: 1 day per chunk (jsonb-heavy rows). Warehouse: 3 days per chunk.
+                          const chunkDays = mapping.table === "dp_orders" ? 1 : 3;
                           const end = new Date();
                           const start = new Date();
                           start.setDate(start.getDate() - (weeksToSync * 7));
