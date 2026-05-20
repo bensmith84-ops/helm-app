@@ -21,8 +21,8 @@ const DASHBOARD_SYNC_MAP = [
   // The next two cards do not yet exist in Metabase — set card_id to null so the
   // UI prompts the user to browse-and-pick a card whose shape matches. When a
   // suitable card is authored, replace null with its ID for one-click sync.
-  { card_id: null, table: "dp_daily_sales_by_warehouse", label: "Daily Sales × Warehouse", icon: "📍" },
-  { card_id: null, table: "dp_orders", label: "Orders (line-item detail)", icon: "🧾" },
+  { card_id: 587, table: "dp_daily_sales_by_warehouse", label: "Daily Sales × Warehouse", icon: "📍" },
+  { card_id: 588, table: "dp_orders", label: "Orders (line-item detail)", icon: "🧾" },
 ];
 
 const TARGET_TABLES = [
