@@ -530,17 +530,18 @@ function SupplyChainView({ isMobile, orgId }) {
             {t.icon} {t.label}
           </button>
         ))}
-        {/* Product search input — visible on every sub-tab except Overview,
-            which shows aggregate metrics rather than a list. The empty state
-            (productSearch === "") leaves every list unfiltered. */}
-        {subTab !== "overview" && (
-          <div style={{ position: "relative", marginLeft: 8 }}>
+        {/* Product search input — now shown on every sub-tab including Overview.
+            Typing here filters EVERY aggregate (KPI tiles, charts, tables) through
+            the upstream `searchedSkus` Set. A live counter shows how many SKUs were
+            matched, so you can immediately see whether a query is filtering. */}
+        <div style={{ position: "relative", marginLeft: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ position: "relative" }}>
             <input
               type="text"
               value={productSearch}
               onChange={e => setProductSearch(e.target.value)}
               placeholder="🔍 Search SKU, product, variant…"
-              style={{ width: 280, padding: "6px 28px 6px 10px", fontSize: 11, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, outline: "none" }}
+              style={{ width: 280, padding: "6px 28px 6px 10px", fontSize: 11, borderRadius: 6, border: productSearch ? `1px solid ${T.accent}` : `1px solid ${T.border}`, background: T.surface2, color: T.text, outline: "none" }}
             />
             {productSearch && (
               <button
@@ -550,7 +551,12 @@ function SupplyChainView({ isMobile, orgId }) {
               >×</button>
             )}
           </div>
-        )}
+          {productSearch && searchedSkus && (
+            <span style={{ fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 10, background: searchedSkus.size > 0 ? T.accent + "20" : "#ef444420", color: searchedSkus.size > 0 ? T.accent : "#ef4444", whiteSpace: "nowrap" }}>
+              {searchedSkus.size > 0 ? `${searchedSkus.size} SKU${searchedSkus.size === 1 ? "" : "s"} matched` : "no matches"}
+            </span>
+          )}
+        </div>
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 10, color: T.text3 }}>Range:</span>
