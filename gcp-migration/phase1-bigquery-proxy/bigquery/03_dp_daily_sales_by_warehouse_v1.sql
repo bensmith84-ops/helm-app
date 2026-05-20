@@ -1,7 +1,7 @@
 -- Helm dp_daily_sales_by_warehouse view, v3 — single-brand warehouse, no brand filter.
 -- warehouse_location is not in EDM; left NULL so Helm renders without crashing.
 
-CREATE OR REPLACE VIEW `helm-490123.helm_prod.dp_daily_sales_by_warehouse_v1` AS
+CREATE OR REPLACE VIEW `helm-496923.helm_prod.dp_daily_sales_by_warehouse_v1` AS
 
 SELECT
   fol.date                                                            AS sale_date,
