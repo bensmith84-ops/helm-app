@@ -12,7 +12,7 @@ const { BigQuery } = require("@google-cloud/bigquery");
 
 const app = express();
 const bq = new BigQuery();
-const PROJECT = process.env.GCP_PROJECT || "helm-490123";
+const PROJECT = process.env.GCP_PROJECT || "helm-496923";
 const DATASET = process.env.BQ_DATASET || "helm_prod";
 const TOKEN = process.env.BQ_PROXY_TOKEN;
 
