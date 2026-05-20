@@ -318,8 +318,45 @@ function SupplyChainView({ isMobile, orgId }) {
   const weeksInRange = new Set(rangeSales.map(r => r.week_start)).size || 1;
   const isMultiWeek = weeksInRange > 1;
 
-  // Aliased for backward compatibility with downstream code that expects "latestSales"
-  const latestSales = rangeSales;
+  // ─── PRODUCT SEARCH PROPAGATION ────────────────────────────────────────
+  // The productSearch state is declared below near the SUB_TABS area but the
+  // filter is most useful when applied UPSTREAM of every aggregate. We resolve
+  // the search query into a Set of matching SKUs once, then filter both sales
+  // and inventory through it before any rollups happen. Result: typing in the
+  // search box updates every KPI tile, every chart, every card, every table
+  // simultaneously without per-section filter logic.
+  //
+  // Matching logic: substring (case-insensitive) against ANY of
+  //   - sku                          (direct SKU code match)
+  //   - product_title                (e.g. "Dish Tabs")
+  //   - variant_title                (e.g. "60-pack")
+  //   - base_product                 (e.g. "Dish")
+  //   - product_category             (e.g. "household_cleaner")
+  // We look these up from skuMaster (the canonical catalog) AND from sales rows
+  // themselves (sales rows carry product_title even for SKUs missing from master).
+  const _searchQ = (productSearch || "").trim().toLowerCase();
+  const searchedSkus = (() => {
+    if (!_searchQ) return null; // null = no filter, pass everything through
+    const matched = new Set();
+    const matchOne = (sku, fields) => {
+      if (!sku) return;
+      for (const f of fields) {
+        if (f && String(f).toLowerCase().includes(_searchQ)) { matched.add(sku); return; }
+      }
+    };
+    // Catalog walk (covers SKUs even if they had no sales in the range)
+    for (const s of skuMaster) matchOne(s.sku, [s.sku, s.product_title, s.variant_title, s.base_product, s.product_category]);
+    // Override walk (catches orphans like FREESHIPPING)
+    for (const s of skuOverrides) matchOne(s.sku, [s.sku, s.product_title, s.variant_title, s.base_product, s.product_category]);
+    // Sales walk (catches SKUs missing from master with sales activity)
+    for (const r of rangeSales) matchOne(r.sku, [r.sku, r.product_title, r.variant_title, r.base_product]);
+    return matched;
+  })();
+  const passesSearch = (sku) => searchedSkus === null || searchedSkus.has(sku);
+
+  // Aliased for backward compatibility with downstream code that expects "latestSales".
+  // Apply the search filter here so EVERY downstream aggregate respects it.
+  const latestSales = searchedSkus === null ? rangeSales : rangeSales.filter(r => searchedSkus.has(r.sku));
   const totalUnits = latestSales.reduce((s, r) => s + (r.units_sold || 0), 0);
   const totalRevenue = latestSales.reduce((s, r) => s + Number(r.gross_revenue || 0), 0);
   const totalOrders = latestSales.reduce((s, r) => s + (r.orders_count || 0), 0);
@@ -374,9 +411,11 @@ function SupplyChainView({ isMobile, orgId }) {
   });
   const countries = Object.values(byCountry).sort((a, b) => b.units - a.units);
 
-  // Inventory aggregated by SKU
+  // Inventory aggregated by SKU — filtered through the same search whitelist
+  // so the By Location / Inventory tabs match the rest of the view.
+  const filteredInventory = searchedSkus === null ? inventory : inventory.filter(r => searchedSkus.has(r.sku));
   const invBySku = {};
-  inventory.forEach(r => {
+  filteredInventory.forEach(r => {
     const key = r.sku || "Unknown";
     if (!invBySku[key]) invBySku[key] = { sku: key, warehouse: r.warehouse_location || "—", on_hand: 0, reserved: 0, incoming: 0, arrival: r.expected_arrival_date, lead_time: r.lead_time_days || 0 };
     invBySku[key].on_hand += r.quantity_on_hand || 0;
@@ -573,7 +612,7 @@ function SupplyChainView({ isMobile, orgId }) {
                   <th key={h} style={{ textAlign: h === "#" ? "center" : "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
                 ))}
               </tr></thead>
-              <tbody>{topBaseProducts.filter(p => matchesProductSearch(p.baseProduct, p.category)).map((p, i) => (
+              <tbody>{topBaseProducts.map((p, i) => (
                 <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
                   <td style={{ padding: "6px 10px", color: T.text3, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
                   <td style={{ padding: "6px 10px", color: T.text, fontWeight: 600, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.baseProduct}</td>
@@ -635,7 +674,7 @@ function SupplyChainView({ isMobile, orgId }) {
                   <th key={h} style={{ textAlign: "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
                 ))}
               </tr></thead>
-              <tbody>{invItems.filter(i => (i.on_hand > 0 || i.weeklyDemand > 0) && matchesProductSearch(i.sku, i.name)).map((inv, i) => {
+              <tbody>{invItems.filter(i => i.on_hand > 0 || i.weeklyDemand > 0).map((inv, i) => {
                 const risk = getRisk(inv.wos);
                 return (
                   <tr key={i} style={{ background: risk === "critical" ? "#ef444408" : risk === "red" ? "#f9731608" : i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
@@ -657,8 +696,9 @@ function SupplyChainView({ isMobile, orgId }) {
 
       {/* WAREHOUSES TAB — Inventory by Location */}
       {subTab === "warehouses" && (() => {
+        // Use filteredInventory so warehouse tiles + per-warehouse details respect search
         const byWh = {};
-        inventory.forEach(r => {
+        filteredInventory.forEach(r => {
           const wh = r.warehouse_location || "Unknown";
           if (!byWh[wh]) byWh[wh] = { warehouse: wh, skus: new Set(), on_hand: 0, reserved: 0, incoming: 0, items: [] };
           byWh[wh].skus.add(r.sku);
@@ -699,7 +739,7 @@ function SupplyChainView({ isMobile, orgId }) {
                         <th key={h} style={{ textAlign: "left", padding: "6px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>{h}</th>
                       ))}
                     </tr></thead>
-                    <tbody>{w.items.filter(r => matchesProductSearch(r.sku, skuMap[r.sku]?.product_title, skuMap[r.sku]?.variant_title, skuMap[r.sku]?.base_product, skuMap[r.sku]?.product_category)).sort((a, b) => (b.quantity_on_hand || 0) - (a.quantity_on_hand || 0)).slice(0, 20).map((r, ri) => {
+                    <tbody>{w.items.sort((a, b) => (b.quantity_on_hand || 0) - (a.quantity_on_hand || 0)).slice(0, 20).map((r, ri) => {
                       const master = skuMap[r.sku];
                       const available = (r.quantity_on_hand || 0) - (r.quantity_reserved || 0);
                       return (
@@ -738,7 +778,7 @@ function SupplyChainView({ isMobile, orgId }) {
               </div>
               {/* Top SKUs for this channel */}
               <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Top SKUs</div>
-              {latestSales.filter(r => r.channel === ch.channel && matchesProductSearch(r.sku, r.product_title)).sort((a, b) => (b.units_sold || 0) - (a.units_sold || 0)).slice(0, 5).map((r, ri) => (
+              {latestSales.filter(r => r.channel === ch.channel).sort((a, b) => (b.units_sold || 0) - (a.units_sold || 0)).slice(0, 5).map((r, ri) => (
                 <div key={ri} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 10, color: T.text2 }}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.product_title || r.sku}</span>
                   <span style={{ fontWeight: 700, color: T.text, marginLeft: 8 }}>{fmt(r.units_sold)}</span>
