@@ -2,7 +2,7 @@
 # End-to-end smoke test of the deployed helm-bq-proxy.
 set -euo pipefail
 
-PROJECT=helm-490123
+PROJECT=helm-496923
 REGION=us-central1
 SERVICE=helm-bq-proxy
 TOKEN="txyWHNyRNiUbcUrsxsxFjpKkk4BBpFCsyLGf+YD9DNo="
