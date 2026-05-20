@@ -1,14 +1,12 @@
--- Helm dp_orders view, v2 — reads from the EDM warehouse instead of raw Shopify.
--- Source: leafy-oxide-333007.prod_edm_mdl_main.{fact_orders, dim_orders}
--- Brand filter: earth_breeze (adjust the literal below if dim_brand uses a different key)
--- Channel: derived from dim_orders.platform_name
--- Currency: native currency_code passed through (no cross-project FX lookup)
--- Voided orders: excluded via is_cancelled
+-- Helm dp_orders view, v3 — reads from EDM warehouse.
+-- Source: leafy-oxide-333007.prod_edm_mdl_main.{fact_orders, fact_order_lines, dim_orders}
+-- Single-brand warehouse (only one brand_key hash present), so no brand filter needed.
+-- Currency: native currency_code passed through; downstream can convert if needed.
+-- Voided orders excluded via is_cancelled.
 
 CREATE OR REPLACE VIEW `helm-490123.helm_prod.dp_orders_v1` AS
 
 WITH
-  -- First-order flag, computed per customer
   first_orders AS (
     SELECT
       customer_key,
@@ -16,10 +14,8 @@ WITH
     FROM `leafy-oxide-333007.prod_edm_mdl_main.fact_orders`
     WHERE NOT IFNULL(is_cancelled, FALSE)
       AND customer_key IS NOT NULL
-      AND LOWER(brand_key) LIKE '%earth%breeze%'
     GROUP BY 1
   ),
-  -- Per-order line counts (units sold + distinct SKUs)
   line_aggs AS (
     SELECT
       order_key,
@@ -28,7 +24,6 @@ WITH
       ANY_VALUE(ship_country)              AS ship_country,
       ANY_VALUE(ship_state)                AS ship_state
     FROM `leafy-oxide-333007.prod_edm_mdl_main.fact_order_lines`
-    WHERE LOWER(brand_key) LIKE '%earth%breeze%'
     GROUP BY 1
   )
 
@@ -43,7 +38,7 @@ SELECT
   la.ship_country                                                    AS country,
   la.ship_state                                                      AS shipping_state,
   CAST(NULL AS STRING)                                               AS shipping_city,
-  CAST(NULL AS STRING)                                               AS warehouse_location,  -- not in EDM; wire fulfillments later
+  CAST(NULL AS STRING)                                               AS warehouse_location,
   CASE WHEN fo.is_cancelled THEN 'cancelled' ELSE 'fulfilled' END    AS fulfillment_status,
   d.financial_status                                                 AS financial_status,
   (fop.first_order_key = fo.order_key)                               AS is_first_order,
@@ -56,14 +51,15 @@ SELECT
   CAST(fo.total_price AS NUMERIC)                                    AS total_price,
   la.total_units                                                     AS total_units,
   la.distinct_skus                                                   AS distinct_skus,
-  CAST(NULL AS STRING)                                               AS discount_codes,  -- JSON; not in fact tables
-  d.tags                                                             AS tags,            -- comma-separated string from dim_orders
-  CAST(NULL AS STRING)                                               AS line_items       -- JSON; would require nested query
+  CAST(NULL AS STRING)                                               AS discount_codes,
+  d.tags                                                             AS tags,
+  CAST(NULL AS STRING)                                               AS line_items
 FROM `leafy-oxide-333007.prod_edm_mdl_main.fact_orders` fo
 LEFT JOIN `leafy-oxide-333007.prod_edm_mdl_main.dim_orders` d
   ON d.order_key = fo.order_key
-LEFT JOIN first_orders fop USING (customer_key)
-LEFT JOIN line_aggs la USING (order_key)
+LEFT JOIN first_orders fop
+  ON fop.customer_key = fo.customer_key
+LEFT JOIN line_aggs la
+  ON la.order_key = fo.order_key
 WHERE NOT IFNULL(fo.is_cancelled, FALSE)
-  AND LOWER(fo.brand_key) LIKE '%earth%breeze%'
 ;
