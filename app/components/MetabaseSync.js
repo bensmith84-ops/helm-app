@@ -198,6 +198,51 @@ export default function MetabaseSync({ onClose }) {
                     for (const mapping of DASHBOARD_SYNC_MAP) {
                       setError(`Syncing ${mapping.icon} ${mapping.label}...`);
                       try {
+                        // Edge-function-driven sync for tables that are either too large (warehouse) or
+                        // carry heavy jsonb payloads (orders) to pull through the browser. The edge
+                        // function streams Metabase CSV row-by-row into Postgres, so memory stays bounded.
+                        if (mapping.table === "dp_daily_sales_by_warehouse" || mapping.table === "dp_orders") {
+                          // Both cards require date template tags. Window in 7-day chunks (warehouse) or
+                          // 2-day chunks (orders — jsonb-heavy rows make 7-day chunks risk OOM).
+                          const chunkDays = mapping.table === "dp_orders" ? 2 : 7;
+                          const end = new Date();
+                          const start = new Date();
+                          start.setDate(start.getDate() - (weeksToSync * 7));
+                          const windows = [];
+                          let cursor = new Date(start);
+                          while (cursor <= end) {
+                            const ws = new Date(cursor);
+                            const we = new Date(cursor);
+                            we.setDate(we.getDate() + chunkDays - 1);
+                            if (we > end) we.setTime(end.getTime());
+                            windows.push({ start: ws.toISOString().split("T")[0], end: we.toISOString().split("T")[0] });
+                            cursor.setDate(cursor.getDate() + chunkDays);
+                          }
+                          let totalSynced = 0;
+                          const errs = [];
+                          for (let ci = 0; ci < windows.length; ci++) {
+                            const w = windows[ci];
+                            setError(`${mapping.icon} ${mapping.label}: syncing ${w.start} → ${w.end} (${ci + 1}/${windows.length})...`);
+                            const cr = await mb("sync_question_to_table", {
+                              question_id: mapping.card_id,
+                              table_name: mapping.table,
+                              org_id: orgId,
+                              start_date: w.start,
+                              end_date: w.end,
+                              chunk_days: chunkDays,
+                              stream: true,
+                            });
+                            if (cr.error) {
+                              errs.push(`${w.start}: ${cr.error}`);
+                              console.error(`[Sync] ${mapping.table} chunk ${w.start} error:`, cr.error);
+                            } else {
+                              totalSynced += (cr.synced || 0);
+                            }
+                          }
+                          results.push({ ...mapping, rows: totalSynced, total: totalSynced, status: totalSynced > 0 ? "ok" : "error", errors: errs.length > 0 ? errs.slice(0, 3) : undefined });
+                          continue;
+                        }
+
                         // For daily sales: chunk client-side so each edge function response stays small.
                         // 12 weeks of daily data = ~150K rows = too big to return in one edge function response.
                         let r;
