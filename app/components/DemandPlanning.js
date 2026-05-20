@@ -588,9 +588,9 @@ function SupplyChainView({ isMobile, orgId }) {
           })}
           {rangeMode === "custom" && (
             <>
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.cardBg, color: T.text }} />
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text }} />
               <span style={{ fontSize: 10, color: T.text3 }}>→</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.cardBg, color: T.text }} />
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ fontSize: 10, padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text }} />
             </>
           )}
           <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>· {fmt(rangeSales.length)} records · {rangeMode === "days" ? `${rangeDays} ${rangeDays === 1 ? "day" : "days"}` : `${weeksInRange} ${weeksInRange === 1 ? "week" : "weeks"}`}</span>
@@ -1342,7 +1342,7 @@ function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose,
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.cardBg, borderRadius: 8, width: "100%", maxWidth: 1200, maxHeight: "90vh", display: "flex", flexDirection: "column", border: `1px solid ${T.border}` }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 8, width: "100%", maxWidth: 1200, maxHeight: "90vh", display: "flex", flexDirection: "column", border: `1px solid ${T.border}` }}>
         {/* Header */}
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ flex: 1 }}>
