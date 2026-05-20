@@ -2,7 +2,7 @@
 # Deploy helm-bq-proxy to Cloud Run. Idempotent.
 set -euo pipefail
 
-PROJECT=helm-490123
+PROJECT=helm-496923
 REGION=us-central1
 SERVICE=helm-bq-proxy
 DATASET=helm_prod
