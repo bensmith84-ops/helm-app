@@ -414,11 +414,15 @@ function SupplyChainView({ isMobile, orgId }) {
 
   // Aliased for backward compatibility with downstream code that expects "latestSales".
   // Apply the search filter here so EVERY downstream aggregate respects it.
-  const latestSales = searchedSkus === null ? rangeSales : rangeSales.filter(r => searchedSkus.has(r.sku));
-  const totalUnits = latestSales.reduce((s, r) => s + (r.units_sold || 0), 0);
+  // ALSO: decorate every row with `_units` = raw quantity × pack-size multiplier so all
+  // downstream aggregators count actual product units. A 3-pack sold once = 3 units, not 1.
+  // The multiplier comes from skuMap which already merges sku_master + sku_overrides.
+  const _decorateUnits = (r) => ({ ...r, _units: (r.units_sold || 0) * (skuMap[r.sku]?.units_per_sku || 1) });
+  const latestSales = (searchedSkus === null ? rangeSales : rangeSales.filter(r => searchedSkus.has(r.sku))).map(_decorateUnits);
+  const totalUnits = latestSales.reduce((s, r) => s + r._units, 0);
   const totalRevenue = latestSales.reduce((s, r) => s + Number(r.gross_revenue || 0), 0);
   const totalOrders = latestSales.reduce((s, r) => s + (r.orders_count || 0), 0);
-  const subUnits = latestSales.filter(r => r.is_subscription).reduce((s, r) => s + (r.units_sold || 0), 0);
+  const subUnits = latestSales.filter(r => r.is_subscription).reduce((s, r) => s + r._units, 0);
   const subPct = totalUnits > 0 ? subUnits / totalUnits : 0;
 
   // Group by base_product (from SKU master) to combine multi-packs
@@ -429,10 +433,10 @@ function SupplyChainView({ isMobile, orgId }) {
     const category = master?.product_category || "other";
     if (!byBaseProduct[baseKey]) byBaseProduct[baseKey] = { baseProduct: baseKey, category, skus: new Set(), units: 0, revenue: 0, orders: 0, subUnits: 0, variants: [] };
     byBaseProduct[baseKey].skus.add(r.sku);
-    byBaseProduct[baseKey].units += r.units_sold || 0;
+    byBaseProduct[baseKey].units += r._units;
     byBaseProduct[baseKey].revenue += Number(r.gross_revenue || 0);
     byBaseProduct[baseKey].orders += r.orders_count || 0;
-    if (r.is_subscription) byBaseProduct[baseKey].subUnits += r.units_sold || 0;
+    if (r.is_subscription) byBaseProduct[baseKey].subUnits += r._units;
   });
   const topBaseProducts = Object.values(byBaseProduct).sort((a, b) => b.units - a.units);
 
@@ -441,10 +445,10 @@ function SupplyChainView({ isMobile, orgId }) {
   latestSales.forEach(r => {
     const key = r.sku || r.product_title || "Unknown";
     if (!byProduct[key]) byProduct[key] = { sku: r.sku, name: r.product_title || r.sku, units: 0, revenue: 0, orders: 0, subUnits: 0 };
-    byProduct[key].units += r.units_sold || 0;
+    byProduct[key].units += r._units;
     byProduct[key].revenue += Number(r.gross_revenue || 0);
     byProduct[key].orders += r.orders_count || 0;
-    if (r.is_subscription) byProduct[key].subUnits += r.units_sold || 0;
+    if (r.is_subscription) byProduct[key].subUnits += r._units;
   });
   const topProducts = Object.values(byProduct).sort((a, b) => b.units - a.units);
 
@@ -453,7 +457,7 @@ function SupplyChainView({ isMobile, orgId }) {
   latestSales.forEach(r => {
     const ch = r.channel || "Unknown";
     if (!byChannel[ch]) byChannel[ch] = { channel: ch, units: 0, revenue: 0, orders: 0 };
-    byChannel[ch].units += r.units_sold || 0;
+    byChannel[ch].units += r._units;
     byChannel[ch].revenue += Number(r.gross_revenue || 0);
     byChannel[ch].orders += r.orders_count || 0;
   });
@@ -464,7 +468,7 @@ function SupplyChainView({ isMobile, orgId }) {
   latestSales.forEach(r => {
     const co = r.country || "Unknown";
     if (!byCountry[co]) byCountry[co] = { country: co, units: 0, revenue: 0 };
-    byCountry[co].units += r.units_sold || 0;
+    byCountry[co].units += r._units;
     byCountry[co].revenue += Number(r.gross_revenue || 0);
   });
   const countries = Object.values(byCountry).sort((a, b) => b.units - a.units);
@@ -846,10 +850,10 @@ function SupplyChainView({ isMobile, orgId }) {
               </div>
               {/* Top SKUs for this channel */}
               <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Top SKUs</div>
-              {latestSales.filter(r => r.channel === ch.channel).sort((a, b) => (b.units_sold || 0) - (a.units_sold || 0)).slice(0, 5).map((r, ri) => (
+              {latestSales.filter(r => r.channel === ch.channel).sort((a, b) => (b._units || 0) - (a._units || 0)).slice(0, 5).map((r, ri) => (
                 <div key={ri} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 10, color: T.text2 }}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.product_title || r.sku}</span>
-                  <span style={{ fontWeight: 700, color: T.text, marginLeft: 8 }}>{fmt(r.units_sold)}</span>
+                  <span style={{ fontWeight: 700, color: T.text, marginLeft: 8 }}>{fmt(r._units)}</span>
                 </div>
               ))}
             </div>
@@ -887,7 +891,7 @@ function SupplyChainView({ isMobile, orgId }) {
         inRange.forEach(r => {
           if (!grid[r.sku]) grid[r.sku] = {};
           if (!grid[r.sku][r.warehouse_location]) grid[r.sku][r.warehouse_location] = { units: 0, revenue: 0, orders: 0 };
-          grid[r.sku][r.warehouse_location].units += r.units_sold || 0;
+          grid[r.sku][r.warehouse_location].units += (r.units_sold || 0) * (skuMap[r.sku]?.units_per_sku || 1);
           grid[r.sku][r.warehouse_location].revenue += Number(r.gross_revenue || 0);
           grid[r.sku][r.warehouse_location].orders += r.orders_count || 0;
         });
@@ -902,7 +906,7 @@ function SupplyChainView({ isMobile, orgId }) {
         const whTotals = {};
         warehouses.forEach(wh => {
           whTotals[wh] = inRange.filter(r => r.warehouse_location === wh).reduce((acc, r) => ({
-            units: acc.units + (r.units_sold || 0),
+            units: acc.units + ((r.units_sold || 0) * (skuMap[r.sku]?.units_per_sku || 1)),
             revenue: acc.revenue + Number(r.gross_revenue || 0),
           }), { units: 0, revenue: 0 });
         });
@@ -1242,7 +1246,7 @@ function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose,
       if (r.product_title) map[r.sku].titles.add(r.product_title);
       if (r.variant_title) map[r.sku].variants.add(r.variant_title);
       if (r.base_product) map[r.sku].base_products.add(r.base_product);
-      map[r.sku].units += r.units_sold || 0;
+      map[r.sku].units += r._units != null ? r._units : ((r.units_sold || 0) * (skuMap[r.sku]?.units_per_sku || 1));
       map[r.sku].revenue += Number(r.net_revenue || 0);
     });
     return Object.values(map);
