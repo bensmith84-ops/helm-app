@@ -140,9 +140,48 @@ function SupplyChainView({ isMobile, orgId }) {
         return all;
       }
 
-      const [dailyData, invR, offR, skuR, ovR] = await Promise.all([
+      // dp_inventory stores DAILY snapshots — same (sku, warehouse) pair has
+              // one row per snapshot_date. The old .limit(3000) call without ordering
+              // returned an unpredictable subset, AND the consuming code summed every
+              // row, so totals were inflated ~37x and the By Location tab showed dozens
+              // of duplicates per SKU. Fix: paginate with .range() ordered by
+              // snapshot_date DESC, then dedupe to one row per (sku, warehouse_location)
+              // keeping the latest snapshot only.
+      async function fetchAllInventory() {
+        const pageSize = 1000;
+        const all = [];
+        for (let page = 0; page < 50; page++) { // hard cap 50K rows
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
+          const { data, error } = await supabase
+            .from("dp_inventory")
+            .select("*")
+            .eq("org_id", orgId)
+            .order("snapshot_date", { ascending: false, nullsFirst: false })
+            .order("imported_at", { ascending: false, nullsFirst: false })
+            .range(from, to);
+          if (error) { console.error("[DP] dp_inventory fetch error:", error.message); break; }
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < pageSize) break;
+        }
+        // Dedupe: keep first occurrence of each (sku, warehouse) pair. Since rows
+        // arrive newest-first, "first occurrence" = latest snapshot.
+        const seen = new Set();
+        const deduped = [];
+        for (const r of all) {
+          const key = (r.sku || "") + "\u241F" + (r.warehouse_location || "");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          deduped.push(r);
+        }
+        console.log(`[DP] dp_inventory: ${all.length} snapshot rows → ${deduped.length} unique (sku, warehouse) pairs`);
+        return deduped;
+      }
+
+      const [dailyData, invRows, offR, skuR, ovR] = await Promise.all([
         fetchAllDaily(),
-        supabase.from("dp_inventory").select("*").eq("org_id", orgId).limit(3000),
+        fetchAllInventory(),
         supabase.from("dp_offer_performance").select("*").eq("org_id", orgId).limit(100),
         supabase.from("dp_sku_master").select("*").eq("org_id", orgId).limit(1000),
         supabase.from("dp_sku_overrides").select("*").eq("org_id", orgId).limit(2000),
@@ -164,7 +203,7 @@ function SupplyChainView({ isMobile, orgId }) {
       }
       console.log(`[DP] Loaded ${salesData.length} daily sales rows, ${new Set(salesData.map(r => r.week_start)).size} distinct weeks`);
       setWeeklySales(salesData);
-      setInventory(invR.data || []);
+      setInventory(invRows || []);
       setOffers(offR.data || []);
       setSkuMaster(skuR.data || []);
       setSkuOverrides(ovR.data || []);
