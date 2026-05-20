@@ -7,8 +7,37 @@ import { useTheme } from "../lib/theme";
 const MB_URL = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/metabase-sync";
 
 async function mb(action, extra = {}) {
-  const res = await fetch(MB_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }) });
-  return await res.json();
+  // Retry on transient platform errors (500/502/503/504 or network failure).
+  // These are nearly always Supabase routing hiccups or cold worker boot failures
+  // and succeed on the next attempt. 3 tries with backoff at 2s/4s.
+  const MAX_RETRIES = 3;
+  let lastErr;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(MB_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }) });
+      const transient = res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
+      if (transient && attempt < MAX_RETRIES - 1) {
+        console.warn(`[Sync] mb(${action}) attempt ${attempt + 1} returned ${res.status} — retrying after backoff`);
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      try {
+        return await res.json();
+      } catch {
+        // Body was not JSON (probably an HTML error page from the platform).
+        return { error: `HTTP ${res.status}: edge function returned non-JSON response` };
+      }
+    } catch (e) {
+      // Network-level failure (CORS, DNS, connection refused, etc.)
+      lastErr = e;
+      if (attempt < MAX_RETRIES - 1) {
+        console.warn(`[Sync] mb(${action}) attempt ${attempt + 1} threw "${e.message}" — retrying after backoff`);
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+    }
+  }
+  return { error: lastErr ? `network: ${lastErr.message}` : "exhausted retries" };
 }
 
 // Dashboard 56 — Demand Planning — card-to-table mapping
