@@ -1,0 +1,21 @@
+# Files NOT to send to the Docker build context.
+# Keeps the build fast and avoids accidentally shipping secrets.
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.local
+.env.development
+.env.production
+.vercel
+.vscode
+.idea
+.DS_Store
+*.log
+npm-debug.log*
+README.md
+LICENSE
+gcp-migration
+.github
+coverage
