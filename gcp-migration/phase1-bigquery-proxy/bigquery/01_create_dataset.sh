@@ -2,7 +2,7 @@
 # One-time: create the helm_prod dataset.
 set -euo pipefail
 
-PROJECT=helm-490123
+PROJECT=helm-496923
 DATASET=helm_prod
 LOCATION=US
 
