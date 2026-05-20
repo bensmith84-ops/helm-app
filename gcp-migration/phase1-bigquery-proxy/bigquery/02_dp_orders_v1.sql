@@ -1,78 +1,69 @@
--- Mirror of Metabase card 588 "Orders (line-item detail)".
--- This view returns the same columns and shape as the Supabase table `dp_orders`,
--- so the Cloud Run proxy can hand them to Helm without any frontend changes
--- beyond endpoint URL.
---
--- Source: eb-testing-01.shopify_hydrogen.orders + .currency.currency_conversion
--- Earth Breeze conventions:
---   - is_subscription_order = tags contains "subscription recurring order"
---   - channel = literal "Hydrogen" for shopify (UNION amazon in a future iteration)
---   - all money fields USD-normalized via currency_conversion
---   - voided orders excluded
+-- Helm dp_orders view, v2 — reads from the EDM warehouse instead of raw Shopify.
+-- Source: leafy-oxide-333007.prod_edm_mdl_main.{fact_orders, dim_orders}
+-- Brand filter: earth_breeze (adjust the literal below if dim_brand uses a different key)
+-- Channel: derived from dim_orders.platform_name
+-- Currency: native currency_code passed through (no cross-project FX lookup)
+-- Voided orders: excluded via is_cancelled
 
 CREATE OR REPLACE VIEW `helm-490123.helm_prod.dp_orders_v1` AS
 
 WITH
+  -- First-order flag, computed per customer
   first_orders AS (
     SELECT
-      JSON_EXTRACT_SCALAR(o.customer, "$.id") AS customer_id,
-      MIN(o.id) AS first_order_id
-    FROM `eb-testing-01.shopify_hydrogen.orders` o
-    WHERE JSON_EXTRACT_SCALAR(o.customer, "$.id") IS NOT NULL
-      AND NOT (o.financial_status = "voided")
+      customer_key,
+      MIN(order_key) AS first_order_key
+    FROM `leafy-oxide-333007.prod_edm_mdl_main.fact_orders`
+    WHERE NOT IFNULL(is_cancelled, FALSE)
+      AND customer_key IS NOT NULL
+      AND LOWER(brand_key) LIKE '%earth%breeze%'
     GROUP BY 1
   ),
-  order_warehouses AS (
+  -- Per-order line counts (units sold + distinct SKUs)
+  line_aggs AS (
     SELECT
-      f.order_id,
-      ARRAY_AGG(
-        TRIM(CONCAT(
-          IFNULL(JSON_EXTRACT_SCALAR(f.origin_address, "$.address1"), "Unknown"),
-          " · ",
-          IFNULL(JSON_EXTRACT_SCALAR(f.origin_address, "$.city"), "")
-        ))
-        ORDER BY f.created_at ASC LIMIT 1
-      )[OFFSET(0)] AS warehouse_location
-    FROM `eb-testing-01.shopify_hydrogen.fulfillments` f
+      order_key,
+      SUM(IFNULL(quantity, item_quantity)) AS total_units,
+      COUNT(DISTINCT sku)                  AS distinct_skus,
+      ANY_VALUE(ship_country)              AS ship_country,
+      ANY_VALUE(ship_state)                AS ship_state
+    FROM `leafy-oxide-333007.prod_edm_mdl_main.fact_order_lines`
+    WHERE LOWER(brand_key) LIKE '%earth%breeze%'
     GROUP BY 1
   )
 
 SELECT
-  CAST(o.id AS STRING)                                              AS order_id,
-  o.name                                                            AS order_name,
-  DATE(o.created_at, "America/Los_Angeles")                         AS order_date,
-  o.created_at                                                      AS order_timestamp,
-  JSON_EXTRACT_SCALAR(o.customer, "$.email")                        AS customer_email,
-  JSON_EXTRACT_SCALAR(o.customer, "$.id")                           AS customer_id,
-  "Hydrogen"                                                        AS channel,
-  JSON_EXTRACT_SCALAR(o.shipping_address, "$.country_code")         AS country,
-  JSON_EXTRACT_SCALAR(o.shipping_address, "$.province_code")        AS shipping_state,
-  JSON_EXTRACT_SCALAR(o.shipping_address, "$.city")                 AS shipping_city,
-  ow.warehouse_location                                             AS warehouse_location,
-  o.fulfillment_status                                              AS fulfillment_status,
-  o.financial_status                                                AS financial_status,
-  (fo.first_order_id = o.id)                                        AS is_first_order,
-  (LOWER(o.tags) LIKE "%subscription recurring order%")             AS is_subscription_order,
-  CAST(NULL AS INT64)                                               AS subscription_cycle,
-  ROUND(SAFE_CAST(o.subtotal_price AS FLOAT64) * IFNULL(c.rate_to_usd, 1.0), 2)  AS subtotal,
-  ROUND(SAFE_CAST(o.total_discounts AS FLOAT64) * IFNULL(c.rate_to_usd, 1.0), 2) AS total_discounts,
-  ROUND(SAFE_CAST(JSON_EXTRACT_SCALAR(o.total_shipping_price_set, "$.shop_money.amount") AS FLOAT64) * IFNULL(c.rate_to_usd, 1.0), 2) AS total_shipping,
-  ROUND(SAFE_CAST(o.total_tax AS FLOAT64) * IFNULL(c.rate_to_usd, 1.0), 2)       AS total_tax,
-  ROUND(SAFE_CAST(o.total_price AS FLOAT64) * IFNULL(c.rate_to_usd, 1.0), 2)     AS total_price,
-  (SELECT SUM(CAST(JSON_EXTRACT_SCALAR(li, "$.quantity") AS INT64))
-   FROM UNNEST(JSON_EXTRACT_ARRAY(o.line_items)) li)                AS total_units,
-  (SELECT COUNT(DISTINCT JSON_EXTRACT_SCALAR(li, "$.sku"))
-   FROM UNNEST(JSON_EXTRACT_ARRAY(o.line_items)) li)                AS distinct_skus,
-  o.discount_codes                                                  AS discount_codes,
-  o.tags                                                            AS tags,
-  o.line_items                                                      AS line_items
-FROM `eb-testing-01.shopify_hydrogen.orders` o
-LEFT JOIN first_orders fo
-  ON JSON_EXTRACT_SCALAR(o.customer, "$.id") = fo.customer_id
-LEFT JOIN order_warehouses ow
-  ON CAST(o.id AS STRING) = CAST(ow.order_id AS STRING)
-LEFT JOIN `eb-testing-01.currency.currency_conversion` c
-  ON c.currency = o.currency
-  AND c.date = DATE(o.created_at, "America/Los_Angeles")
-WHERE NOT (o.financial_status = "voided")
+  fo.order_key                                                       AS order_id,
+  fo.order_id                                                        AS order_name,
+  fo.date                                                            AS order_date,
+  TIMESTAMP(fo.date)                                                 AS order_timestamp,
+  CAST(NULL AS STRING)                                               AS customer_email,
+  fo.customer_key                                                    AS customer_id,
+  COALESCE(d.platform_name, 'Shopify')                               AS channel,
+  la.ship_country                                                    AS country,
+  la.ship_state                                                      AS shipping_state,
+  CAST(NULL AS STRING)                                               AS shipping_city,
+  CAST(NULL AS STRING)                                               AS warehouse_location,  -- not in EDM; wire fulfillments later
+  CASE WHEN fo.is_cancelled THEN 'cancelled' ELSE 'fulfilled' END    AS fulfillment_status,
+  d.financial_status                                                 AS financial_status,
+  (fop.first_order_key = fo.order_key)                               AS is_first_order,
+  (LOWER(IFNULL(d.tags, '')) LIKE '%subscription%recurring%order%')  AS is_subscription_order,
+  CAST(NULL AS INT64)                                                AS subscription_cycle,
+  CAST(fo.subtotal_price AS NUMERIC)                                 AS subtotal,
+  CAST(fo.order_discount + fo.shipping_discount AS NUMERIC)          AS total_discounts,
+  CAST(fo.shipping_price AS NUMERIC)                                 AS total_shipping,
+  CAST(fo.total_tax AS NUMERIC)                                      AS total_tax,
+  CAST(fo.total_price AS NUMERIC)                                    AS total_price,
+  la.total_units                                                     AS total_units,
+  la.distinct_skus                                                   AS distinct_skus,
+  CAST(NULL AS STRING)                                               AS discount_codes,  -- JSON; not in fact tables
+  d.tags                                                             AS tags,            -- comma-separated string from dim_orders
+  CAST(NULL AS STRING)                                               AS line_items       -- JSON; would require nested query
+FROM `leafy-oxide-333007.prod_edm_mdl_main.fact_orders` fo
+LEFT JOIN `leafy-oxide-333007.prod_edm_mdl_main.dim_orders` d
+  ON d.order_key = fo.order_key
+LEFT JOIN first_orders fop USING (customer_key)
+LEFT JOIN line_aggs la USING (order_key)
+WHERE NOT IFNULL(fo.is_cancelled, FALSE)
+  AND LOWER(fo.brand_key) LIKE '%earth%breeze%'
 ;
