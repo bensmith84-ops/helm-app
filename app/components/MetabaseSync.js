@@ -18,6 +18,11 @@ const DASHBOARD_SYNC_MAP = [
   { card_id: 528, table: "dp_inventory", label: "Inventory", icon: "🏭" },
   { card_id: 529, table: "dp_offer_performance", label: "Offer Performance", icon: "🎯" },
   { card_id: 530, table: "dp_subscription_cohorts", label: "Subscription Cohorts", icon: "🔄" },
+  // The next two cards do not yet exist in Metabase — set card_id to null so the
+  // UI prompts the user to browse-and-pick a card whose shape matches. When a
+  // suitable card is authored, replace null with its ID for one-click sync.
+  { card_id: null, table: "dp_daily_sales_by_warehouse", label: "Daily Sales × Warehouse", icon: "📍" },
+  { card_id: null, table: "dp_orders", label: "Orders (line-item detail)", icon: "🧾" },
 ];
 
 const TARGET_TABLES = [
@@ -26,6 +31,8 @@ const TARGET_TABLES = [
   { key: "dp_sku_master", label: "SKU Master", icon: "📦", desc: "Product catalog with pricing + COGS", fields: "sku, product_title, variant_title, base_product, product_category, units_per_sku, is_gwp/sub/otp, current_price, cogs_per_unit, status" },
   { key: "dp_inventory", label: "Inventory", icon: "🏭", desc: "Current stock levels + incoming", fields: "sku, warehouse_location, qty_on_hand/reserved/incoming, expected_arrival_date, reorder_point, lead_time_days, snapshot_date" },
   { key: "dp_offer_performance", label: "Offer Performance", icon: "🎯", desc: "Offer/promotion take rates", fields: "month, offer_name, times_shown, times_accepted, take_rate, revenue_impact" },
+  { key: "dp_daily_sales_by_warehouse", label: "Daily Sales × Warehouse", icon: "📍", desc: "Daily SKU sales attributed to fulfillment warehouse", fields: "sale_date, sku, warehouse_location, product_title, variant_title, base_product, units_sold, gross_revenue, net_revenue, orders_count, channel, country, is_subscription, units_per_sku" },
+  { key: "dp_orders", label: "Orders (line-item detail)", icon: "🧾", desc: "Individual orders with full line-item, discount, and tag detail", fields: "order_id, order_name, order_date, customer_email, customer_id, channel, country, shipping_state, shipping_city, warehouse_location, fulfillment_status, financial_status, is_first_order, is_subscription_order, subscription_cycle, subtotal, total_discounts, total_shipping, total_tax, total_price, total_units, distinct_skus, discount_codes(jsonb), tags(jsonb), line_items(jsonb)" },
 ];
 
 export default function MetabaseSync({ onClose }) {
@@ -257,6 +264,8 @@ export default function MetabaseSync({ onClose }) {
                           dp_inventory: ["org_id","sku","warehouse_location","quantity_on_hand","quantity_reserved","quantity_incoming","expected_arrival_date","reorder_point","lead_time_days","snapshot_date","imported_at"],
                           dp_offer_performance: ["org_id","month","offer_name","times_shown","times_accepted","take_rate","revenue_impact","imported_at"],
                           dp_subscription_cohorts: ["org_id","cohort_month","months_since_signup","active_subscribers","churned","paused","revenue","pack_size_1","pack_size_2","pack_size_3","pack_size_4","frequency_monthly","frequency_bimonthly","frequency_quarterly","imported_at"],
+                          dp_daily_sales_by_warehouse: ["org_id","sale_date","sku","warehouse_location","product_title","variant_title","base_product","units_sold","gross_revenue","net_revenue","orders_count","channel","country","is_subscription","units_per_sku","imported_at"],
+                          dp_orders: ["org_id","order_id","order_name","order_date","order_timestamp","customer_email","customer_id","channel","country","shipping_state","shipping_city","warehouse_location","fulfillment_status","financial_status","is_first_order","is_subscription_order","subscription_cycle","subtotal","total_discounts","total_shipping","total_tax","total_price","total_units","distinct_skus","discount_codes","tags","line_items","imported_at"],
                         };
                         const allowedCols = TABLE_COLUMNS[mapping.table] ? new Set(TABLE_COLUMNS[mapping.table]) : null;
 
@@ -316,6 +325,8 @@ export default function MetabaseSync({ onClose }) {
                           dp_inventory: ["org_id","sku","warehouse_location","snapshot_date"],
                           dp_offer_performance: ["org_id","month","offer_name"],
                           dp_subscription_cohorts: ["org_id","cohort_month","months_since_signup"],
+                          dp_daily_sales_by_warehouse: ["org_id","sale_date","sku","warehouse_location","channel","country","is_subscription"],
+                          dp_orders: ["org_id","order_id"],
                         };
                         const natKey = NATURAL_KEYS[mapping.table];
                         if (natKey) {
