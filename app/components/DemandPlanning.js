@@ -217,9 +217,34 @@ function SupplyChainView({ isMobile, orgId }) {
       setSkuMaster(skuR.data || []);
       setSkuOverrides(ovR.data || []);
 
-      // Load Option B (warehouse-level daily sales). Paginated like daily sales.
-      // If the table is empty (no Metabase card configured yet) this is a no-op.
+      // GCP migration Phase 1: prefer the BigQuery proxy at NEXT_PUBLIC_BQ_PROXY_URL
+      // for the two heaviest tables. When the env vars aren't set (e.g. local dev,
+      // or pre-cutover), falls back to Supabase. The proxy returns rows in the same
+      // shape as the Supabase tables (BigQuery views mirror the schema), so nothing
+      // downstream needs to change.
+      const BQ_PROXY_URL = process.env.NEXT_PUBLIC_BQ_PROXY_URL || "";
+      const BQ_PROXY_TOKEN = process.env.NEXT_PUBLIC_BQ_PROXY_TOKEN || "";
+      const useProxy = !!(BQ_PROXY_URL && BQ_PROXY_TOKEN);
+
       async function fetchAllWarehouseSales() {
+        if (useProxy) {
+          // BigQuery view — fetch last 90 days, same default as Supabase path
+          const end = new Date(); const start = new Date(); start.setUTCDate(start.getUTCDate() - 90);
+          const url = `${BQ_PROXY_URL}/dp/warehouse-sales?start_date=${start.toISOString().split("T")[0]}&end_date=${end.toISOString().split("T")[0]}&limit=200000`;
+          try {
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${BQ_PROXY_TOKEN}` } });
+            if (!res.ok) {
+              console.error("[DP] bq-proxy warehouse-sales failed:", res.status, await res.text().catch(() => ""));
+              return [];
+            }
+            const { rows } = await res.json();
+            return rows || [];
+          } catch (err) {
+            console.error("[DP] bq-proxy warehouse-sales threw:", err.message);
+            return [];
+          }
+        }
+        // Legacy Supabase path — kept as fallback during cutover
         const pageSize = 1000; const all = [];
         for (let page = 0; page < 50; page++) {
           const from = page * pageSize, to = from + pageSize - 1;
@@ -236,10 +261,25 @@ function SupplyChainView({ isMobile, orgId }) {
         }
         return all;
       }
-      // Load Option C (orders). Limit to last 90 days at first load — UI lets
-      // user expand via date range. Orders can be huge; if more depth is needed
-      // we fall back to paginated fetch.
+
       async function fetchRecentOrders() {
+        if (useProxy) {
+          const end = new Date(); const start = new Date(); start.setUTCDate(start.getUTCDate() - 90);
+          const url = `${BQ_PROXY_URL}/dp/orders?start_date=${start.toISOString().split("T")[0]}&end_date=${end.toISOString().split("T")[0]}&limit=200000`;
+          try {
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${BQ_PROXY_TOKEN}` } });
+            if (!res.ok) {
+              console.error("[DP] bq-proxy orders failed:", res.status, await res.text().catch(() => ""));
+              return [];
+            }
+            const { rows } = await res.json();
+            return rows || [];
+          } catch (err) {
+            console.error("[DP] bq-proxy orders threw:", err.message);
+            return [];
+          }
+        }
+        // Legacy Supabase path
         const cutoff = new Date(); cutoff.setUTCDate(cutoff.getUTCDate() - 90);
         const cutoffStr = cutoff.toISOString().split("T")[0];
         const pageSize = 1000; const all = [];
