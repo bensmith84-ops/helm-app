@@ -4,7 +4,7 @@
 -- Currency: native currency_code passed through; downstream can convert if needed.
 -- Voided orders excluded via is_cancelled.
 
-CREATE OR REPLACE VIEW `helm-490123.helm_prod.dp_orders_v1` AS
+CREATE OR REPLACE VIEW `helm-496923.helm_prod.dp_orders_v1` AS
 
 WITH
   first_orders AS (
