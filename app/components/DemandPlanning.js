@@ -84,6 +84,15 @@ function SupplyChainView({ isMobile, orgId }) {
   const [offers, setOffers] = useState([]);
   const [skuMaster, setSkuMaster] = useState([]);
   const [skuOverrides, setSkuOverrides] = useState([]);
+  // Option B: daily sales attributed to fulfillment warehouse. Empty until
+  // a matching Metabase card has been authored + synced — UI renders an
+  // empty-state pointing to MetabaseSync when length === 0.
+  const [warehouseSales, setWarehouseSales] = useState([]);
+  // Option C: order-level detail with line items as jsonb. Same empty-state
+  // behavior. Used by the Orders tab + selected order detail modal.
+  const [orders, setOrders] = useState([]);
+  const [orderDetail, setOrderDetail] = useState(null); // currently-open order in modal, or null
+  const [orderSearch, setOrderSearch] = useState(""); // local search within Orders tab (matches order_name, email, SKU in line_items)
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState("overview");
   // Product search filter shared across the By Product / Inventory / By Location
@@ -207,6 +216,55 @@ function SupplyChainView({ isMobile, orgId }) {
       setOffers(offR.data || []);
       setSkuMaster(skuR.data || []);
       setSkuOverrides(ovR.data || []);
+
+      // Load Option B (warehouse-level daily sales). Paginated like daily sales.
+      // If the table is empty (no Metabase card configured yet) this is a no-op.
+      async function fetchAllWarehouseSales() {
+        const pageSize = 1000; const all = [];
+        for (let page = 0; page < 50; page++) {
+          const from = page * pageSize, to = from + pageSize - 1;
+          const { data, error } = await supabase
+            .from("dp_daily_sales_by_warehouse")
+            .select("*")
+            .eq("org_id", orgId)
+            .order("sale_date", { ascending: false })
+            .range(from, to);
+          if (error) { console.error("[DP] dp_daily_sales_by_warehouse:", error.message); break; }
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < pageSize) break;
+        }
+        return all;
+      }
+      // Load Option C (orders). Limit to last 90 days at first load — UI lets
+      // user expand via date range. Orders can be huge; if more depth is needed
+      // we fall back to paginated fetch.
+      async function fetchRecentOrders() {
+        const cutoff = new Date(); cutoff.setUTCDate(cutoff.getUTCDate() - 90);
+        const cutoffStr = cutoff.toISOString().split("T")[0];
+        const pageSize = 1000; const all = [];
+        for (let page = 0; page < 20; page++) {
+          const from = page * pageSize, to = from + pageSize - 1;
+          const { data, error } = await supabase
+            .from("dp_orders")
+            .select("*")
+            .eq("org_id", orgId)
+            .gte("order_date", cutoffStr)
+            .order("order_date", { ascending: false })
+            .order("order_timestamp", { ascending: false, nullsFirst: false })
+            .range(from, to);
+          if (error) { console.error("[DP] dp_orders:", error.message); break; }
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < pageSize) break;
+        }
+        return all;
+      }
+      const [whSales, ordRows] = await Promise.all([fetchAllWarehouseSales(), fetchRecentOrders()]);
+      console.log(`[DP] Loaded ${whSales.length} warehouse-sales rows, ${ordRows.length} order rows`);
+      setWarehouseSales(whSales);
+      setOrders(ordRows);
+
       setLoading(false);
     })();
   }, [orgId]);
@@ -456,6 +514,10 @@ function SupplyChainView({ isMobile, orgId }) {
     { id: "inventory", label: "Inventory", icon: "🏭" },
     { id: "warehouses", label: "By Location", icon: "📍" },
     { id: "channels", label: "By Channel", icon: "📡" },
+    // Option B: sales attributed to fulfillment warehouse (per day, per SKU)
+    { id: "warehouse_sales", label: "Sales × Warehouse", icon: "🏪" },
+    // Option C: individual orders with line items, discount codes, tags
+    { id: "orders", label: "Orders", icon: "🧾" },
   ];
 
   return (
@@ -786,6 +848,321 @@ function SupplyChainView({ isMobile, orgId }) {
               ))}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ─── WAREHOUSE SALES TAB (Option B) ─────────────────────────────── */}
+      {subTab === "warehouse_sales" && (() => {
+        // Apply the same date + search filters used elsewhere. If the table is
+        // empty (no Metabase card synced yet), show an empty state pointing the
+        // user at Settings → Metabase Sync.
+        if (warehouseSales.length === 0) {
+          return (
+            <div style={{ background: T.surface, border: `1px dashed ${T.border}`, borderRadius: 12, padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>🏪</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>No warehouse-level sales yet</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 8, maxWidth: 480, margin: "8px auto 0", lineHeight: 1.6 }}>
+                The <code>dp_daily_sales_by_warehouse</code> table is wired up but empty. Author a Metabase card whose columns match <code>sale_date, sku, warehouse_location, units_sold, gross_revenue, orders_count, channel</code>, then point it at this table via Settings → Metabase Sync.
+              </div>
+            </div>
+          );
+        }
+        // Filter to date range + searched SKUs (uses the same rangeFrom/rangeTo derived above)
+        const inRange = warehouseSales.filter(r => {
+          if (!rangeFrom || !rangeTo || !r.sale_date) return false;
+          if (r.sale_date < rangeFrom || r.sale_date > rangeTo) return false;
+          if (searchedSkus !== null && !searchedSkus.has(r.sku)) return false;
+          return true;
+        });
+        // Build SKU × warehouse pivot. Rows = SKU, Columns = warehouse, Values = units / revenue.
+        const skus = [...new Set(inRange.map(r => r.sku))];
+        const warehouses = [...new Set(inRange.map(r => r.warehouse_location))].sort();
+        const grid = {}; // grid[sku][warehouse] = { units, revenue, orders }
+        inRange.forEach(r => {
+          if (!grid[r.sku]) grid[r.sku] = {};
+          if (!grid[r.sku][r.warehouse_location]) grid[r.sku][r.warehouse_location] = { units: 0, revenue: 0, orders: 0 };
+          grid[r.sku][r.warehouse_location].units += r.units_sold || 0;
+          grid[r.sku][r.warehouse_location].revenue += Number(r.gross_revenue || 0);
+          grid[r.sku][r.warehouse_location].orders += r.orders_count || 0;
+        });
+        // Rank SKUs by total units in range
+        const skuTotals = skus.map(sku => ({
+          sku,
+          name: skuMap[sku]?.product_title || sku,
+          totalUnits: warehouses.reduce((s, wh) => s + (grid[sku]?.[wh]?.units || 0), 0),
+          totalRevenue: warehouses.reduce((s, wh) => s + (grid[sku]?.[wh]?.revenue || 0), 0),
+        })).sort((a, b) => b.totalUnits - a.totalUnits);
+        // Warehouse totals for column footers
+        const whTotals = {};
+        warehouses.forEach(wh => {
+          whTotals[wh] = inRange.filter(r => r.warehouse_location === wh).reduce((acc, r) => ({
+            units: acc.units + (r.units_sold || 0),
+            revenue: acc.revenue + Number(r.gross_revenue || 0),
+          }), { units: 0, revenue: 0 });
+        });
+        return (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Sales × Warehouse — {rangeLabel}</div>
+              <span style={{ fontSize: 10, color: T.text3 }}>{skuTotals.length} SKUs × {warehouses.length} warehouses</span>
+            </div>
+            <div style={{ overflowX: "auto", maxHeight: 600 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, position: "sticky", top: 0, left: 0, background: T.surface, zIndex: 2, fontWeight: 700, color: T.text3 }}>SKU / Product</th>
+                    {warehouses.map(wh => (
+                      <th key={wh} colSpan={2} style={{ textAlign: "center", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, borderLeft: `1px solid ${T.border}`, position: "sticky", top: 0, background: T.surface, zIndex: 1, fontWeight: 700, color: T.text3 }}>📍 {wh}</th>
+                    ))}
+                    <th colSpan={2} style={{ textAlign: "center", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, borderLeft: `2px solid ${T.border}`, position: "sticky", top: 0, background: T.surface, zIndex: 1, fontWeight: 700, color: T.accent }}>TOTAL</th>
+                  </tr>
+                  <tr>
+                    <th style={{ padding: "4px 10px", fontSize: 9, color: T.text3, position: "sticky", top: 28, left: 0, background: T.surface, zIndex: 2 }}></th>
+                    {warehouses.flatMap(wh => [
+                      <th key={`${wh}-u`} style={{ padding: "4px 6px", fontSize: 9, color: T.text3, textAlign: "right", borderLeft: `1px solid ${T.border}`, position: "sticky", top: 28, background: T.surface }}>Units</th>,
+                      <th key={`${wh}-r`} style={{ padding: "4px 6px", fontSize: 9, color: T.text3, textAlign: "right", position: "sticky", top: 28, background: T.surface }}>Rev</th>,
+                    ])}
+                    <th style={{ padding: "4px 6px", fontSize: 9, color: T.accent, textAlign: "right", borderLeft: `2px solid ${T.border}`, position: "sticky", top: 28, background: T.surface }}>Units</th>
+                    <th style={{ padding: "4px 6px", fontSize: 9, color: T.accent, textAlign: "right", position: "sticky", top: 28, background: T.surface }}>Rev</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {skuTotals.slice(0, 200).map((s, i) => (
+                    <tr key={s.sku} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "30" }}>
+                      <td style={{ padding: "5px 10px", position: "sticky", left: 0, background: i % 2 === 0 ? T.surface : T.surface2 + "30", borderRight: `1px solid ${T.border}` }}>
+                        <div style={{ fontFamily: "monospace", fontSize: 9, color: T.text }}>{s.sku}</div>
+                        <div style={{ fontSize: 9, color: T.text3, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
+                      </td>
+                      {warehouses.flatMap(wh => {
+                        const cell = grid[s.sku]?.[wh];
+                        return [
+                          <td key={`${wh}-u`} style={{ padding: "5px 6px", textAlign: "right", color: cell?.units > 0 ? T.text : T.text3, borderLeft: `1px solid ${T.border}` }}>{cell?.units > 0 ? fmt(cell.units) : "—"}</td>,
+                          <td key={`${wh}-r`} style={{ padding: "5px 6px", textAlign: "right", color: cell?.revenue > 0 ? "#22c55e" : T.text3, fontSize: 9 }}>{cell?.revenue > 0 ? fmtD(cell.revenue) : "—"}</td>,
+                        ];
+                      })}
+                      <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 700, color: T.text, borderLeft: `2px solid ${T.border}` }}>{fmt(s.totalUnits)}</td>
+                      <td style={{ padding: "5px 6px", textAlign: "right", color: "#22c55e", fontSize: 9 }}>{fmtD(s.totalRevenue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${T.border}`, background: T.surface2 + "60" }}>
+                    <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, position: "sticky", left: 0, background: T.surface2 }}>TOTAL</td>
+                    {warehouses.flatMap(wh => [
+                      <td key={`${wh}-u`} style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: T.text, borderLeft: `1px solid ${T.border}` }}>{fmt(whTotals[wh].units)}</td>,
+                      <td key={`${wh}-r`} style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: "#22c55e", fontSize: 9 }}>{fmtD(whTotals[wh].revenue)}</td>,
+                    ])}
+                    <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: T.accent, borderLeft: `2px solid ${T.border}` }}>{fmt(skuTotals.reduce((s, x) => s + x.totalUnits, 0))}</td>
+                    <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: "#22c55e", fontSize: 9 }}>{fmtD(skuTotals.reduce((s, x) => s + x.totalRevenue, 0))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            {skuTotals.length > 200 && (
+              <div style={{ padding: "8px 18px", fontSize: 10, color: T.text3, textAlign: "center", borderTop: `1px solid ${T.border}` }}>
+                Showing top 200 SKUs by units. Refine the search to narrow further.
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ─── ORDERS TAB (Option C) ──────────────────────────────────────── */}
+      {subTab === "orders" && (() => {
+        if (orders.length === 0) {
+          return (
+            <div style={{ background: T.surface, border: `1px dashed ${T.border}`, borderRadius: 12, padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>🧾</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>No order-level data yet</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 8, maxWidth: 480, margin: "8px auto 0", lineHeight: 1.6 }}>
+                The <code>dp_orders</code> table is wired up but empty. Author a Metabase card whose columns match <code>order_id, order_name, order_date, customer_email, total_price, line_items(jsonb), discount_codes(jsonb), tags(jsonb)</code>, then point it at this table via Settings → Metabase Sync.
+              </div>
+            </div>
+          );
+        }
+        // Date filter + product search (matches SKU in line_items[].sku) + free-text order search
+        const oq = (orderSearch || "").trim().toLowerCase();
+        const filteredOrders = orders.filter(o => {
+          if (rangeFrom && rangeTo && o.order_date && (o.order_date < rangeFrom || o.order_date > rangeTo)) return false;
+          // SKU whitelist from productSearch — at least one line item must match
+          if (searchedSkus !== null) {
+            const items = Array.isArray(o.line_items) ? o.line_items : [];
+            if (!items.some(li => li && searchedSkus.has(li.sku))) return false;
+          }
+          // Local order-tab text search across order_name / email / SKU / discount codes
+          if (oq) {
+            const hay = [
+              o.order_name, o.customer_email, o.channel, o.country,
+              ...(Array.isArray(o.discount_codes) ? o.discount_codes : []),
+              ...(Array.isArray(o.line_items) ? o.line_items.flatMap(li => [li?.sku, li?.product_title]) : []),
+            ].filter(Boolean).join(" ").toLowerCase();
+            if (!hay.includes(oq)) return false;
+          }
+          return true;
+        });
+        const totalRev = filteredOrders.reduce((s, o) => s + Number(o.total_price || 0), 0);
+        const totalUnitsOrders = filteredOrders.reduce((s, o) => s + (o.total_units || 0), 0);
+        const aov = filteredOrders.length > 0 ? totalRev / filteredOrders.length : 0;
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* Summary tiles */}
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 8 }}>
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3 }}>Orders</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{fmt(filteredOrders.length)}</div>
+              </div>
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3 }}>Revenue</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#22c55e" }}>{fmtD(totalRev)}</div>
+              </div>
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3 }}>Units</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{fmt(totalUnitsOrders)}</div>
+              </div>
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3 }}>AOV</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: T.accent }}>{fmtD(aov)}</div>
+              </div>
+            </div>
+            {/* Local search input — separate from productSearch so users can filter by
+                order# / email / discount code without affecting the rest of the view */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="text"
+                value={orderSearch}
+                onChange={e => setOrderSearch(e.target.value)}
+                placeholder="🔎 Filter by order#, email, discount code, SKU…"
+                style={{ flex: 1, padding: "6px 10px", fontSize: 11, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, outline: "none" }}
+              />
+              {orderSearch && (
+                <button onClick={() => setOrderSearch("")} style={{ padding: "5px 10px", fontSize: 10, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text3, cursor: "pointer" }}>Clear</button>
+              )}
+            </div>
+            {/* Order list */}
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.text3 }}>
+                Showing {Math.min(filteredOrders.length, 500)} of {filteredOrders.length} orders
+              </div>
+              <div style={{ maxHeight: 600, overflowY: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead><tr>
+                    {["Order", "Date", "Customer", "Channel", "Items", "Discounts", "Total", "Status"].map(h => (
+                      <th key={h} style={{ textAlign: "left", padding: "8px 10px", borderBottom: `2px solid ${T.border}`, color: T.text3, fontWeight: 700, position: "sticky", top: 0, background: T.surface, whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {filteredOrders.slice(0, 500).map((o, i) => {
+                      const lineCount = Array.isArray(o.line_items) ? o.line_items.length : 0;
+                      const discounts = Array.isArray(o.discount_codes) ? o.discount_codes : [];
+                      return (
+                        <tr key={o.id || o.order_id} onClick={() => setOrderDetail(o)} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "30", cursor: "pointer" }} onMouseEnter={e => { e.currentTarget.style.background = T.accentDim; }} onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 0 ? "transparent" : T.surface2 + "30"; }}>
+                          <td style={{ padding: "6px 10px", fontFamily: "monospace", fontSize: 10, color: T.accent, fontWeight: 600 }}>{o.order_name || o.order_id}</td>
+                          <td style={{ padding: "6px 10px", color: T.text2, whiteSpace: "nowrap" }}>{o.order_date}</td>
+                          <td style={{ padding: "6px 10px", color: T.text, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.customer_email || "—"}</td>
+                          <td style={{ padding: "6px 10px", color: T.text2 }}>{o.channel || "—"}</td>
+                          <td style={{ padding: "6px 10px", color: T.text2 }}>{lineCount} × {o.total_units || 0}u</td>
+                          <td style={{ padding: "6px 10px", color: discounts.length > 0 ? "#f97316" : T.text3, fontSize: 10 }}>{discounts.length > 0 ? discounts.slice(0, 2).join(", ") + (discounts.length > 2 ? ` +${discounts.length-2}` : "") : "—"}</td>
+                          <td style={{ padding: "6px 10px", color: "#22c55e", fontWeight: 700, whiteSpace: "nowrap" }}>{fmtD(Number(o.total_price || 0))}</td>
+                          <td style={{ padding: "6px 10px", fontSize: 9 }}><span style={{ padding: "2px 6px", borderRadius: 3, background: o.fulfillment_status === "fulfilled" ? "#22c55e15" : "#94a3b815", color: o.fulfillment_status === "fulfilled" ? "#22c55e" : T.text3, fontWeight: 600 }}>{o.fulfillment_status || "—"}</span></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {filteredOrders.length > 500 && (
+                <div style={{ padding: "8px 18px", fontSize: 10, color: T.text3, textAlign: "center", borderTop: `1px solid ${T.border}` }}>
+                  Showing first 500 orders. Use the search or date range to narrow further.
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─── ORDER DETAIL MODAL ─────────────────────────────────────────── */}
+      {orderDetail && (
+        <div onClick={() => setOrderDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "90vw", maxWidth: 720, maxHeight: "85vh", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>🧾 {orderDetail.order_name || orderDetail.order_id}</div>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{orderDetail.order_date} · {orderDetail.customer_email || "no email"} · {orderDetail.channel || "—"}</div>
+              </div>
+              <button onClick={() => setOrderDetail(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 22, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: 20, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Order totals */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                <div style={{ padding: 10, background: T.surface2, borderRadius: 8 }}>
+                  <div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>Subtotal</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{fmtD(Number(orderDetail.subtotal || 0))}</div>
+                </div>
+                <div style={{ padding: 10, background: T.surface2, borderRadius: 8 }}>
+                  <div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>Discounts</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#f97316" }}>-{fmtD(Number(orderDetail.total_discounts || 0))}</div>
+                </div>
+                <div style={{ padding: 10, background: T.surface2, borderRadius: 8 }}>
+                  <div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>Shipping + Tax</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text2 }}>{fmtD(Number(orderDetail.total_shipping || 0) + Number(orderDetail.total_tax || 0))}</div>
+                </div>
+                <div style={{ padding: 10, background: T.accentDim, borderRadius: 8 }}>
+                  <div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>TOTAL</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#22c55e" }}>{fmtD(Number(orderDetail.total_price || 0))}</div>
+                </div>
+              </div>
+              {/* Line items */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>Line Items ({Array.isArray(orderDetail.line_items) ? orderDetail.line_items.length : 0})</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead><tr>
+                    {["SKU", "Product", "Qty", "Price", "Total"].map(h => (
+                      <th key={h} style={{ textAlign: "left", padding: "6px 8px", borderBottom: `1px solid ${T.border}`, color: T.text3, fontSize: 10, fontWeight: 700 }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {(Array.isArray(orderDetail.line_items) ? orderDetail.line_items : []).map((li, idx) => (
+                      <tr key={idx}>
+                        <td style={{ padding: "5px 8px", fontFamily: "monospace", fontSize: 9, color: T.text }}>{li?.sku || "—"}</td>
+                        <td style={{ padding: "5px 8px", color: T.text2, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{li?.product_title || "—"}{li?.variant_title ? ` · ${li.variant_title}` : ""}</td>
+                        <td style={{ padding: "5px 8px", color: T.text, fontWeight: 600 }}>{li?.quantity || 0}</td>
+                        <td style={{ padding: "5px 8px", color: T.text2 }}>{fmtD(Number(li?.price || 0))}</td>
+                        <td style={{ padding: "5px 8px", color: "#22c55e", fontWeight: 600 }}>{fmtD(Number(li?.price || 0) * Number(li?.quantity || 0))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Discount codes + tags */}
+              {(Array.isArray(orderDetail.discount_codes) && orderDetail.discount_codes.length > 0) && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 4 }}>Discount Codes</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {orderDetail.discount_codes.map((d, i) => (
+                      <span key={i} style={{ padding: "3px 8px", fontSize: 10, borderRadius: 4, background: "#f9731620", color: "#f97316", fontFamily: "monospace" }}>{String(d)}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(Array.isArray(orderDetail.tags) && orderDetail.tags.length > 0) && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 4 }}>Tags</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {orderDetail.tags.map((t, i) => (
+                      <span key={i} style={{ padding: "3px 8px", fontSize: 10, borderRadius: 4, background: T.surface2, color: T.text2 }}>{String(t)}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Shipping + meta */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11, color: T.text2 }}>
+                <div><span style={{ color: T.text3 }}>Ship to:</span> {[orderDetail.shipping_city, orderDetail.shipping_state, orderDetail.country].filter(Boolean).join(", ") || "—"}</div>
+                <div><span style={{ color: T.text3 }}>From warehouse:</span> {orderDetail.warehouse_location || "—"}</div>
+                <div><span style={{ color: T.text3 }}>Financial status:</span> {orderDetail.financial_status || "—"}</div>
+                <div><span style={{ color: T.text3 }}>Sub cycle:</span> {orderDetail.is_subscription_order ? `#${orderDetail.subscription_cycle || "?"}` : "—"}</div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
