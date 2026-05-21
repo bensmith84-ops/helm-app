@@ -86,11 +86,6 @@ require('./routes/plm-advisor')(app, helpers);
 require('./routes/doc-ai')(app, helpers);
 require('./routes/fin-analyze')(app, helpers);
 require('./routes/cx-tone-check')(app, helpers);
-require('./routes/automation-engine')(app, helpers);
-require('./routes/ar-reminders')(app, helpers);
-require('./routes/ap-alerts')(app, helpers);
-require('./routes/ical-proxy')(app, helpers);
-require('./routes/calendar-manager')(app, helpers);
 require('./routes/cx-appreciation-drafter')(app, helpers);
 require('./routes/cx-ai-draft')(app, helpers);
 require('./routes/cx-moderate')(app, helpers);
@@ -100,6 +95,13 @@ require('./routes/cx-fulfillment-crawler')(app, helpers);
 require('./routes/cx-agent-assist')(app, helpers);
 require('./routes/cx-shopify-actions')(app, helpers);
 require('./routes/sourcing-agent')(app, helpers);
+require('./routes/cx-email')(app, helpers);
+require('./routes/metabase-debug')(app, helpers);
+require('./routes/automation-engine')(app, helpers);
+require('./routes/ar-reminders')(app, helpers);
+require('./routes/ap-alerts')(app, helpers);
+require('./routes/ical-proxy')(app, helpers);
+require('./routes/calendar-manager')(app, helpers);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'not_found', path: req.path });
