@@ -94,6 +94,8 @@ require('./routes/calendar-manager')(app, helpers);
 require('./routes/cx-appreciation-drafter')(app, helpers);
 require('./routes/cx-ai-draft')(app, helpers);
 require('./routes/cx-moderate')(app, helpers);
+require('./routes/cx-kb-gap-report')(app, helpers);
+require('./routes/call-ai')(app, helpers);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'not_found', path: req.path });
