@@ -1,7 +1,7 @@
 
 // POST /ar-reminders — port of supabase/functions/ar-reminders
-// 4 actions: generate_reminders, send_reminder, list, update.
-// generate_reminders uses Anthropic to draft tone-appropriate emails per customer.
+// 4 actions: generate_reminders (overdue invoice scan + AI drafts), send_reminder,
+// list, update. System-fired (cron) so no auth required on the endpoint.
 const Anthropic = require('@anthropic-ai/sdk');
 const DEFAULT_ORG_ID = 'a0000000-0000-0000-0000-000000000001';
 const BEN_USER_ID = '32cad5dd-9e94-4095-a16d-b4521391b050';
@@ -11,40 +11,51 @@ module.exports = function(app, { pool }) {
     try {
       const { action } = req.body || {};
       const orgId = req.body?.org_id || DEFAULT_ORG_ID;
-      const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
 
+      // === GENERATE REMINDERS ===
       if (action === 'generate_reminders') {
         const today = new Date();
         const todayStr = today.toISOString().slice(0, 10);
 
-        const { rows: overdue } = await pool.query(
-          `SELECT * FROM qbo_invoices WHERE balance > 0 AND due_date < $1 ORDER BY due_date LIMIT 30`,
+        const { rows: overdueInvoices } = await pool.query(
+          `SELECT * FROM qbo_invoices
+           WHERE balance > 0 AND due_date < $1
+           ORDER BY due_date LIMIT 30`,
           [todayStr]
         );
-        if (overdue.length === 0) return res.json({ reminders: [], message: 'No overdue invoices found' });
 
-        const customerNames = [...new Set(overdue.map(i => i.customer_name).filter(Boolean))];
+        if (overdueInvoices.length === 0) {
+          return res.json({ reminders: [], message: 'No overdue invoices found' });
+        }
+
+        const customerNames = [...new Set(overdueInvoices.map(i => i.customer_name).filter(Boolean))];
         const { rows: customers } = await pool.query(
-          `SELECT display_name, email FROM qbo_customers WHERE display_name = ANY($1)`,
+          `SELECT display_name, email FROM qbo_customers WHERE display_name = ANY($1::text[])`,
           [customerNames]
         );
         const emailMap = {};
-        for (const c of customers) if (c.email) emailMap[c.display_name] = c.email;
+        for (const c of customers) { if (c.email) emailMap[c.display_name] = c.email; }
 
         const grouped = {};
-        for (const inv of overdue) {
+        for (const inv of overdueInvoices) {
           const name = inv.customer_name || 'Unknown';
           if (!grouped[name]) grouped[name] = [];
           grouped[name].push(inv);
         }
 
+        const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
+        const aiClient = apiKey ? new Anthropic({ apiKey }) : null;
         const reminders = [];
-        const client = apiKey ? new Anthropic({ apiKey }) : null;
 
         for (const [customerName, invoices] of Object.entries(grouped)) {
           const totalOwed = invoices.reduce((s, i) => s + Number(i.balance), 0);
-          const oldestDue = invoices.sort((a, b) => new Date(a.due_date) - new Date(b.due_date))[0].due_date;
-          const daysOverdue = Math.floor((today.getTime() - new Date(oldestDue + 'T12:00:00').getTime()) / 86400000);
+          const sortedByDate = [...invoices].sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+          const oldestDue = sortedByDate[0].due_date;
+          // due_date from PG is a Date object — normalize to YYYY-MM-DD string
+          const oldestDueStr = oldestDue instanceof Date
+            ? oldestDue.toISOString().slice(0, 10)
+            : String(oldestDue).slice(0, 10);
+          const daysOverdue = Math.floor((today.getTime() - new Date(oldestDueStr + 'T12:00:00').getTime()) / 86400000);
           const email = emailMap[customerName];
 
           let tone = 'friendly';
@@ -52,90 +63,120 @@ module.exports = function(app, { pool }) {
           else if (daysOverdue > 30) tone = 'professional';
           else if (daysOverdue > 14) tone = 'gentle';
 
-          let subject = `Payment reminder \u2014 $${totalOwed.toFixed(2)} outstanding`;
-          let emailBody = `Hi ${customerName.split(' ')[0]},\n\nThis is a friendly reminder that you have $${totalOwed.toFixed(2)} in outstanding invoices with Earth Breeze. Please arrange payment at your earliest convenience.\n\nThank you,\nEarth Breeze Team`;
+          let subject = '';
+          let emailBody = '';
 
-          if (client) {
+          if (aiClient) {
             try {
-              const aiResp = await client.messages.create({
-                model: 'claude-sonnet-4-20250514', max_tokens: 500,
+              const ai = await aiClient.messages.create({
+                model: 'claude-sonnet-4-20250514',
+                max_tokens: 500,
                 system: `You are drafting a payment reminder email from Earth Breeze to a customer. Be ${tone} in tone. Earth Breeze is an eco-friendly laundry sheet brand. Keep it brief and professional. Return ONLY JSON: { "subject": "...", "body": "..." }. The body should be the email text only (no subject line in body). Use their first name if possible. Don't use markdown formatting in the body.`,
-                messages: [{ role: 'user', content: `Customer: ${customerName}\nTotal outstanding: $${totalOwed.toFixed(2)}\nNumber of invoices: ${invoices.length}\nOldest invoice due: ${oldestDue} (${daysOverdue} days ago)\nInvoice details: ${invoices.map(i => `$${Number(i.balance).toFixed(2)} due ${i.due_date}`).join(', ')}\n\nGenerate a ${tone} payment reminder.` }],
+                messages: [{
+                  role: 'user',
+                  content: `Customer: ${customerName}\nTotal outstanding: $${totalOwed.toFixed(2)}\nNumber of invoices: ${invoices.length}\nOldest invoice due: ${oldestDueStr} (${daysOverdue} days ago)\nInvoice details: ${invoices.map(i => `$${Number(i.balance).toFixed(2)} due ${i.due_date instanceof Date ? i.due_date.toISOString().slice(0,10) : i.due_date}`).join(', ')}\n\nGenerate a ${tone} payment reminder.`,
+                }],
               });
-              const text = (aiResp.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+              const text = (ai.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
               try {
                 const parsed = JSON.parse(text.replace(/```json\n?|```\n?/g, '').trim());
                 subject = parsed.subject;
                 emailBody = parsed.body;
-              } catch (_) { subject = `Payment reminder \u2014 $${totalOwed.toFixed(2)} outstanding`; emailBody = text; }
-            } catch (_) { /* keep defaults */ }
+              } catch (_) {
+                subject = `Payment reminder — $${totalOwed.toFixed(2)} outstanding`;
+                emailBody = text;
+              }
+            } catch (_) {
+              // fall through to default
+            }
+          }
+
+          if (!subject) {
+            subject = `Payment reminder — $${totalOwed.toFixed(2)} outstanding`;
+            emailBody = `Hi ${customerName.split(' ')[0]},\n\nThis is a friendly reminder that you have $${totalOwed.toFixed(2)} in outstanding invoices with Earth Breeze. Please arrange payment at your earliest convenience.\n\nThank you,\nEarth Breeze Team`;
           }
 
           const { rows: saved } = await pool.query(
             `INSERT INTO ar_payment_reminders
-             (org_id, customer_name, customer_email, amount, due_date, days_overdue,
-              reminder_type, subject, body, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft') RETURNING *`,
-            [orgId, customerName, email || null, totalOwed, oldestDue, daysOverdue,
+             (org_id, customer_name, customer_email, amount, due_date, days_overdue, reminder_type, subject, body, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft')
+             RETURNING *`,
+            [orgId, customerName, email || null, totalOwed, oldestDueStr, daysOverdue,
              daysOverdue > 30 ? 'follow_up' : 'overdue', subject, emailBody]
           );
-          if (saved[0]) reminders.push({ ...saved[0], invoices: invoices.length, total: totalOwed, has_email: !!email });
+          if (saved[0]) {
+            reminders.push({ ...saved[0], invoices: invoices.length, total: totalOwed, has_email: !!email });
+          }
         }
 
         return res.json({ reminders, count: reminders.length });
       }
 
+      // === SEND REMINDER ===
       if (action === 'send_reminder') {
         const { reminder_id, user_id } = req.body || {};
         if (!reminder_id) return res.status(400).json({ error: 'reminder_id required' });
 
         await pool.query(
           `UPDATE ar_payment_reminders SET status = 'sent', sent_at = NOW(), sent_by = $1 WHERE id = $2`,
-          [user_id, reminder_id]
+          [user_id || null, reminder_id]
         );
 
-        const { rows: rRows } = await pool.query(
+        const { rows: remRows } = await pool.query(
           `SELECT customer_name FROM ar_payment_reminders WHERE id = $1`,
           [reminder_id]
         );
-        const reminder = rRows[0];
+        const reminder = remRows[0];
+
         if (reminder) {
           await pool.query(
             `UPDATE qbo_invoices SET last_reminder_at = NOW(), reminder_count = COALESCE(reminder_count, 0) + 1
              WHERE customer_name = $1 AND balance > 0`,
             [reminder.customer_name]
           );
-        }
 
-        await pool.query(
-          `INSERT INTO notifications (org_id, user_id, type, title, body, entity_type, entity_id, category, link)
-           VALUES ($1, $2, 'ar_reminder_sent', $3, 'Reminder sent for overdue invoices', 'ar_reminder', $4, 'finance', '/finance/ap-ar')`,
-          [orgId, BEN_USER_ID, `Payment reminder sent to ${reminder?.customer_name}`, reminder_id]
-        );
+          await pool.query(
+            `INSERT INTO notifications (org_id, user_id, type, title, body, entity_type, entity_id, category, link)
+             VALUES ($1, $2, 'ar_reminder_sent', $3, $4, 'ar_reminder', $5, 'finance', '/finance/ap-ar')`,
+            [orgId, BEN_USER_ID,
+             `Payment reminder sent to ${reminder.customer_name}`,
+             'Reminder sent for overdue invoices',
+             reminder_id]
+          );
+        }
 
         return res.json({ success: true, reminder_id, status: 'sent' });
       }
 
+      // === LIST ===
       if (action === 'list') {
         const { status: filterStatus } = req.body || {};
-        let sql = `SELECT * FROM ar_payment_reminders WHERE org_id = $1`;
+        let q = `SELECT * FROM ar_payment_reminders WHERE org_id = $1`;
         const params = [orgId];
-        if (filterStatus) { sql += ` AND status = $2`; params.push(filterStatus); }
-        sql += ` ORDER BY created_at DESC LIMIT 50`;
-        const { rows } = await pool.query(sql, params);
+        if (filterStatus) {
+          q += ` AND status = $2`;
+          params.push(filterStatus);
+        }
+        q += ` ORDER BY created_at DESC LIMIT 50`;
+        const { rows } = await pool.query(q, params);
         return res.json({ reminders: rows });
       }
 
+      // === UPDATE ===
       if (action === 'update') {
         const { reminder_id, subject, body: emailBody } = req.body || {};
         if (!reminder_id) return res.status(400).json({ error: 'reminder_id required' });
         const sets = [];
         const params = [];
-        if (subject) { params.push(subject); sets.push(`subject = $${params.length}`); }
-        if (emailBody) { params.push(emailBody); sets.push(`body = $${params.length}`); }
+        let idx = 1;
+        if (subject) { sets.push(`subject = $${idx++}`); params.push(subject); }
+        if (emailBody) { sets.push(`body = $${idx++}`); params.push(emailBody); }
         if (sets.length === 0) return res.json({ success: true, message: 'nothing to update' });
         params.push(reminder_id);
-        await pool.query(`UPDATE ar_payment_reminders SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+        await pool.query(
+          `UPDATE ar_payment_reminders SET ${sets.join(', ')} WHERE id = $${idx}`,
+          params
+        );
         return res.json({ success: true });
       }
 
