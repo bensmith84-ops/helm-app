@@ -96,6 +96,8 @@ require('./routes/cx-ai-draft')(app, helpers);
 require('./routes/cx-moderate')(app, helpers);
 require('./routes/cx-kb-gap-report')(app, helpers);
 require('./routes/call-ai')(app, helpers);
+require('./routes/cx-fulfillment-crawler')(app, helpers);
+require('./routes/cx-agent-assist')(app, helpers);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'not_found', path: req.path });
