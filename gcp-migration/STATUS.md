@@ -62,7 +62,14 @@ Cloud Run: helm-app (us-central1)
 5. Compare Cloud Run vs Vercel side-by-side
 6. Point DNS at Cloud Run; delete Vercel
 
-**Status:** ⏳ Scaffolding committed, awaiting bootstrap
+**Status:** ✅ DONE (2026-05-20)
+- Cloud Run service URL: `https://helm-app-qp7o2dcl5a-uc.a.run.app`
+- Cloud Build trigger: `helm-app-main` (auto-deploys on push to main)
+- Runtime SA: `helm-app-runtime@helm-496923.iam.gserviceaccount.com`
+- Project: `helm-496923` (IT-provisioned, billing attached)
+- Supabase redirect URL allowlist now includes Cloud Run
+- Google OAuth flow tested end-to-end on Cloud Run
+- Vercel `helm-app-six.vercel.app` still running in parallel (intentional, fallback)
 
 ---
 
