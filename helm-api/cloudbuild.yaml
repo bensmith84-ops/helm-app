@@ -1,7 +1,13 @@
 
+# helm-api Cloud Build pipeline
+#
+# Invoke manually:  gcloud builds submit --config=helm-api/cloudbuild.yaml helm-api/
+#
+# When called this way, the build context is already inside helm-api/, so all
+# file references are relative to that directory (no `dir: helm-api` needed).
+
 steps:
   - name: gcr.io/cloud-builders/docker
-    dir: helm-api
     args:
       - build
       - -t
@@ -34,10 +40,12 @@ steps:
       - --service-account=helm-app-runtime@helm-496923.iam.gserviceaccount.com
       - --add-cloudsql-instances=helm-496923:us-central1:helm-db
       - --set-env-vars=FIREBASE_PROJECT_ID=helm-496923,PGUSER=helmuser,PGDATABASE=helm,PGHOST=/cloudsql/helm-496923:us-central1:helm-db
-      - --set-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest
+      - --set-secrets=PGPASSWORD=helm-db-password:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest
+
 images:
   - us-central1-docker.pkg.dev/helm-496923/helm/helm-api:$SHORT_SHA
   - us-central1-docker.pkg.dev/helm-496923/helm/helm-api:latest
+
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: E2_HIGHCPU_8
