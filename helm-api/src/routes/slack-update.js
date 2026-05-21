@@ -1,6 +1,4 @@
 
-// POST /slack-update — port of supabase/functions/slack-update
-// Updates a previously-posted Slack message via chat.update.
 const STATUS_LABELS = {
   approved: '\u2705 Approved',
   rejected: '\u274C Rejected',
@@ -30,10 +28,7 @@ module.exports = function(app) {
         { type: 'context', elements: [{ type: 'mrkdwn', text: `_Updated ${new Date().toUTCString()}_` }] },
       ];
       if (url) {
-        blocks.push({
-          type: 'actions',
-          elements: [{ type: 'button', text: { type: 'plain_text', text: 'View in Helm' }, url }],
-        });
+        blocks.push({ type: 'actions', elements: [{ type: 'button', text: { type: 'plain_text', text: 'View in Helm' }, url }] });
       }
 
       const slackRes = await fetch('https://slack.com/api/chat.update', {
@@ -43,7 +38,7 @@ module.exports = function(app) {
       });
       const data = await slackRes.json();
       if (!data.ok) return res.status(500).json({ error: data.error, detail: data });
-      res.json({ success: true });
+      return res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: String(e) });
     }
