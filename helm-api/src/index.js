@@ -95,6 +95,7 @@ const helpers = { requireAuth, optionalAuth, withAuthedClient, pool };
 
 require('./routes/scoreboard-chat')(app, helpers);
 require('./routes/slack-notify')(app, helpers);
+require('./routes/scorecard-auto-calc')(app, helpers);
 require('./routes/ai-chat')(app, helpers);
 require('./routes/ai-deploy')(app, helpers);
 require('./routes/plm-ai')(app, helpers);
