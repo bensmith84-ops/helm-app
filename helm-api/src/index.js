@@ -78,6 +78,7 @@ require('./routes/whoami')(app, helpers);
 require('./routes/scoreboard-chat')(app, helpers);
 require('./routes/slack-notify')(app, helpers);
 require('./routes/slack-update')(app, helpers);
+require('./routes/slack-interactivity')(app, helpers);
 require('./routes/scorecard-auto-calc')(app, helpers);
 require('./routes/ai-chat')(app, helpers);
 require('./routes/ai-deploy')(app, helpers);
