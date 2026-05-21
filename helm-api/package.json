@@ -1,0 +1,21 @@
+
+{
+  "name": "helm-api",
+  "version": "0.1.0",
+  "description": "Cloud Run service hosting Helm's API endpoints (formerly Supabase edge functions)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "firebase-admin": "^12.5.0",
+    "pg": "^8.13.0",
+    "@anthropic-ai/sdk": "^0.30.1",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
