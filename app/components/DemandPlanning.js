@@ -1268,6 +1268,26 @@ function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose,
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
 
+  // Build local SKU map from master+overrides for unit-multiplier lookup (this
+  // modal is a separate component without access to the parent's skuMap).
+  const masterMap = {};
+  skuMaster.forEach(s => { masterMap[s.sku] = s; });
+  const overrideMap = {};
+  overrides.forEach(o => { overrideMap[o.sku] = o; });
+  const localSkuMap = {};
+  skuMaster.forEach(s => {
+    const ov = overrideMap[s.sku];
+    localSkuMap[s.sku] = {
+      units_per_sku: ov && ov.units_per_sku != null ? ov.units_per_sku : (s.units_per_sku || 1),
+    };
+  });
+  // Include override-only SKUs that have no master row
+  overrides.forEach(o => {
+    if (!localSkuMap[o.sku]) {
+      localSkuMap[o.sku] = { units_per_sku: o.units_per_sku || 1 };
+    }
+  });
+
   // Build per-SKU summary from weekly sales
   const skuSummary = (() => {
     const map = {};
@@ -1286,16 +1306,11 @@ function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose,
       if (r.product_title) map[r.sku].titles.add(r.product_title);
       if (r.variant_title) map[r.sku].variants.add(r.variant_title);
       if (r.base_product) map[r.sku].base_products.add(r.base_product);
-      map[r.sku].units += r._units != null ? r._units : ((r.units_sold || 0) * (skuMap[r.sku]?.units_per_sku || 1));
+      map[r.sku].units += r._units != null ? r._units : ((r.units_sold || 0) * (localSkuMap[r.sku]?.units_per_sku || 1));
       map[r.sku].revenue += Number(r.net_revenue || 0);
     });
     return Object.values(map);
   })();
-
-  const masterMap = {};
-  skuMaster.forEach(s => { masterMap[s.sku] = s; });
-  const overrideMap = {};
-  overrides.forEach(o => { overrideMap[o.sku] = o; });
 
   // Compute issue type for each SKU
   const enriched = skuSummary.map(s => {
