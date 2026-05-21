@@ -78,6 +78,7 @@ require('./routes/health-detailed')(app, helpers);
 require('./routes/whoami')(app, helpers);
 require('./routes/scoreboard-chat')(app, helpers);
 require('./routes/slack-notify')(app, helpers);
+require('./routes/slack-update')(app, helpers);
 require('./routes/scorecard-auto-calc')(app, helpers);
 require('./routes/ai-chat')(app, helpers);
 require('./routes/ai-deploy')(app, helpers);
@@ -87,6 +88,8 @@ require('./routes/doc-ai')(app, helpers);
 require('./routes/fin-analyze')(app, helpers);
 require('./routes/cx-tone-check')(app, helpers);
 require('./routes/automation-engine')(app, helpers);
+require('./routes/ical-proxy')(app, helpers);
+require('./routes/ar-reminders')(app, helpers);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'not_found', path: req.path });
