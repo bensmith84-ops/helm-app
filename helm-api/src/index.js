@@ -5,9 +5,7 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const admin = require('firebase-admin');
 
-admin.initializeApp({
-  projectId: process.env.FIREBASE_PROJECT_ID || 'helm-496923',
-});
+admin.initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || 'helm-496923' });
 
 const pool = new Pool({
   host: process.env.PGHOST || '/cloudsql/helm-496923:us-central1:helm-db',
@@ -15,21 +13,16 @@ const pool = new Pool({
   password: process.env.PGPASSWORD,
   database: process.env.PGDATABASE || 'helm',
   port: parseInt(process.env.PGPORT || '5432', 10),
-  max: 10,
-  idleTimeoutMillis: 30_000,
+  max: 10, idleTimeoutMillis: 30_000,
 });
 
-pool.on('error', (err) => {
-  console.error('Postgres pool error:', err);
-});
+pool.on('error', (err) => { console.error('Postgres pool error:', err); });
 
 async function withAuthedClient(claims, fn) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query("SELECT set_config('request.jwt.claims', $1, true)", [
-      claims ? JSON.stringify(claims) : '',
-    ]);
+    await client.query("SELECT set_config('request.jwt.claims', $1, true)", [claims ? JSON.stringify(claims) : '']);
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
@@ -43,10 +36,8 @@ async function withAuthedClient(claims, fn) {
 
 const app = express();
 app.use(cors({
-  origin: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['authorization', 'content-type', 'x-client-info'],
-  credentials: true,
+  origin: true, methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['authorization', 'content-type', 'x-client-info'], credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
 
@@ -67,10 +58,7 @@ async function requireAuth(req, res, next) {
   }
 }
 
-function optionalAuth(req, _res, next) {
-  req.jwtClaims = null;
-  next();
-}
+function optionalAuth(req, _res, next) { req.jwtClaims = null; next(); }
 
 const helpers = { requireAuth, optionalAuth, withAuthedClient, pool };
 
@@ -87,20 +75,17 @@ require('./routes/plm-advisor')(app, helpers);
 require('./routes/doc-ai')(app, helpers);
 require('./routes/fin-analyze')(app, helpers);
 require('./routes/cx-tone-check')(app, helpers);
+require('./routes/cx-appreciation-drafter')(app, helpers);
 require('./routes/automation-engine')(app, helpers);
 require('./routes/ical-proxy')(app, helpers);
 require('./routes/ar-reminders')(app, helpers);
+require('./routes/ap-alerts')(app, helpers);
 
-app.use((req, res) => {
-  res.status(404).json({ error: 'not_found', path: req.path });
-});
-
+app.use((req, res) => { res.status(404).json({ error: 'not_found', path: req.path }); });
 app.use((err, _req, res, _next) => {
   console.error('Unhandled:', err);
   res.status(500).json({ error: 'internal', message: err?.message || String(err) });
 });
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
-app.listen(PORT, () => {
-  console.log(`helm-api listening on :${PORT}`);
-});
+app.listen(PORT, () => { console.log(`helm-api listening on :${PORT}`); });
