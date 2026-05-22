@@ -3,7 +3,9 @@
 // 2 modes: ?action=connect (redirect to Shopify OAuth) or callback with code+shop.
 // NOTE: Original source had SHOPIFY_CLIENT_ID hard-coded — now from process.env.
 const APP_URL = process.env.APP_URL || 'https://helm-app-six.vercel.app';
-const SUPABASE_FN_URL = 'https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-callback';
+const SUPABASE_FN_URL = process.env.OAUTH_REDIRECT_SHOPIFY
+  || (process.env.OAUTH_REDIRECT_BASE ? `${process.env.OAUTH_REDIRECT_BASE}/shopify-callback` : null)
+  || 'https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/shopify-callback';
 
 module.exports = function(app, { pool }) {
   app.get('/shopify-callback', async (req, res) => {
