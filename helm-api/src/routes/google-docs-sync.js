@@ -179,7 +179,10 @@ module.exports = function(app, { pool }) {
       const body = req.body || {};
       const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
       const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
-      const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '';
+      const GOOGLE_REDIRECT_URI = process.env.OAUTH_REDIRECT_GOOGLE_DOCS
+        || process.env.GOOGLE_REDIRECT_URI
+        || (process.env.OAUTH_REDIRECT_BASE ? `${process.env.OAUTH_REDIRECT_BASE}/google-docs-sync` : '')
+        || '';
 
       // userId comes from Firebase auth context if available
       const userId = req.user?.helm_user?.uid || null;
