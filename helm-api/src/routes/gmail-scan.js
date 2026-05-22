@@ -7,7 +7,9 @@ const { uploadToStorage } = require('../lib/supabase-storage');
 const ORG_ID = 'a0000000-0000-0000-0000-000000000001';
 const BEN_ID = '32cad5dd-9e94-4095-a16d-b4521391b050';
 // NOTE: redirect_uri still goes through Supabase fn during transition
-const REDIRECT_URI = 'https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/gmail-scan?action=callback';
+const REDIRECT_URI = process.env.OAUTH_REDIRECT_GMAIL
+  || (process.env.OAUTH_REDIRECT_BASE ? `${process.env.OAUTH_REDIRECT_BASE}/gmail-scan?action=callback` : null)
+  || 'https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/gmail-scan?action=callback';
 
 async function refreshAccessToken(pool, conn) {
   if (!conn.refresh_token) throw new Error('No refresh token');
