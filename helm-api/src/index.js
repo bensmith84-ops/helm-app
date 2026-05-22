@@ -43,6 +43,9 @@ async function withAuthedClient(claims, fn) {
 const app = express();
 app.use(cors({
   origin: true,
+  credentials: true,
+  methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
+  allowedHeaders: ['Authorization','Content-Type','x-client-info','apikey','X-Requested-With'],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['authorization', 'content-type', 'x-client-info'],
   credentials: true,
