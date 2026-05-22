@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
+import { invokeFunction } from "../lib/invokeFunction";
 import { T } from "../tokens";
 import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
@@ -300,10 +301,8 @@ export default function ScorecardView() {
   const runAutoCalc = async () => {
     setAutoCalcRunning(true);
     try {
-      const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/scorecard-auto-calc", {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
-      });
-      const result = await res.json();
+      const { data: result, error: invokeErr } = await invokeFunction("scorecard-auto-calc", { body: {} });
+      if (invokeErr) throw new Error(invokeErr.message);
       console.log("[Scorecard] Auto-calc result:", result);
       // Reload metrics (in case auto_source was configured externally)
       const { data: freshMetrics } = await supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order");
