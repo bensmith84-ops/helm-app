@@ -45,7 +45,9 @@ module.exports = function(app, { pool }) {
       }
 
       // NOTE: redirect_uri still points at legacy Supabase function until frontend cutover
-      const redirectUri = `https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-callback`;
+      const redirectUri = process.env.OAUTH_REDIRECT_QBO
+        || (process.env.OAUTH_REDIRECT_BASE ? `${process.env.OAUTH_REDIRECT_BASE}/qbo-callback` : null)
+        || `https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-callback`;
       const scope = 'com.intuit.quickbooks.accounting';
 
       // Try OpenID discovery for authorization endpoint, fall back to known URL
