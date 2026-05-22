@@ -33,8 +33,8 @@ const JOBS = {
 module.exports = function(app, { pool }) {
   app.post('/cron', async (req, res) => {
     try {
-      const provided = req.headers['x-cron-secret'] || '';
-      const expected = process.env.CRON_SHARED_SECRET || '';
+      const provided = (req.headers['x-cron-secret'] || '').trim();
+      const expected = (process.env.CRON_SHARED_SECRET || '').trim();
       if (!expected) {
         return res.status(500).json({ error: 'CRON_SHARED_SECRET not configured on server' });
       }
