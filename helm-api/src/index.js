@@ -80,6 +80,7 @@ require('./routes/slack-notify')(app, helpers);
 require('./routes/slack-update')(app, helpers);
 require('./routes/slack-interactivity')(app, helpers);
 require('./routes/invoice-ai')(app, helpers);
+require('./routes/invoice-inbound')(app, helpers);
 require('./routes/shopify-debug')(app, helpers);
 require('./routes/scorecard-auto-calc')(app, helpers);
 require('./routes/ai-chat')(app, helpers);
