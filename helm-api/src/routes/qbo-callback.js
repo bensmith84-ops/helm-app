@@ -19,7 +19,9 @@ module.exports = function(app, { pool }) {
 
       const clientId = process.env.QBO_CLIENT_ID;
       const clientSecret = process.env.QBO_CLIENT_SECRET;
-      const redirectUri = `https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-callback`;
+      const redirectUri = process.env.OAUTH_REDIRECT_QBO
+        || (process.env.OAUTH_REDIRECT_BASE ? `${process.env.OAUTH_REDIRECT_BASE}/qbo-callback` : null)
+        || `https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-callback`;
       const environment = process.env.QBO_ENVIRONMENT || 'production';
 
       if (!clientId || !clientSecret) {
