@@ -14,9 +14,10 @@
 module.exports = function(app, { pool, requireAuth }) {
   app.post('/auth/bind', requireAuth, async (req, res) => {
     try {
-      const { firebase_uid, email } = req.user;
+      const firebase_uid = req.firebase?.sub;
+      const email = req.firebase?.email;
       if (!firebase_uid || !email) {
-        return res.status(400).json({ error: 'Token missing firebase_uid or email' });
+        return res.status(400).json({ error: 'Token missing sub (firebase_uid) or email' });
       }
 
       // 1. Check if already bound
@@ -88,7 +89,7 @@ module.exports = function(app, { pool, requireAuth }) {
       // Only org admins should see this
       const meRow = await pool.query(
         `SELECT role FROM profiles WHERE firebase_uid = $1 LIMIT 1`,
-        [req.user.firebase_uid]
+        [req.firebase?.sub]
       );
       if (!meRow.rows.length || !['admin','owner'].includes(meRow.rows[0].role)) {
         return res.status(403).json({ error: 'Admin only' });
