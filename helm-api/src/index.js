@@ -83,6 +83,8 @@ require('./routes/invoice-ai')(app, helpers);
 require('./routes/invoice-inbound')(app, helpers);
 require('./routes/notion-import')(app, helpers);
 require('./routes/asana-proxy')(app, helpers);
+require('./routes/import-expenses')(app, helpers);
+require('./routes/meta-social')(app, helpers);
 require('./routes/shopify-debug')(app, helpers);
 require('./routes/scorecard-auto-calc')(app, helpers);
 require('./routes/ai-chat')(app, helpers);
