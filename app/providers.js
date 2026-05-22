@@ -1,10 +1,13 @@
 "use client";
 
 // Stage 3: monkey-patch fetch to redirect Supabase Functions → helm-api when USE_HELM_API=true
-// Force eager Firebase init at app boot. Bare import was being tree-shaken; named import keeps it.
-import { firebaseApp } from "./lib/firebase";
+// Force eager Firebase init at app boot. firebase.js exports lazy helpers,
+// so we have to actually CALL one to trigger initializeApp().
+import { getFirebaseAuth } from "./lib/firebase";
 if (typeof window !== "undefined") {
-  window.__firebaseApp__ = firebaseApp; // diagnostic handle + prevents tree-shake
+  const auth = getFirebaseAuth();
+  window.__firebaseAuth__ = auth; // diagnostic handle + prevents tree-shake
+  console.log("[helm-app] Firebase init:", auth ? "ok" : "FAILED — check NEXT_PUBLIC_FIREBASE_API_KEY");
 }
 import "./lib/fetchIntercept";
 import { AuthProvider } from "./lib/auth";
