@@ -118,6 +118,7 @@ require('./routes/livekit-webhook')(app, helpers);
 require('./routes/esign')(app, helpers);
 require('./routes/esign-pdf')(app, helpers);
 require('./routes/cron')(app, helpers);
+require('./routes/auth-bind')(app, helpers);
 require('./routes/shopify-debug')(app, helpers);
 require('./routes/scorecard-auto-calc')(app, helpers);
 require('./routes/ai-chat')(app, helpers);
