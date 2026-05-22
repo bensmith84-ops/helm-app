@@ -1,0 +1,1 @@
+route registered automatically via index.js auto-loader if pattern is in place; if not, add: require(./routes/metabase-sync)(app);
