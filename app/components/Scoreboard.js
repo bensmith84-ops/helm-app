@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
+import { invokeFunction } from "../lib/invokeFunction";
 import { useAuth } from "../lib/auth";
 import { T } from "../tokens";
 import { useResponsive } from "../lib/responsive";
@@ -937,18 +938,21 @@ export default function ScoreboardView() {
     const context = `As of ${dates[0]}:\n${lines}`;
 
     try {
-      const res = await fetch(`${BASE}/scoreboard-chat`, {
-        method: "POST", headers: HEADERS,
-        body: JSON.stringify({
+      const { data, error: invokeErr } = await invokeFunction("scoreboard-chat", {
+        body: {
           question: `Give me a sharp 3-4 sentence executive summary of the latest day's performance. Focus on revenue vs spend, subscription health (net subs vs cancels), and the single most important trend or concern. Be direct and specific with numbers. Flowing prose only, no bullet points.`,
           context,
           messages: [],
           debug: false,
-        }),
+        },
       });
-      const data = await res.json();
-      if (data.text) setAiSummary({ text: data.text, date: dates[0] });
-      else if (data.error) setAiSummary({ text: `⚠️ ${data.error}`, date: dates[0] });
+      if (invokeErr) {
+        setAiSummary({ text: `⚠️ Error: ${invokeErr.message}`, date: dates[0] });
+      } else if (data?.text) {
+        setAiSummary({ text: data.text, date: dates[0] });
+      } else if (data?.error) {
+        setAiSummary({ text: `⚠️ ${data.error}`, date: dates[0] });
+      }
     } catch(e) {
       setAiSummary({ text: `⚠️ Error: ${e}`, date: dates[0] });
     }
@@ -959,10 +963,10 @@ export default function ScoreboardView() {
     setSyncing(true);
     setActiveTab("chat");
     try {
-      const r1 = await fetch(`${BASE}/sheets-daily-sync`, { method:"POST", headers:HEADERS });
-      const d1 = await r1.json();
-      const r2 = await fetch(`${BASE}/sheets-sync`, { method:"POST", headers:HEADERS });
-      const d2 = await r2.json();
+      const { data: d1Raw, error: e1 } = await invokeFunction("sheets-daily-sync", { body: {} });
+      const d1 = e1 ? { error: e1.message } : (d1Raw || {});
+      const { data: d2Raw, error: e2 } = await invokeFunction("sheets-sync", { body: {} });
+      const d2 = e2 ? { error: e2.message } : (d2Raw || {});
       await loadData();
       if (d1.error) {
         setMessages(p => [...p, { role:"assistant", content:`⚠️ Daily sync error: ${d1.error}` }]);
@@ -994,16 +998,18 @@ export default function ScoreboardView() {
         return `${meta?.label||key}: latest=${fmtVal(v, meta?.unit||"#", false)} (${rows[0]?.date}), 7d avg=${fmtVal(Math.round(avg7), meta?.unit||"#", false)}`;
       }).join("\n");
 
-      const res = await fetch(`${BASE}/scoreboard-chat`, {
-        method:"POST", headers:HEADERS,
-        body: JSON.stringify({
+      const { data, error: invokeErr } = await invokeFunction("scoreboard-chat", {
+        body: {
           question,
           context: chatContext,
           messages: messages.slice(-10).map(m => ({ role:m.role, content:m.content })),
-        }),
+        },
       });
-      const data = await res.json();
-      setMessages(p => [...p, { role:"assistant", content:data.text || data.error, chart:data.chart }]);
+      if (invokeErr) {
+        setMessages(p => [...p, { role:"assistant", content:`Error: ${invokeErr.message}` }]);
+      } else {
+        setMessages(p => [...p, { role:"assistant", content:data?.text || data?.error || "(no response)", chart:data?.chart }]);
+      }
     } catch(e) {
       setMessages(p => [...p, { role:"assistant", content:`Error: ${e}` }]);
     }
