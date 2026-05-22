@@ -124,6 +124,7 @@ require('./routes/scorecard-auto-calc')(app, helpers);
 require('./routes/ai-chat')(app, helpers);
 require('./routes/ai-deploy')(app, helpers);
 require('./routes/plm-ai')(app, helpers);
+require('./routes/metabase-sync')(app, helpers);
 require('./routes/plm-advisor')(app, helpers);
 require('./routes/doc-ai')(app, helpers);
 require('./routes/fin-analyze')(app, helpers);
