@@ -1,6 +1,7 @@
 "use client";
 
 // Stage 3: monkey-patch fetch to redirect Supabase Functions → helm-api when USE_HELM_API=true
+import "./lib/firebase"; // initialize Firebase app at boot so fetchIntercept can grab tokens
 import "./lib/fetchIntercept";
 import { AuthProvider } from "./lib/auth";
 import { ModalProvider } from "./lib/modal";
