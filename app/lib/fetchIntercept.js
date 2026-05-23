@@ -1,25 +1,11 @@
-
 // Global fetch interceptor for the Stage 3 migration cutover.
 //
-// When NEXT_PUBLIC_USE_HELM_API=true, this module patches window.fetch
-// at module-load time so that any call to a Supabase Edge Function URL
-// gets transparently redirected to the equivalent helm-api Cloud Run route.
+// When NEXT_PUBLIC_USE_HELM_API=true, this patches window.fetch so that:
+//   1. Calls to https://*.supabase.co/functions/v1/<name>  → helm-api/<name>
+//   2. Calls to https://*.supabase.co/rest/v1/<path>      → helm-api/rest/v1/<path>
+// Both have the Supabase anon JWT stripped and the user's Firebase ID token attached.
 //
-// Why a global interceptor instead of per-component refactor?
-//   - 30+ raw fetch() call sites across 13 components
-//   - Each has slightly different body/header shape — risky to refactor
-//   - This shim adds ZERO code to components and the same flag controls all
-//   - Instant rollback by flipping NEXT_PUBLIC_USE_HELM_API=false
-//
-// What it does:
-//   1. Detects URLs matching https://*.supabase.co/functions/v1/<name>
-//   2. Rewrites to https://helm-api-.../<name>
-//   3. Strips the anon JWT Authorization header (helm-api doesn't expect it)
-//   4. Attaches the current user's Firebase ID token (helm-api requires it)
-//   5. Passes through method, body, other headers unchanged
-//
-// Idempotent — safe to import multiple times. Module-level guard prevents
-// re-patching window.fetch.
+// This is the central plumbing for full PostgREST/Functions parity behind a flag.
 
 "use client";
 
@@ -30,22 +16,22 @@ const HELM_API_BASE =
   process.env.NEXT_PUBLIC_HELM_API_URL ||
   "https://helm-api-qp7o2dcl5a-uc.a.run.app";
 
-// Match any URL pointing at Supabase Edge Functions
-const SUPABASE_FN_RE = /^https?:\/\/[^/]+\.supabase\.co\/functions\/v1\/(.+)$/;
+const FUNCTIONS_RE = /^https?:\/\/[^/]+\.supabase\.co\/functions\/v1\/(.+)$/;
+const POSTGREST_RE = /^https?:\/\/[^/]+\.supabase\.co\/rest\/v1\/(.+)$/;
 
 function shouldIntercept(url) {
   if (!USE_HELM_API) return null;
   if (typeof url !== "string") {
     try { url = url.toString(); } catch { return null; }
   }
-  const m = url.match(SUPABASE_FN_RE);
-  if (!m) return null;
-  // Preserve query string + path tail (e.g. ?action=callback)
-  return `${HELM_API_BASE}/${m[1]}`;
+  const fm = url.match(FUNCTIONS_RE);
+  if (fm) return { kind: 'functions', target: `${HELM_API_BASE}/${fm[1]}` };
+  const pm = url.match(POSTGREST_RE);
+  if (pm) return { kind: 'postgrest', target: `${HELM_API_BASE}/rest/v1/${pm[1]}` };
+  return null;
 }
 
 let installed = false;
-
 export function installFetchInterceptor() {
   if (installed) return;
   if (typeof window === "undefined" || typeof window.fetch !== "function") return;
@@ -55,44 +41,39 @@ export function installFetchInterceptor() {
 
   window.fetch = async function patchedFetch(input, init = {}) {
     const url = typeof input === "string" ? input : input?.url;
-    const redirected = shouldIntercept(url);
-    if (!redirected) {
-      return originalFetch(input, init);
-    }
+    const intercept = shouldIntercept(url);
+    if (!intercept) return originalFetch(input, init);
 
-    // Build new headers — drop Supabase anon JWT, add Firebase ID token
+    // Strip Supabase auth headers, attach Firebase token
     const newHeaders = new Headers(init.headers || {});
-    // Remove any inherited Supabase anon JWT
     newHeaders.delete("Authorization");
+    newHeaders.delete("authorization");
     newHeaders.delete("apikey");
-    // Attach Firebase token if signed in
+    newHeaders.delete("ApiKey");
+
     try {
       const token = await getCurrentIdToken();
-      if (token) {
-        newHeaders.set("Authorization", `Bearer ${token}`);
-      }
-    } catch (_e) {
-      // No token yet — let helm-api 401 and the UI handle it
-    }
+      if (token) newHeaders.set("Authorization", `Bearer ${token}`);
+    } catch (_e) { /* leave unauthed; helm-api will 401 */ }
+
     if (!newHeaders.has("Content-Type") && init.body) {
       newHeaders.set("Content-Type", "application/json");
     }
 
-    // Log once per minute per route so we can see the redirects
-    if (typeof window !== "undefined") {
-      const key = `helm:fetch-log:${redirected.split("/").pop()}`;
+    // Throttled log so the dev console isn't flooded
+    try {
+      const key = `helm:fetch-log:${intercept.kind}:${intercept.target.split('/').pop().split('?')[0]}`;
       const last = Number(sessionStorage.getItem(key) || 0);
       if (Date.now() - last > 60000) {
-        console.info(`[helm-api] redirected → ${redirected}`);
+        console.info(`[helm-api] (${intercept.kind}) → ${intercept.target}`);
         sessionStorage.setItem(key, String(Date.now()));
       }
-    }
+    } catch { /* sessionStorage might be unavailable */ }
 
-    return originalFetch(redirected, { ...init, headers: newHeaders });
+    return originalFetch(intercept.target, { ...init, headers: newHeaders });
   };
 }
 
-// Auto-install at module load (browser only)
 if (typeof window !== "undefined") {
   installFetchInterceptor();
 }
