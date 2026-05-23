@@ -1,8 +1,15 @@
 // PostgREST shim — mounted as /rest/v1/:table and /rest/v1/rpc/:fn.
-// Phase 1: GET only. Phase 2+ will add insert/update/delete/embed/rpc.
+//
+// Handlers:
+//   GET    /rest/v1/:table       — SELECT (with embeds)
+//   HEAD   /rest/v1/:table       — SELECT but return only headers (for count probes)
+//   POST   /rest/v1/:table       — INSERT (or UPSERT if Prefer: resolution=merge-duplicates)
+//   PATCH  /rest/v1/:table       — UPDATE (requires filter)
+//   DELETE /rest/v1/:table       — DELETE (requires filter)
+//   POST   /rest/v1/rpc/:fn      — call stored procedure with body as named args
 
 const {
-  buildSelectQuery,
+  buildSelectQueryAsync,
   buildInsertQuery,
   buildUpdateQuery,
   buildDeleteQuery,
@@ -11,29 +18,22 @@ const {
 
 module.exports = function(app, { requireAuth, pool }) {
 
-  // GET /rest/v1/:table  → SELECT
-  // HEAD /rest/v1/:table → same SELECT but body=null (for count probes)
   const handleSelect = async (req, res) => {
     const { table } = req.params;
     try {
-      const orgId = req.firebase?.org_id || null;
-      const { sql, params, countMode, offset, limit } = buildSelectQuery({
+      const startedAt = Date.now();
+      const { sql, params, countMode, offset, limit } = await buildSelectQueryAsync(pool, {
         table,
         query: req.query,
         headers: req.headers,
-        orgId,
       });
-
-      // Tag the request so we can find it in pg logs
-      const startedAt = Date.now();
       const client = await pool.connect();
       try {
-        // If countMode=exact, run a separate COUNT query against the same filters.
-        // We rebuild the FROM/WHERE from sql (cheap heuristic).
         let totalCount = null;
         if (countMode === 'exact') {
-          // Wrap as subquery and count
-          const countSql = `SELECT COUNT(*)::int AS total FROM (${sql.replace(/\s+LIMIT\s+\d+/i,'').replace(/\s+OFFSET\s+\d+/i,'')}) sub`;
+          const countSql = `SELECT COUNT(*)::int AS total FROM (${
+            sql.replace(/\s+LIMIT\s+\d+/i,'').replace(/\s+OFFSET\s+\d+/i,'')
+          }) sub`;
           const cr = await client.query(countSql, params);
           totalCount = cr.rows[0]?.total ?? null;
         }
@@ -42,19 +42,13 @@ module.exports = function(app, { requireAuth, pool }) {
         if (process.env.NODE_ENV !== 'production' || elapsed > 500) {
           console.log(`[rest] ${req.method} /rest/v1/${table} ${elapsed}ms rows=${result.rows.length}`);
         }
-
-        // PostgREST-compatible Content-Range header
         if (totalCount !== null || countMode) {
           const from = offset || 0;
           const to = from + Math.max(result.rows.length - 1, 0);
           res.setHeader('Content-Range', `${from}-${to}/${totalCount ?? '*'}`);
         }
-        // Mark this is our shim, useful for debugging
         res.setHeader('X-Helm-Rest', '1');
-
-        if (req.method === 'HEAD') {
-          return res.status(200).end();
-        }
+        if (req.method === 'HEAD') return res.status(200).end();
         return res.status(200).json(result.rows);
       } finally {
         client.release();
@@ -62,16 +56,11 @@ module.exports = function(app, { requireAuth, pool }) {
     } catch (err) {
       const msg = err?.message || String(err);
       console.error(`[rest] error on ${req.method} /rest/v1/${table}:`, msg);
-      // PostgREST returns 400 for query-shape errors, 500 for DB errors
-      const status = /invalid|unsupported|bad/.test(msg) ? 400 : 500;
-      return res.status(status).json({ error: msg, code: status });
+      const status = /invalid|unsupported|bad|ambiguous|no FK/.test(msg) ? 400 : 500;
+      return res.status(status).json({ code: 'PGRST100', message: msg, details: null, hint: null });
     }
   };
 
-  app.get('/rest/v1/:table', requireAuth, handleSelect);
-  app.head('/rest/v1/:table', requireAuth, handleSelect);
-
-  // ───────── WRITES ─────────
   const handleWrite = (build) => async (req, res) => {
     const { table } = req.params;
     try {
@@ -85,15 +74,14 @@ module.exports = function(app, { requireAuth, pool }) {
       try {
         const result = await client.query(sql, params);
         res.setHeader('X-Helm-Rest', '1');
-        if (!prefer || prefer.includes('return=minimal')) {
-          // PostgREST default for writes — 201 Created (POST) or 204 (PATCH/DELETE) with empty body
+        if (!prefer || prefer.includes('return=minimal') || (!prefer.includes('return='))) {
+          // PostgREST default: 201 (POST) / 204 (PATCH, DELETE) with empty body
           return res.status(req.method === 'POST' ? 201 : 204).end();
         }
         if (prefer.includes('return=headers-only')) {
           res.setHeader('X-Helm-Rest-Affected', String(result.rowCount));
           return res.status(req.method === 'POST' ? 201 : 200).end();
         }
-        // return=representation
         return res.status(req.method === 'POST' ? 201 : 200).json(result.rows);
       } finally {
         client.release();
@@ -101,22 +89,20 @@ module.exports = function(app, { requireAuth, pool }) {
     } catch (err) {
       const msg = err?.message || String(err);
       console.error(`[rest] error on ${req.method} /rest/v1/${table}:`, msg);
-      const status = /invalid|unsupported|refusing|require|empty body|must/.test(msg) ? 400 : 500;
-      // Match PostgREST-style error envelope
+      const status = /invalid|unsupported|refusing|require|empty body|must|ambiguous/.test(msg) ? 400 : 500;
       return res.status(status).json({
         code: status === 400 ? 'PGRST100' : 'PGRST200',
-        message: msg,
-        details: null,
-        hint: null,
+        message: msg, details: null, hint: null,
       });
     }
   };
 
-  app.post('/rest/v1/:table',   requireAuth, handleWrite(buildInsertQuery));
-  app.patch('/rest/v1/:table',  requireAuth, handleWrite(buildUpdateQuery));
-  app.delete('/rest/v1/:table', requireAuth, handleWrite(buildDeleteQuery));
+  app.get('/rest/v1/:table',     requireAuth, handleSelect);
+  app.head('/rest/v1/:table',    requireAuth, handleSelect);
+  app.post('/rest/v1/:table',    requireAuth, handleWrite(buildInsertQuery));
+  app.patch('/rest/v1/:table',   requireAuth, handleWrite(buildUpdateQuery));
+  app.delete('/rest/v1/:table',  requireAuth, handleWrite(buildDeleteQuery));
 
-  // ───────── RPC ─────────
   app.post('/rest/v1/rpc/:fn', requireAuth, async (req, res) => {
     const { fn } = req.params;
     try {
@@ -125,7 +111,6 @@ module.exports = function(app, { requireAuth, pool }) {
       try {
         const result = await client.query(sql, params);
         res.setHeader('X-Helm-Rest', '1');
-        // PostgREST returns the result as JSON: array of rows or unwrapped scalar
         return res.status(200).json(result.rows);
       } finally {
         client.release();
