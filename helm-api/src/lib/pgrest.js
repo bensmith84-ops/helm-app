@@ -263,8 +263,153 @@ function buildSelectQuery({ table, query, headers, orgId }) {
   return { sql, params, countMode, offset, limit };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// WRITES — INSERT / UPDATE / DELETE
+// ─────────────────────────────────────────────────────────────────────────
+
+// Build WHERE clause from query params (used by PATCH and DELETE).
+function buildWhereFromQuery(query) {
+  const params = [];
+  const wheres = [];
+  for (const [key, raw] of Object.entries(query)) {
+    if (['select','order','limit','offset','or','and','on_conflict','columns'].includes(key)) continue;
+    const values = Array.isArray(raw) ? raw : [raw];
+    for (const v of values) {
+      wheres.push(parseFilter(key, v, params).sql);
+    }
+  }
+  return { whereSql: wheres.length ? ' WHERE ' + wheres.join(' AND ') : '', params };
+}
+
+// POST = INSERT (or UPSERT if Prefer: resolution=merge-duplicates + on_conflict=col,col)
+function buildInsertQuery({ table, body, query, headers }) {
+  assertIdent(table, 'table');
+  const rows = Array.isArray(body) ? body : [body];
+  if (rows.length === 0) throw new Error('empty body');
+
+  // Collect union of columns across all rows
+  const colSet = new Set();
+  for (const r of rows) for (const k of Object.keys(r)) colSet.add(assertIdent(k, 'column'));
+  const cols = Array.from(colSet);
+
+  const params = [];
+  const valuesSqls = rows.map(row => {
+    const placeholders = cols.map(c => {
+      if (c in row) {
+        params.push(row[c] === undefined ? null : row[c]);
+        return `$${params.length}`;
+      }
+      return 'DEFAULT';
+    });
+    return `(${placeholders.join(',')})`;
+  });
+
+  let sql = `INSERT INTO "${table}" (${cols.map(c => `"${c}"`).join(',')}) VALUES ${valuesSqls.join(',')}`;
+
+  // Upsert detection
+  const prefer = (headers['prefer'] || '').toLowerCase();
+  const isUpsert = prefer.includes('resolution=merge-duplicates') || prefer.includes('resolution=ignore-duplicates');
+  if (isUpsert) {
+    const onConflict = query.on_conflict;
+    if (!onConflict) {
+      // PostgREST defaults to PK conflict — pg can derive this; but we need to be explicit
+      sql += ` ON CONFLICT DO NOTHING`;
+    } else {
+      const conflictCols = splitTopLevel(onConflict).map(c => `"${assertIdent(c, 'on_conflict col')}"`).join(',');
+      if (prefer.includes('resolution=ignore-duplicates')) {
+        sql += ` ON CONFLICT (${conflictCols}) DO NOTHING`;
+      } else {
+        // merge-duplicates: update all non-conflict columns
+        const updateCols = cols.filter(c => !onConflict.split(',').map(x => x.trim()).includes(c));
+        if (updateCols.length === 0) {
+          sql += ` ON CONFLICT (${conflictCols}) DO NOTHING`;
+        } else {
+          const setClauses = updateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ');
+          sql += ` ON CONFLICT (${conflictCols}) DO UPDATE SET ${setClauses}`;
+        }
+      }
+    }
+  }
+
+  // RETURNING clause based on Prefer
+  if (prefer.includes('return=representation')) {
+    sql += ' RETURNING *';
+  } else if (prefer.includes('return=headers-only')) {
+    sql += ' RETURNING *'; // we still need to know affected rows
+  }
+
+  return { sql, params, prefer };
+}
+
+// PATCH = UPDATE
+function buildUpdateQuery({ table, body, query, headers }) {
+  assertIdent(table, 'table');
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new Error('PATCH body must be a JSON object');
+  }
+  const keys = Object.keys(body).map(k => assertIdent(k, 'column'));
+  if (keys.length === 0) throw new Error('PATCH body must contain at least one field');
+
+  const params = [];
+  const setClauses = keys.map(k => {
+    params.push(body[k] === undefined ? null : body[k]);
+    return `"${k}" = $${params.length}`;
+  });
+
+  const { whereSql, params: whereParams } = buildWhereFromQuery(query);
+  // Renumber where placeholders to follow set params
+  const shifted = whereSql.replace(/\$(\d+)/g, (_, n) => `$${parseInt(n,10) + params.length}`);
+  const allParams = params.concat(whereParams);
+
+  if (!whereSql) {
+    // PostgREST requires a filter for PATCH — refuse unscoped updates
+    throw new Error('PATCH requires at least one filter (refusing unscoped UPDATE)');
+  }
+
+  let sql = `UPDATE "${table}" SET ${setClauses.join(', ')}${shifted}`;
+  const prefer = (headers['prefer'] || '').toLowerCase();
+  if (prefer.includes('return=representation') || prefer.includes('return=headers-only')) {
+    sql += ' RETURNING *';
+  }
+  return { sql, params: allParams, prefer };
+}
+
+// DELETE
+function buildDeleteQuery({ table, query, headers }) {
+  assertIdent(table, 'table');
+  const { whereSql, params } = buildWhereFromQuery(query);
+  if (!whereSql) {
+    throw new Error('DELETE requires at least one filter (refusing unscoped DELETE)');
+  }
+  let sql = `DELETE FROM "${table}"${whereSql}`;
+  const prefer = (headers['prefer'] || '').toLowerCase();
+  if (prefer.includes('return=representation') || prefer.includes('return=headers-only')) {
+    sql += ' RETURNING *';
+  }
+  return { sql, params, prefer };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RPC — POST /rest/v1/rpc/:fn  body={args}
+// PostgREST calls SQL functions. We translate the body to named params.
+// ─────────────────────────────────────────────────────────────────────────
+function buildRpcQuery({ fn, body }) {
+  assertIdent(fn, 'function');
+  const args = (body && typeof body === 'object' && !Array.isArray(body)) ? body : {};
+  const keys = Object.keys(args).map(k => assertIdent(k, 'arg name'));
+  const params = keys.map(k => args[k]);
+  const callList = keys.map((k, i) => `"${k}" => $${i+1}`).join(', ');
+  // Postgres handles SETOF / scalar / table returns uniformly via SELECT
+  const sql = `SELECT * FROM "${fn}"(${callList})`;
+  return { sql, params };
+}
+
 module.exports = {
   buildSelectQuery,
+  buildInsertQuery,
+  buildUpdateQuery,
+  buildDeleteQuery,
+  buildRpcQuery,
   parseFilter,
   parseLogical,
   parseSelect,
