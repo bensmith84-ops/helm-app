@@ -48,9 +48,7 @@ export function AuthProvider({ children }) {
     const email = authUser.email;
     const displayName = authUser.user_metadata?.full_name || authUser.user_metadata?.name || email?.split("@")[0] || "User";
 
-    // Stage 4h: look up by firebase_uid column. The `id` column is uuid-typed and
-    // can't match a Firebase UID string; we have to use the bridge column.
-    let { data: existingProfile } = await supabase.from("profiles").select("*").eq("firebase_uid", userId).maybeSingle();
+    let { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
 
     if (existingProfile) {
       setProfile(existingProfile);
