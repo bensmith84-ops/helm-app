@@ -1433,7 +1433,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("status")}>Status{arrow("status")}<ResizeHandle index={1} onStart={projResize} /></div>
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("priority")}>Priority{arrow("priority")}<ResizeHandle index={2} onStart={projResize} /></div>}
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle index={3} onStart={projResize} /></div>}
-        {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("due_date")}>Due date{arrow("due_date")}<ResizeHandle index={4} onStart={projResize} /></div>}
+        {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("due_date")} title="Sort by due date">Dates{arrow("due_date")}<ResizeHandle index={4} onStart={projResize} /></div>}
       </div>
       {projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id); const roots = sortedTasks(rootTasks(st)); const isColl = collapsed[sec.id]; const sd = st.filter(t => t.status === "done").length; const color = secColor(si);
         const wipBreached = sec.wip_limit && st.filter(t => t.status !== "done").length > sec.wip_limit;
@@ -1561,7 +1561,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                       </div>
                     )}
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      {task.due_date && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: isOverdue(task.due_date) && !isDone ? T.redDim : T.surface3, color: isOverdue(task.due_date) && !isDone ? T.red : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
+                      {(task.start_date || task.due_date) && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: isOverdue(task.due_date) && !isDone ? T.redDim : T.surface3, color: isOverdue(task.due_date) && !isDone ? T.red : T.text3, fontWeight: 500 }}>{task.start_date && task.due_date ? `${toDateStr(task.start_date)} → ${toDateStr(task.due_date)}` : toDateStr(task.due_date || task.start_date)}</span>}
                       {subs.length > 0 && <span style={{ fontSize: 10, color: T.text3 }}>✓ {subs.filter(s => s.status === "done").length}/{subs.length}</span>}
                       {task.story_points && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: T.surface3, color: T.text3, fontWeight: 700 }}>{task.story_points}sp</span>}
                       <div style={{ flex: 1 }} />
@@ -1822,7 +1822,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                     </div>
                   </div>
                   {task.estimated_hours && <span style={{ fontSize: 10, color: T.text3 }}>{task.estimated_hours}h</span>}
-                  {task.due_date && <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 8, background: group.key === "overdue" ? "#ef444420" : T.surface3, color: group.key === "overdue" ? "#ef4444" : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
+                  {(task.start_date || task.due_date) && <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 8, background: group.key === "overdue" ? "#ef444420" : T.surface3, color: group.key === "overdue" ? "#ef4444" : T.text3, fontWeight: 500 }}>{task.start_date && task.due_date ? `${toDateStr(task.start_date)} → ${toDateStr(task.due_date)}` : toDateStr(task.due_date || task.start_date)}</span>}
                 </div>
               );
             })}
@@ -2314,7 +2314,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                   <Checkbox task={sub} size={14} />
                   <span style={{ fontSize: 13, color: sub.status === "done" ? T.text3 : T.text, textDecoration: sub.status === "done" ? "line-through" : "none", flex: 1 }}>{sub.title}</span>
                   {sub.assignee_id && <div style={{ width: 18, height: 18, borderRadius: 9, background: acol(sub.assignee_id) + "30", color: acol(sub.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700 }}>{ini(sub.assignee_id)}</div>}
-                  {sub.due_date && <span style={{ fontSize: 10, color: isOverdue(sub.due_date) && sub.status !== "done" ? T.red : T.text3 }}>{toDateStr(sub.due_date)}</span>}
+                  <SubtaskDateRange sub={sub} onUpdate={updateField} />
                 </div>
               ))}
               {addingSubtaskTo === task.id ? (
@@ -3805,12 +3805,66 @@ function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname, pro
   );
 }
 
-function DateCell({ task, onUpdate }) {
-  const od = isOverdue(task.due_date) && task.status !== "done";
+function SubtaskDateRange({ sub, onUpdate }) {
+  // Compact inline date-range for subtask cards. Both dates editable without opening detail panel.
+  // Each input only shows when set OR on hover (so unused dates don't clutter the list).
+  const od = sub.due_date && new Date(sub.due_date) < new Date() && sub.status !== "done";
+  const stop = (e) => e.stopPropagation();
+  const baseStyle = {
+    background: "none", border: "none", fontSize: 10, cursor: "pointer", outline: "none",
+    padding: 0, fontFamily: "inherit", width: 78,
+  };
+  if (!sub.start_date && !sub.due_date) {
+    // Show a single, faint placeholder date input for adding a due date inline
+    return (
+      <input type="date" value="" onClick={stop}
+        onChange={(e) => onUpdate(sub.id, "due_date", e.target.value || null)}
+        title="Add due date"
+        style={{ ...baseStyle, color: T.text3, opacity: 0.5 }} />
+    );
+  }
   return (
-    <input type="date" value={task.due_date || ""} onChange={(e) => onUpdate(task.id, "due_date", e.target.value || null)}
-      onClick={(e) => e.stopPropagation()}
-      style={{ background: "none", border: "none", color: od ? T.red : task.due_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit" }} />
+    <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={stop}>
+      <input type="date" value={sub.start_date || ""}
+        onChange={(e) => onUpdate(sub.id, "start_date", e.target.value || null)}
+        title="Start date"
+        style={{ ...baseStyle, color: sub.start_date ? T.text3 : T.text3, opacity: sub.start_date ? 1 : 0.5 }} />
+      <span style={{ color: T.text3, fontSize: 9, userSelect: "none" }}>→</span>
+      <input type="date" value={sub.due_date || ""}
+        onChange={(e) => onUpdate(sub.id, "due_date", e.target.value || null)}
+        title={od ? "Due date (overdue)" : "Due date"}
+        style={{ ...baseStyle, color: od ? T.red : sub.due_date ? T.text3 : T.text3, opacity: sub.due_date ? 1 : 0.5 }} />
+    </div>
+  );
+}
+
+function DateCell({ task, onUpdate }) {
+  // Range cell: shows both start_date and due_date as inline date inputs separated by an arrow.
+  // Each input is independent — change one without touching the other. If only one is set,
+  // the other input still renders (empty) so the user can fill it in without going to the
+  // detail panel. Overdue (due_date < today, not done) is highlighted in red on the due-date side.
+  const od = isOverdue(task.due_date) && task.status !== "done";
+  const labelColor = (v, red) => red ? T.red : v ? T.text2 : T.text3;
+  const inputStyle = (v, red) => ({
+    background: "none", border: "none",
+    color: labelColor(v, red),
+    fontSize: 12, cursor: "pointer", outline: "none", width: 95, fontFamily: "inherit",
+    padding: 0,
+  });
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={(e) => e.stopPropagation()}>
+      <input type="date"
+        value={task.start_date || ""}
+        onChange={(e) => onUpdate(task.id, "start_date", e.target.value || null)}
+        title="Start date"
+        style={inputStyle(task.start_date, false)} />
+      <span style={{ color: T.text3, fontSize: 11, userSelect: "none" }}>→</span>
+      <input type="date"
+        value={task.due_date || ""}
+        onChange={(e) => onUpdate(task.id, "due_date", e.target.value || null)}
+        title={od ? "Due date (overdue)" : "Due date"}
+        style={inputStyle(task.due_date, od)} />
+    </div>
   );
 }
 
