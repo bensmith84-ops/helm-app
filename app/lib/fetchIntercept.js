@@ -5,11 +5,13 @@
 //   2. Calls to https://*.supabase.co/rest/v1/<path>      → helm-api/rest/v1/<path>
 // Both have the Supabase anon JWT stripped and the user's Firebase ID token attached.
 //
-// This is the central plumbing for full PostgREST/Functions parity behind a flag.
+// Auth-ready gate: on first load we await onAuthStateChanged before sending the first
+// intercepted request, so we never send tokenless requests during the brief window
+// between page load and Firebase sign-in resolving.
 
 "use client";
 
-import { getCurrentIdToken } from "./firebase";
+import { getCurrentIdToken, onAuthStateChanged } from "./firebase";
 import { USE_HELM_API } from "./helmApi";
 
 const HELM_API_BASE =
@@ -31,11 +33,43 @@ function shouldIntercept(url) {
   return null;
 }
 
+// Auth-ready gate. Resolves on first onAuthStateChanged callback (signed in OR out).
+// We resolve either way — if signed out, we still want the request to fire (and 401).
+let authReadyPromise = null;
+function getAuthReady() {
+  if (authReadyPromise) return authReadyPromise;
+  authReadyPromise = new Promise((resolve) => {
+    let resolved = false;
+    const finish = () => { if (!resolved) { resolved = true; resolve(); } };
+    // Hard timeout — never block longer than 8s
+    setTimeout(finish, 8000);
+
+    try {
+      // Dynamically import to avoid SSR issues
+      import("./firebase").then(({ getFirebaseAuth }) => {
+        const auth = getFirebaseAuth();
+        if (!auth) { finish(); return; }
+        if (auth.currentUser) { finish(); return; } // already signed in
+        const unsub = onAuthStateChanged(auth, () => {
+          finish();
+          try { unsub(); } catch {}
+        });
+      }).catch(() => finish());
+    } catch {
+      finish();
+    }
+  });
+  return authReadyPromise;
+}
+
 let installed = false;
 export function installFetchInterceptor() {
   if (installed) return;
   if (typeof window === "undefined" || typeof window.fetch !== "function") return;
   installed = true;
+
+  // Start the auth-ready promise as soon as the interceptor is installed
+  getAuthReady();
 
   const originalFetch = window.fetch.bind(window);
 
@@ -43,6 +77,10 @@ export function installFetchInterceptor() {
     const url = typeof input === "string" ? input : input?.url;
     const intercept = shouldIntercept(url);
     if (!intercept) return originalFetch(input, init);
+
+    // Wait for the first Firebase auth state callback (or 8s timeout) before sending.
+    // Prevents the race where supabase-js fires calls before Firebase has signed in.
+    await getAuthReady();
 
     // Strip Supabase auth headers, attach Firebase token
     const newHeaders = new Headers(init.headers || {});
