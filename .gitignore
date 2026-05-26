@@ -1,3 +1,17 @@
 node_modules
 .next
 out
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Keys and service accounts
+*.pem
+*.key
+*.p12
+*-credentials.json
+*service-account*.json
+secrets/
