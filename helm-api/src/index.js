@@ -45,7 +45,7 @@ app.use(cors({
   origin: true,
   credentials: true,
   methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
-  allowedHeaders: ['Authorization','Content-Type','x-client-info','apikey','X-Requested-With'],
+  allowedHeaders: ['Authorization','Content-Type','x-client-info','apikey','X-Requested-With','Prefer','Accept-Profile','Content-Profile','Range','Range-Unit','X-Helm-Rest'],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['authorization', 'content-type', 'x-client-info'],
   credentials: true,
