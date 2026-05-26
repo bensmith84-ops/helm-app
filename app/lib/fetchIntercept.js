@@ -28,6 +28,23 @@ const POSTGREST_ALLOWLIST = new Set([
 ]);
 
 const FUNCTIONS_RE = /^https?:\/\/[^/]+\.supabase\.co\/functions\/v1\/(.+)$/;
+
+// Functions that should STAY on Supabase, not be redirected to helm-api.
+// These either: (a) have buggy/incomplete helm-api ports, or (b) we haven't
+// yet provisioned the env vars they need (GOOGLE_SERVICE_ACCOUNT, etc.).
+// Expand or shrink this denylist as helm-api ports become trustworthy.
+const FUNCTIONS_DENYLIST = new Set([
+  "qbo-auto-sync",
+  "qbo-sync",
+  "qbo-callback",
+  "qbo-auth-url",
+  "qbo-attachments",
+  "qbo-push",
+  "sheets-sync",
+  "sheets-daily-sync",
+  "sheets-preview",
+  "sheets-explore",
+]);
 const POSTGREST_RE = /^https?:\/\/[^/]+\.supabase\.co\/rest\/v1\/([^?/]+)(\?.*)?$/;
 
 function shouldIntercept(url) {
@@ -36,7 +53,13 @@ function shouldIntercept(url) {
     try { url = url.toString(); } catch { return null; }
   }
   const fm = url.match(FUNCTIONS_RE);
-  if (fm) return { kind: 'functions', target: `${HELM_API_BASE}/${fm[1]}` };
+  if (fm) {
+    // The captured group is everything after /functions/v1/, possibly including
+    // query string. The bare function name is up to the first / or ?
+    const name = fm[1].split(/[/?]/)[0];
+    if (FUNCTIONS_DENYLIST.has(name)) return null; // keep on Supabase
+    return { kind: 'functions', target: `${HELM_API_BASE}/${fm[1]}` };
+  }
   const pm = url.match(POSTGREST_RE);
   if (pm) {
     const table = pm[1];
