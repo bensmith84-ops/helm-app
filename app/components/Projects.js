@@ -793,9 +793,15 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   };
 
   const [savingAsTemplate, setSavingAsTemplate] = useState(null); // project being saved as template
+  const [savingAsTemplateForm, setSavingAsTemplateForm] = useState({ name: "", description: "", icon: "📋", color: "#3b82f6" });
+  const [templateEditor, setTemplateEditor] = useState(null); // { mode: "new"|"edit", id?, name, description, icon, color, sections: [{name, tasks: [string]}] }
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
 
   const saveAsTemplate = async (srcProject) => {
     if (!profile?.org_id) return;
+    const form = savingAsTemplateForm;
+    const name = (form.name || srcProject.name || "Untitled Template").trim();
+    if (!name) return showToast("Template name is required");
     const srcSections = sections.filter(s => s.project_id === srcProject.id);
     const sectionData = srcSections.map(s => ({
       name: s.name,
@@ -806,10 +812,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     }));
     const { data, error } = await supabase.from("project_templates").insert({
       org_id: profile.org_id,
-      name: srcProject.name,
-      description: srcProject.description || "",
-      icon: srcProject.emoji || "📋",
-      color: srcProject.color || "#3b82f6",
+      name,
+      description: form.description || srcProject.description || "",
+      icon: form.icon || srcProject.emoji || "📋",
+      color: form.color || srcProject.color || "#3b82f6",
       is_builtin: false,
       created_by: profile.id,
       template_data: { default_view: srcProject.default_view || "List" },
@@ -818,7 +824,88 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     if (error) return showToast("Failed to save as template: " + error.message);
     setTemplates(p => [...p, data]);
     setSavingAsTemplate(null);
-    showToast(`"${srcProject.name}" saved as template`, "success");
+    setSavingAsTemplateForm({ name: "", description: "", icon: "📋", color: "#3b82f6" });
+    showToast(`"${name}" saved as template`, "success");
+  };
+
+  const saveTemplateFromEditor = async () => {
+    const ed = templateEditor;
+    if (!ed) return;
+    if (!ed.name?.trim()) return showToast("Template name is required");
+    if (!profile?.org_id) return showToast("No organization found");
+    const cleanSections = (ed.sections || [])
+      .map((s, i) => ({
+        name: (s.name || "").trim(),
+        sort_order: i + 1,
+        is_complete_column: false,
+        tasks: (s.tasks || []).map(t => (t || "").trim()).filter(Boolean),
+      }))
+      .filter(s => s.name);
+    if (cleanSections.length === 0) return showToast("Add at least one section");
+    const payload = {
+      name: ed.name.trim(),
+      description: (ed.description || "").trim(),
+      icon: ed.icon || "📋",
+      color: ed.color || "#3b82f6",
+      sections: cleanSections,
+      template_data: ed.template_data || { default_view: "List" },
+    };
+    if (ed.mode === "edit" && ed.id) {
+      const { data, error } = await supabase.from("project_templates").update(payload).eq("id", ed.id).select().single();
+      if (error) return showToast("Failed to save template: " + error.message);
+      setTemplates(p => p.map(t => t.id === ed.id ? data : t));
+      showToast(`Template "${data.name}" updated`, "success");
+    } else {
+      const { data, error } = await supabase.from("project_templates").insert({
+        ...payload,
+        org_id: profile.org_id,
+        is_builtin: false,
+        created_by: profile.id,
+      }).select().single();
+      if (error) return showToast("Failed to create template: " + error.message);
+      setTemplates(p => [...p, data]);
+      showToast(`Template "${data.name}" created`, "success");
+    }
+    setTemplateEditor(null);
+  };
+
+  const deleteTemplate = async (tmpl) => {
+    if (tmpl.is_builtin) return showToast("Built-in templates cannot be deleted");
+    if (!window.confirm(`Delete template "${tmpl.name}"? This cannot be undone.`)) return;
+    const { error } = await supabase.from("project_templates").delete().eq("id", tmpl.id);
+    if (error) return showToast("Failed to delete: " + error.message);
+    setTemplates(p => p.filter(t => t.id !== tmpl.id));
+    showToast(`Template "${tmpl.name}" deleted`, "success");
+  };
+
+  const openNewTemplateEditor = () => {
+    setTemplateEditor({
+      mode: "new",
+      name: "", description: "", icon: "📋", color: "#3b82f6",
+      sections: [
+        { name: "To Do", tasks: [""] },
+        { name: "In Progress", tasks: [""] },
+        { name: "Done", tasks: [""] },
+      ],
+    });
+    setShowTemplates(false);
+    setShowTemplateManager(false);
+  };
+
+  const openEditTemplateEditor = (tmpl) => {
+    if (tmpl.is_builtin) return showToast("Built-in templates cannot be edited");
+    setTemplateEditor({
+      mode: "edit",
+      id: tmpl.id,
+      name: tmpl.name, description: tmpl.description || "",
+      icon: tmpl.icon || "📋", color: tmpl.color || "#3b82f6",
+      sections: (tmpl.sections || []).map(s => ({
+        name: s.name,
+        tasks: [...(s.tasks || []), ""],
+      })),
+      template_data: tmpl.template_data,
+    });
+    setShowTemplateManager(false);
   };
 
   const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, key_result_id: projectForm.key_result_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { const newMembers = []; for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); newMembers.push({ project_id: data.id, user_id: uid, role: "member" }); if (uid !== user?.id) { await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: uid, type: "project_added", title: `${uname(user?.id)} added you to ${data.name}`, body: data.description || "You've been added to a project", entity_type: "project", entity_id: data.id, actor_id: user?.id, is_read: false, category: "assignment", metadata: { project_name: data.name } }); } } setProjMembersList(p => [...p, ...newMembers]); } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) { await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); setProjMembersList(p => [...p, { project_id: data.id, user_id: projectForm.owner_id, role: "owner" }]); if (projectForm.owner_id !== user?.id) { await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: projectForm.owner_id, type: "project_added", title: `${uname(user?.id)} made you owner of ${data.name}`, body: "You've been assigned as project owner", entity_type: "project", entity_id: data.id, actor_id: user?.id, is_read: false, category: "assignment", metadata: { project_name: data.name } }); } } } } else { const { error } = await supabase.from("projects").update(payload).eq("org_id", orgId).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
@@ -1170,7 +1257,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               <div onClick={() => { setCopyingProject(p); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Copy
               </div>
-              <div onClick={() => { setSavingAsTemplate(p); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div onClick={() => { setSavingAsTemplate(p); setSavingAsTemplateForm({ name: p.name, description: p.description || "", icon: p.emoji || "📋", color: p.color || "#3b82f6" }); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>Save as Template
               </div>
               <div onClick={() => { archiveProject(p.id); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -2703,8 +2790,14 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         <div onClick={e => e.stopPropagation()} style={{ width: 640, maxHeight: "80vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.35)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Start from Template</h3>
-              <button onClick={() => setShowTemplates(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
+              <div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Start from Template</h3>
+                <p style={{ fontSize: 12, color: T.text3, margin: "4px 0 0" }}>{templates.length} template{templates.length === 1 ? "" : "s"} available</p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => { setShowTemplates(false); setShowTemplateManager(true); }} style={{ padding: "6px 12px", borderRadius: 6, background: T.surface3, color: T.text2, border: `1px solid ${T.border}`, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>Manage</button>
+                <button onClick={() => setShowTemplates(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
+              </div>
             </div>
             <p style={{ fontSize: 13, color: T.text3, margin: "6px 0 0" }}>Choose a template to pre-populate your project with sections and tasks.</p>
           </div>
@@ -2734,10 +2827,13 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 </div>
               ))}
             </div>
-            <div onClick={() => { setShowTemplates(false); openNewProject(); }} style={{ marginTop: 16, padding: "14px 18px", border: `1.5px dashed ${T.border}`, borderRadius: 12, cursor: "pointer", textAlign: "center", color: T.text3, fontSize: 13, fontWeight: 500 }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}>
-              + Start with blank project
+            <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+              <div onClick={openNewTemplateEditor} style={{ padding: "14px 18px", border: `1.5px dashed ${T.accent}`, borderRadius: 12, cursor: "pointer", textAlign: "center", color: T.accent, fontSize: 13, fontWeight: 600, background: T.accentDim }}>＋ Create new template</div>
+              <div onClick={() => { setShowTemplates(false); openNewProject(); }} style={{ padding: "14px 18px", border: `1.5px dashed ${T.border}`, borderRadius: 12, cursor: "pointer", textAlign: "center", color: T.text3, fontSize: 13, fontWeight: 500 }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}>
+                + Start with blank project
+              </div>
             </div>
           </div>
         </div>
@@ -2746,10 +2842,194 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   })();
 
   // Copy project modal
+  const templateManagerEl = (() => {
+    if (!showTemplateManager) return null;
+    const custom = templates.filter(t => !t.is_builtin);
+    const builtin = templates.filter(t => t.is_builtin);
+    return (
+      <div onClick={() => setShowTemplateManager(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 640, maxHeight: "85vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "20px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Manage Templates</h3>
+              <p style={{ fontSize: 12, color: T.text3, margin: "4px 0 0" }}>Create, edit and delete your project templates</p>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={openNewTemplateEditor} style={{ padding: "7px 14px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>＋ New Template</button>
+              <button onClick={() => setShowTemplateManager(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "16px 24px" }}>
+            {custom.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Custom ({custom.length})</div>
+                {custom.map(t => {
+                  const secCount = (t.sections || []).length;
+                  const taskCount = (t.sections || []).reduce((sum, s) => sum + (s.tasks || []).length, 0);
+                  return (
+                    <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 6, background: T.surface2 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: (t.color || "#3b82f6") + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{t.icon || "📋"}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                        <div style={{ fontSize: 11, color: T.text3 }}>{secCount} section{secCount !== 1 ? "s" : ""} · {taskCount} task{taskCount !== 1 ? "s" : ""}{t.description ? ` — ${t.description}` : ""}</div>
+                      </div>
+                      <button onClick={() => openEditTemplateEditor(t)} style={{ padding: "6px 12px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>Edit</button>
+                      <button onClick={() => deleteTemplate(t)} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", color: T.red, border: `1px solid ${T.border}`, fontSize: 11, fontWeight: 500, cursor: "pointer" }}>Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {builtin.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Built-in ({builtin.length})</div>
+                {builtin.map(t => {
+                  const secCount = (t.sections || []).length;
+                  const taskCount = (t.sections || []).reduce((sum, s) => sum + (s.tasks || []).length, 0);
+                  return (
+                    <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 6, background: T.surface2, opacity: 0.85 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: (t.color || "#3b82f6") + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{t.icon || "📋"}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{t.name} <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: T.surface3, color: T.text3, marginLeft: 6, fontWeight: 500 }}>Built-in</span></div>
+                        <div style={{ fontSize: 11, color: T.text3 }}>{secCount} section{secCount !== 1 ? "s" : ""} · {taskCount} task{taskCount !== 1 ? "s" : ""}{t.description ? ` — ${t.description}` : ""}</div>
+                      </div>
+                      <span style={{ fontSize: 10, color: T.text3 }}>Read-only</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {templates.length === 0 && (
+              <div style={{ textAlign: "center", padding: "60px 0", color: T.text3 }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: T.text2, marginBottom: 6 }}>No templates yet</div>
+                <div style={{ fontSize: 12, marginBottom: 16 }}>Create a template from scratch or save an existing project as a template.</div>
+                <button onClick={openNewTemplateEditor} style={{ padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>＋ Create your first template</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+  const templateEditorEl = (() => {
+    const ed = templateEditor;
+    if (!ed) return null;
+    const setEd = (patch) => setTemplateEditor(p => ({ ...p, ...patch }));
+    const setSection = (idx, patch) => setEd({
+      sections: ed.sections.map((s, i) => i === idx ? { ...s, ...patch } : s),
+    });
+    const addSection = () => setEd({
+      sections: [...ed.sections, { name: "New Section", tasks: [""] }],
+    });
+    const removeSection = (idx) => setEd({
+      sections: ed.sections.filter((_, i) => i !== idx),
+    });
+    const moveSection = (idx, dir) => {
+      const j = idx + dir;
+      if (j < 0 || j >= ed.sections.length) return;
+      const next = [...ed.sections];
+      [next[idx], next[j]] = [next[j], next[idx]];
+      setEd({ sections: next });
+    };
+    const setTaskAt = (sIdx, tIdx, val) => {
+      const tasks = [...(ed.sections[sIdx].tasks || [])];
+      tasks[tIdx] = val;
+      if (tIdx === tasks.length - 1 && val.trim() !== "") tasks.push("");
+      setSection(sIdx, { tasks });
+    };
+    const removeTask = (sIdx, tIdx) => {
+      const tasks = (ed.sections[sIdx].tasks || []).filter((_, i) => i !== tIdx);
+      setSection(sIdx, { tasks: tasks.length ? tasks : [""] });
+    };
+    const iconChoices = ["📋", "🚀", "🎯", "💼", "📊", "🛠️", "🔬", "📦", "🎨", "🧪", "📈", "✨"];
+    const colorChoices = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"];
+    const lbl = { fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 };
+    const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" };
+    return (
+      <div onClick={() => setTemplateEditor(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 720, maxWidth: "92vw", maxHeight: "88vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "20px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>{ed.mode === "edit" ? "Edit Template" : "New Template"}</h3>
+            <button onClick={() => setTemplateEditor(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "16px 24px" }}>
+            <div style={{ marginBottom: 12 }}>
+              <label style={lbl}>Template name *</label>
+              <input value={ed.name} onChange={e => setEd({ name: e.target.value })} placeholder="e.g. Product Launch Checklist" autoFocus style={inp} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={lbl}>Description</label>
+              <textarea value={ed.description} onChange={e => setEd({ description: e.target.value })} rows={2} placeholder="What is this template for?" style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+              <div>
+                <label style={lbl}>Icon</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {iconChoices.map(ic => (
+                    <button key={ic} onClick={() => setEd({ icon: ic })} style={{ width: 30, height: 30, fontSize: 16, borderRadius: 6, border: `1px solid ${ed.icon === ic ? T.accent : T.border}`, background: ed.icon === ic ? T.accentDim : T.surface2, cursor: "pointer" }}>{ic}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Color</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {colorChoices.map(c => (
+                    <button key={c} onClick={() => setEd({ color: c })} style={{ width: 24, height: 24, borderRadius: "50%", border: ed.color === c ? `2px solid ${T.text}` : "2px solid transparent", background: c, cursor: "pointer" }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <label style={{ ...lbl, marginBottom: 0 }}>Sections &amp; Tasks</label>
+                <button onClick={addSection} style={{ padding: "5px 10px", borderRadius: 5, background: T.surface3, color: T.text2, border: `1px solid ${T.border}`, fontSize: 11, cursor: "pointer" }}>＋ Add Section</button>
+              </div>
+              {ed.sections.map((sec, sIdx) => (
+                <div key={sIdx} style={{ marginBottom: 10, padding: 10, borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                    <input value={sec.name} onChange={e => setSection(sIdx, { name: e.target.value })} placeholder="Section name" style={{ flex: 1, padding: "6px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, outline: "none" }} />
+                    <button onClick={() => moveSection(sIdx, -1)} disabled={sIdx === 0} style={{ padding: "4px 8px", background: "none", border: "none", color: sIdx === 0 ? T.text3 : T.text2, cursor: sIdx === 0 ? "default" : "pointer", fontSize: 14 }}>↑</button>
+                    <button onClick={() => moveSection(sIdx, 1)} disabled={sIdx === ed.sections.length - 1} style={{ padding: "4px 8px", background: "none", border: "none", color: sIdx === ed.sections.length - 1 ? T.text3 : T.text2, cursor: sIdx === ed.sections.length - 1 ? "default" : "pointer", fontSize: 14 }}>↓</button>
+                    <button onClick={() => removeSection(sIdx)} style={{ padding: "4px 8px", background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 14 }}>✕</button>
+                  </div>
+                  {(sec.tasks || []).map((task, tIdx) => (
+                    <div key={tIdx} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <span style={{ color: T.text3, fontSize: 11, width: 12 }}>·</span>
+                      <input value={task} onChange={e => setTaskAt(sIdx, tIdx, e.target.value)} placeholder={tIdx === sec.tasks.length - 1 ? "Add a task..." : "Task title"}
+                        style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: `1px solid transparent`, background: "transparent", color: T.text, fontSize: 12, outline: "none" }}
+                        onFocus={e => e.currentTarget.style.background = T.surface3}
+                        onBlur={e => e.currentTarget.style.background = "transparent"} />
+                      {task && <button onClick={() => removeTask(sIdx, tIdx)} style={{ padding: "2px 6px", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {ed.sections.length === 0 && (
+                <div style={{ textAlign: "center", padding: "30px 0", color: T.text3, fontSize: 12, border: `1px dashed ${T.border}`, borderRadius: 8 }}>
+                  No sections yet. Click "+ Add Section" to start.
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={() => setTemplateEditor(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={saveTemplateFromEditor} style={{ padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>{ed.mode === "edit" ? "Save Changes" : "Create Template"}</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
   const saveAsTemplateModalEl = (() => {
     if (!savingAsTemplate) return null;
     const secCount = sections.filter(s => s.project_id === savingAsTemplate.id).length;
     const taskCount = tasks.filter(t => t.project_id === savingAsTemplate.id && !t.parent_task_id).length;
+    const f = savingAsTemplateForm;
+    const setF = (k, v) => setSavingAsTemplateForm(p => ({ ...p, [k]: v }));
+    const iconChoices = ["📋", "🚀", "🎯", "💼", "📊", "🛠️", "🔬", "📦", "🎨", "🧪", "📈", "✨"];
+    const colorChoices = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"];
     return (
       <div onClick={() => setSavingAsTemplate(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div onClick={e => e.stopPropagation()} style={{ width: 400, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
@@ -2763,8 +3043,38 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: 10, marginBottom: 18, fontSize: 13, color: T.text2, lineHeight: 1.5 }}>
             This will save <strong style={{ color: T.text }}>{secCount} section{secCount !== 1 ? "s" : ""}</strong> and <strong style={{ color: T.text }}>{taskCount} task{taskCount !== 1 ? "s" : ""}</strong> as a reusable template. Task titles will be kept but assignees, due dates, and progress will be cleared.
           </div>
+          <div style={{ padding: "0 24px 16px" }}>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Template name *</label>
+              <input value={f.name} onChange={e => setF("name", e.target.value)} autoFocus
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Description</label>
+              <textarea value={f.description} onChange={e => setF("description", e.target.value)} rows={2} placeholder="What is this template for?"
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Icon</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {iconChoices.map(ic => (
+                    <button key={ic} onClick={() => setF("icon", ic)} style={{ width: 30, height: 30, fontSize: 16, borderRadius: 6, border: `1px solid ${f.icon === ic ? T.accent : T.border}`, background: f.icon === ic ? T.accentDim : T.surface2, cursor: "pointer" }}>{ic}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Color</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {colorChoices.map(c => (
+                    <button key={c} onClick={() => setF("color", c)} style={{ width: 24, height: 24, borderRadius: "50%", border: f.color === c ? `2px solid ${T.text}` : "2px solid transparent", background: c, cursor: "pointer" }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => setSavingAsTemplate(null)} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => { setSavingAsTemplate(null); setSavingAsTemplateForm({ name: "", description: "", icon: "📋", color: "#3b82f6" }); }} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
             <button onClick={() => saveAsTemplate(savingAsTemplate)} style={{ padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Save Template</button>
           </div>
         </div>
@@ -3386,6 +3696,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       </div>
       {projectFormModalEl}
       {templatesModalEl}
+      {templateManagerEl}
+      {templateEditorEl}
       {showAsanaImport && <AsanaImportModal onClose={() => setShowAsanaImport(false)} onImported={(projId) => { setShowAsanaImport(false); window.location.reload(); }} />}
       {saveAsTemplateModalEl}
       {copyModalEl}
