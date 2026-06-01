@@ -796,6 +796,8 @@ function APAgingView({ isMobile }) {
   const [expandedVendor, setExpandedVendor] = useState(null);
   const [vendorSort, setVendorSort] = useState(["total", "desc"]);
   const [approvalFilter, setApprovalFilter] = useState([]);
+  const [selectedBills, setSelectedBills] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [viewMode, setViewMode] = useState("vendor"); // vendor, date, status, all
   const [billSort, setBillSort] = useState(["due_date", "asc"]);
   const [notesBillId, setNotesBillId] = useState(null);
@@ -896,6 +898,51 @@ function APAgingView({ isMobile }) {
   const filteredEntities = search ? entityList.filter(v => v.name.toLowerCase().includes(search.toLowerCase())) : entityList;
 
   // Helpers for approval
+  // Bulk-apply a single status change to every selected bill.
+  // Mirrors updateBill side-effects (approved_at + qbo-push memo) so the row matches single-row behavior.
+  const applyBulkBillStatus = async (status, label) => {
+    const ids = [...selectedBills];
+    if (ids.length === 0) return;
+    if (!window.confirm(`Mark ${ids.length} bill${ids.length === 1 ? "" : "s"} as ${label}?`)) return;
+    setBulkBusy(true);
+    const updates = { approval_status: status };
+    if (status === "approved") {
+      updates.approved_at = new Date().toISOString();
+    } else if (status === "pending") {
+      updates.approved_at = null;
+      updates.scheduled_payment_date = null;
+      updates.scheduled_by = null;
+      updates.scheduled_at = null;
+    } else if (status === "denied") {
+      updates.scheduled_payment_date = null;
+      updates.scheduled_by = null;
+      updates.scheduled_at = null;
+    }
+    const { error } = await supabase.from("qbo_bills").update(updates).eq("org_id", orgId).in("id", ids);
+    if (error) {
+      setBulkBusy(false);
+      alert("Bulk update failed: " + (error.message || "unknown error"));
+      return;
+    }
+    setBills(p => p.map(b => ids.includes(b.id) ? { ...b, ...updates } : b));
+    // Push status change to QBO as memo update (non-blocking, one call per bill)
+    const statusLabel = status === "approved" ? "✓ Approved in Helm" : status === "paid" ? "✓ Paid" : status === "denied" ? "✗ Denied in Helm" : "";
+    if (statusLabel) {
+      const dateStr = new Date().toLocaleDateString();
+      ids.forEach(id => {
+        const bill = bills.find(b => b.id === id);
+        if (bill?.qbo_id) {
+          fetch(supabase.supabaseUrl + "/functions/v1/qbo-push", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "update_bill_memo", qbo_id: bill.qbo_id, memo: `${statusLabel} (${dateStr})` }),
+          }).catch(() => {});
+        }
+      });
+    }
+    setSelectedBills(new Set());
+    setBulkBusy(false);
+  };
+
   const updateBill = async (billId, updates) => {
     await supabase.from("qbo_bills").update(updates).eq("org_id", orgId).eq("id", billId);
     setBills(p => p.map(b => b.id === billId ? { ...b, ...updates } : b));
@@ -1286,6 +1333,19 @@ function APAgingView({ isMobile }) {
       )}
 
       {/* Bills table — group by vendor, date, status, or show all */}
+      {selectedBills.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 8, borderRadius: 8, background: T.accent + "18", border: `1px solid ${T.accent}`, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: T.accent }}>{selectedBills.size} selected</span>
+          <span style={{ fontSize: 11, color: T.text3 }}>•</span>
+          <span style={{ fontSize: 11, color: T.text2 }}>Mark as:</span>
+          <button disabled={bulkBusy} onClick={() => applyBulkBillStatus("approved", "Approved")} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 4, border: "none", background: T.green + "18", color: T.green, cursor: bulkBusy ? "wait" : "pointer", opacity: bulkBusy ? 0.6 : 1 }}>✓ Approved</button>
+          <button disabled={bulkBusy} onClick={() => applyBulkBillStatus("pending", "Pending")} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 4, border: "none", background: "#94a3b818", color: "#64748b", cursor: bulkBusy ? "wait" : "pointer", opacity: bulkBusy ? 0.6 : 1 }}>⏳ Pending</button>
+          <button disabled={bulkBusy} onClick={() => applyBulkBillStatus("denied", "Denied")} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 4, border: "none", background: T.red + "18", color: T.red, cursor: bulkBusy ? "wait" : "pointer", opacity: bulkBusy ? 0.6 : 1 }}>✕ Denied</button>
+          <button disabled={bulkBusy} onClick={() => applyBulkBillStatus("paid", "Paid")} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 4, border: "none", background: T.accent + "18", color: T.accent, cursor: bulkBusy ? "wait" : "pointer", opacity: bulkBusy ? 0.6 : 1 }}>$ Paid</button>
+          <span style={{ flex: 1 }} />
+          <button onClick={() => setSelectedBills(new Set())} style={{ padding: "4px 10px", fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
+        </div>
+      )}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
         <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1343,9 +1403,19 @@ function APAgingView({ isMobile }) {
           const renderBillRow = (b, showVendor = true) => {
             const overdue = b.due_date && daysDiff(b.due_date) > 0;
             const daysUntil = b.due_date ? -daysDiff(b.due_date) : null;
+            const isSelected = selectedBills.has(b.id);
             return (
             <Fragment key={b.id}>
-              <tr style={{ borderBottom: `1px solid ${T.border}15` }}>
+              <tr style={{ borderBottom: `1px solid ${T.border}15`, background: isSelected ? T.accent + "10" : "transparent" }}>
+                <td style={{ padding: "7px 6px 7px 10px", width: 28, textAlign: "left" }} onClick={e => e.stopPropagation()}>
+                  <input type="checkbox" checked={isSelected}
+                    onChange={e => {
+                      const next = new Set(selectedBills);
+                      if (e.target.checked) next.add(b.id); else next.delete(b.id);
+                      setSelectedBills(next);
+                    }}
+                    style={{ cursor: "pointer", width: 14, height: 14 }} />
+                </td>
                 {showVendor && <td style={{ padding: "7px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b[entityField] || "—"}</td>}
                 <td style={{ padding: "7px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || b.gl_accounts || "—"}</td>
                 <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{fmt(Number(b.balance || b.total_amount))}</td>
@@ -1407,7 +1477,7 @@ function APAgingView({ isMobile }) {
                 </td>
               </tr>
               {notesBillId === b.id && (
-                <tr><td colSpan={billCols.length + (showVendor ? 0 : -1)} style={{ padding: 0, background: T.surface2 + "60" }}>
+                <tr><td colSpan={billCols.length + 1 + (showVendor ? 0 : -1)} style={{ padding: 0, background: T.surface2 + "60" }}>
                   <div style={{ padding: "10px 16px", maxHeight: 300, overflow: "auto" }}>
                     {notesLoading ? <div style={{ fontSize: 11, color: T.text3 }}>Loading notes…</div> : (
                       <>
@@ -1487,8 +1557,25 @@ function APAgingView({ isMobile }) {
             );
           };
 
-          const renderBillHeader = (showVendor = true) => (
+          const renderBillHeader = (showVendor = true) => {
+            // Master checkbox toggles only the currently-filtered visible rows so users
+            // can scope a bulk action to e.g. "all pending bills" without selecting paid ones.
+            const visibleIds = filtered.map(b => b.id);
+            const allChecked = visibleIds.length > 0 && visibleIds.every(id => selectedBills.has(id));
+            const someChecked = visibleIds.some(id => selectedBills.has(id));
+            return (
             <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>
+              <th style={{ padding: "6px 6px 6px 10px", width: 28, textAlign: "left" }}>
+                <input type="checkbox" checked={allChecked}
+                  ref={el => { if (el) el.indeterminate = !allChecked && someChecked; }}
+                  onChange={e => {
+                    const next = new Set(selectedBills);
+                    if (e.target.checked) { visibleIds.forEach(id => next.add(id)); }
+                    else { visibleIds.forEach(id => next.delete(id)); }
+                    setSelectedBills(next);
+                  }}
+                  style={{ cursor: "pointer", width: 14, height: 14 }} title="Select all filtered bills" />
+              </th>
               {billCols.filter(c => showVendor || c.key !== "vendor_name").map(col => (
                 <th key={col.key} onClick={() => col.key !== "status" && col.key !== "notes" && col.key !== "invoice" && setBillSort([col.key, billSort[0] === col.key && billSort[1] === "asc" ? "desc" : "asc"])}
                   style={{ padding: "6px 10px", textAlign: col.align, fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", cursor: col.key !== "notes" && col.key !== "invoice" ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap", maxWidth: col.w || "auto" }}>
@@ -1496,7 +1583,8 @@ function APAgingView({ isMobile }) {
                 </th>
               ))}
             </tr></thead>
-          );
+            );
+          };
 
           const sortBills = (arr) => {
             const [sk, sd] = billSort;
@@ -1589,7 +1677,7 @@ function APAgingView({ isMobile }) {
                   <tbody>
                     {weekList.map(w => (
                       <Fragment key={w.label}>
-                        <tr><td colSpan={10} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                        <tr><td colSpan={11} style={{ padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{w.label}</span>
                             <span style={{ fontSize: 11, fontWeight: 700, color: T.red }}>{fmtK(w.total)} · {w.bills.length} bills</span>
