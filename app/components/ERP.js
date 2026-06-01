@@ -4112,6 +4112,35 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
   const [qboSearch, setQboSearch] = useState("");
   const [qboStatus, setQboStatus] = useState("");
   const [qboSort, setQboSort] = useState(["due_date", "asc"]);
+  const [qboSelected, setQboSelected] = useState(() => new Set());
+  const [qboBulkBusy, setQboBulkBusy] = useState(false);
+
+  // Bulk-action handler. Field is either "approval_status" or "payment_status".
+  // Applies update to all selected bills in one DB call, then patches local state.
+  const applyBulkBillStatus = async (field, value, label) => {
+    const ids = [...qboSelected];
+    if (ids.length === 0) return;
+    if (!window.confirm(`Mark ${ids.length} bill${ids.length === 1 ? "" : "s"} as ${label}?`)) return;
+    setQboBulkBusy(true);
+    const patch = { [field]: value };
+    // Track who/when for approval changes to mirror single-row behavior
+    if (field === "approval_status") {
+      if (value === "approved") { patch.approved_by = user?.id; patch.approved_at = new Date().toISOString(); }
+      else { patch.approved_by = null; patch.approved_at = null; patch.scheduled_payment_date = null; patch.scheduled_by = null; patch.scheduled_at = null; }
+    }
+    if (field === "payment_status" && value === "paid") {
+      patch.balance = 0;
+    }
+    const { error } = await supabase.from("qbo_bills").update(patch).eq("org_id", orgId).in("id", ids);
+    if (error) {
+      setQboBulkBusy(false);
+      alert("Bulk update failed: " + (error.message || "unknown error"));
+      return;
+    }
+    setQboBills(prev => prev.map(b => ids.includes(b.id) ? { ...b, ...patch } : b));
+    setQboSelected(new Set());
+    setQboBulkBusy(false);
+  };
   const getSupplier = id => suppliers.find(s => s.id === id);
   const getCustomer = id => customers.find(c => c.id === id);
   const getOrder = id => orders.find(o => o.id === id);
@@ -4233,10 +4262,41 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
             </select>
             <span style={{ fontSize: 11, color: T.text3 }}>{filteredQboBills.length} of {qboBills.length} bills</span>
           </div>
+          {qboSelected.size > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 8, borderRadius: 6, background: T.accentDim, border: `1px solid ${T.accent}`, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.accent }}>{qboSelected.size} selected</span>
+              <span style={{ fontSize: 11, color: T.text3 }}>•</span>
+              <span style={{ fontSize: 11, color: T.text2 }}>Mark as:</span>
+              <button disabled={qboBulkBusy} onClick={() => applyBulkBillStatus("approval_status", "approved", "Approved")} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 4, border: "none", background: "#10B98118", color: "#10B981", cursor: qboBulkBusy ? "wait" : "pointer", opacity: qboBulkBusy ? 0.6 : 1 }}>✓ Approved</button>
+              <button disabled={qboBulkBusy} onClick={() => applyBulkBillStatus("approval_status", "pending", "Pending")} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 4, border: "none", background: "#94a3b818", color: "#64748b", cursor: qboBulkBusy ? "wait" : "pointer", opacity: qboBulkBusy ? 0.6 : 1 }}>⏳ Pending</button>
+              <button disabled={qboBulkBusy} onClick={() => applyBulkBillStatus("approval_status", "rejected", "Denied")} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 4, border: "none", background: "#EF444418", color: "#EF4444", cursor: qboBulkBusy ? "wait" : "pointer", opacity: qboBulkBusy ? 0.6 : 1 }}>✕ Denied</button>
+              <button disabled={qboBulkBusy} onClick={() => applyBulkBillStatus("payment_status", "paid", "Paid")} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 4, border: "none", background: "#10B98118", color: "#10B981", cursor: qboBulkBusy ? "wait" : "pointer", opacity: qboBulkBusy ? 0.6 : 1 }}>$ Paid</button>
+              <span style={{ flex: 1 }} />
+              <button onClick={() => setQboSelected(new Set())} style={{ padding: "4px 10px", fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Clear</button>
+            </div>
+          )}
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  <th style={{ padding: "8px 6px 8px 10px", width: 28, textAlign: "left" }}>
+                    {(() => {
+                      const visibleIds = filteredQboBills.slice(0, 200).map(b => b.id);
+                      const allChecked = visibleIds.length > 0 && visibleIds.every(id => qboSelected.has(id));
+                      const someChecked = visibleIds.some(id => qboSelected.has(id));
+                      return (
+                        <input type="checkbox" checked={allChecked}
+                          ref={el => { if (el) el.indeterminate = !allChecked && someChecked; }}
+                          onChange={e => {
+                            const next = new Set(qboSelected);
+                            if (e.target.checked) { visibleIds.forEach(id => next.add(id)); }
+                            else { visibleIds.forEach(id => next.delete(id)); }
+                            setQboSelected(next);
+                          }}
+                          style={{ cursor: "pointer", width: 14, height: 14 }} title="Select all visible bills" />
+                      );
+                    })()}
+                  </th>
                   {[
                     { key: "txn_date", label: "Date", align: "left" },
                     { key: "vendor_name", label: "Vendor", align: "left" },
@@ -4274,7 +4334,16 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                   return sorted.slice(0, 200).map((b, i) => {
                     const overdue = b.due_date && b.payment_status === "open" && new Date(b.due_date) < new Date();
                     return (
-                      <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
+                      <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}`, background: qboSelected.has(b.id) ? T.accentDim : (i % 2 === 0 ? "transparent" : T.surface2 + "40") }}>
+                        <td style={{ padding: "8px 6px 8px 10px", width: 28, textAlign: "left" }} onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={qboSelected.has(b.id)}
+                            onChange={e => {
+                              const next = new Set(qboSelected);
+                              if (e.target.checked) next.add(b.id); else next.delete(b.id);
+                              setQboSelected(next);
+                            }}
+                            style={{ cursor: "pointer", width: 14, height: 14 }} />
+                        </td>
                         <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
                         <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.vendor_name || "—"}</td>
                         <td style={{ padding: "8px 10px", fontSize: 11, color: T.accent, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.gl_accounts || "—"}</td>
