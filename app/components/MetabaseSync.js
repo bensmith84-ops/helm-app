@@ -82,6 +82,42 @@ export default function MetabaseSync({ onClose }) {
   const [weeksToSync, setWeeksToSync] = useState(12); // default 12 weeks
   const [lastSync, setLastSync] = useState(null); // most recent metabase_sync_log row for this org
 
+  // Per-table date column → used by Smart Sync to discover the newest row
+  // currently in Supabase and only fetch from there forward.
+  const TABLE_DATE_COLUMN = {
+    dp_daily_sales: "sale_date",
+    dp_inventory: "snapshot_date",
+    dp_daily_sales_by_warehouse: "sale_date",
+    dp_orders: "order_date",
+  };
+
+  // How many days to overlap before the local max_date. 1 day = safe default;
+  // covers same-day late-arriving rows without redoing a lot of work.
+  const SMART_SYNC_OVERLAP_DAYS = 1;
+
+  // For tables without a date column (sku master, offers, cohorts), Smart Sync
+  // still full-refreshes them since they're small reference data that can
+  // change at any time. The reference here is just informational for the UI.
+  const NON_DATED_TABLES = new Set(["dp_sku_master", "dp_offer_performance", "dp_subscription_cohorts"]);
+
+  // Look up the most recent date present in a given table for this org.
+  // Returns YYYY-MM-DD string or null if the table is empty.
+  const getMaxLocalDate = async (table, dateCol) => {
+    if (!orgId || !dateCol) return null;
+    const { data, error } = await supabase
+      .from(table)
+      .select(dateCol)
+      .eq("org_id", orgId)
+      .order(dateCol, { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const v = data[dateCol];
+    if (!v) return null;
+    // Postgres date type comes back as "YYYY-MM-DD"; timestamp comes back as ISO. Normalize.
+    return String(v).slice(0, 10);
+  };
+
   useEffect(() => {
     // Load existing row counts
     (async () => {
@@ -219,7 +255,7 @@ export default function MetabaseSync({ onClose }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>🚀 Sync All from Metabase Dashboard</div>
-                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Pull all 5 datasets from the Demand Planning dashboard in one click.</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>⚡ Smart Sync pulls only data newer than what's in Supabase (recommended). 🔄 Full Resync rebuilds the configured window from scratch.</div>
                   </div>
                   <button onClick={async () => {
                     setStep("syncing"); setLoading(true); setError(null);
@@ -477,8 +513,149 @@ export default function MetabaseSync({ onClose }) {
                     setSyncResult({ bulk: true, results });
                     setStep("done");
                     setLoading(false);
-                  }} style={{ padding: "10px 20px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-                    🔄 Sync All (5 tables)
+                  }} style={{ padding: "10px 16px", borderRadius: 8, background: T.surface2, color: T.text, border: `1px solid ${T.border}`, fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    🔄 Full Resync
+                  </button>
+                  <button title="Only pulls data newer than what's already in Supabase. Much faster than Full Resync; recommended for daily refreshes." onClick={async () => {
+                    setStep("syncing"); setLoading(true); setError(null);
+                    const today = new Date().toISOString().split("T")[0];
+                    const results = [];
+
+                    // 1) For each date-bounded table, find the max local date and sync from
+                    //    (max - SMART_SYNC_OVERLAP_DAYS) → today. If a table is empty,
+                    //    fall back to a 4-week window so the first run still produces useful data.
+                    for (const mapping of DASHBOARD_SYNC_MAP) {
+                      const dateCol = TABLE_DATE_COLUMN[mapping.table];
+                      if (!dateCol) continue; // handled in pass 2
+                      try {
+                        setError(`${mapping.icon} ${mapping.label}: checking last sync date...`);
+                        const maxDate = await getMaxLocalDate(mapping.table, dateCol);
+                        let startStr;
+                        if (maxDate) {
+                          const md = new Date(maxDate + "T00:00:00Z");
+                          md.setUTCDate(md.getUTCDate() - SMART_SYNC_OVERLAP_DAYS);
+                          startStr = md.toISOString().split("T")[0];
+                        } else {
+                          // No data yet — pull a 4-week starter window so the chart isn't empty
+                          const fallback = new Date();
+                          fallback.setDate(fallback.getDate() - 28);
+                          startStr = fallback.toISOString().split("T")[0];
+                        }
+                        if (startStr > today) {
+                          // Nothing new to fetch — local data already includes today.
+                          results.push({ ...mapping, rows: 0, total: 0, status: "skipped", note: `Up to date (max ${maxDate})` });
+                          continue;
+                        }
+                        const deltaDays = Math.max(1, Math.round((new Date(today) - new Date(startStr)) / 86400000) + 1);
+                        const chunkDays = mapping.table === "dp_orders" ? 1 : (mapping.table === "dp_daily_sales_by_warehouse" ? 3 : 7);
+                        // Build windows
+                        const windows = [];
+                        let cursor = new Date(startStr + "T00:00:00Z");
+                        const endDate = new Date(today + "T00:00:00Z");
+                        while (cursor <= endDate) {
+                          const ws = new Date(cursor);
+                          const we = new Date(cursor);
+                          we.setUTCDate(we.getUTCDate() + chunkDays - 1);
+                          if (we > endDate) we.setTime(endDate.getTime());
+                          windows.push({ start: ws.toISOString().split("T")[0], end: we.toISOString().split("T")[0] });
+                          cursor.setUTCDate(cursor.getUTCDate() + chunkDays);
+                        }
+                        let totalSynced = 0;
+                        const errs = [];
+                        const useStream = mapping.table === "dp_daily_sales_by_warehouse" || mapping.table === "dp_orders";
+                        for (let ci = 0; ci < windows.length; ci++) {
+                          const w = windows[ci];
+                          setError(`${mapping.icon} ${mapping.label}: Δ${deltaDays}d · syncing ${w.start} → ${w.end} (${ci + 1}/${windows.length})...`);
+                          if (useStream) {
+                            const cr = await mb("sync_question_to_table", {
+                              question_id: mapping.card_id, table_name: mapping.table, org_id: orgId,
+                              start_date: w.start, end_date: w.end, chunk_days: chunkDays, stream: true,
+                            });
+                            if (cr.error) { errs.push(`${w.start}: ${cr.error}`); }
+                            else { totalSynced += (cr.synced || 0); }
+                          } else {
+                            // dp_daily_sales path — same as Sync All but with the narrow date window
+                            const cr = await mb("run_question", { question_id: mapping.card_id, start_date: w.start, end_date: w.end });
+                            if (cr.error) { errs.push(`${w.start}: ${cr.error}`); continue; }
+                            const rows = (cr.data || []).map(row => {
+                              const obj = { org_id: orgId };
+                              for (const [k, v] of Object.entries(row)) {
+                                const col = k.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+                                if (col === "churn") obj["churned"] = v; else obj[col] = v;
+                              }
+                              if (obj.sku === null || obj.sku === undefined) obj.sku = "UNKNOWN";
+                              if (obj.units_sold === null || obj.units_sold === undefined) obj.units_sold = 0;
+                              if (obj.base_product == null) obj.base_product = obj.product_title || obj.sku || "";
+                              if (obj.product_title == null) obj.product_title = obj.sku || "";
+                              if (obj.units_per_sku == null) obj.units_per_sku = 1;
+                              obj.imported_at = new Date().toISOString();
+                              return obj;
+                            });
+                            if (rows.length === 0) continue;
+                            // Date-range scoped delete to make this safely idempotent
+                            await supabase.from(mapping.table).delete().eq("org_id", orgId).gte(dateCol, w.start).lte(dateCol, w.end);
+                            for (let i = 0; i < rows.length; i += 200) {
+                              const batch = rows.slice(i, i + 200);
+                              const { error: insErr } = await supabase.from(mapping.table).insert(batch);
+                              if (!insErr) totalSynced += batch.length;
+                            }
+                          }
+                        }
+                        results.push({ ...mapping, rows: totalSynced, total: totalSynced, status: totalSynced > 0 ? "ok" : (errs.length > 0 ? "error" : "skipped"), note: `Δ ${deltaDays}d from ${startStr}`, errors: errs.length > 0 ? errs.slice(0, 3) : undefined });
+                      } catch (e) {
+                        results.push({ ...mapping, rows: 0, status: "error", error: e.message });
+                      }
+                    }
+
+                    // 2) Reference tables (no date column) — small, full-refresh each time.
+                    //    These don't accumulate row-by-row; the Metabase card returns the full
+                    //    current state. Still much cheaper than re-syncing months of sales.
+                    for (const mapping of DASHBOARD_SYNC_MAP) {
+                      if (TABLE_DATE_COLUMN[mapping.table]) continue;
+                      try {
+                        setError(`${mapping.icon} ${mapping.label}: refreshing reference data...`);
+                        const r = await mb("run_question", { question_id: mapping.card_id });
+                        if (r.error) { results.push({ ...mapping, rows: 0, status: "error", error: r.error }); continue; }
+                        if (!r.data || r.data.length === 0) { results.push({ ...mapping, rows: 0, status: "empty" }); continue; }
+                        const rows = r.data.map(row => {
+                          const obj = { org_id: orgId };
+                          for (const [k, v] of Object.entries(row)) {
+                            const col = k.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+                            if (col === "churn") obj["churned"] = v; else obj[col] = v;
+                          }
+                          obj.imported_at = new Date().toISOString();
+                          return obj;
+                        }).filter(row => mapping.table !== "dp_sku_master" || (row.sku && row.sku !== "UNKNOWN" && String(row.sku).trim() !== ""));
+                        await supabase.from(mapping.table).delete().eq("org_id", orgId);
+                        let synced = 0;
+                        for (let i = 0; i < rows.length; i += 200) {
+                          const batch = rows.slice(i, i + 200);
+                          const { error: insErr } = await supabase.from(mapping.table).insert(batch);
+                          if (!insErr) synced += batch.length;
+                        }
+                        results.push({ ...mapping, rows: synced, total: rows.length, status: synced > 0 ? "ok" : "error", note: "Full refresh (reference data)" });
+                      } catch (e) {
+                        results.push({ ...mapping, rows: 0, status: "error", error: e.message });
+                      }
+                    }
+
+                    // Write a log entry so the "Last sync" banner updates
+                    try {
+                      const startedAt = new Date().toISOString();
+                      await supabase.from("metabase_sync_log").insert({
+                        org_id: orgId, started_at: startedAt, finished_at: new Date().toISOString(),
+                        ok: results.every(r => r.status !== "error"),
+                        source: "smart-sync-ui",
+                        summary: results.map(r => ({ ok: r.status !== "error", table: r.table, synced: r.rows || 0, note: r.note })),
+                      });
+                    } catch (e) { /* non-blocking */ }
+
+                    setError(null);
+                    setSyncResult({ bulk: true, smart: true, results });
+                    setStep("done");
+                    setLoading(false);
+                  }} style={{ padding: "10px 20px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", marginLeft: 8 }}>
+                    ⚡ Smart Sync
                   </button>
                 </div>
                 <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
