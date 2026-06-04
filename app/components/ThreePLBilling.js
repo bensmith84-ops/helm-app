@@ -1715,6 +1715,10 @@ export default function ThreePLBilling() {
       await saveOne(latest);
     }
     setSavingAll(false);
+    // Refresh the shipment-level rollup so the Reports view reflects new data immediately.
+    // We swallow errors — the rollup will still get refreshed by future calls and isn't
+    // critical for the immediate save flow.
+    try { await supabase.rpc("wms_3pl_refresh_rollup"); } catch {}
     await loadData();
   };
 
@@ -2000,7 +2004,7 @@ export default function ThreePLBilling() {
                       <td style={{ padding: "8px 10px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
                         {it.status === "ready" && (
                           <>
-                            <button onClick={() => saveOne(it).then(ok => ok && loadData())} disabled={!it.overrideProvider || savingAll}
+                            <button onClick={() => saveOne(it).then(async ok => { if (ok) { try { await supabase.rpc("wms_3pl_refresh_rollup"); } catch {} loadData(); } })} disabled={!it.overrideProvider || savingAll}
                               style={{ ...btn, padding: "3px 8px", fontSize: 10, background: T.accent, color: "#fff", marginRight: 4, opacity: (!it.overrideProvider || savingAll) ? 0.5 : 1 }}>Save</button>
                             <button onClick={() => skipQueueItem(it.id)} disabled={savingAll}
                               style={{ ...btn, padding: "3px 8px", fontSize: 10, background: T.surface2, color: T.text3 }}>Skip</button>
