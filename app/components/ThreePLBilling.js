@@ -118,7 +118,7 @@ const fmtCompact = (n) => {
 
 // ─── Format detection ──────────────────────────────────────────────────────
 // Inspects sheet names + a few key cells to decide which parser to use.
-function detectFormat(workbook, filename = "") {
+function detectFormat(workbook, filename = "", _xlsxRef = null) {
   const sheets = workbook.SheetNames.map(s => s.toLowerCase());
   const fn = filename.toLowerCase();
 
@@ -126,15 +126,39 @@ function detectFormat(workbook, filename = "") {
   if (sheets.includes("parcel txns") || sheets.includes("parcel backup report") || sheets.includes("parcel backup summary")) {
     return { format: "stord_consolidated", provider: "stord_us" };
   }
-  // Stord customer billing
-  if (sheets.includes("billing summary") && (sheets.includes("ob lines") || sheets.includes("ib lpns") || sheets.includes("vas"))) {
-    // detect warehouse from the billing summary first cell
-    const ws = workbook.Sheets[workbook.SheetNames[0]];
-    const headerCell = ws["A1"]?.v || "";
-    let warehouse = null;
-    if (/CVG/i.test(headerCell) || /CVG/.test(fn)) warehouse = "CVG";
-    else if (/RNO/i.test(headerCell) || /RNO/.test(fn)) warehouse = "RNO";
-    return { format: "stord_customer", provider: "stord_us", warehouse };
+  // ── Stord customer billing ──
+  // Variant A (classic): sheets "Billing Summary" + "OB Lines" / "IB LPNs" / "VAS"
+  // Variant B (D1RT-style): sheet "<code> INVOICE" + optionally "LPN" / "VAS"
+  // Detect by content rather than name: any sheet whose first ~10 rows contain
+  // "Item" + "Rate" + "Total" as adjacent header tokens.
+  const detectStordCustomerSheet = () => {
+    for (const sheetName of workbook.SheetNames) {
+      const ws = workbook.Sheets[sheetName];
+      if (!ws) continue;
+      const rows = sheetToRows(ws, _xlsxRef);
+      for (let r = 0; r < Math.min(rows.length, 15); r++) {
+        const cells = (rows[r] || []).map(c => String(c || "").trim().toLowerCase());
+        const hasItem = cells.includes("item");
+        const hasRate = cells.includes("rate");
+        const hasTotal = cells.includes("total");
+        const hasQty = cells.some(c => c === "qty" || c === "quantity");
+        if (hasItem && hasRate && hasTotal && hasQty) {
+          return { sheetName, headerRow: r, cells };
+        }
+      }
+    }
+    return null;
+  };
+  const stordHit = detectStordCustomerSheet();
+  if (stordHit) {
+    // Try to grab a warehouse code from row 1 of that sheet OR the filename.
+    // Accept any 3-letter alpha code optionally followed by 1-2 digits (airport-style).
+    const ws = workbook.Sheets[stordHit.sheetName];
+    const headerCell = String(ws?.["A1"]?.v || "");
+    const whFromHeader = headerCell.match(/\b([A-Z]{3}\d{0,2})\b/);
+    const whFromFile = filename.match(/[_\-\s]([A-Z]{3}\d{0,2})[_\-\s]/i);
+    const warehouse = (whFromHeader?.[1] || whFromFile?.[1] || "").toUpperCase() || null;
+    return { format: "stord_customer", provider: "stord_us", warehouse, stordHit };
   }
   // Next3PL family — has "Warehouse Invoice" + "Warehouse Rates"
   if (sheets.some(s => s.includes("warehouse rates")) && sheets.some(s => s.includes("warehouse invoice"))) {
@@ -464,16 +488,41 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
     detected_format: "stord_customer",
   };
 
-  // Billing Summary header
-  const wsSum = workbook.Sheets[workbook.SheetNames.find(s => /billing summary/i.test(s))];
+  // ── Locate the invoice sheet ──
+  // Classic variant: a sheet literally named "Billing Summary".
+  // D1RT variant: a sheet named "<code> INVOICE".
+  // We trust the detection result if it told us the sheet name; otherwise
+  // we scan every sheet for the "Item ... Rate ... Total" header signature.
+  const findInvoiceSheet = () => {
+    if (hint.stordHit && workbook.Sheets[hint.stordHit.sheetName]) {
+      return { name: hint.stordHit.sheetName, headerRow: hint.stordHit.headerRow };
+    }
+    // Fallback scan
+    for (const name of workbook.SheetNames) {
+      const ws = workbook.Sheets[name];
+      if (!ws) continue;
+      const rows = sheetToRows(ws, xlsx);
+      for (let r = 0; r < Math.min(rows.length, 15); r++) {
+        const lc = (rows[r] || []).map(c => String(c || "").trim().toLowerCase());
+        if (lc.includes("item") && lc.includes("rate") && lc.includes("total") && (lc.includes("qty") || lc.includes("quantity"))) {
+          return { name, headerRow: r };
+        }
+      }
+    }
+    // Legacy literal fallback
+    const legacy = workbook.SheetNames.find(s => /billing summary/i.test(s));
+    return legacy ? { name: legacy, headerRow: null } : null;
+  };
+  const invSheet = findInvoiceSheet();
+  const wsSum = invSheet ? workbook.Sheets[invSheet.name] : null;
   if (wsSum) {
     const rows = sheetToRows(wsSum, xlsx);
-    // r1: "Earth Breeze - CVG" — warehouse code already from filename detection
-    // r2: "March 1-15, 2026" — period
-    if (rows[1] && rows[1][0]) {
-      const periodStr = String(rows[1][0]).trim();
-      // Parse "March 1-15, 2026" or "April 1-30, 2026"
-      const m = periodStr.match(/^(\w+)\s+(\d+)-(\d+),?\s+(\d{4})/);
+
+    // Period extraction: scan the first ~8 rows for a "Month D1-D2, YYYY" pattern
+    // in any column. Classic puts it at A2; D1RT may have a slightly different layout.
+    for (let r = 0; r < Math.min(rows.length, 8); r++) {
+      const joined = (rows[r] || []).map(c => String(c || "")).join(" ");
+      const m = joined.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\s*-\s*(\d{1,2}),?\s+(\d{4})/i);
       if (m) {
         const monthIdx = ["january","february","march","april","may","june","july","august","september","october","november","december"].indexOf(m[1].toLowerCase());
         if (monthIdx >= 0) {
@@ -482,35 +531,62 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
           result.header.period_end = new Date(yr, monthIdx, +m[3]).toISOString().split("T")[0];
           result.header.invoice_date = result.header.period_end;
         }
+        break;
       }
     }
-    // Walk rows for line items: "Item | UoM | Rate | Qty | Total" starting around r5
-    let inItems = false;
-    let lineNo = 0;
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i] || [];
-      const cells = row.map(c => c == null ? "" : String(c).trim());
-      if (cells[1] === "Item" && (cells[3] === "Rate" || cells[3] === "Rate ")) { inItems = true; continue; }
-      if (!inItems) continue;
-      // INVOICE TOTAL marker
-      const totalCell = cells.find(c => /INVOICE TOTAL/i.test(c));
-      if (totalCell) {
-        for (const c of row) { const n = num(c); if (n > 100) { result.header.total = n; result.header.subtotal = n; break; } }
-        continue;
+
+    // Locate the column offset of the line-items header dynamically.
+    // We look for a row where "Item", "Rate", "Total" are all present and capture
+    // each token''s column index so the parser is offset-agnostic.
+    let cols = null;
+    const startRow = invSheet.headerRow != null ? invSheet.headerRow : 0;
+    for (let r = startRow; r < Math.min(rows.length, 20); r++) {
+      const cells = (rows[r] || []).map(c => String(c || "").trim());
+      const lc = cells.map(c => c.toLowerCase());
+      const cItem = lc.indexOf("item");
+      const cRate = lc.indexOf("rate");
+      const cTotal = lc.indexOf("total");
+      const cQty = lc.findIndex(c => c === "qty" || c === "quantity");
+      // Memo/UoM is the column between Item and Rate (if present)
+      if (cItem >= 0 && cRate > cItem && cTotal > cRate && cQty > cItem) {
+        const cMemo = cRate > cItem + 1 ? cItem + 1 : -1;
+        cols = { item: cItem, memo: cMemo, rate: cRate, qty: cQty, total: cTotal, headerAt: r };
+        break;
       }
-      const item = cells[1], uom = cells[2], rate = num(row[3]), qty = num(row[4]), total = num(row[5]);
-      if (!item || (total === 0 && qty === 0)) continue;
-      if (item === "Item") continue;
-      lineNo++;
-      result.lines.push({
-        line_no: lineNo,
-        canonical_category: classifyRaw(item),
-        raw_category: item.split(/\s*[-—]\s*/)[0],
-        description: item,
-        uom: uom || null,
-        rate, quantity: qty, amount: total,
-        notes: null, carrier: null,
-      });
+    }
+
+    if (cols) {
+      let lineNo = 0;
+      for (let i = cols.headerAt + 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const cells = row.map(c => c == null ? "" : String(c).trim());
+        // INVOICE TOTAL or final "TOTAL" marker — pick the first sizable number from the row
+        const looksLikeTotal = cells.some(c => /^(invoice\s+)?total$/i.test(c));
+        if (looksLikeTotal) {
+          for (const c of row) {
+            const n = num(c);
+            if (n > 100) { result.header.total = n; result.header.subtotal = n; break; }
+          }
+          continue;
+        }
+        const item = cells[cols.item];
+        const rate = num(row[cols.rate]);
+        const qty = num(row[cols.qty]);
+        const total = num(row[cols.total]);
+        if (!item || item.toLowerCase() === "item") continue;
+        if (total === 0 && qty === 0) continue;
+        const uom = cols.memo >= 0 ? (cells[cols.memo] || null) : null;
+        lineNo++;
+        result.lines.push({
+          line_no: lineNo,
+          canonical_category: classifyRaw(item),
+          raw_category: item.split(/\s*[-—]\s*/)[0],
+          description: item,
+          uom: uom || null,
+          rate, quantity: qty, amount: total,
+          notes: null, carrier: null,
+        });
+      }
     }
   }
 
@@ -573,6 +649,29 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
         sh.sku_count = sh._skus.size;
         delete sh._skus;
         result.shipments.push(sh);
+      }
+    }
+  }
+
+  // ── LPN sheet (inbound receiving data — D1RT variant) ──
+  // We don''t treat LPN rows as outbound shipments. If we still don''t have
+  // a warehouse_code, pull it from the LPN "Building Name" column.
+  if (!result.header.warehouse_code) {
+    const wsLPN = workbook.Sheets[workbook.SheetNames.find(s => /^lpn$/i.test(s) || /^ib lpns$/i.test(s))];
+    if (wsLPN) {
+      const rows = sheetToRows(wsLPN, xlsx);
+      if (rows.length > 1) {
+        const header = (rows[0] || []).map(c => String(c || "").toLowerCase());
+        const idxBld = header.findIndex(c => /building name/i.test(c));
+        if (idxBld >= 0) {
+          for (let i = 1; i < Math.min(rows.length, 20); i++) {
+            const bld = rows[i]?.[idxBld];
+            if (bld) {
+              const m = String(bld).match(/\b([A-Z]{3}\d{0,2}s?\d*)\b/);
+              if (m) { result.header.warehouse_code = m[1].toUpperCase().replace(/S\d+$/i, ""); break; }
+            }
+          }
+        }
       }
     }
   }
@@ -692,7 +791,7 @@ function parseStordConsolidated(workbook, xlsx, hint = {}) {
 }
 
 function parseInvoice(workbook, xlsx, filename) {
-  const detection = detectFormat(workbook, filename);
+  const detection = detectFormat(workbook, filename, xlsx);
   const invMatch = filename.match(/INV(\d+)/i);
   const hint = { ...detection, invoice_number_from_filename: invMatch ? `INV${invMatch[1]}` : null };
   if (detection.format === "next3pl_uk_monthly" || detection.format === "next3pl_au_warehouse" || detection.format === "next3pl_ca_weekly" || detection.format === "next3pl_unknown") {
