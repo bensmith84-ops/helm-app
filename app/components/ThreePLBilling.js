@@ -1394,7 +1394,7 @@ function parseInvoice(workbook, xlsx, filename) {
 export default function ThreePLBilling() {
   const { tokens: T } = useTheme();
   const { user, profile, orgId } = useAuth();
-  const [view, setView] = useState("list"); // list | upload | review | detail
+  const [view, setView] = useState("list"); // list | upload | review | detail | reports
   const [providers, setProviders] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1785,9 +1785,15 @@ export default function ThreePLBilling() {
           <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Upload, audit and analyze invoices from all 3PL partners</div>
         </div>
         {view === "list" && (
-          <button onClick={() => { resetQueue(); setView("upload"); }} style={btnPrimary}>＋ Upload Invoices</button>
+          <>
+            <button onClick={() => setView("reports")} style={btnGhost}>📊 Reports</button>
+            <button onClick={() => { resetQueue(); setView("upload"); }} style={btnPrimary}>＋ Upload Invoices</button>
+          </>
         )}
-        {view !== "list" && (
+        {view === "reports" && (
+          <button onClick={() => setView("list")} style={btnGhost}>← Back to list</button>
+        )}
+        {view !== "list" && view !== "reports" && (
           <button onClick={() => { setView("list"); setSelectedInvoice(null); resetQueue(); }} style={btnGhost}>← Back to list</button>
         )}
       </div>
@@ -2067,7 +2073,17 @@ export default function ThreePLBilling() {
         </>
       )}
 
-            {/* ── DETAIL view ── */}
+            {/* ── REPORTS view ── */}
+      {view === "reports" && (
+        <Suspense fallback={<div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 12 }}>Loading reports…</div>}>
+          <ThreePLBillingReports goToDetail={(id) => {
+            const inv = invoices.find(i => i.id === id);
+            if (inv) { setSelectedInvoice(inv); setView("detail"); }
+          }} />
+        </Suspense>
+      )}
+
+      {/* ── DETAIL view ── */}
       {view === "detail" && selectedInvoice && (() => {
         const prov = providers.find(p => p.id === selectedInvoice.provider_id);
         const meta = PROVIDERS_META[prov?.code];
