@@ -721,17 +721,21 @@ export default function ThreePLBilling() {
   const [detailShipments, setDetailShipments] = useState([]);
   const [detailTab, setDetailTab] = useState("lines");
 
-  // Upload + review state
-  const [parsing, setParsing] = useState(false);
-  const [parseError, setParseError] = useState(null);
-  const [parsed, setParsed] = useState(null); // { header, lines, shipments, orderLines, detected_format }
-  const [overrideProvider, setOverrideProvider] = useState(null);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [saveProgress, setSaveProgress] = useState("");
+  // Upload + review state — queue-based to support multi-file + folder imports
+  // Each queue item:
+  //   { id, file, name, status: "parsing"|"ready"|"error"|"saving"|"saved"|"skipped",
+  //     header, lines, shipments, orderLines, detected_format,
+  //     overrideProvider, error, savedInvoiceId, progress }
+  const [parsedQueue, setParsedQueue] = useState([]);
+  const [parseProgress, setParseProgress] = useState({ done: 0, total: 0 });
+  const [activeQueueId, setActiveQueueId] = useState(null); // which queue item is expanded in detail
+  const [savingAll, setSavingAll] = useState(false);
   const [filterProvider, setFilterProvider] = useState("");
 
   const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
+  const queueIdSeq = useRef(0);
+  const newQueueId = () => `q${++queueIdSeq.current}-${Date.now()}`;
 
   // ── Load providers + invoices on mount ──
   const loadData = useCallback(async () => {
@@ -748,57 +752,157 @@ export default function ThreePLBilling() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── File upload + parse ──
-  const handleFile = async (file) => {
-    if (!file) return;
-    setUploadFile(file);
-    setParsing(true); setParseError(null); setParsed(null);
+  // ── File upload + parse (queue-based) ──
+  // Map detected format → provider code (used to auto-select on first parse)
+  const PROV_BY_FMT = {
+    next3pl_uk_monthly: "next3pl_uk",
+    next3pl_au_warehouse: "next3pl_au",
+    next3pl_au_transport: "next3pl_au",
+    next3pl_ca_weekly: "next3pl_ca",
+    stord_customer: "stord_us",
+    stord_consolidated: "stord_us",
+  };
+
+  // Filter for spreadsheet files we know how to parse. Anything else is silently
+  // dropped — folders frequently contain PDFs, READMEs, .DS_Store, etc.
+  const isParseableFile = (file) => {
+    if (!file || !file.name) return false;
+    const ext = file.name.toLowerCase().split(".").pop();
+    return ["xlsx", "xlsm", "xls", "csv"].includes(ext);
+  };
+
+  // Recursively flatten a DataTransferItem entry (from drag-drop) into a flat
+  // array of File objects. Browsers expose folders only via webkitGetAsEntry().
+  const flattenEntry = async (entry, path = "") => {
+    if (!entry) return [];
+    if (entry.isFile) {
+      return new Promise((resolve) => {
+        entry.file((f) => {
+          // Re-create File with a relative-path hint stored on `.webkitRelativePath`
+          // (some browsers don''t populate it for dragged items, so we attach it on a wrapper).
+          try { Object.defineProperty(f, "webkitRelativePath", { value: path + f.name, configurable: true }); } catch (e) {}
+          resolve([f]);
+        }, () => resolve([]));
+      });
+    }
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const allEntries = [];
+      // readEntries() returns at most ~100 entries per call; loop until empty
+      while (true) {
+        const batch = await new Promise((resolve) => reader.readEntries(resolve, () => resolve([])));
+        if (!batch.length) break;
+        allEntries.push(...batch);
+      }
+      const nested = await Promise.all(allEntries.map(e => flattenEntry(e, path + entry.name + "/")));
+      return nested.flat();
+    }
+    return [];
+  };
+
+  // Extract files from a DragEvent — supports both individual files and folders.
+  const filesFromDropEvent = async (e) => {
+    const items = e.dataTransfer?.items;
+    if (items && items.length && items[0].webkitGetAsEntry) {
+      const entries = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (entry) entries.push(entry);
+      }
+      const nested = await Promise.all(entries.map(en => flattenEntry(en)));
+      return nested.flat();
+    }
+    // Fallback: just files, no folder support
+    return Array.from(e.dataTransfer?.files || []);
+  };
+
+  // Parse one file → return a queue item shape (does NOT mutate state).
+  const parseOne = async (file, xlsx) => {
+    const id = newQueueId();
     try {
-      const xlsx = await loadSheetJS();
       const buf = await file.arrayBuffer();
       const wb = xlsx.read(buf, { type: "array", cellDates: true });
       const result = parseInvoice(wb, xlsx, file.name);
       if (result.error) throw new Error(result.error);
-      // Auto-set override provider from detection
-      if (!overrideProvider && result.detected_format) {
-        const provByFmt = {
-          next3pl_uk_monthly: "next3pl_uk",
-          next3pl_au_warehouse: "next3pl_au",
-          next3pl_au_transport: "next3pl_au",
-          next3pl_ca_weekly: "next3pl_ca",
-          stord_customer: "stord_us",
-          stord_consolidated: "stord_us",
-        };
-        setOverrideProvider(provByFmt[result.detected_format] || null);
-      }
-      setParsed(result);
-      setView("review");
+      return {
+        id, file, name: file.webkitRelativePath || file.name,
+        status: "ready",
+        header: result.header, lines: result.lines, shipments: result.shipments, orderLines: result.orderLines,
+        detected_format: result.detected_format,
+        overrideProvider: PROV_BY_FMT[result.detected_format] || null,
+        error: null, savedInvoiceId: null, progress: "",
+      };
     } catch (e) {
-      setParseError(e.message || String(e));
-    } finally {
-      setParsing(false);
+      return {
+        id, file, name: file.webkitRelativePath || file.name,
+        status: "error",
+        header: {}, lines: [], shipments: [], orderLines: [],
+        detected_format: null, overrideProvider: null,
+        error: e.message || String(e), savedInvoiceId: null, progress: "",
+      };
     }
   };
 
-  // ── Save to DB ──
-  const handleSave = async () => {
-    if (!parsed || !overrideProvider || !uploadFile) return;
-    const provider = providers.find(p => p.code === overrideProvider);
-    if (!provider) { alert("Provider not found in DB. Re-seed wms_3pl_providers."); return; }
-    setSaving(true);
+  // Public entry point: pass a FileList / File[] / DataTransfer items → parse
+  // each in parallel, then append all to the queue. Switches to review view.
+  const handleFiles = async (filesIn) => {
+    const files = Array.from(filesIn || []).filter(isParseableFile);
+    if (!files.length) return;
+    setParseProgress({ done: 0, total: files.length });
+    setView("review");
+    const xlsx = await loadSheetJS();
+    // Parse in parallel but track completion for progress UI
+    let done = 0;
+    const results = await Promise.all(files.map(async (f) => {
+      const r = await parseOne(f, xlsx);
+      done++;
+      setParseProgress({ done, total: files.length });
+      return r;
+    }));
+    setParsedQueue(prev => {
+      const merged = [...prev, ...results];
+      // Auto-expand the first new item if nothing is currently active
+      if (!activeQueueId && merged.length > 0) {
+        const firstReady = results.find(r => r.status === "ready");
+        if (firstReady) setActiveQueueId(firstReady.id);
+      }
+      return merged;
+    });
+    setParseProgress({ done: 0, total: 0 });
+  };
+
+  // Update a single field on a queue item (immutable patch)
+  const patchQueueItem = (id, patch) => {
+    setParsedQueue(prev => prev.map(it => it.id === id ? { ...it, ...(typeof patch === "function" ? patch(it) : patch) } : it));
+  };
+
+  // ── Save ONE queue item to DB ──
+  // Returns true on success, false on failure (caller decides what to do).
+  const saveOne = async (item) => {
+    if (!item || item.status === "saved" || item.status === "skipped") return true;
+    if (!item.overrideProvider) {
+      patchQueueItem(item.id, { error: "Provider not selected — pick one before saving." });
+      return false;
+    }
+    const provider = providers.find(p => p.code === item.overrideProvider);
+    if (!provider) {
+      patchQueueItem(item.id, { error: "Provider not found in DB. Re-seed wms_3pl_providers." });
+      return false;
+    }
+    patchQueueItem(item.id, { status: "saving", error: null, progress: "Starting…" });
     try {
       // 1. Upload original file to Supabase Storage for audit
-      setSaveProgress("Uploading source file…");
-      const path = `${orgId}/3pl-invoices/${provider.code}/${Date.now()}-${uploadFile.name}`;
+      patchQueueItem(item.id, { progress: "Uploading source file…" });
+      const path = `${orgId}/3pl-invoices/${provider.code}/${Date.now()}-${item.file.name}`;
       let sourceUrl = null;
       try {
-        const { data: upR } = await supabase.storage.from("bill-attachments").upload(path, uploadFile, { upsert: true });
+        const { data: upR } = await supabase.storage.from("bill-attachments").upload(path, item.file, { upsert: true });
         if (upR?.path) sourceUrl = supabase.storage.from("bill-attachments").getPublicUrl(upR.path).data.publicUrl;
       } catch (e) { console.warn("Storage upload failed (continuing without file):", e.message); }
 
       // 2. Insert invoice header
-      setSaveProgress("Saving invoice header…");
-      const header = parsed.header;
+      patchQueueItem(item.id, { progress: "Saving invoice header…" });
+      const header = item.header;
       const invPayload = {
         org_id: orgId,
         provider_id: provider.id,
@@ -813,9 +917,9 @@ export default function ThreePLBilling() {
         total: header.total,
         status: "draft",
         source_file_url: sourceUrl,
-        source_file_name: uploadFile.name,
-        source_file_type: uploadFile.name.split(".").pop().toLowerCase(),
-        source_format: parsed.detected_format,
+        source_file_name: item.file.name,
+        source_file_type: item.file.name.split(".").pop().toLowerCase(),
+        source_format: item.detected_format,
         units_shipped: header.units_shipped,
         orders_shipped: header.orders_shipped,
         raw_summary: header.raw_summary || null,
@@ -831,20 +935,20 @@ export default function ThreePLBilling() {
       await supabase.from("wms_3pl_invoice_shipments").delete().eq("invoice_id", invoiceId);
 
       // 4. Insert lines (small — usually <50)
-      setSaveProgress(`Saving ${parsed.lines.length} line items…`);
-      if (parsed.lines.length > 0) {
-        const payload = parsed.lines.map(l => ({ ...l, org_id: orgId, invoice_id: invoiceId }));
+      patchQueueItem(item.id, { progress: `Saving ${item.lines.length} line items…` });
+      if (item.lines.length > 0) {
+        const payload = item.lines.map(l => ({ ...l, org_id: orgId, invoice_id: invoiceId }));
         const { error } = await supabase.from("wms_3pl_invoice_lines").insert(payload);
         if (error) throw new Error("Lines: " + error.message);
       }
 
       // 5. Insert shipments (batched — up to a few hundred typically)
       const shipmentIdByOrder = new Map();
-      if (parsed.shipments.length > 0) {
-        const total = parsed.shipments.length;
+      if (item.shipments.length > 0) {
+        const total = item.shipments.length;
         for (let i = 0; i < total; i += 500) {
-          setSaveProgress(`Saving shipments ${i + 1}–${Math.min(i + 500, total)} of ${total}…`);
-          const batch = parsed.shipments.slice(i, i + 500).map(s => ({ ...s, org_id: orgId, invoice_id: invoiceId, provider_id: provider.id }));
+          patchQueueItem(item.id, { progress: `Saving shipments ${i + 1}–${Math.min(i + 500, total)} of ${total}…` });
+          const batch = item.shipments.slice(i, i + 500).map(s => ({ ...s, org_id: orgId, invoice_id: invoiceId, provider_id: provider.id }));
           const { data, error } = await supabase.from("wms_3pl_invoice_shipments").insert(batch).select("id, external_order_no");
           if (error) throw new Error(`Shipments batch ${i}: ${error.message}`);
           (data || []).forEach(s => { if (s.external_order_no) shipmentIdByOrder.set(s.external_order_no, s.id); });
@@ -852,12 +956,12 @@ export default function ThreePLBilling() {
       }
 
       // 6. Insert order lines (potentially large — up to ~100K for Stord). Batch hard.
-      if (parsed.orderLines.length > 0) {
-        const total = parsed.orderLines.length;
+      if (item.orderLines.length > 0) {
+        const total = item.orderLines.length;
         const BATCH = 500;
         for (let i = 0; i < total; i += BATCH) {
-          setSaveProgress(`Saving order lines ${i + 1}–${Math.min(i + BATCH, total)} of ${total}…`);
-          const batch = parsed.orderLines.slice(i, i + BATCH).map(ol => ({
+          patchQueueItem(item.id, { progress: `Saving order lines ${i + 1}–${Math.min(i + BATCH, total)} of ${total}…` });
+          const batch = item.orderLines.slice(i, i + BATCH).map(ol => ({
             ...ol, org_id: orgId, invoice_id: invoiceId,
             shipment_id: ol.external_order_no ? shipmentIdByOrder.get(ol.external_order_no) || null : null,
           }));
@@ -866,16 +970,43 @@ export default function ThreePLBilling() {
         }
       }
 
-      setSaveProgress("Done!");
-      await loadData();
-      setView("list");
-      setParsed(null); setUploadFile(null); setOverrideProvider(null);
+      patchQueueItem(item.id, { status: "saved", progress: "Done", savedInvoiceId: invoiceId, error: null });
+      return true;
     } catch (e) {
-      alert("Save failed: " + (e.message || String(e)));
-    } finally {
-      setSaving(false);
-      setSaveProgress("");
+      patchQueueItem(item.id, { status: "error", progress: "", error: e.message || String(e) });
+      return false;
     }
+  };
+
+  // ── Save every "ready" item in the queue ──
+  const handleSaveAll = async () => {
+    const toSave = parsedQueue.filter(it => it.status === "ready" && it.overrideProvider);
+    if (!toSave.length) return;
+    setSavingAll(true);
+    for (const it of toSave) {
+      // Re-read latest item from state each iteration so any in-flight UI edits
+      // (category overrides, provider changes) flow into the save.
+      const latest = await new Promise(resolve => {
+        setParsedQueue(prev => { resolve(prev.find(p => p.id === it.id) || it); return prev; });
+      });
+      await saveOne(latest);
+    }
+    setSavingAll(false);
+    await loadData();
+  };
+
+  // ── Skip / remove a queue item ──
+  const skipQueueItem = (id) => {
+    patchQueueItem(id, { status: "skipped", error: null, progress: "" });
+    if (activeQueueId === id) {
+      const remaining = parsedQueue.filter(it => it.id !== id && it.status === "ready");
+      setActiveQueueId(remaining[0]?.id || null);
+    }
+  };
+
+  // ── Clear queue + return to list ──
+  const resetQueue = () => {
+    setParsedQueue([]); setActiveQueueId(null); setParseProgress({ done: 0, total: 0 });
   };
 
   // ── Open invoice detail ──
@@ -931,10 +1062,10 @@ export default function ThreePLBilling() {
           <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Upload, audit and analyze invoices from all 3PL partners</div>
         </div>
         {view === "list" && (
-          <button onClick={() => { setView("upload"); setParsed(null); setUploadFile(null); setOverrideProvider(null); setParseError(null); }} style={btnPrimary}>＋ Upload Invoice</button>
+          <button onClick={() => { resetQueue(); setView("upload"); }} style={btnPrimary}>＋ Upload Invoices</button>
         )}
         {view !== "list" && (
-          <button onClick={() => { setView("list"); setSelectedInvoice(null); setParsed(null); setUploadFile(null); }} style={btnGhost}>← Back to list</button>
+          <button onClick={() => { setView("list"); setSelectedInvoice(null); resetQueue(); }} style={btnGhost}>← Back to list</button>
         )}
       </div>
 
@@ -1010,99 +1141,196 @@ export default function ThreePLBilling() {
       {/* ── UPLOAD view ── */}
       {view === "upload" && (
         <div style={card}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Upload an invoice file</div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Upload invoice files</div>
           <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>
-            Supported: Next3PL (UK/AU/CA) <code>.xlsm</code>/<code>.xlsx</code> with Warehouse Rates sheet, Stord <code>_CUSTOMER.xlsx</code> + <code>consolidated-transaction-report.xlsx</code>. Format auto-detected from sheet structure.
+            Drop one file, several files, or an entire folder. Format auto-detects per file. Supported: Next3PL (UK/AU/CA) <code>.xlsm</code>/<code>.xlsx</code>, Stord <code>_CUSTOMER.xlsx</code> + <code>consolidated-transaction-report.xlsx</code>.
           </div>
-          <div onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-            onDragOver={e => e.preventDefault()}
+          <div
+            onDrop={async (e) => { e.preventDefault(); const files = await filesFromDropEvent(e); if (files.length) handleFiles(files); }}
+            onDragOver={(e) => e.preventDefault()}
             onClick={() => fileInputRef.current?.click()}
             style={{ border: `2px dashed ${T.border}`, borderRadius: 12, padding: 50, textAlign: "center", cursor: "pointer", background: T.surface2 + "40" }}>
             <div style={{ fontSize: 40, marginBottom: 8 }}>📁</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: T.text2 }}>{parsing ? "Parsing…" : "Drop a file here, or click to select"}</div>
-            <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>xlsx / xlsm / xls</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.text2 }}>Drop files or a folder here</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>xlsx · xlsm · xls · csv · folders scanned recursively</div>
           </div>
-          <input ref={fileInputRef} type="file" accept=".xlsx,.xlsm,.xls,.csv" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} style={{ display: "none" }} />
-          {parseError && <div style={{ marginTop: 16, padding: 12, borderRadius: 8, background: "#EF444418", color: "#EF4444", fontSize: 12 }}>⚠ {parseError}</div>}
+          <input ref={fileInputRef} type="file" multiple accept=".xlsx,.xlsm,.xls,.csv"
+            onChange={(e) => { const fs = Array.from(e.target.files || []); if (fs.length) handleFiles(fs); e.target.value = ""; }}
+            style={{ display: "none" }} />
+          <input ref={folderInputRef} type="file" webkitdirectory="" directory="" multiple
+            onChange={(e) => { const fs = Array.from(e.target.files || []); if (fs.length) handleFiles(fs); e.target.value = ""; }}
+            style={{ display: "none" }} />
+          <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "center" }}>
+            <button onClick={() => fileInputRef.current?.click()} style={btnGhost}>Select files…</button>
+            <button onClick={() => folderInputRef.current?.click()} style={btnGhost}>Select folder…</button>
+          </div>
         </div>
       )}
 
-      {/* ── REVIEW view (after parse) ── */}
-      {view === "review" && parsed && (
+      {/* ── REVIEW view (queue) ── */}
+      {view === "review" && (
         <>
-          {/* Detection banner */}
-          <div style={{ ...card, marginBottom: 12, background: T.accent + "10", borderColor: T.accent }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", fontWeight: 700 }}>Detected Format</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{parsed.detected_format}</div>
+          {/* Parse progress + add-more controls */}
+          <div style={{ ...card, marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                {parseProgress.total > 0 ? (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text2 }}>Parsing {parseProgress.done} / {parseProgress.total}…</div>
+                    <div style={{ height: 6, background: T.surface2, borderRadius: 3, marginTop: 6, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${(parseProgress.done / Math.max(1, parseProgress.total)) * 100}%`, background: T.accent, transition: "width 0.2s" }} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text2 }}>
+                      {parsedQueue.length} file{parsedQueue.length === 1 ? "" : "s"} parsed
+                      {(() => {
+                        const ready = parsedQueue.filter(i => i.status === "ready").length;
+                        const errored = parsedQueue.filter(i => i.status === "error").length;
+                        const saved = parsedQueue.filter(i => i.status === "saved").length;
+                        const skipped = parsedQueue.filter(i => i.status === "skipped").length;
+                        const parts = [];
+                        if (ready) parts.push(`${ready} ready`);
+                        if (saved) parts.push(`${saved} saved`);
+                        if (errored) parts.push(`${errored} error`);
+                        if (skipped) parts.push(`${skipped} skipped`);
+                        return parts.length ? ` — ${parts.join(" · ")}` : "";
+                      })()}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Click a file to review its line items. Save All processes every "ready" invoice in sequence.</div>
+                  </>
+                )}
               </div>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", marginRight: 8 }}>Provider:</label>
-                <select value={overrideProvider || ""} onChange={e => setOverrideProvider(e.target.value)}
-                  style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12 }}>
-                  <option value="">— select —</option>
-                  {providers.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
-                </select>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => fileInputRef.current?.click()} style={btnGhost} disabled={savingAll}>＋ Add files</button>
+                <button onClick={() => folderInputRef.current?.click()} style={btnGhost} disabled={savingAll}>＋ Add folder</button>
+                <button onClick={handleSaveAll} disabled={savingAll || !parsedQueue.some(i => i.status === "ready" && i.overrideProvider)}
+                  style={{ ...btnPrimary, opacity: (savingAll || !parsedQueue.some(i => i.status === "ready" && i.overrideProvider)) ? 0.5 : 1 }}>
+                  {savingAll ? "Saving…" : `Save All (${parsedQueue.filter(i => i.status === "ready" && i.overrideProvider).length})`}
+                </button>
               </div>
             </div>
+            <input ref={fileInputRef} type="file" multiple accept=".xlsx,.xlsm,.xls,.csv"
+              onChange={(e) => { const fs = Array.from(e.target.files || []); if (fs.length) handleFiles(fs); e.target.value = ""; }}
+              style={{ display: "none" }} />
+            <input ref={folderInputRef} type="file" webkitdirectory="" directory="" multiple
+              onChange={(e) => { const fs = Array.from(e.target.files || []); if (fs.length) handleFiles(fs); e.target.value = ""; }}
+              style={{ display: "none" }} />
           </div>
 
-          {/* Header summary */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 12 }}>
-            <div style={card}><div style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Invoice #</div><div style={{ fontSize: 13, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{parsed.header.invoice_number || "—"}</div></div>
-            <div style={card}><div style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Period</div><div style={{ fontSize: 12, fontWeight: 700, marginTop: 4 }}>{parsed.header.period_start} → {parsed.header.period_end}</div></div>
-            <div style={card}><div style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Total</div><div style={{ fontSize: 16, fontWeight: 800, marginTop: 4, fontFamily: "monospace" }}>{fmtCurrency(parsed.header.total, parsed.header.currency)}</div></div>
-            <div style={card}><div style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Lines</div><div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>{parsed.lines.length}</div></div>
-            <div style={card}><div style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Shipments</div><div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>{parsed.shipments.length.toLocaleString()}</div></div>
-            <div style={card}><div style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>Order Lines</div><div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>{parsed.orderLines.length.toLocaleString()}</div></div>
-          </div>
-
-          {/* Lines preview + category override */}
+          {/* Queue list */}
           <div style={{ ...card, padding: 0, marginBottom: 12, overflow: "hidden" }}>
-            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 12, fontWeight: 700, background: T.surface2 }}>Line items ({parsed.lines.length}) — review categories</div>
-            <div style={{ maxHeight: 400, overflow: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead style={{ position: "sticky", top: 0, background: T.surface, zIndex: 1 }}>
-                  <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                    {["Category", "Description", "Rate", "Qty", "Amount"].map(h => (
-                      <th key={h} style={{ padding: "8px 10px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: h === "Amount" || h === "Rate" || h === "Qty" ? "right" : "left" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsed.lines.map((l, i) => (
-                    <tr key={i} style={{ borderBottom: `1px solid ${T.border}15` }}>
-                      <td style={{ padding: "5px 10px" }}>
-                        <select value={l.canonical_category}
-                          onChange={e => setParsed(p => ({ ...p, lines: p.lines.map((line, idx) => idx === i ? { ...line, canonical_category: e.target.value } : line) }))}
-                          style={{ fontSize: 11, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: (CATEGORY_BY_KEY[l.canonical_category]?.color || T.text3) + "20", color: CATEGORY_BY_KEY[l.canonical_category]?.color || T.text3, fontWeight: 600, cursor: "pointer" }}>
-                          {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${T.border}`, background: T.surface2 }}>
+                  {["File", "Format", "Provider", "Period", "Total", "Lines", "Ship.", "Order Lines", "Status", ""].map(h => (
+                    <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {parsedQueue.map(it => {
+                  const isActive = it.id === activeQueueId;
+                  const statusColors = { ready: "#3B82F6", saving: "#F59E0B", saved: "#10B981", error: "#EF4444", skipped: "#6B7280" };
+                  const c = statusColors[it.status] || T.text3;
+                  return (
+                    <tr key={it.id}
+                      onClick={() => { if (it.status === "ready" || it.status === "saved") setActiveQueueId(isActive ? null : it.id); }}
+                      style={{ borderBottom: `1px solid ${T.border}25`, cursor: (it.status === "ready" || it.status === "saved") ? "pointer" : "default", background: isActive ? T.accent + "10" : "transparent" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.name}>{it.name}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 10, color: T.text3 }}>{it.detected_format || "—"}</td>
+                      <td style={{ padding: "8px 10px" }} onClick={(e) => e.stopPropagation()}>
+                        <select value={it.overrideProvider || ""}
+                          onChange={(e) => patchQueueItem(it.id, { overrideProvider: e.target.value || null })}
+                          disabled={it.status === "saving" || it.status === "saved"}
+                          style={{ padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11 }}>
+                          <option value="">— select —</option>
+                          {providers.map(p => <option key={p.code} value={p.code}>{PROVIDERS_META[p.code]?.flag} {p.name}</option>)}
                         </select>
                       </td>
-                      <td style={{ padding: "5px 10px", fontSize: 11 }}>{l.description}{l.notes ? <span style={{ color: T.text3, fontSize: 10 }}> — {l.notes}</span> : ""}</td>
-                      <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{(l.rate || 0).toFixed(4)}</td>
-                      <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{(l.quantity || 0).toLocaleString()}</td>
-                      <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmtCurrency(l.amount, parsed.header.currency)}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 10, color: T.text3 }}>{it.header.period_start || "—"}{it.header.period_end ? ` → ${it.header.period_end}` : ""}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", fontWeight: 700 }}>{it.header.total ? fmtCurrency(it.header.total, it.header.currency) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", color: T.text2 }}>{it.lines.length}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", color: T.text2 }}>{it.shipments.length.toLocaleString()}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", color: T.text2 }}>{it.orderLines.length.toLocaleString()}</td>
+                      <td style={{ padding: "8px 10px" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: c + "20", color: c, textTransform: "uppercase" }}>{it.status}</span>
+                        {it.progress && it.status === "saving" && <div style={{ fontSize: 9, color: T.text3, marginTop: 2 }}>{it.progress}</div>}
+                        {it.error && <div style={{ fontSize: 10, color: "#EF4444", marginTop: 2, maxWidth: 200 }} title={it.error}>⚠ {it.error.slice(0, 60)}{it.error.length > 60 ? "…" : ""}</div>}
+                      </td>
+                      <td style={{ padding: "8px 10px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                        {it.status === "ready" && (
+                          <>
+                            <button onClick={() => saveOne(it).then(ok => ok && loadData())} disabled={!it.overrideProvider || savingAll}
+                              style={{ ...btn, padding: "3px 8px", fontSize: 10, background: T.accent, color: "#fff", marginRight: 4, opacity: (!it.overrideProvider || savingAll) ? 0.5 : 1 }}>Save</button>
+                            <button onClick={() => skipQueueItem(it.id)} disabled={savingAll}
+                              style={{ ...btn, padding: "3px 8px", fontSize: 10, background: T.surface2, color: T.text3 }}>Skip</button>
+                          </>
+                        )}
+                        {it.status === "error" && (
+                          <button onClick={() => skipQueueItem(it.id)} style={{ ...btn, padding: "3px 8px", fontSize: 10, background: T.surface2, color: T.text3 }}>Dismiss</button>
+                        )}
+                      </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+              </tbody>
+            </table>
+            {parsedQueue.length === 0 && parseProgress.total === 0 && (
+              <div style={{ padding: 30, textAlign: "center", color: T.text3, fontSize: 12 }}>No files parsed yet. Use Add files / Add folder above.</div>
+            )}
           </div>
 
-          {/* Save controls */}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
-            {saving && <span style={{ fontSize: 11, color: T.text3 }}>{saveProgress}</span>}
-            <button onClick={() => { setView("upload"); setParsed(null); }} style={btnGhost} disabled={saving}>Cancel</button>
-            <button onClick={handleSave} disabled={saving || !overrideProvider} style={{ ...btnPrimary, opacity: (saving || !overrideProvider) ? 0.5 : 1, cursor: saving || !overrideProvider ? "not-allowed" : "pointer" }}>
-              {saving ? "Saving…" : `Save invoice (${(parsed.lines.length + parsed.shipments.length + parsed.orderLines.length).toLocaleString()} rows)`}
-            </button>
-          </div>
+          {/* Active item detail — line items review */}
+          {(() => {
+            const active = parsedQueue.find(it => it.id === activeQueueId);
+            if (!active) return null;
+            return (
+              <div style={{ ...card, padding: 0, marginBottom: 12, overflow: "hidden", borderColor: T.accent }}>
+                <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 12, fontWeight: 700, background: T.accent + "10", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <span style={{ fontFamily: "monospace" }}>{active.name}</span>
+                    {active.header.invoice_number && <span style={{ marginLeft: 12, color: T.text3, fontSize: 11 }}>#{active.header.invoice_number}</span>}
+                  </div>
+                  <button onClick={() => setActiveQueueId(null)} style={{ ...btn, padding: "2px 8px", fontSize: 10, background: "transparent", color: T.text3 }}>✕ Collapse</button>
+                </div>
+                <div style={{ maxHeight: 400, overflow: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead style={{ position: "sticky", top: 0, background: T.surface, zIndex: 1 }}>
+                      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        {["Category", "Description", "Rate", "Qty", "Amount"].map(h => (
+                          <th key={h} style={{ padding: "8px 10px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", textAlign: h === "Amount" || h === "Rate" || h === "Qty" ? "right" : "left" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {active.lines.map((l, i) => (
+                        <tr key={i} style={{ borderBottom: `1px solid ${T.border}15` }}>
+                          <td style={{ padding: "5px 10px" }}>
+                            <select value={l.canonical_category}
+                              disabled={active.status !== "ready"}
+                              onChange={(e) => patchQueueItem(active.id, (cur) => ({ lines: cur.lines.map((line, idx) => idx === i ? { ...line, canonical_category: e.target.value } : line) }))}
+                              style={{ fontSize: 11, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: (CATEGORY_BY_KEY[l.canonical_category]?.color || T.text3) + "20", color: CATEGORY_BY_KEY[l.canonical_category]?.color || T.text3, fontWeight: 600, cursor: active.status === "ready" ? "pointer" : "default" }}>
+                              {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                            </select>
+                          </td>
+                          <td style={{ padding: "5px 10px", fontSize: 11 }}>{l.description}{l.notes ? <span style={{ color: T.text3, fontSize: 10 }}> — {l.notes}</span> : ""}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{(l.rate || 0).toFixed(4)}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{(l.quantity || 0).toLocaleString()}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmtCurrency(l.amount, active.header.currency)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </>
       )}
 
-      {/* ── DETAIL view ── */}
+            {/* ── DETAIL view ── */}
       {view === "detail" && selectedInvoice && (() => {
         const prov = providers.find(p => p.id === selectedInvoice.provider_id);
         const meta = PROVIDERS_META[prov?.code];
