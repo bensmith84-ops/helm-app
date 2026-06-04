@@ -82,21 +82,92 @@ const PROVIDERS_META = {
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
+// Robust date parser. Returns a "YYYY-MM-DD" string or null.
+// Critically: rejects anything that is not a valid Gregorian date in a sensible
+// year range so we never push garbage into PG date columns. Handles:
+//   - JS Date object (incl. those produced by SheetJS cellDates: true)
+//   - ISO timestamps with T or space separator ("2025-12-31T16:51:38")
+//   - Stord YYYY-DD-MM ambiguity (auto-flips when apparent month > 12)
+//   - US M/D/YYYY or M-D-YYYY
+//   - European D/M/YYYY (only when apparent month > 12 in M/D order)
+//   - Excel serial day numbers (e.g. 45291 = 2024-01-01)
 const toDate = (v) => {
-  if (!v) return null;
-  if (v instanceof Date) return v.toISOString().split("T")[0];
-  const s = String(v);
-  const m = s.match(/(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})/);
-  if (m) {
-    let [_, a, b, c] = m;
-    if (c.length === 2) c = "20" + c;
-    // Assume MM.DD.YYYY (US format) when month <= 12; otherwise DD/MM
-    const mo = +a, d = +b;
-    return `${c}-${String(mo).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  if (v == null || v === "") return null;
+  const yearOK = (y) => y >= 1970 && y <= 2100;
+  const iso = (y, m, d) => `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const validMD = (m, d) => m >= 1 && m <= 12 && d >= 1 && d <= 31;
+
+  // Native Date object — common when SheetJS reads cells with cellDates: true.
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null;
+    const y = v.getUTCFullYear();
+    if (!yearOK(y)) return null;
+    return v.toISOString().split("T")[0];
   }
-  const d2 = new Date(s);
-  if (!isNaN(d2)) return d2.toISOString().split("T")[0];
+
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // 1) ISO-style YYYY-MM-DD (anchored at the start). Time portion is optional.
+  //    Also handles the Stord-export YYYY-DD-MM case by flipping when month > 12.
+  const isoM = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]|$)/);
+  if (isoM) {
+    const y = +isoM[1];
+    let m = +isoM[2], d = +isoM[3];
+    if (!yearOK(y)) return null;
+    if (validMD(m, d)) return iso(y, m, d);
+    // YYYY-DD-MM (Stord quirk): apparent month > 12, but flipping is valid
+    if (validMD(d, m)) return iso(y, d, m);
+    return null;
+  }
+
+  // 2) Slash- or dot-separated (US or European). REQUIRE word boundary on both
+  //    sides to avoid matching inside ISO timestamps.
+  const slashM = s.match(/^(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\b/);
+  if (slashM) {
+    let a = +slashM[1], b = +slashM[2];
+    let y = +slashM[3];
+    if (String(slashM[3]).length === 2) y = 2000 + y;
+    if (!yearOK(y)) return null;
+    // Prefer US (M/D/Y) when the first group is a valid month
+    if (validMD(a, b)) return iso(y, a, b);
+    // Fall back to D/M/Y when the first group exceeds 12 but flipping works
+    if (validMD(b, a)) return iso(y, b, a);
+    return null;
+  }
+
+  // 3) Pure numeric — treat as Excel serial day count (epoch Dec 30 1899).
+  if (/^\d+(?:\.\d+)?$/.test(s)) {
+    const n = parseFloat(s);
+    if (n > 1 && n < 100000) {
+      const epoch = Date.UTC(1899, 11, 30);
+      const dt = new Date(epoch + Math.floor(n) * 86400000);
+      if (!isNaN(dt.getTime()) && yearOK(dt.getUTCFullYear())) {
+        return dt.toISOString().split("T")[0];
+      }
+    }
+    return null;
+  }
+
+  // 4) Last-ditch JS Date.parse — only accept if year is sensible.
+  const fallback = new Date(s);
+  if (!isNaN(fallback.getTime()) && yearOK(fallback.getUTCFullYear())) {
+    return fallback.toISOString().split("T")[0];
+  }
   return null;
+};
+
+// Final-line-of-defense sanitizer applied to every shipment_date right before
+// we push the row. If the parser slipped a non-YYYY-MM-DD string through for
+// any reason, this catches it before it reaches Postgres.
+const sanitizeShipmentDate = (v) => {
+  if (v == null || v === "") return null;
+  const s = String(v);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (y < 1970 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return s;
 };
 const num = (v) => {
   if (v === null || v === undefined || v === "") return 0;
@@ -646,7 +717,7 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
       const idxSku   = header.indexOf("sku");
       const idxUom   = header.indexOf("uom");
       const idxQty   = header.findIndex(c => /shipped quantity|requested quantity/i.test(c));
-      const idxDate  = header.findIndex(c => /shipped at|ship date|shipped date/i.test(c));
+      const idxDate  = header.findIndex(c => /shipped at|ship date|shipped date|inserted at/i.test(c));
       const seenOrders = new Map();
       for (let i = 1; i < rows.length; i++) {
         const row = rows[i] || [];
@@ -786,6 +857,61 @@ function parseStordConsolidated(workbook, xlsx, hint = {}) {
       }
       result.header.period_start = earliest;
       result.header.period_end = latest;
+    }
+  }
+
+  // ── Summary sheet (newer consolidated-transaction-report variant) ──
+  // One row per billing line with columns: Customer Name, Account ID, Invoice Number,
+  // Billing Code, Billing Category, Billing Item Name, Billing Line Item Name,
+  // Quantity, Rate, Rate Unit, Total, Billing Period Start, Billing Period End.
+  // Detect by exact sheet name "Summary" (the older variant uses "Parcel Backup Summary").
+  const wsSummaryFlat = workbook.Sheets[workbook.SheetNames.find(s => /^summary$/i.test(s))];
+  if (wsSummaryFlat) {
+    const rows = sheetToRows(wsSummaryFlat, xlsx);
+    if (rows.length > 1) {
+      const header = (rows[0] || []).map(c => String(c || "").toLowerCase());
+      const idxInv  = header.findIndex(c => /^invoice number/i.test(c));
+      const idxItem = header.findIndex(c => /billing item name/i.test(c));
+      const idxLine = header.findIndex(c => /billing line item name/i.test(c));
+      const idxCat  = header.findIndex(c => /billing category/i.test(c));
+      const idxQty  = header.findIndex(c => /^quantity/i.test(c));
+      const idxRate = header.findIndex(c => /^rate$/i.test(c));
+      const idxTot  = header.findIndex(c => /^total$/i.test(c));
+      const idxPS   = header.findIndex(c => /billing period start/i.test(c));
+      const idxPE   = header.findIndex(c => /billing period end/i.test(c));
+      let lineNo = result.lines.length;
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const item = idxItem >= 0 && row[idxItem] ? String(row[idxItem]).trim() : "";
+        const lineName = idxLine >= 0 && row[idxLine] ? String(row[idxLine]).trim() : "";
+        const total = num(idxTot >= 0 ? row[idxTot] : 0);
+        const qty = num(idxQty >= 0 ? row[idxQty] : 0);
+        const rate = num(idxRate >= 0 ? row[idxRate] : 0);
+        if (!item && !lineName) continue;
+        if (total === 0 && qty === 0) continue;
+        if (!result.header.invoice_number && idxInv >= 0 && row[idxInv]) result.header.invoice_number = String(row[idxInv]).trim();
+        // Summary sheet has the OFFICIAL invoice period; always prefer it over
+        // the per-shipment min/max that wsBackup may have already written.
+        if (idxPS >= 0 && row[idxPS]) {
+          const ps = toDate(row[idxPS]);
+          if (ps) result.header.period_start = ps;
+        }
+        if (idxPE >= 0 && row[idxPE]) {
+          const pe = toDate(row[idxPE]);
+          if (pe) result.header.period_end = pe;
+        }
+        const desc = lineName || item;
+        lineNo++;
+        result.lines.push({
+          line_no: lineNo,
+          canonical_category: classifyRaw(desc),
+          raw_category: idxCat >= 0 && row[idxCat] ? String(row[idxCat]).trim() : (item || "Parcel"),
+          description: desc,
+          uom: "Per Shipment",
+          rate, quantity: qty, amount: total,
+          notes: null, carrier: null,
+        });
+      }
     }
   }
 
@@ -1325,10 +1451,10 @@ export default function ThreePLBilling() {
         org_id: orgId,
         provider_id: provider.id,
         invoice_number: header.invoice_number || `${provider.code}-${Date.now()}`,
-        invoice_date: header.invoice_date,
-        due_date: header.due_date,
-        period_start: header.period_start || header.invoice_date || new Date().toISOString().split("T")[0],
-        period_end: header.period_end || header.invoice_date || new Date().toISOString().split("T")[0],
+        invoice_date: sanitizeShipmentDate(header.invoice_date),
+        due_date: sanitizeShipmentDate(header.due_date),
+        period_start: sanitizeShipmentDate(header.period_start) || sanitizeShipmentDate(header.invoice_date) || new Date().toISOString().split("T")[0],
+        period_end: sanitizeShipmentDate(header.period_end) || sanitizeShipmentDate(header.invoice_date) || new Date().toISOString().split("T")[0],
         warehouse_code: header.warehouse_code,
         currency: header.currency || provider.currency,
         subtotal: header.subtotal,
@@ -1366,7 +1492,11 @@ export default function ThreePLBilling() {
         const total = item.shipments.length;
         for (let i = 0; i < total; i += 500) {
           patchQueueItem(item.id, { progress: `Saving shipments ${i + 1}–${Math.min(i + 500, total)} of ${total}…` });
-          const batch = item.shipments.slice(i, i + 500).map(s => ({ ...s, org_id: orgId, invoice_id: invoiceId, provider_id: provider.id }));
+          const batch = item.shipments.slice(i, i + 500).map(s => ({
+            ...s,
+            shipment_date: sanitizeShipmentDate(s.shipment_date),
+            org_id: orgId, invoice_id: invoiceId, provider_id: provider.id,
+          }));
           const { data, error } = await supabase.from("wms_3pl_invoice_shipments").insert(batch).select("id, external_order_no");
           if (error) throw new Error(`Shipments batch ${i}: ${error.message}`);
           (data || []).forEach(s => { if (s.external_order_no) shipmentIdByOrder.set(s.external_order_no, s.id); });
@@ -1380,7 +1510,9 @@ export default function ThreePLBilling() {
         for (let i = 0; i < total; i += BATCH) {
           patchQueueItem(item.id, { progress: `Saving order lines ${i + 1}–${Math.min(i + BATCH, total)} of ${total}…` });
           const batch = item.orderLines.slice(i, i + BATCH).map(ol => ({
-            ...ol, org_id: orgId, invoice_id: invoiceId,
+            ...ol,
+            shipment_date: sanitizeShipmentDate(ol.shipment_date),
+            org_id: orgId, invoice_id: invoiceId,
             shipment_id: ol.external_order_no ? shipmentIdByOrder.get(ol.external_order_no) || null : null,
           }));
           const { error } = await supabase.from("wms_3pl_invoice_order_lines").insert(batch);
