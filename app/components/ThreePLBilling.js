@@ -232,6 +232,27 @@ function detectFormat(workbook, filename = "", _xlsxRef = null) {
     }
   }
 
+  // ── Stord RTS (Return To Sender) report ──
+  // Tiny xlsx: single sheet named "data" with columns:
+  //   Building Name | Shipper Name | Received At | Outbound Order Number |
+  //   Tracking Number | Units | Postage
+  // followed by warehouse subtotals and a "GRAND TOTAL" footer.
+  if (sheets.includes("data") && _xlsxRef) {
+    const wsData = workbook.Sheets[workbook.SheetNames.find(s => /^data$/i.test(s))];
+    if (wsData) {
+      const hdr = (sheetToRows(wsData, _xlsxRef)[0] || []).map(c => String(c || "").toLowerCase());
+      if (hdr.includes("outbound order number") && hdr.includes("tracking number") && hdr.includes("postage") && hdr.includes("received at")) {
+        // Warehouse from "Building Name" of first data row (e.g., "Stord Kentucky FC (CVGs001)" → CVG)
+        const r1 = sheetToRows(wsData, _xlsxRef)[1] || [];
+        const buildingIdx = hdr.indexOf("building name");
+        const bld = buildingIdx >= 0 ? String(r1[buildingIdx] || "") : "";
+        const whMatch = (bld || filename).match(/\b([A-Z]{3}[a-z]?\d{0,3})\b/);
+        const warehouse = whMatch ? whMatch[1].toUpperCase().replace(/S\d+$/i, "") : null;
+        return { format: "stord_rts", provider: "stord_us", warehouse };
+      }
+    }
+  }
+
   // Stord consolidated transaction report (legacy variant)
   if (sheets.includes("parcel txns") || sheets.includes("parcel backup report") || sheets.includes("parcel backup summary")) {
     return { format: "stord_consolidated", provider: "stord_us" };
@@ -1231,6 +1252,123 @@ function parseStordParcelBackup(workbook, xlsx, hint = {}) {
   return result;
 }
 
+// ── Stord RTS (Return To Sender) report ──
+// One sheet "data". Each data row = one returned parcel with postage charge.
+// Subtotal rows have "Count N / M" strings in place of order numbers; grand
+// total row has "GRAND TOTAL" in column A. We compute totals from data rows.
+function parseStordRTS(workbook, xlsx, hint = {}) {
+  const result = {
+    header: {
+      invoice_number: hint.invoice_number_from_filename || null,
+      invoice_date: null, period_start: null, period_end: null,
+      total: 0, subtotal: 0, currency: "USD",
+      warehouse_code: hint.warehouse || null,
+      raw_summary: { source: "RTS_report" },
+    },
+    lines: [], shipments: [], orderLines: [],
+    detected_format: "stord_rts",
+  };
+
+  const ws = workbook.Sheets[workbook.SheetNames.find(s => /^data$/i.test(s))];
+  if (!ws) return result;
+  const rows = sheetToRows(ws, xlsx);
+  if (rows.length < 2) return result;
+
+  const hdr = (rows[0] || []).map(c => String(c || "").trim().toLowerCase());
+  const idxBld   = hdr.indexOf("building name");
+  const idxShip  = hdr.indexOf("shipper name");
+  const idxRecv  = hdr.indexOf("received at");
+  const idxOrd   = hdr.indexOf("outbound order number");
+  const idxTrk   = hdr.indexOf("tracking number");
+  const idxUnits = hdr.indexOf("units");
+  const idxPost  = hdr.indexOf("postage");
+
+  let totalPostage = 0;
+  let totalUnits = 0;
+  let earliest = null, latest = null;
+  const orderSet = new Set();
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const bld = idxBld >= 0 && row[idxBld] ? String(row[idxBld]).trim() : "";
+    const ord = idxOrd >= 0 && row[idxOrd] ? String(row[idxOrd]).trim() : "";
+    // Skip subtotal / grand total footers — they put "Count N" or "GRAND TOTAL"
+    // in cells where we expect real data.
+    if (/^grand\s+total/i.test(bld)) break;
+    if (/^count\s/i.test(ord) || /to$/i.test(bld) && /count/i.test(String(row[idxShip] || ""))) continue;
+    if (!ord) continue;
+    const orderNo = ord.replace(/^#/, "");
+    const recvDate = idxRecv >= 0 ? toDate(row[idxRecv]) : null;
+    const postage = idxPost >= 0 ? num(row[idxPost]) : 0;
+    const units = idxUnits >= 0 ? num(row[idxUnits]) : 0;
+    if (recvDate) {
+      if (!earliest || recvDate < earliest) earliest = recvDate;
+      if (!latest || recvDate > latest) latest = recvDate;
+    }
+    totalPostage += postage;
+    totalUnits += units;
+    orderSet.add(orderNo);
+    // Warehouse from building name on first valid row if not already known
+    if (!result.header.warehouse_code && bld) {
+      const m = bld.match(/\b([A-Z]{3}[a-z]?\d{0,3})\b/);
+      if (m) result.header.warehouse_code = m[1].toUpperCase().replace(/S\d+$/i, "");
+    }
+    result.shipments.push({
+      shipment_date: recvDate,
+      external_order_no: orderNo,
+      shopify_order_id: orderNo,
+      carrier: "Stord",
+      service_level: "RTS",
+      zone: null,
+      weight_kg: null,
+      freight_cost: postage,
+      total_cost: postage,
+      recipient_country: null, recipient_region: null,
+      recipient_city: null, recipient_postal: null,
+      is_adjustment: false,
+      warehouse_code: result.header.warehouse_code || hint.warehouse || null,
+    });
+  }
+
+  // Single rolled-up billing line. Description names the period for clarity.
+  if (orderSet.size > 0) {
+    result.lines.push({
+      line_no: 1,
+      canonical_category: "returns",
+      raw_category: "Return To Sender",
+      description: `Return To Sender — ${orderSet.size} parcel${orderSet.size === 1 ? "" : "s"}`,
+      uom: "Per Shipment",
+      rate: orderSet.size > 0 ? totalPostage / orderSet.size : 0,
+      quantity: orderSet.size,
+      amount: totalPostage,
+      notes: `${totalUnits} units returned`,
+      carrier: "Stord",
+    });
+  }
+
+  // Derive period: prefer Received At min/max, fall back to filename suffix
+  // (filename pattern: ..._RTS_YYYYMMDD.xlsx — that date is the report end)
+  if (earliest && latest) {
+    result.header.period_start = earliest;
+    result.header.period_end = latest;
+    result.header.invoice_date = latest;
+  } else {
+    const fnDate = (hint._filename || "").match(/_(\d{4})(\d{2})(\d{2})\.xlsx$/i);
+    if (fnDate) {
+      const d = `${fnDate[1]}-${fnDate[2]}-${fnDate[3]}`;
+      result.header.invoice_date = d;
+      result.header.period_end = d;
+      result.header.period_start = d;
+    }
+  }
+
+  result.header.total = totalPostage;
+  result.header.subtotal = totalPostage;
+  result.header.units_shipped = totalUnits || null;
+  result.header.orders_shipped = orderSet.size || null;
+  return result;
+}
+
 function parseInvoice(workbook, xlsx, filename) {
   const detection = detectFormat(workbook, filename, xlsx);
   const invMatch = filename.match(/INV(\d+)/i);
@@ -1242,12 +1380,13 @@ function parseInvoice(workbook, xlsx, filename) {
   if (detection.format === "stord_consolidated") return parseStordConsolidated(workbook, xlsx, hint);
   if (detection.format === "stord_transaction_history") return parseStordTransactionHistory(workbook, xlsx, hint);
   if (detection.format === "stord_parcel_backup") return parseStordParcelBackup(workbook, xlsx, hint);
+  if (detection.format === "stord_rts") return parseStordRTS(workbook, xlsx, hint);
   // Next3PL AU transport — freight-only file
   if (detection.format === "next3pl_au_transport") {
     // Treat like Next3PL but only Transport sheet
     return parseNext3PL(workbook, xlsx, hint);
   }
-  return { header: {}, lines: [], shipments: [], orderLines: [], detected_format: "unknown", error: "Unable to detect format. Supported: Next3PL family (xlsm/xlsx with Warehouse Rates sheet), Stord variants (Billing Summary, D1RT-style \"<code> INVOICE\", parcel_billing_backup_report_PVT, transaction_history_report.csv)." };
+  return { header: {}, lines: [], shipments: [], orderLines: [], detected_format: "unknown", error: "Unable to detect format. Supported: Next3PL family (xlsm/xlsx with Warehouse Rates sheet), Stord variants (Billing Summary, D1RT-style \"<code> INVOICE\", parcel_billing_backup_report_PVT, transaction_history_report.csv, RTS_YYYYMMDD.xlsx)." };
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -1305,6 +1444,7 @@ export default function ThreePLBilling() {
     stord_consolidated: "stord_us",
     stord_parcel_backup: "stord_us",
     stord_transaction_history: "stord_us",
+    stord_rts: "stord_us",
   };
 
   // Filter for spreadsheet files we know how to parse. Anything else is silently
