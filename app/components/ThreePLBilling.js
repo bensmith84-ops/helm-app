@@ -710,7 +710,7 @@ function parseInvoice(workbook, xlsx, filename) {
 
 // ─── Component ─────────────────────────────────────────────────────────────
 export default function ThreePLBilling() {
-  const { T } = useTheme();
+  const { tokens: T } = useTheme();
   const { user, profile, orgId } = useAuth();
   const [view, setView] = useState("list"); // list | upload | review | detail
   const [providers, setProviders] = useState([]);
