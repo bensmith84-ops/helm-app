@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
+const ThreePLBillingReports = lazy(() => import("./ThreePLBillingReports"));
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
