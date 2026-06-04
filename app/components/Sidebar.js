@@ -24,6 +24,7 @@ export const NAV_GROUPS = [
     { key: "plm", icon: "⬢", label: "PLM" },
     { key: "erp", icon: "◧", label: "ERP" },
     { key: "wms", icon: "◨", label: "WMS" },
+    { key: "3pl_billing", icon: "🚚", label: "3PL Billing" },
     { key: "scoreboard", icon: "▩", label: "Scoreboard" },
   ]},
   { label: "System", items: [
