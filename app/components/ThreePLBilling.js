@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
@@ -1407,6 +1407,24 @@ export default function ThreePLBilling() {
   //   { id, file, name, status: "parsing"|"ready"|"error"|"saving"|"saved"|"skipped",
   //     header, lines, shipments, orderLines, detected_format,
   //     overrideProvider, error, savedInvoiceId, progress }
+  // Existing-invoice lookup for auto-skip-duplicates.
+  // Keys: `<provider_id>::<invoice_number>` (case-sensitive — invoice numbers
+  // are user-/vendor-supplied identifiers and we treat them verbatim).
+  // Value: the existing invoice row (so we can show period + saved date in UI).
+  const existingInvoiceMap = useMemo(() => {
+    const m = new Map();
+    for (const inv of invoices || []) {
+      if (inv.invoice_number && inv.provider_id) {
+        m.set(`${inv.provider_id}::${inv.invoice_number}`, inv);
+      }
+    }
+    return m;
+  }, [invoices]);
+  // Latest-snapshot ref so handleFiles' parallel parses see fresh data without
+  // needing the closure to re-bind (useState renders mid-flight would lose it).
+  const existingInvoiceMapRef = useRef(existingInvoiceMap);
+  useEffect(() => { existingInvoiceMapRef.current = existingInvoiceMap; }, [existingInvoiceMap]);
+
   const [parsedQueue, setParsedQueue] = useState([]);
   const [parseProgress, setParseProgress] = useState({ done: 0, total: 0 });
   const [activeQueueId, setActiveQueueId] = useState(null); // which queue item is expanded in detail
@@ -1501,6 +1519,9 @@ export default function ThreePLBilling() {
   };
 
   // Parse one file → return a queue item shape (does NOT mutate state).
+  // Detects duplicates against already-saved invoices (same provider + invoice_number)
+  // and pre-marks them as "skipped" so Save All ignores them. Each row gets a
+  // "Replace" button so the user can opt-in to overwrite individual duplicates.
   const parseOne = async (file, xlsx) => {
     const id = newQueueId();
     try {
@@ -1508,13 +1529,24 @@ export default function ThreePLBilling() {
       const wb = xlsx.read(buf, { type: "array", cellDates: true });
       const result = parseInvoice(wb, xlsx, file.name);
       if (result.error) throw new Error(result.error);
+      const provGuess = PROV_BY_FMT[result.detected_format] || null;
+      const providerId = provGuess ? providers.find(p => p.code === provGuess)?.id : null;
+      // Duplicate check — only meaningful when both provider AND invoice number
+      // were resolved at parse time.
+      let isDuplicate = false, existing = null;
+      if (providerId && result.header?.invoice_number) {
+        existing = existingInvoiceMapRef.current.get(`${providerId}::${result.header.invoice_number}`) || null;
+        isDuplicate = !!existing;
+      }
       return {
         id, file, name: file.webkitRelativePath || file.name,
-        status: "ready",
+        status: isDuplicate ? "skipped" : "ready",
         header: result.header, lines: result.lines, shipments: result.shipments, orderLines: result.orderLines,
         detected_format: result.detected_format,
-        overrideProvider: PROV_BY_FMT[result.detected_format] || null,
-        error: null, savedInvoiceId: null, progress: "",
+        overrideProvider: provGuess,
+        error: null, savedInvoiceId: existing?.id || null, progress: "",
+        _isDuplicate: isDuplicate,
+        _existingInvoice: existing,
       };
     } catch (e) {
       return {
@@ -1879,10 +1911,12 @@ export default function ThreePLBilling() {
                         const ready = parsedQueue.filter(i => i.status === "ready").length;
                         const errored = parsedQueue.filter(i => i.status === "error").length;
                         const saved = parsedQueue.filter(i => i.status === "saved").length;
-                        const skipped = parsedQueue.filter(i => i.status === "skipped").length;
+                        const dupes = parsedQueue.filter(i => i.status === "skipped" && i._isDuplicate).length;
+                        const skipped = parsedQueue.filter(i => i.status === "skipped" && !i._isDuplicate).length;
                         const parts = [];
                         if (ready) parts.push(`${ready} ready`);
                         if (saved) parts.push(`${saved} saved`);
+                        if (dupes) parts.push(`${dupes} duplicate${dupes === 1 ? "" : "s"} skipped`);
                         if (errored) parts.push(`${errored} error`);
                         if (skipped) parts.push(`${skipped} skipped`);
                         return parts.length ? ` — ${parts.join(" · ")}` : "";
@@ -1945,8 +1979,15 @@ export default function ThreePLBilling() {
                       <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", color: T.text2 }}>{it.shipments.length.toLocaleString()}</td>
                       <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", color: T.text2 }}>{it.orderLines.length.toLocaleString()}</td>
                       <td style={{ padding: "8px 10px" }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: c + "20", color: c, textTransform: "uppercase" }}>{it.status}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: c + "20", color: c, textTransform: "uppercase" }}>
+                          {it._isDuplicate && it.status === "skipped" ? "duplicate" : it.status}
+                        </span>
                         {it.progress && it.status === "saving" && <div style={{ fontSize: 9, color: T.text3, marginTop: 2 }}>{it.progress}</div>}
+                        {it._isDuplicate && it.status === "skipped" && it._existingInvoice && (
+                          <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+                            Already saved {it._existingInvoice.period_start || it._existingInvoice.invoice_date || ""}
+                          </div>
+                        )}
                         {it.error && <div style={{ fontSize: 10, color: "#EF4444", marginTop: 2, maxWidth: 200 }} title={it.error}>⚠ {it.error.slice(0, 60)}{it.error.length > 60 ? "…" : ""}</div>}
                       </td>
                       <td style={{ padding: "8px 10px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
@@ -1957,6 +1998,11 @@ export default function ThreePLBilling() {
                             <button onClick={() => skipQueueItem(it.id)} disabled={savingAll}
                               style={{ ...btn, padding: "3px 8px", fontSize: 10, background: T.surface2, color: T.text3 }}>Skip</button>
                           </>
+                        )}
+                        {it.status === "skipped" && it._isDuplicate && (
+                          <button onClick={() => patchQueueItem(it.id, { status: "ready", error: null })} disabled={savingAll}
+                            style={{ ...btn, padding: "3px 8px", fontSize: 10, background: T.surface2, color: T.text2, border: `1px solid ${T.border}` }}
+                            title="Force re-save: overwrites the existing invoice's lines, shipments, and order lines">↻ Replace</button>
                         )}
                         {it.status === "error" && (
                           <button onClick={() => skipQueueItem(it.id)} style={{ ...btn, padding: "3px 8px", fontSize: 10, background: T.surface2, color: T.text3 }}>Dismiss</button>
