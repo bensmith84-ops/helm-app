@@ -122,7 +122,46 @@ function detectFormat(workbook, filename = "", _xlsxRef = null) {
   const sheets = workbook.SheetNames.map(s => s.toLowerCase());
   const fn = filename.toLowerCase();
 
-  // Stord consolidated transaction report
+  // ── Stord transaction-history CSV ──
+  // Single-sheet CSV with header row: Customer Name, Account ID, Invoice Number,
+  // Billing Item, Billing Code Name, Billing Code, Rate/Unit, Quantity, Total Charge,
+  // Order Number, LPN, Location Name, Voided At.
+  // Detection: read row 0 of the first sheet and look for "Billing Item" + "Total Charge" + "Order Number".
+  if (workbook.SheetNames.length > 0 && _xlsxRef) {
+    const ws0 = workbook.Sheets[workbook.SheetNames[0]];
+    const r0 = sheetToRows(ws0, _xlsxRef)[0] || [];
+    const hdr = r0.map(c => String(c || "").trim().toLowerCase());
+    if (hdr.includes("billing item") && hdr.includes("total charge") && hdr.includes("order number") && hdr.includes("rate/unit")) {
+      // Warehouse code from "Account ID" sample or filename
+      const r1 = sheetToRows(ws0, _xlsxRef)[1] || [];
+      const acctIdx = hdr.indexOf("account id");
+      const acctVal = acctIdx >= 0 ? String(r1[acctIdx] || "") : "";
+      const whMatch = (acctVal || filename).match(/\b([A-Z]{3}[a-z]?\d{0,3})\b/);
+      const warehouse = whMatch ? whMatch[1].toUpperCase().replace(/S\d+$/, "") : null;
+      return { format: "stord_transaction_history", provider: "stord_us", warehouse };
+    }
+  }
+
+  // ── Stord parcel-billing backup PVT (Summary + Details sheets) ──
+  // xlsx with two sheets named "Summary" and "Details" where Details has
+  // "Service Level" + "Order Number" + "Tracking Number" columns.
+  if (sheets.includes("summary") && sheets.includes("details") && _xlsxRef) {
+    const wsDet = workbook.Sheets[workbook.SheetNames.find(s => /^details$/i.test(s))];
+    if (wsDet) {
+      const hdr = (sheetToRows(wsDet, _xlsxRef)[0] || []).map(c => String(c || "").trim().toLowerCase());
+      if (hdr.includes("service level") && hdr.includes("order number") && hdr.includes("tracking number")) {
+        // Warehouse from Warehouse Name column sample
+        const r1 = sheetToRows(wsDet, _xlsxRef)[1] || [];
+        const whIdx = hdr.indexOf("warehouse name");
+        const whVal = whIdx >= 0 ? String(r1[whIdx] || "") : "";
+        const whMatch = (whVal || filename).match(/\b([A-Z]{3}[a-z]?\d{0,3})\b/);
+        const warehouse = whMatch ? whMatch[1].toUpperCase().replace(/S\d+$/, "") : null;
+        return { format: "stord_parcel_backup", provider: "stord_us", warehouse };
+      }
+    }
+  }
+
+  // Stord consolidated transaction report (legacy variant)
   if (sheets.includes("parcel txns") || sheets.includes("parcel backup report") || sheets.includes("parcel backup summary")) {
     return { format: "stord_consolidated", provider: "stord_us" };
   }
@@ -790,21 +829,299 @@ function parseStordConsolidated(workbook, xlsx, hint = {}) {
   return result;
 }
 
+// ── Stord transaction_history_report.csv ──
+// Per-transaction parcel billing detail. One row per parcel with:
+//   Customer Name, Account ID, Invoice Number, Billing Item, Billing Code Name,
+//   Billing Code, Rate/Unit, Quantity, Total Charge, Order Number, LPN, Location Name, Voided At
+// We roll up to billing lines grouped by (Billing Item, Billing Code Name, Rate/Unit)
+// and emit a shipment row per non-voided parcel for the freight detail table.
+function parseStordTransactionHistory(workbook, xlsx, hint = {}) {
+  const result = {
+    header: {
+      invoice_number: hint.invoice_number_from_filename || null,
+      invoice_date: null, period_start: null, period_end: null,
+      total: 0, subtotal: 0, currency: "USD",
+      warehouse_code: hint.warehouse || null, raw_summary: {},
+    },
+    lines: [], shipments: [], orderLines: [],
+    detected_format: "stord_transaction_history",
+  };
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  if (!ws) return result;
+  const rows = sheetToRows(ws, xlsx);
+  if (rows.length < 2) return result;
+
+  const hdr = (rows[0] || []).map(c => String(c || "").trim().toLowerCase());
+  const idxItem      = hdr.indexOf("billing item");
+  const idxCodeName  = hdr.indexOf("billing code name");
+  const idxCode      = hdr.indexOf("billing code");
+  const idxRate      = hdr.indexOf("rate/unit");
+  const idxQty       = hdr.indexOf("quantity");
+  const idxTotal     = hdr.indexOf("total charge");
+  const idxOrder     = hdr.indexOf("order number");
+  const idxLPN       = hdr.indexOf("lpn");
+  const idxLoc       = hdr.indexOf("location name");
+  const idxVoided    = hdr.indexOf("voided at");
+  const idxInvNo     = hdr.indexOf("invoice number");
+  const idxAcct      = hdr.indexOf("account id");
+
+  // Rolled-up billing lines: key = "item|codeName|rate|isVoided"
+  // (Voids are tracked separately so users can audit them but they don''t
+  // affect the invoice total — voided parcels still appear in the file but
+  // contribute $0; we include them as adjustment lines for transparency.)
+  const lineGroups = new Map();
+  const orderUnits = new Map();          // external_order_no → units for header counts
+  let stordInvUUID = null;
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const item = row[idxItem] ? String(row[idxItem]).trim() : "";
+    const codeName = idxCodeName >= 0 && row[idxCodeName] ? String(row[idxCodeName]).trim() : "";
+    const code = idxCode >= 0 && row[idxCode] ? String(row[idxCode]).trim() : "";
+    const rate = num(idxRate >= 0 ? row[idxRate] : 0);
+    const qty = num(idxQty >= 0 ? row[idxQty] : 0);
+    const total = num(idxTotal >= 0 ? row[idxTotal] : 0);
+    const orderRaw = idxOrder >= 0 ? row[idxOrder] : null;
+    const orderNo = orderRaw ? String(orderRaw).trim().replace(/^#/, "") : null;
+    const voided = idxVoided >= 0 && row[idxVoided] ? String(row[idxVoided]).trim() : "";
+    const isVoided = voided && voided.toLowerCase() !== "false" && voided !== "0";
+
+    if (!item) continue;
+    if (!stordInvUUID && idxInvNo >= 0 && row[idxInvNo]) stordInvUUID = String(row[idxInvNo]).trim();
+
+    // Roll up billing line
+    const key = `${item}||${codeName}||${rate.toFixed(4)}||${isVoided ? "voided" : "active"}`;
+    if (!lineGroups.has(key)) {
+      lineGroups.set(key, {
+        billing_item: item, code_name: codeName, code,
+        rate, qty: 0, amount: 0, count: 0, is_voided: isVoided,
+      });
+    }
+    const g = lineGroups.get(key);
+    g.qty += qty;
+    g.amount += total;
+    g.count += 1;
+
+    // Track orders for header counts (only non-voided rows)
+    if (!isVoided && orderNo) {
+      orderUnits.set(orderNo, (orderUnits.get(orderNo) || 0) + (qty || 1));
+    }
+
+    // Emit a shipment row per parcel (skip voids to keep the freight table clean —
+    // voids are reflected in the adjustment line instead)
+    if (!isVoided && orderNo && total > 0) {
+      result.shipments.push({
+        shipment_date: null, // not present in this file
+        external_order_no: orderNo,
+        shopify_order_id: orderNo,
+        carrier: code || "Stord",
+        service_level: codeName || null,
+        zone: null,
+        weight_kg: null,
+        freight_cost: total,
+        total_cost: total,
+        recipient_country: null, recipient_region: null,
+        recipient_city: null, recipient_postal: null,
+        is_adjustment: false,
+        warehouse_code: hint.warehouse || null,
+      });
+    }
+  }
+
+  // Convert groups → lines
+  let lineNo = 0;
+  for (const g of lineGroups.values()) {
+    lineNo++;
+    result.lines.push({
+      line_no: lineNo,
+      canonical_category: g.is_voided ? "adjustment" : (classifyRaw(g.code_name || g.billing_item) || "freight"),
+      raw_category: g.is_voided ? `${g.billing_item} (voided)` : (g.code_name || g.billing_item),
+      description: `${g.billing_item}${g.code_name && g.code_name !== g.billing_item ? ` — ${g.code_name}` : ""}${g.is_voided ? " — VOIDED" : ""}`,
+      uom: "Per Shipment",
+      rate: g.rate, quantity: g.qty || g.count, amount: g.amount,
+      notes: g.is_voided ? `${g.count} voided parcels` : `${g.count} parcels`,
+      carrier: g.code || null,
+    });
+  }
+
+  // Derive period from the filename date suffix (e.g. ...-2025-12-27-...)
+  const periodMatch = (hint.invoice_number_from_filename || "").length > 0
+    ? null  // we''ll grab from the original filename via hint
+    : null;
+  const fnPeriod = (hint._filename || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (fnPeriod) {
+    const end = `${fnPeriod[1]}-${fnPeriod[2]}-${fnPeriod[3]}`;
+    // Stord weekly cycles → start = end - 6 days
+    const d = new Date(end + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 6);
+    result.header.period_start = d.toISOString().split("T")[0];
+    result.header.period_end = end;
+    result.header.invoice_date = end;
+  }
+
+  result.header.total = result.lines.reduce((s, l) => s + (l.amount || 0), 0);
+  result.header.subtotal = result.header.total;
+  result.header.units_shipped = Array.from(orderUnits.values()).reduce((s, n) => s + n, 0) || null;
+  result.header.orders_shipped = orderUnits.size || null;
+  result.header.raw_summary = { source: "transaction_history_report", stord_invoice_uuid: stordInvUUID, line_groups: result.lines.length, parcel_count: result.shipments.length };
+
+  // Distinguish from any sibling PVT.xlsx invoice that shares the same INV number
+  if (result.header.invoice_number) result.header.invoice_number = result.header.invoice_number + "-TXN";
+
+  return result;
+}
+
+// ── Stord parcel_billing_backup_report_PVT.xlsx ──
+// Two sheets: "Summary" (service-level rollup with Adjustment flag) + "Details"
+// (per-shipment data). Summary columns: Adjustment, Service Level, Distinct
+// Count of Order Number, Sum of Total Amount, Average of Total Amount.
+function parseStordParcelBackup(workbook, xlsx, hint = {}) {
+  const result = {
+    header: {
+      invoice_number: hint.invoice_number_from_filename || null,
+      invoice_date: null, period_start: null, period_end: null,
+      total: 0, subtotal: 0, currency: "USD",
+      warehouse_code: hint.warehouse || null, raw_summary: { source: "parcel_billing_backup_report_PVT" },
+    },
+    lines: [], shipments: [], orderLines: [],
+    detected_format: "stord_parcel_backup",
+  };
+
+  // ── Summary sheet → billing lines, one per service level ──
+  const wsSum = workbook.Sheets[workbook.SheetNames.find(s => /^summary$/i.test(s))];
+  if (wsSum) {
+    const rows = sheetToRows(wsSum, xlsx);
+    // Find header row dynamically
+    let headerAt = -1;
+    for (let r = 0; r < Math.min(rows.length, 10); r++) {
+      const lc = (rows[r] || []).map(c => String(c || "").toLowerCase());
+      if (lc.some(c => c.includes("service level")) && lc.some(c => c.includes("total amount"))) { headerAt = r; break; }
+    }
+    if (headerAt >= 0) {
+      const hdr = (rows[headerAt] || []).map(c => String(c || "").toLowerCase());
+      const idxAdj   = hdr.findIndex(c => /^adjustment$/i.test(c));
+      const idxSvc   = hdr.findIndex(c => /service level/i.test(c));
+      const idxCnt   = hdr.findIndex(c => /distinct count|count of order/i.test(c));
+      const idxTotal = hdr.findIndex(c => /sum of total amount/i.test(c));
+      let lineNo = 0;
+      let lastAdj = "FALSE";
+      for (let i = headerAt + 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const adjRaw = idxAdj >= 0 && row[idxAdj] ? String(row[idxAdj]).trim() : "";
+        // Pivot table: Adjustment column has the value on the first row of a group,
+        // then blank for subsequent rows. Carry-forward.
+        if (adjRaw) lastAdj = adjRaw.toUpperCase();
+        const svc = idxSvc >= 0 && row[idxSvc] ? String(row[idxSvc]).trim() : "";
+        const total = num(idxTotal >= 0 ? row[idxTotal] : 0);
+        const cnt = num(idxCnt >= 0 ? row[idxCnt] : 0);
+        if (!svc) continue;
+        if (total === 0 && cnt === 0) continue;
+        const isAdj = lastAdj === "TRUE";
+        lineNo++;
+        result.lines.push({
+          line_no: lineNo,
+          canonical_category: isAdj ? "adjustment" : "freight",
+          raw_category: isAdj ? "Parcel Adjustment" : "Parcel",
+          description: `${isAdj ? "Adjustment — " : ""}${svc}`,
+          uom: "Per Shipment",
+          rate: cnt > 0 ? total / cnt : 0,
+          quantity: cnt,
+          amount: total,
+          notes: null,
+          carrier: svc.split(/\s+/)[0] === "Stord" ? null : svc.split(/\s+/)[0],
+        });
+      }
+    }
+  }
+
+  // ── Details sheet → per-shipment freight rows ──
+  const wsDet = workbook.Sheets[workbook.SheetNames.find(s => /^details$/i.test(s))];
+  if (wsDet) {
+    const rows = sheetToRows(wsDet, xlsx);
+    if (rows.length > 1) {
+      const hdr = (rows[0] || []).map(c => String(c || "").trim().toLowerCase());
+      const idxInvDate = hdr.indexOf("invoice date");
+      const idxWh      = hdr.indexOf("warehouse name");
+      const idxOrd     = hdr.indexOf("order number");
+      const idxShip    = hdr.indexOf("shipped date");
+      const idxSvc     = hdr.indexOf("service level");
+      const idxTrk     = hdr.indexOf("tracking number");
+      const idxQty     = hdr.indexOf("item qty");
+      const idxWt      = hdr.indexOf("actual weight");
+      // Find a charge/amount column if present (Total Amount, Charge, etc.)
+      const idxAmt     = hdr.findIndex(c => /total amount|charge|cost/i.test(c) && !c.includes("average"));
+      // Region/postal columns
+      const idxState   = hdr.findIndex(c => /state|province/i.test(c));
+      const idxCity    = hdr.findIndex(c => /city/i.test(c));
+      const idxZip     = hdr.findIndex(c => /postal|zip/i.test(c));
+      const idxCountry = hdr.findIndex(c => /country/i.test(c));
+
+      let earliest = null, latest = null;
+      let unitsTotal = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const orderRaw = idxOrd >= 0 ? row[idxOrd] : null;
+        if (!orderRaw) continue;
+        const orderNo = String(orderRaw).trim().replace(/^#/, "");
+        const itemQty = idxQty >= 0 ? num(row[idxQty]) : 0;
+        if (itemQty > 0) unitsTotal += itemQty;
+        const shipDate = idxShip >= 0 ? toDate(row[idxShip]) : null;
+        if (shipDate) {
+          if (!earliest || shipDate < earliest) earliest = shipDate;
+          if (!latest || shipDate > latest) latest = shipDate;
+        }
+        if (!result.header.invoice_date && idxInvDate >= 0) result.header.invoice_date = toDate(row[idxInvDate]);
+        if (!result.header.warehouse_code && idxWh >= 0 && row[idxWh]) {
+          const m = String(row[idxWh]).match(/\b([A-Z]{3}[a-z]?\d{0,3})\b/);
+          if (m) result.header.warehouse_code = m[1].toUpperCase().replace(/S\d+$/i, "");
+        }
+        result.shipments.push({
+          shipment_date: shipDate,
+          external_order_no: orderNo,
+          shopify_order_id: orderNo,
+          carrier: "Stord",
+          service_level: idxSvc >= 0 && row[idxSvc] ? String(row[idxSvc]).trim() : null,
+          zone: null,
+          weight_kg: idxWt >= 0 ? num(row[idxWt]) : null,
+          freight_cost: idxAmt >= 0 ? num(row[idxAmt]) : null,
+          total_cost: idxAmt >= 0 ? num(row[idxAmt]) : null,
+          recipient_country: idxCountry >= 0 && row[idxCountry] ? String(row[idxCountry]).trim() : null,
+          recipient_region: idxState >= 0 && row[idxState] ? String(row[idxState]).trim() : null,
+          recipient_city: idxCity >= 0 && row[idxCity] ? String(row[idxCity]).trim() : null,
+          recipient_postal: idxZip >= 0 && row[idxZip] ? String(row[idxZip]).trim() : null,
+          is_adjustment: false,
+          warehouse_code: result.header.warehouse_code || hint.warehouse || null,
+        });
+      }
+      result.header.period_start = earliest;
+      result.header.period_end = latest;
+      result.header.units_shipped = unitsTotal || null;
+    }
+  }
+
+  // Header totals
+  result.header.total = result.lines.reduce((s, l) => s + (l.amount || 0), 0);
+  result.header.subtotal = result.header.total;
+  result.header.orders_shipped = new Set(result.shipments.map(s => s.external_order_no)).size || null;
+  return result;
+}
+
 function parseInvoice(workbook, xlsx, filename) {
   const detection = detectFormat(workbook, filename, xlsx);
   const invMatch = filename.match(/INV(\d+)/i);
-  const hint = { ...detection, invoice_number_from_filename: invMatch ? `INV${invMatch[1]}` : null };
+  const hint = { ...detection, invoice_number_from_filename: invMatch ? `INV${invMatch[1]}` : null, _filename: filename };
   if (detection.format === "next3pl_uk_monthly" || detection.format === "next3pl_au_warehouse" || detection.format === "next3pl_ca_weekly" || detection.format === "next3pl_unknown") {
     return parseNext3PL(workbook, xlsx, hint);
   }
   if (detection.format === "stord_customer") return parseStordCustomer(workbook, xlsx, hint);
   if (detection.format === "stord_consolidated") return parseStordConsolidated(workbook, xlsx, hint);
+  if (detection.format === "stord_transaction_history") return parseStordTransactionHistory(workbook, xlsx, hint);
+  if (detection.format === "stord_parcel_backup") return parseStordParcelBackup(workbook, xlsx, hint);
   // Next3PL AU transport — freight-only file
   if (detection.format === "next3pl_au_transport") {
     // Treat like Next3PL but only Transport sheet
     return parseNext3PL(workbook, xlsx, hint);
   }
-  return { header: {}, lines: [], shipments: [], orderLines: [], detected_format: "unknown", error: "Unable to detect format. Supported: Next3PL family (xlsm/xlsx with Warehouse Rates sheet), Stord (Billing Summary or Parcel Backup Report)." };
+  return { header: {}, lines: [], shipments: [], orderLines: [], detected_format: "unknown", error: "Unable to detect format. Supported: Next3PL family (xlsm/xlsx with Warehouse Rates sheet), Stord variants (Billing Summary, D1RT-style \"<code> INVOICE\", parcel_billing_backup_report_PVT, transaction_history_report.csv)." };
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -860,6 +1177,8 @@ export default function ThreePLBilling() {
     next3pl_ca_weekly: "next3pl_ca",
     stord_customer: "stord_us",
     stord_consolidated: "stord_us",
+    stord_parcel_backup: "stord_us",
+    stord_transaction_history: "stord_us",
   };
 
   // Filter for spreadsheet files we know how to parse. Anything else is silently
