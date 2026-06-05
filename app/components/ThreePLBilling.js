@@ -696,15 +696,16 @@ function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
     if (!shipMap.has(delivery)) {
       shipMap.set(delivery, {
         external_order_no: row[idx.orderEcomm] || row[idx.order] || null,
-        tracking_number: row[idx.tracking] || null,
+        tracking_number: row[idx.tracking] ? String(row[idx.tracking]).trim() : null,
         service_level: row[idx.method] ? String(row[idx.method]).trim() : null,
         carrier: row[idx.courier] ? String(row[idx.courier]).trim() : null,
         shipment_date: sd,
         weight_kg: row[idx.weight] != null ? num(row[idx.weight]) / 1000 : null,
         recipient_country: row[idx.country] ? String(row[idx.country]).trim() : null,
+        recipient_postal: row[idx.postcode] ? String(row[idx.postcode]).trim() : null,
         recipient_region: row[idx.postcode] ? String(row[idx.postcode]).trim().split(/\s+/)[0] : null,
         zone: null,
-        units: 0,
+        units_shipped: 0,
         freight_cost: null,
         fuel_surcharge: null,
         other_surcharges: null,
@@ -719,7 +720,7 @@ function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
       });
     }
     const s = shipMap.get(delivery);
-    s.units += num(row[idx.qty]);
+    s.units_shipped += num(row[idx.qty]);
     s.raw_data.products.push({
       code: row[idx.product] ? String(row[idx.product]).trim() : null,
       desc: row[idx.productDesc] ? String(row[idx.productDesc]).trim() : null,
@@ -744,7 +745,7 @@ function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
   // monthly invoice and reports/audit can choose to exclude these supplementary files.
   const baseSlug = (hint._filename || "uk-dispatch").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").substring(0, 50).toUpperCase();
   result.header.invoice_number = `${baseSlug}-DISPATCH`;
-  result.header.units_shipped = result.shipments.reduce((a, s) => a + (s.units || 0), 0);
+  result.header.units_shipped = result.shipments.reduce((a, s) => a + (s.units_shipped || 0), 0);
   result.header.orders_shipped = result.shipments.length;
   // total stays 0 — this file carries no cost data, so it does not inflate any spend KPI.
   return result;
@@ -823,9 +824,10 @@ function parseNext3PLUKFreightReport(workbook, xlsx, hint = {}) {
               shipment_date: sd,
               weight_kg: row[idx.weight] != null ? num(row[idx.weight]) / 1000 : null,
               recipient_country: row[idx.country] ? String(row[idx.country]).trim() : null,
+              recipient_postal: row[idx.postcode] ? String(row[idx.postcode]).trim() : null,
               recipient_region: row[idx.postcode] ? String(row[idx.postcode]).trim().split(/\s+/)[0] : null,
               zone: null,
-              units: 0,
+              units_shipped: 0,
               freight_cost: num(row[idx.pound]),
               fuel_surcharge: null,
               other_surcharges: null,
@@ -847,7 +849,7 @@ function parseNext3PLUKFreightReport(workbook, xlsx, hint = {}) {
             });
           }
           const s = shipMap.get(String(delivery));
-          s.units += num(row[idx.qty]);
+          s.units_shipped += num(row[idx.qty]);
           s.raw_data.products.push({
             code: row[idx.product] ? String(row[idx.product]).trim() : null,
             desc: row[idx.productDesc] ? String(row[idx.productDesc]).trim() : null,
@@ -894,9 +896,10 @@ function parseNext3PLUKFreightReport(workbook, xlsx, hint = {}) {
           shipment_date: sd,
           weight_kg: null,
           recipient_country: row[fidx.country] ? String(row[fidx.country]).trim() : null,
+          recipient_postal: row[fidx.postcode] ? String(row[fidx.postcode]).trim() : null,
           recipient_region: row[fidx.state] ? String(row[fidx.state]).trim() : (row[fidx.postcode] ? String(row[fidx.postcode]).trim().split(/\s+/)[0] : null),
           zone: row[fidx.countryCode] ? String(row[fidx.countryCode]).trim() : null,
-          units: 1,
+          units_shipped: 1,
           freight_cost: num(row[fidx.cost]),
           fuel_surcharge: null,
           other_surcharges: null,
@@ -929,7 +932,7 @@ function parseNext3PLUKFreightReport(workbook, xlsx, hint = {}) {
   }
   const baseSlug = (hint._filename || "uk-freight").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").substring(0, 50).toUpperCase();
   result.header.invoice_number = `${baseSlug}-FREIGHT`;
-  result.header.units_shipped = result.shipments.reduce((a, s) => a + (s.units || 0), 0);
+  result.header.units_shipped = result.shipments.reduce((a, s) => a + (s.units_shipped || 0), 0);
   result.header.orders_shipped = result.shipments.length;
   const freightTotal = result.shipments.reduce((a, s) => a + (s.freight_cost || 0), 0);
   result.header.total = Math.round(freightTotal * 100) / 100;
