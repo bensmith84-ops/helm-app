@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback, createContext, useContext } from "react";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 import { useAuth } from "../lib/auth";
@@ -43,9 +43,19 @@ const fmtCompact = (n) => {
   if (Math.abs(x) >= 1_000) return (x / 1e3).toFixed(1) + "k";
   return x.toLocaleString();
 };
-const fmt$ = (n) => "$" + fmtCompact(n);
-const fmt$Full = (n, frac = 2) =>
-  "$" + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac });
+// Currency context — sub-components read the active currency via useFmt().
+const CCY_SYM = { USD: "$", GBP: "£", AUD: "A$", EUR: "€", CAD: "C$" };
+const CcyCtx = createContext("USD");
+const useFmt = () => {
+  const cur = useContext(CcyCtx);
+  return useMemo(() => {
+    const sym = CCY_SYM[cur] || "$";
+    return {
+      fmt$:     (n) => (Number(n||0) < 0 ? "-" : "") + sym + fmtCompact(Math.abs(Number(n||0))),
+      fmt$Full: (n, frac = 2) => (Number(n||0) < 0 ? "-" : "") + sym + Math.abs(Number(n || 0)).toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac }),
+    };
+  }, [cur]);
+};
 const fmtNum = (n) => Number(n || 0).toLocaleString();
 const fmtMonth = (s) => {
   if (!s) return "";
@@ -149,6 +159,7 @@ function KpiTile({ T, label, value, sub, delta, deltaInverse = false, sparkline,
 
 // ─── Stacked area chart (with gradient fills) ────────────────────────────
 function StackedAreaChart({ data, T, setTip, height = 280 }) {
+  const { fmt$, fmt$Full } = useFmt();
   const { months, categories, stacks, max } = useMemo(() => {
     const ms = Array.from(new Set(data.map(d => d.month))).sort();
     const cs = Array.from(new Set(data.map(d => d.category)));
@@ -230,6 +241,7 @@ function StackedAreaChart({ data, T, setTip, height = 280 }) {
 
 // ─── Donut chart with category list ──────────────────────────────────────
 function DonutChart({ data, T, setTip }) {
+  const { fmt$, fmt$Full } = useFmt();
   const total = data.reduce((s, d) => s + Number(d.amount || 0), 0);
   if (total === 0) return <EmptyChart T={T} message="No data" />;
   const sorted = [...data].sort((a, b) => +b.amount - +a.amount).filter(d => +d.amount !== 0);
@@ -283,8 +295,10 @@ function DonutChart({ data, T, setTip }) {
 
 // ─── Horizontal bar list with secondary metric ───────────────────────────
 function HBarList({ data, T, setTip, labelKey, valueKey, secondaryKey, secondaryLabel,
-                   formatValue = fmt$, formatSecondary = fmtNum,
+                   formatValue, formatSecondary = fmtNum,
                    colorOf, sublabelKey, animate = true }) {
+  const { fmt$, fmt$Full } = useFmt();
+  formatValue = formatValue || fmt$;
   if (!data || !data.length) return <EmptyChart T={T} message="No data" />;
   const max = Math.max(1, ...data.map(d => Math.abs(Number(d[valueKey] || 0))));
   return (
@@ -418,6 +432,7 @@ function MultiLineChart({ data, T, setTip, series, height = 260 }) {
 
 // ─── Histogram with gradient bars ────────────────────────────────────────
 function Histogram({ data, T, setTip, color = "#3B82F6", height = 240 }) {
+  const { fmt$, fmt$Full } = useFmt();
   if (!data || !data.length) return <EmptyChart T={T} message="No data" />;
   const max = Math.max(1, ...data.map(d => d.count || d.shipments));
   const W = 780, padL = 48, padR = 16, padT = 18, padB = 44;
@@ -469,6 +484,7 @@ function Histogram({ data, T, setTip, color = "#3B82F6", height = 240 }) {
 
 // ─── Daily cadence heatmap (last ~90 days) ───────────────────────────────
 function DailyHeatmap({ data, T, setTip }) {
+  const { fmt$, fmt$Full } = useFmt();
   if (!data || !data.length) return <EmptyChart T={T} message="No daily shipment data" />;
   const byDay = new Map(data.map(d => [d.day, d]));
   const days = [];
@@ -531,6 +547,7 @@ function DailyHeatmap({ data, T, setTip }) {
 
 // ─── Top movers list (positive/negative bars) ────────────────────────────
 function TopMovers({ data, T, setTip }) {
+  const { fmt$, fmt$Full } = useFmt();
   if (!data || !data.length) return <EmptyChart T={T} message="No month-over-month changes detected" />;
   const max = Math.max(...data.map(d => Math.abs(Number(d.delta_abs || 0))));
   return (
@@ -719,6 +736,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
   const [err, setErr] = useState(null);
   const [tip, setTip] = useState(null);
   const [activePeriod, setActivePeriod] = useState("all");
+  const [selectedCurrency, setSelectedCurrency] = useState("USD");
 
   const [filters, setFilters] = useState({
     providers: null, warehouses: null, sources: null,
@@ -737,6 +755,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
         p_source_formats: filters.sources,
         p_period_start: filters.periodStart,
         p_period_end: filters.periodEnd,
+        p_currency: selectedCurrency,
       });
       if (error) throw error;
       setReport(data);
@@ -752,9 +771,19 @@ export default function ThreePLBillingReports({ goToDetail }) {
     } finally {
       setLoading(false);
     }
-  }, [orgId, filters, filterOptions.providers.length]);
+  }, [orgId, filters, filterOptions.providers.length, selectedCurrency]);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  // Locally-computed formatters for this component's own JSX. Sub-components
+  // access these through CcyCtx.Provider via useFmt() — no prop-drilling needed.
+  const { fmt$, fmt$Full } = useMemo(() => {
+    const sym = CCY_SYM[selectedCurrency] || "$";
+    return {
+      fmt$:     (n) => (Number(n||0) < 0 ? "-" : "") + sym + fmtCompact(Math.abs(Number(n||0))),
+      fmt$Full: (n, frac = 2) => (Number(n||0) < 0 ? "-" : "") + sym + Math.abs(Number(n || 0)).toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac }),
+    };
+  }, [selectedCurrency]);
 
   const kpis = report?.kpis;
   const deltas = report?.kpi_deltas;
@@ -780,7 +809,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
   if (!orgId) return <div style={{ padding: 30, color: T.text3 }}>Loading…</div>;
 
   return (
-    <div style={{ position: "relative" }}>
+    <CcyCtx.Provider value={selectedCurrency}><div style={{ position: "relative" }}>
       <FloatingTooltip tip={tip} T={T} />
 
       {/* Sticky filter bar */}
@@ -796,6 +825,21 @@ export default function ThreePLBillingReports({ goToDetail }) {
           boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         }}>
           <PeriodChips T={T} value={activePeriod} onChange={handlePeriodChip} />
+          <div style={{ width: 1, height: 20, background: T.border }} />
+          <div style={{ display: "flex", gap: 4 }}>
+            {["USD","GBP","AUD"].map(c => (
+              <button key={c} onClick={() => setSelectedCurrency(c)}
+                style={{
+                  padding: "5px 10px", fontSize: 11, fontWeight: 600,
+                  background: selectedCurrency === c ? (T.accent || "#3B82F6") : "transparent",
+                  color: selectedCurrency === c ? "#fff" : T.text2,
+                  border: `1px solid ${selectedCurrency === c ? "transparent" : T.border}`,
+                  borderRadius: 14, cursor: "pointer", transition: "all 120ms",
+                }}>
+                {CCY_SYM[c]} {c}
+              </button>
+            ))}
+          </div>
           <div style={{ width: 1, height: 20, background: T.border }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <MultiSelectPill T={T} label="Provider" options={filterOptions.providers} value={filters.providers}
@@ -1054,6 +1098,6 @@ export default function ThreePLBillingReports({ goToDetail }) {
           </div>
         </>
       )}
-    </div>
+    </div></CcyCtx.Provider>
   );
 }
