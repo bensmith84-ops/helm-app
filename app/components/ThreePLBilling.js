@@ -305,6 +305,20 @@ function detectFormat(workbook, filename = "", _xlsxRef = null) {
     // Fallback: ambiguous Next3PL — let user pick
     return { format: "next3pl_unknown", provider: null };
   }
+  // Next3PL UK Freight Report — sheets "Non FedEx" + "FedEx" (per-shipment freight detail)
+  if (sheets.some(s => /non\s*fedex/i.test(s)) && sheets.some(s => /^fedex$/i.test(s))) {
+    return { format: "next3pl_uk_freight_report", provider: "next3pl_uk" };
+  }
+  // Next3PL UK Dispatch — single sheet "Raw" with Delivery Number + Despatch Date columns (manifest only, no costs)
+  if (sheets.some(s => /^raw$/i.test(s)) && _xlsxRef) {
+    const wsRaw = workbook.Sheets[workbook.SheetNames.find(s => /^raw$/i.test(s))];
+    if (wsRaw) {
+      const hdr = (sheetToRows(wsRaw, _xlsxRef)[0] || []).map(c => String(c || "").toLowerCase());
+      if (hdr.includes("delivery number") && hdr.includes("tracking reference") && hdr.includes("despatch date")) {
+        return { format: "next3pl_uk_dispatch", provider: "next3pl_uk" };
+      }
+    }
+  }
   // Next3PL AU transport (Freight + eParcel only)
   if (sheets.includes("freight") && sheets.includes("eparcel")) {
     return { format: "next3pl_au_transport", provider: "next3pl_au" };
@@ -383,15 +397,18 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
       if (periodMatch) {
         // Try to parse the month name into period_start/period_end
         const periodStr = periodMatch[1].trim();
-        // Month format: "March-2026" → first/last of March
-        const mMatch = periodStr.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)[\s-]+(\d{4})/i);
+        // Month format: accept full ("March-2026", "March 2026") or abbreviated ("Mar 2026", "Jan 2026").
+        const mMatch = periodStr.match(/^(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s-]+(\d{2,4})/i);
         if (mMatch) {
-          const monthIdx = ["january","february","march","april","may","june","july","august","september","october","november","december"].indexOf(mMatch[1].toLowerCase());
-          const yr = +mMatch[2];
-          const start = new Date(yr, monthIdx, 1);
-          const end = new Date(yr, monthIdx + 1, 0);
-          result.header.period_start = start.toISOString().split("T")[0];
-          result.header.period_end = end.toISOString().split("T")[0];
+          const mAbbr = mMatch[1].toLowerCase().substring(0, 3);
+          const monthIdx = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"].indexOf(mAbbr);
+          let yr = +mMatch[2]; if (yr < 100) yr += 2000;
+          if (monthIdx >= 0) {
+            const start = new Date(yr, monthIdx, 1);
+            const end = new Date(yr, monthIdx + 1, 0);
+            result.header.period_start = start.toISOString().split("T")[0];
+            result.header.period_end = end.toISOString().split("T")[0];
+          }
         } else {
           // Week format: "1 Mar 2026" → that week (Mon-Sun)
           const d = toDate(periodStr);
@@ -610,6 +627,288 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
     result.header.total = result.lines.reduce((s, l) => s + (l.amount || 0), 0);
     result.header.subtotal = result.header.total;
   }
+  return result;
+}
+
+// Parse Next3PL UK Dispatch — single "Raw" sheet with per-product-within-shipment rows.
+// One row per SKU line; multi-product orders have multiple rows sharing the same Delivery Number.
+// File has NO cost data — purely a shipment manifest. Used to populate per-shipment detail
+// (tracking, weight, carrier, recipient region) that the monthly invoice file does not contain.
+function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
+  const result = {
+    header: { invoice_number: null, invoice_date: null, due_date: null, period_start: null, period_end: null, total: 0, subtotal: 0, currency: "GBP", warehouse_code: "UK", raw_summary: {} },
+    lines: [], shipments: [], orderLines: [],
+    detected_format: hint.format || "next3pl_uk_dispatch",
+  };
+  const wsRaw = workbook.Sheets[workbook.SheetNames.find(s => /^raw$/i.test(s))];
+  if (!wsRaw) return result;
+  const rows = sheetToRows(wsRaw, xlsx);
+  if (rows.length < 2) return result;
+  const header = (rows[0] || []).map(c => String(c || "").trim());
+  const idx = {
+    delivery: header.indexOf("Delivery Number"),
+    order: header.indexOf("Order No"),
+    orderEcomm: header.indexOf("Order No (EComm)"),
+    tracking: header.indexOf("Tracking Reference"),
+    method: header.indexOf("Delivery Method"),
+    despatch: header.indexOf("Despatch Date"),
+    qty: header.indexOf("Delivery Qty"),
+    courier: header.indexOf("Courier"),
+    boxes: header.indexOf("Number Of Boxes"),
+    weight: header.indexOf("Weight"),
+    name: header.indexOf("Delivery Name"),
+    postcode: header.indexOf("Delivery Postcode"),
+    country: header.indexOf("Delivery Country"),
+    product: header.indexOf("Product Code"),
+    productDesc: header.indexOf("Product Description"),
+  };
+  if (idx.delivery < 0) return result;
+  // Group rows by Delivery Number — multi-product shipments dedupe to one shipment row.
+  const shipMap = new Map();
+  let earliest = null, latest = null;
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const delivery = row[idx.delivery];
+    if (!delivery) continue;
+    const sd = sanitizeShipmentDate(toDate(row[idx.despatch]));
+    if (sd) {
+      if (!earliest || sd < earliest) earliest = sd;
+      if (!latest || sd > latest) latest = sd;
+    }
+    if (!shipMap.has(delivery)) {
+      shipMap.set(delivery, {
+        external_order_no: row[idx.orderEcomm] || row[idx.order] || null,
+        tracking_number: row[idx.tracking] || null,
+        service_level: row[idx.method] ? String(row[idx.method]).trim() : null,
+        carrier: row[idx.courier] ? String(row[idx.courier]).trim() : null,
+        shipment_date: sd,
+        weight_kg: row[idx.weight] != null ? num(row[idx.weight]) / 1000 : null,
+        recipient_country: row[idx.country] ? String(row[idx.country]).trim() : null,
+        recipient_region: row[idx.postcode] ? String(row[idx.postcode]).trim().split(/\s+/)[0] : null,
+        zone: null,
+        units: 0,
+        freight_cost: null,
+        fuel_surcharge: null,
+        other_surcharges: null,
+        total_cost: null,
+        is_adjustment: false,
+        raw_data: {
+          delivery_number: String(delivery),
+          recipient_name: row[idx.name] ? String(row[idx.name]).trim() : null,
+          boxes: row[idx.boxes] != null ? num(row[idx.boxes]) : null,
+          products: [],
+        },
+      });
+    }
+    const s = shipMap.get(delivery);
+    s.units += num(row[idx.qty]);
+    s.raw_data.products.push({
+      code: row[idx.product] ? String(row[idx.product]).trim() : null,
+      desc: row[idx.productDesc] ? String(row[idx.productDesc]).trim() : null,
+      qty: num(row[idx.qty]),
+    });
+  }
+  result.shipments = Array.from(shipMap.values());
+  // Derive period from filename ("Jan 26", "Dec 25") or earliest/latest shipment dates as fallback.
+  const fnameMatch = (hint._filename || "").match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*[\s_-]+(\d{2,4})/i);
+  if (fnameMatch) {
+    const monthIdx = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"].indexOf(fnameMatch[1].toLowerCase().substring(0,3));
+    let yr = +fnameMatch[2]; if (yr < 100) yr += 2000;
+    if (monthIdx >= 0) {
+      result.header.period_start = new Date(yr, monthIdx, 1).toISOString().split("T")[0];
+      result.header.period_end = new Date(yr, monthIdx + 1, 0).toISOString().split("T")[0];
+    }
+  } else if (earliest && latest) {
+    result.header.period_start = earliest;
+    result.header.period_end = latest;
+  }
+  // Synthetic invoice number with -DISPATCH suffix so this never collides with the
+  // monthly invoice and reports/audit can choose to exclude these supplementary files.
+  const baseSlug = (hint._filename || "uk-dispatch").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").substring(0, 50).toUpperCase();
+  result.header.invoice_number = `${baseSlug}-DISPATCH`;
+  result.header.units_shipped = result.shipments.reduce((a, s) => a + (s.units || 0), 0);
+  result.header.orders_shipped = result.shipments.length;
+  // total stays 0 — this file carries no cost data, so it does not inflate any spend KPI.
+  return result;
+}
+
+// Parse Next3PL UK Freight Report — sheets "Non FedEx" + "FedEx" with per-shipment freight cost.
+// The Non FedEx sheet duplicates the Dispatch schema and adds Carriage Method + 4 cost-bucket
+// columns (Domestic / Intl Large Letter / Intl Parcels / Fedex) + a £ total per row. The same
+// freight cost appears on every product-line within a multi-product shipment, so we dedupe by
+// Delivery Number and take the freight cost from the first occurrence. FedEx sheet has a
+// different schema and lists international FedEx parcels separately.
+function parseNext3PLUKFreightReport(workbook, xlsx, hint = {}) {
+  const result = {
+    header: { invoice_number: null, invoice_date: null, due_date: null, period_start: null, period_end: null, total: 0, subtotal: 0, currency: "GBP", warehouse_code: "UK", raw_summary: {} },
+    lines: [], shipments: [], orderLines: [],
+    detected_format: hint.format || "next3pl_uk_freight_report",
+  };
+  const wsNonFedex = workbook.Sheets[workbook.SheetNames.find(s => /non\s*fedex/i.test(s))];
+  const wsFedex   = workbook.Sheets[workbook.SheetNames.find(s => /^fedex$/i.test(s))];
+  if (!wsNonFedex && !wsFedex) return result;
+
+  let earliest = null, latest = null;
+  const shipMap = new Map();
+
+  if (wsNonFedex) {
+    const rows = sheetToRows(wsNonFedex, xlsx);
+    if (rows.length >= 2) {
+      const header = (rows[0] || []).map(c => String(c || "").trim());
+      const idx = {
+        delivery: header.indexOf("Delivery Number"),
+        order: header.indexOf("Order No"),
+        orderEcomm: header.indexOf("Order No (EComm)"),
+        tracking: header.indexOf("Tracking Reference"),
+        method: header.indexOf("Delivery Method"),
+        despatch: header.indexOf("Despatch Date"),
+        qty: header.indexOf("Delivery Qty"),
+        courier: header.indexOf("Courier"),
+        boxes: header.indexOf("Number Of Boxes"),
+        weight: header.indexOf("Weight"),
+        name: header.indexOf("Delivery Name"),
+        postcode: header.indexOf("Delivery Postcode"),
+        country: header.indexOf("Delivery Country"),
+        product: header.indexOf("Product Code"),
+        productDesc: header.indexOf("Product Description"),
+        carriage: header.indexOf("Carriage Method"),
+        domestic: header.indexOf("Domestic"),
+        largeLetter: header.indexOf("International Large Letter"),
+        intlParcels: header.indexOf("International Parcels"),
+        fedex: header.indexOf("Fedex"),
+        pound: header.indexOf("£"),
+      };
+      if (idx.delivery >= 0) {
+        for (let r = 1; r < rows.length; r++) {
+          const row = rows[r] || [];
+          const delivery = row[idx.delivery];
+          if (!delivery) continue;
+          const sd = sanitizeShipmentDate(toDate(row[idx.despatch]));
+          if (sd) {
+            if (!earliest || sd < earliest) earliest = sd;
+            if (!latest || sd > latest) latest = sd;
+          }
+          if (!shipMap.has(String(delivery))) {
+            shipMap.set(String(delivery), {
+              external_order_no: row[idx.orderEcomm] || row[idx.order] || null,
+              tracking_number: row[idx.tracking] || null,
+              service_level: row[idx.method] ? String(row[idx.method]).trim() : null,
+              carrier: row[idx.courier] ? String(row[idx.courier]).trim() : null,
+              shipment_date: sd,
+              weight_kg: row[idx.weight] != null ? num(row[idx.weight]) / 1000 : null,
+              recipient_country: row[idx.country] ? String(row[idx.country]).trim() : null,
+              recipient_region: row[idx.postcode] ? String(row[idx.postcode]).trim().split(/\s+/)[0] : null,
+              zone: null,
+              units: 0,
+              freight_cost: num(row[idx.pound]),
+              fuel_surcharge: null,
+              other_surcharges: null,
+              total_cost: num(row[idx.pound]),
+              is_adjustment: false,
+              raw_data: {
+                delivery_number: String(delivery),
+                recipient_name: row[idx.name] ? String(row[idx.name]).trim() : null,
+                carriage_method: row[idx.carriage] ? String(row[idx.carriage]).trim() : null,
+                cost_breakdown: {
+                  domestic: num(row[idx.domestic]),
+                  intl_large_letter: num(row[idx.largeLetter]),
+                  intl_parcels: num(row[idx.intlParcels]),
+                  fedex: num(row[idx.fedex]),
+                },
+                boxes: row[idx.boxes] != null ? num(row[idx.boxes]) : null,
+                products: [],
+              },
+            });
+          }
+          const s = shipMap.get(String(delivery));
+          s.units += num(row[idx.qty]);
+          s.raw_data.products.push({
+            code: row[idx.product] ? String(row[idx.product]).trim() : null,
+            desc: row[idx.productDesc] ? String(row[idx.productDesc]).trim() : null,
+            qty: num(row[idx.qty]),
+          });
+        }
+      }
+    }
+  }
+
+  if (wsFedex) {
+    const fedexRows = sheetToRows(wsFedex, xlsx);
+    if (fedexRows.length >= 2) {
+      const fhdr = (fedexRows[0] || []).map(c => String(c || "").trim());
+      const fidx = {
+        date: fhdr.indexOf("Date"),
+        tracking: fhdr.indexOf("Tracking Nbr"),
+        desc: fhdr.indexOf("Description of Goods"),
+        city: fhdr.indexOf("Town/City"),
+        state: fhdr.indexOf("County/State"),
+        postcode: fhdr.indexOf("Postcode"),
+        country: fhdr.indexOf("Country"),
+        countryCode: fhdr.indexOf("Country Code"),
+        cost: fhdr.indexOf("Cost"),
+      };
+      const existingTracking = new Set([...shipMap.values()].map(s => s.tracking_number).filter(Boolean));
+      for (let r = 1; r < fedexRows.length; r++) {
+        const row = fedexRows[r] || [];
+        const tracking = row[fidx.tracking];
+        if (!tracking) continue;
+        if (existingTracking.has(String(tracking))) continue;
+        const sd = sanitizeShipmentDate(toDate(row[fidx.date]));
+        if (sd) {
+          if (!earliest || sd < earliest) earliest = sd;
+          if (!latest || sd > latest) latest = sd;
+        }
+        const key = "FEDEX-" + tracking;
+        if (shipMap.has(key)) continue;
+        shipMap.set(key, {
+          external_order_no: null,
+          tracking_number: String(tracking),
+          service_level: "FedEx International",
+          carrier: "FedEx",
+          shipment_date: sd,
+          weight_kg: null,
+          recipient_country: row[fidx.country] ? String(row[fidx.country]).trim() : null,
+          recipient_region: row[fidx.state] ? String(row[fidx.state]).trim() : (row[fidx.postcode] ? String(row[fidx.postcode]).trim().split(/\s+/)[0] : null),
+          zone: row[fidx.countryCode] ? String(row[fidx.countryCode]).trim() : null,
+          units: 1,
+          freight_cost: num(row[fidx.cost]),
+          fuel_surcharge: null,
+          other_surcharges: null,
+          total_cost: num(row[fidx.cost]),
+          is_adjustment: false,
+          raw_data: {
+            description: row[fidx.desc] ? String(row[fidx.desc]).trim() : null,
+            city: row[fidx.city] ? String(row[fidx.city]).trim() : null,
+            postcode: row[fidx.postcode] ? String(row[fidx.postcode]).trim() : null,
+            country_code: row[fidx.countryCode] ? String(row[fidx.countryCode]).trim() : null,
+          },
+        });
+      }
+    }
+  }
+
+  result.shipments = Array.from(shipMap.values());
+
+  const fnameMatch = (hint._filename || "").match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*[\s_-]+(\d{2,4})/i);
+  if (fnameMatch) {
+    const monthIdx = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"].indexOf(fnameMatch[1].toLowerCase().substring(0,3));
+    let yr = +fnameMatch[2]; if (yr < 100) yr += 2000;
+    if (monthIdx >= 0) {
+      result.header.period_start = new Date(yr, monthIdx, 1).toISOString().split("T")[0];
+      result.header.period_end = new Date(yr, monthIdx + 1, 0).toISOString().split("T")[0];
+    }
+  } else if (earliest && latest) {
+    result.header.period_start = earliest;
+    result.header.period_end = latest;
+  }
+  const baseSlug = (hint._filename || "uk-freight").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").substring(0, 50).toUpperCase();
+  result.header.invoice_number = `${baseSlug}-FREIGHT`;
+  result.header.units_shipped = result.shipments.reduce((a, s) => a + (s.units || 0), 0);
+  result.header.orders_shipped = result.shipments.length;
+  const freightTotal = result.shipments.reduce((a, s) => a + (s.freight_cost || 0), 0);
+  result.header.total = Math.round(freightTotal * 100) / 100;
+  result.header.subtotal = result.header.total;
+  result.header.raw_summary = { freight_total_gbp: result.header.total, shipment_count: result.shipments.length };
   return result;
 }
 
@@ -1378,6 +1677,8 @@ function parseInvoice(workbook, xlsx, filename) {
   if (detection.format === "next3pl_uk_monthly" || detection.format === "next3pl_au_warehouse" || detection.format === "next3pl_ca_weekly" || detection.format === "next3pl_unknown") {
     return parseNext3PL(workbook, xlsx, hint);
   }
+  if (detection.format === "next3pl_uk_dispatch")       return parseNext3PLUKDispatch(workbook, xlsx, hint);
+  if (detection.format === "next3pl_uk_freight_report") return parseNext3PLUKFreightReport(workbook, xlsx, hint);
   if (detection.format === "stord_customer") return parseStordCustomer(workbook, xlsx, hint);
   if (detection.format === "stord_consolidated") return parseStordConsolidated(workbook, xlsx, hint);
   if (detection.format === "stord_transaction_history") return parseStordTransactionHistory(workbook, xlsx, hint);
@@ -1457,6 +1758,8 @@ export default function ThreePLBilling() {
   // Map detected format → provider code (used to auto-select on first parse)
   const PROV_BY_FMT = {
     next3pl_uk_monthly: "next3pl_uk",
+    next3pl_uk_dispatch: "next3pl_uk",
+    next3pl_uk_freight_report: "next3pl_uk",
     next3pl_au_warehouse: "next3pl_au",
     next3pl_au_transport: "next3pl_au",
     next3pl_ca_weekly: "next3pl_ca",
