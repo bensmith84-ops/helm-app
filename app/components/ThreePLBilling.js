@@ -396,7 +396,9 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
       const periodMatch = joined.match(/Billing For (?:Week Ending|Month):\s*([^|]+?)(?:\s*\|\s*Month|\s*\|\s*Week|\s*$)/i);
       if (periodMatch) {
         // Try to parse the month name into period_start/period_end
-        const periodStr = periodMatch[1].trim();
+        // Captured group can include neighboring cell text like "  Week Number: 03"
+        // when the row joins to a single string — strip it before date parsing.
+        const periodStr = periodMatch[1].trim().replace(/\s+(?:Week|Month)\s+Number[:\s].*$/i, "").trim();
         // Month format: accept full ("March-2026", "March 2026") or abbreviated ("Mar 2026", "Jan 2026").
         const mMatch = periodStr.match(/^(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s-]+(\d{2,4})/i);
         if (mMatch) {
