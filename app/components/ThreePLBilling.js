@@ -345,8 +345,11 @@ function sheetToRows(ws, xlsx) {
 // Warehouse Rates structure. Section headers in column D (4th col) trigger
 // canonical_category changes; subsequent rows are line items.
 function parseNext3PL(workbook, xlsx, hint = {}) {
+  // Default currency from provider (UK→GBP, AU→AUD, everything else USD). Overridden
+  // below if the file itself contains an explicit "£" or "A$"/"AUD" marker.
+  const _providerCcy = ({ next3pl_uk: "GBP", next3pl_au: "AUD" })[hint.provider] || "USD";
   const result = {
-    header: { invoice_number: null, invoice_date: null, due_date: null, period_start: null, period_end: null, total: 0, subtotal: 0, currency: "USD", warehouse_code: null, raw_summary: {} },
+    header: { invoice_number: null, invoice_date: null, due_date: null, period_start: null, period_end: null, total: 0, subtotal: 0, currency: _providerCcy, warehouse_code: null, raw_summary: {} },
     lines: [], shipments: [], orderLines: [],
     detected_format: hint.format || "next3pl",
   };
