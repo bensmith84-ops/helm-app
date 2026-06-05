@@ -305,19 +305,26 @@ function detectFormat(workbook, filename = "", _xlsxRef = null) {
     // Fallback: ambiguous Next3PL — let user pick
     return { format: "next3pl_unknown", provider: null };
   }
-  // Next3PL UK Freight Report — sheets "Non FedEx" + "FedEx" (per-shipment freight detail)
-  if (sheets.some(s => /non\s*fedex/i.test(s)) && sheets.some(s => /^fedex$/i.test(s))) {
-    return { format: "next3pl_uk_freight_report", provider: "next3pl_uk" };
-  }
-  // Next3PL UK Dispatch — single sheet "Raw" with Delivery Number + Despatch Date columns (manifest only, no costs)
-  if (sheets.some(s => /^raw$/i.test(s)) && _xlsxRef) {
-    const wsRaw = workbook.Sheets[workbook.SheetNames.find(s => /^raw$/i.test(s))];
-    if (wsRaw) {
-      const hdr = (sheetToRows(wsRaw, _xlsxRef)[0] || []).map(c => String(c || "").toLowerCase());
-      if (hdr.includes("delivery number") && hdr.includes("tracking reference") && hdr.includes("despatch date")) {
-        return { format: "next3pl_uk_dispatch", provider: "next3pl_uk" };
-      }
+  // Next3PL UK Dispatch / Freight Report — detect by column content rather than
+  // sheet name. Sheet names vary across exports: the manifest sheet may be "Raw" or
+  // "Sheet1" (Dispatch) or "Non FedEx" / "Freight" (Freight Report); the FedEx detail
+  // sheet may be "FedEx", "FedEx.", or absent. The Freight Report variant adds a "£"
+  // (and "Carriage Method") column to the same row schema; presence of that column
+  // distinguishes Freight Report from a pure manifest Dispatch file.
+  if (_xlsxRef) {
+    let _ukHit = null;
+    for (const sn of workbook.SheetNames) {
+      const ws = workbook.Sheets[sn];
+      if (!ws) continue;
+      const hdr = (sheetToRows(ws, _xlsxRef)[0] || []).map(c => String(c || "").toLowerCase().trim());
+      const hasManifest = hdr.includes("delivery number") && hdr.includes("tracking reference") && hdr.includes("despatch date");
+      if (!hasManifest) continue;
+      const hasFreightCost = hdr.includes("\u00a3") || hdr.includes("carriage method");
+      if (hasFreightCost) { _ukHit = "freight_report"; break; }
+      if (!_ukHit) _ukHit = "dispatch";
     }
+    if (_ukHit === "freight_report") return { format: "next3pl_uk_freight_report", provider: "next3pl_uk" };
+    if (_ukHit === "dispatch")       return { format: "next3pl_uk_dispatch",       provider: "next3pl_uk" };
   }
   // Next3PL AU transport (Freight + eParcel only)
   if (sheets.includes("freight") && sheets.includes("eparcel")) {
@@ -642,7 +649,16 @@ function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
     lines: [], shipments: [], orderLines: [],
     detected_format: hint.format || "next3pl_uk_dispatch",
   };
-  const wsRaw = workbook.Sheets[workbook.SheetNames.find(s => /^raw$/i.test(s))];
+  // Find the manifest sheet by columns — sheet name varies (Raw, Sheet1, …).
+  let wsRaw = null;
+  for (const sn of workbook.SheetNames) {
+    const ws = workbook.Sheets[sn];
+    if (!ws) continue;
+    const hdr = (sheetToRows(ws, xlsx)[0] || []).map(c => String(c || "").toLowerCase().trim());
+    if (hdr.includes("delivery number") && hdr.includes("tracking reference") && hdr.includes("despatch date") && !hdr.includes("\u00a3")) {
+      wsRaw = ws; break;
+    }
+  }
   if (!wsRaw) return result;
   const rows = sheetToRows(wsRaw, xlsx);
   if (rows.length < 2) return result;
@@ -746,8 +762,16 @@ function parseNext3PLUKFreightReport(workbook, xlsx, hint = {}) {
     lines: [], shipments: [], orderLines: [],
     detected_format: hint.format || "next3pl_uk_freight_report",
   };
-  const wsNonFedex = workbook.Sheets[workbook.SheetNames.find(s => /non\s*fedex/i.test(s))];
-  const wsFedex   = workbook.Sheets[workbook.SheetNames.find(s => /^fedex$/i.test(s))];
+  // Find the two sheets by columns — sheet names vary (main: "Non FedEx" or
+  // "Freight"; FedEx: "FedEx" or "FedEx." with trailing dot/whitespace).
+  let wsNonFedex = null, wsFedex = null;
+  for (const sn of workbook.SheetNames) {
+    const ws = workbook.Sheets[sn];
+    if (!ws) continue;
+    const hdr = (sheetToRows(ws, xlsx)[0] || []).map(c => String(c || "").toLowerCase().trim());
+    if (!wsNonFedex && hdr.includes("delivery number") && hdr.includes("\u00a3")) { wsNonFedex = ws; continue; }
+    if (!wsFedex   && hdr.includes("tracking nbr")    && hdr.includes("cost"))   { wsFedex    = ws; continue; }
+  }
   if (!wsNonFedex && !wsFedex) return result;
 
   let earliest = null, latest = null;
