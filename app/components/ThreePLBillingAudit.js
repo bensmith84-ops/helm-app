@@ -1,10 +1,3 @@
-// 3PL Billing — Billing Audit / Scrutiny View
-//
-// Surfaces actionable billing issues from wms_3pl_billing_audit RPC:
-// reconciliation status, rate alerts, "other" category investigation,
-// credits & adjustments, new/vanished charges, outlier shipments, and
-// per-description rate history.
-
 "use client";
 
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
@@ -12,13 +5,16 @@ import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 import { useAuth } from "../lib/auth";
 
+const ALLOWED_CATEGORIES = [
+  "adjustment","admin","freight","inbound_receiving","labour","materials",
+  "order_processing","other","outbound_handling","returns","storage","vas",
+];
+
 const CATEGORY_COLORS = {
   freight: "#3B82F6", storage: "#10B981", outbound_handling: "#F59E0B",
-  inbound_handling: "#F97316", inbound_receiving: "#EF4444",
-  pick_pack: "#A855F7", order_processing: "#EC4899",
-  materials: "#8B5CF6", management: "#06B6D4", admin: "#0EA5E9",
-  labour: "#14B8A6", vas: "#84CC16", returns: "#F472B6",
-  adjustment: "#DC2626", other: "#6B7280",
+  inbound_receiving: "#EF4444", order_processing: "#EC4899",
+  materials: "#8B5CF6", admin: "#0EA5E9", labour: "#14B8A6",
+  vas: "#84CC16", returns: "#F472B6", adjustment: "#DC2626", other: "#6B7280",
 };
 const CAT_COLOR = (k) => CATEGORY_COLORS[k] || "#6B7280";
 
@@ -72,12 +68,13 @@ function FloatingTooltip({ tip, T }) {
   );
 }
 
-function Section({ T, title, subtitle, right, children, accent, count }) {
+function Section({ T, title, subtitle, right, children, accent, count, sectionRef }) {
   return (
-    <div style={{
+    <div ref={sectionRef} style={{
       background: T.surface, border: `1px solid ${T.border}`,
       borderRadius: 12, padding: 18, marginBottom: 14,
       boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+      scrollMarginTop: 88,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10 }}>
         <div style={{ flex: 1 }}>
@@ -106,27 +103,42 @@ function EmptyState({ T, message, icon = "✓", color }) {
   );
 }
 
-// ─── Header status cards ─────────────────────────────────────────────────
-function StatusCard({ T, label, value, color, sub, icon }) {
+// ─── Clickable status card ──────────────────────────────────────────────
+function StatusCard({ T, label, value, color, sub, icon, onClick }) {
+  const interactive = typeof onClick === "function";
   return (
-    <div style={{
-      flex: "1 1 0", minWidth: 175,
-      background: T.surface, border: `1px solid ${T.border}`,
-      borderLeft: `3px solid ${color}`,
-      borderRadius: 10, padding: "12px 14px",
-      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-    }}>
+    <div
+      onClick={onClick}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={interactive ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      style={{
+        flex: "1 1 0", minWidth: 175,
+        background: T.surface, border: `1px solid ${T.border}`,
+        borderLeft: `3px solid ${color}`,
+        borderRadius: 10, padding: "12px 14px",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        cursor: interactive ? "pointer" : "default",
+        transition: "transform 0.1s, box-shadow 0.1s, border-color 0.1s",
+      }}
+      onMouseEnter={interactive ? (e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.10)"; } : undefined}
+      onMouseLeave={interactive ? (e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.06)"; } : undefined}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
         <div style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
         <span style={{ fontSize: 14, color }}>{icon}</span>
       </div>
       <div style={{ fontSize: 20, fontWeight: 800, color, fontFamily: '"SF Mono", Monaco, monospace', letterSpacing: -0.4 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>{sub}</div>}
+      {sub && (
+        <div style={{ fontSize: 11, color: T.text3, marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
+          {sub}
+          {interactive && <span style={{ color, fontWeight: 700, marginLeft: 2 }}>→</span>}
+        </div>
+      )}
     </div>
   );
 }
 
-// ─── Rate Alerts Table ───────────────────────────────────────────────────
 function RateAlertsTable({ data, T, setTip }) {
   if (!data || !data.length) return <EmptyState T={T} message="No material rate changes detected between latest and prior month" color="#10B981" />;
   return (
@@ -176,21 +188,33 @@ function RateAlertsTable({ data, T, setTip }) {
   );
 }
 
-// ─── Uncategorized "Other" Investigator ──────────────────────────────────
-function UncategorizedTable({ data, T, setTip, totalOther }) {
+// ─── Uncategorized table — with per-row Apply / category override ───────
+function UncategorizedTable({ data, T, setTip, totalOther, onRelabel, busyDescriptions }) {
+  // Per-row category selection (defaults to suggested_category if present)
+  const [picks, setPicks] = useState(() => {
+    const p = {};
+    (data || []).forEach(u => { if (u.suggested_category) p[u.description] = u.suggested_category; });
+    return p;
+  });
+
   if (!data || !data.length) return <EmptyState T={T} message="Nothing categorized as 'other' — all charges are properly categorized" color="#10B981" />;
+
   return (
     <div style={{ fontSize: 11.5 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 90px 70px", gap: 10, fontWeight: 700, color: T.text3, paddingBottom: 8, borderBottom: `1px solid ${T.border}`, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 0.4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 100px 100px 90px 80px", gap: 10, fontWeight: 700, color: T.text3, paddingBottom: 8, borderBottom: `1px solid ${T.border}`, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 0.4 }}>
         <div>Description</div>
-        <div>Suggested category</div>
+        <div>Reassign to</div>
         <div style={{ textAlign: "right" }}>Amount</div>
         <div style={{ textAlign: "right" }}>Share of "other"</div>
         <div style={{ textAlign: "right" }}>Lines</div>
+        <div style={{ textAlign: "right" }}>Action</div>
       </div>
       {data.map((u, i) => {
         const pct = totalOther > 0 ? (Number(u.total_amount) / totalOther) * 100 : 0;
         const suggested = u.suggested_category;
+        const chosen = picks[u.description] || suggested || "";
+        const busy = !!busyDescriptions?.[u.description];
+        const canApply = !!chosen && chosen !== u.category && !busy;
         return (
           <div key={i}
             onMouseMove={(e) => setTip({ x: e.clientX, y: e.clientY, lines: [
@@ -203,21 +227,34 @@ function UncategorizedTable({ data, T, setTip, totalOther }) {
               suggested ? { label: "Suggested", value: suggested, swatch: CAT_COLOR(suggested) } : null,
             ].filter(Boolean) })}
             onMouseLeave={() => setTip(null)}
-            style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 90px 70px", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}20`, alignItems: "center" }}>
+            style={{ display: "grid", gridTemplateColumns: "1fr 200px 100px 100px 90px 80px", gap: 10, padding: "10px 0", borderBottom: `1px solid ${T.border}20`, alignItems: "center", opacity: busy ? 0.5 : 1 }}>
             <div style={{ overflow: "hidden" }}>
               <div style={{ color: T.text2, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={u.description}>{u.description}</div>
               <div style={{ fontSize: 9.5, color: T.text3, marginTop: 1, fontFamily: '"SF Mono", Monaco, monospace' }}>{fmtDate(u.first_seen)} → {fmtDate(u.last_seen)}</div>
             </div>
-            <div>
-              {suggested ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: CAT_COLOR("other") + "25", color: CAT_COLOR("other"), fontWeight: 600 }}>other</span>
-                  <span style={{ fontSize: 9, color: T.text3 }}>→</span>
-                  <span style={{ fontSize: 9.5, padding: "2px 6px", borderRadius: 3, background: CAT_COLOR(suggested) + "30", color: CAT_COLOR(suggested), fontWeight: 700, border: `1px solid ${CAT_COLOR(suggested)}` }}>{suggested}</span>
-                </div>
-              ) : (
-                <span style={{ fontSize: 9.5, color: T.text3, fontStyle: "italic" }}>no suggestion</span>
-              )}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: CAT_COLOR("other") + "25", color: CAT_COLOR("other"), fontWeight: 600, flexShrink: 0 }}>other</span>
+              <span style={{ fontSize: 11, color: T.text3, flexShrink: 0 }}>→</span>
+              <select
+                value={chosen}
+                disabled={busy}
+                onChange={(e) => setPicks(p => ({ ...p, [u.description]: e.target.value }))}
+                style={{
+                  flex: 1, minWidth: 0,
+                  padding: "4px 6px", fontSize: 11, fontWeight: 700,
+                  borderRadius: 4, border: `1px solid ${chosen ? CAT_COLOR(chosen) : T.border}`,
+                  background: chosen ? CAT_COLOR(chosen) + "20" : T.surface,
+                  color: chosen ? CAT_COLOR(chosen) : T.text3,
+                  cursor: busy ? "not-allowed" : "pointer",
+                  outline: "none",
+                  fontFamily: "inherit",
+                }}
+              >
+                <option value="">— pick category —</option>
+                {ALLOWED_CATEGORIES.filter(c => c !== "other").map(c => (
+                  <option key={c} value={c}>{c}{c === suggested ? " (suggested)" : ""}</option>
+                ))}
+              </select>
             </div>
             <div style={{ textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', fontWeight: 700 }}>{fmt$Full(u.total_amount)}</div>
             <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
@@ -227,6 +264,23 @@ function UncategorizedTable({ data, T, setTip, totalOther }) {
               </div>
             </div>
             <div style={{ textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{u.line_count}</div>
+            <div style={{ textAlign: "right" }}>
+              <button
+                onClick={() => onRelabel(u.description, chosen)}
+                disabled={!canApply}
+                style={{
+                  padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                  background: canApply ? CAT_COLOR(chosen) : T.surface2,
+                  color: canApply ? "#fff" : T.text3,
+                  border: "none", borderRadius: 5,
+                  cursor: canApply ? "pointer" : "not-allowed",
+                  transition: "opacity 0.1s",
+                  letterSpacing: 0.3,
+                }}
+              >
+                {busy ? "…" : "Apply"}
+              </button>
+            </div>
           </div>
         );
       })}
@@ -234,7 +288,6 @@ function UncategorizedTable({ data, T, setTip, totalOther }) {
   );
 }
 
-// ─── Credits / Negative-amount lines ─────────────────────────────────────
 function CreditsTable({ data, T, setTip }) {
   if (!data || !data.length) return <EmptyState T={T} message="No credits or negative amounts on file" color="#10B981" />;
   return (
@@ -267,7 +320,6 @@ function CreditsTable({ data, T, setTip }) {
   );
 }
 
-// ─── New / Vanished charges (split panel) ────────────────────────────────
 function ChangedChargesPanel({ T, newCharges, vanished, setTip }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -331,7 +383,6 @@ function ChangedChargesPanel({ T, newCharges, vanished, setTip }) {
   );
 }
 
-// ─── Outlier Shipments Table ─────────────────────────────────────────────
 function OutlierShipmentsTable({ data, T, setTip }) {
   if (!data || !data.length) return <EmptyState T={T} message="No outlier shipments found above $30" />;
   return (
@@ -369,7 +420,6 @@ function OutlierShipmentsTable({ data, T, setTip }) {
   );
 }
 
-// ─── Mini line chart for rate history ────────────────────────────────────
 function MiniRateChart({ history, T, color = "#3B82F6" }) {
   if (!history || history.length < 2) return null;
   const W = 600, H = 180, padL = 60, padR = 16, padT = 14, padB = 30;
@@ -407,7 +457,6 @@ function MiniRateChart({ history, T, color = "#3B82F6" }) {
   );
 }
 
-// ─── Rate History Explorer ───────────────────────────────────────────────
 function RateHistoryExplorer({ data, T }) {
   const [selected, setSelected] = useState(data && data[0] ? data[0].description : null);
   const current = useMemo(() => data?.find(d => d.description === selected), [data, selected]);
@@ -472,7 +521,6 @@ function RateHistoryExplorer({ data, T }) {
   );
 }
 
-// ─── Reconciliation Table ────────────────────────────────────────────────
 function ReconciliationTable({ data, T, summary }) {
   const [showAll, setShowAll] = useState(false);
   if (!data || !data.length) return <EmptyState T={T} message="No invoices in scope" />;
@@ -542,6 +590,18 @@ export default function ThreePLBillingAudit({ goBack }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [tip, setTip] = useState(null);
+  const [busyDescriptions, setBusyDescriptions] = useState({});
+  const [toast, setToast] = useState(null);
+
+  // Section refs for status-card scroll-to
+  const refRateAlerts = useRef(null);
+  const refUncategorized = useRef(null);
+  const refCredits = useRef(null);
+  const refReconciliation = useRef(null);
+
+  const scrollTo = useCallback((ref) => {
+    if (ref?.current) ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const fetchAudit = useCallback(async () => {
     if (!orgId) return;
@@ -559,6 +619,30 @@ export default function ThreePLBillingAudit({ goBack }) {
 
   useEffect(() => { fetchAudit(); }, [fetchAudit]);
 
+  const handleRelabel = useCallback(async (description, targetCategory) => {
+    if (!orgId || !description || !targetCategory) return;
+    setBusyDescriptions(b => ({ ...b, [description]: true }));
+    try {
+      const { data, error } = await supabase.rpc("wms_3pl_relabel_description", {
+        p_org_id: orgId,
+        p_description: description,
+        p_target_category: targetCategory,
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setToast({
+        kind: "success",
+        msg: `Reassigned "${description}" → ${targetCategory}: ${data.rows_updated} line${data.rows_updated === 1 ? "" : "s"} updated, ${fmt$Full(data.amount_moved)} moved out of "other"`,
+      });
+      await fetchAudit();
+    } catch (e) {
+      setToast({ kind: "error", msg: e.message || String(e) });
+    } finally {
+      setBusyDescriptions(b => { const c = { ...b }; delete c[description]; return c; });
+      setTimeout(() => setToast(null), 6000);
+    }
+  }, [orgId, fetchAudit]);
+
   if (!orgId) return <div style={{ padding: 30, color: T.text3 }}>Loading…</div>;
 
   const summary = audit?.summary;
@@ -569,10 +653,23 @@ export default function ThreePLBillingAudit({ goBack }) {
   const otherPct = totalSpend > 0 ? (otherTotal / totalSpend) * 100 : 0;
   const creditCount = Number(summary?.credits_count || 0);
   const creditTotal = Number(summary?.credits_total || 0);
+  const uncategorizedCount = (audit?.uncategorized || []).length;
 
   return (
     <div style={{ position: "relative" }}>
       <FloatingTooltip tip={tip} T={T} />
+
+      {toast && (
+        <div style={{
+          position: "fixed", top: 16, right: 16, zIndex: 10000,
+          background: toast.kind === "success" ? "#10B981" : "#EF4444",
+          color: "#fff", padding: "10px 16px", borderRadius: 8,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.3)", fontSize: 12, fontWeight: 600,
+          maxWidth: 500,
+        }}>
+          {toast.kind === "success" ? "✓ " : "✗ "}{toast.msg}
+        </div>
+      )}
 
       <div style={{
         position: "sticky", top: 0, zIndex: 50,
@@ -609,37 +706,41 @@ export default function ThreePLBillingAudit({ goBack }) {
 
       {audit && (
         <>
-          {/* ═══ STATUS BANNER ═══ */}
+          {/* ═══ STATUS BANNER (now clickable) ═══ */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
             <StatusCard T={T}
               label="Reconciliation"
               value={reconCount === 0 ? "Clean" : `${reconCount} flagged`}
               color={reconCount === 0 ? "#10B981" : "#EF4444"}
-              sub={`${summary.total_invoices} invoices · sums match totals`}
-              icon={reconCount === 0 ? "✓" : "⚠"} />
+              sub={reconCount === 0 ? `${summary.total_invoices} invoices · sums match totals` : "review discrepancies"}
+              icon={reconCount === 0 ? "✓" : "⚠"}
+              onClick={() => scrollTo(refReconciliation)} />
             <StatusCard T={T}
               label="Rate alerts"
               value={alertCount.toString()}
               color={alertCount === 0 ? "#10B981" : "#F59E0B"}
-              sub={alertCount === 0 ? "no notable rate changes" : "review rate movements →"}
-              icon={alertCount === 0 ? "✓" : "⚠"} />
+              sub={alertCount === 0 ? "no notable rate changes" : "review rate movements"}
+              icon={alertCount === 0 ? "✓" : "⚠"}
+              onClick={alertCount > 0 ? () => scrollTo(refRateAlerts) : undefined} />
             <StatusCard T={T}
               label="Uncategorized"
               value={fmt$(otherTotal)}
               color={otherPct > 20 ? "#EF4444" : otherPct > 5 ? "#F59E0B" : "#10B981"}
               sub={`${otherPct.toFixed(1)}% of total spend`}
-              icon={otherPct > 5 ? "⚠" : "✓"} />
+              icon={otherPct > 5 ? "⚠" : "✓"}
+              onClick={uncategorizedCount > 0 ? () => scrollTo(refUncategorized) : undefined} />
             <StatusCard T={T}
               label="Credits"
               value={creditCount > 0 ? fmt$(creditTotal) : "—"}
               color={creditCount > 0 ? "#3B82F6" : T.text3}
               sub={creditCount > 0 ? `${creditCount} negative-amount lines` : "none"}
-              icon={creditCount > 0 ? "↶" : "—"} />
+              icon={creditCount > 0 ? "↶" : "—"}
+              onClick={creditCount > 0 ? () => scrollTo(refCredits) : undefined} />
           </div>
 
           {/* ═══ RATE ALERTS ═══ */}
           {alertCount > 0 && (
-            <Section T={T} accent="#EF4444"
+            <Section T={T} accent="#EF4444" sectionRef={refRateAlerts}
               title="Rate alerts"
               count={alertCount}
               subtitle={`Charge descriptions where the effective unit rate moved ≥5% or ≥$500 impact between ${fmtMonth(summary.prior_month)} and ${fmtMonth(summary.last_month)}`}>
@@ -648,12 +749,17 @@ export default function ThreePLBillingAudit({ goBack }) {
           )}
 
           {/* ═══ UNCATEGORIZED ═══ */}
-          {(audit.uncategorized || []).length > 0 && (
-            <Section T={T} accent="#F59E0B"
+          {uncategorizedCount > 0 && (
+            <Section T={T} accent="#F59E0B" sectionRef={refUncategorized}
               title="Uncategorized charges"
-              count={(audit.uncategorized || []).length}
-              subtitle={`${fmt$Full(otherTotal)} (${otherPct.toFixed(1)}% of total spend) currently sits in the "other" bucket — suggested re-categorizations below`}>
-              <UncategorizedTable data={audit.uncategorized} T={T} setTip={setTip} totalOther={otherTotal} />
+              count={uncategorizedCount}
+              subtitle={`${fmt$Full(otherTotal)} (${otherPct.toFixed(1)}% of total spend) currently in the "other" bucket — pick a category and click Apply to reassign all matching lines`}>
+              <UncategorizedTable
+                data={audit.uncategorized}
+                T={T} setTip={setTip}
+                totalOther={otherTotal}
+                onRelabel={handleRelabel}
+                busyDescriptions={busyDescriptions} />
             </Section>
           )}
 
@@ -668,7 +774,7 @@ export default function ThreePLBillingAudit({ goBack }) {
 
           {/* ═══ CREDITS ═══ */}
           {creditCount > 0 && (
-            <Section T={T} accent="#10B981"
+            <Section T={T} accent="#10B981" sectionRef={refCredits}
               title="Credits & negative lines"
               count={creditCount}
               subtitle={`${creditCount} lines with negative amounts totaling ${fmt$Full(Math.abs(creditTotal))} — refunds, voids, adjustments`}>
@@ -696,7 +802,7 @@ export default function ThreePLBillingAudit({ goBack }) {
           )}
 
           {/* ═══ RECONCILIATION ═══ */}
-          <Section T={T} accent={reconCount === 0 ? "#10B981" : "#EF4444"}
+          <Section T={T} accent={reconCount === 0 ? "#10B981" : "#EF4444"} sectionRef={refReconciliation}
             title="Reconciliation"
             subtitle="Invoice totals vs sum of line items — flags any invoice where the breakdown doesn't add up">
             <ReconciliationTable data={audit.reconciliation} T={T} summary={summary} />
