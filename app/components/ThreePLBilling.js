@@ -1387,25 +1387,12 @@ function parseStordTransactionHistory(workbook, xlsx, hint = {}) {
       orderUnits.set(orderNo, (orderUnits.get(orderNo) || 0) + (qty || 1));
     }
 
-    // Emit a shipment row per parcel (skip voids to keep the freight table clean —
-    // voids are reflected in the adjustment line instead)
-    if (!isVoided && orderNo && total > 0) {
-      result.shipments.push({
-        shipment_date: null, // not present in this file
-        external_order_no: orderNo,
-        shopify_order_id: orderNo,
-        carrier: code || "Stord",
-        service_level: codeName || null,
-        zone: null,
-        weight_kg: null,
-        freight_cost: total,
-        total_cost: total,
-        recipient_country: null, recipient_region: null,
-        recipient_city: null, recipient_postal: null,
-        is_adjustment: false,
-        warehouse_code: hint.warehouse || null,
-      });
-    }
+    // Intentionally NOT pushing shipments here. The Stord transaction-history
+    // file produces 1 row per parcel charge but lacks weight, ship date, zone,
+    // and uses a numeric carrier code (e.g. "2259") instead of the real carrier.
+    // The companion parcel-backup file (saved under the base invoice number)
+    // carries the same parcels with FULL detail, so these rows would only add
+    // storage cost + matview refresh time without enriching analytics.
   }
 
   // Convert groups → lines
@@ -1765,6 +1752,7 @@ export default function ThreePLBilling() {
   const [activeQueueId, setActiveQueueId] = useState(null); // which queue item is expanded in detail
   const [savingAll, setSavingAll] = useState(false);
   const [filterProvider, setFilterProvider] = useState("");
+  const [hideDetailFiles, setHideDetailFiles] = useState(true);
 
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
@@ -2104,7 +2092,28 @@ export default function ThreePLBilling() {
   const btnGhost = { ...btn, background: T.surface2, color: T.text2, border: `1px solid ${T.border}` };
 
   // Filter invoices
-  const filteredInvoices = filterProvider ? invoices.filter(i => providers.find(p => p.id === i.provider_id)?.code === filterProvider) : invoices;
+  // Group "detail" file imports (-TXN, -DISPATCH, -FREIGHT) under their base
+  // invoice number. Detail files carry the same total as the base — they exist
+  // for line-item granularity, not as separate financial events. Hide them by
+  // default and show a small badge on the base row instead.
+  const DETAIL_SUFFIX_RE = /-(TXN|DISPATCH|FREIGHT)$/;
+  const detailFilesByBase = (() => {
+    const m = new Map();
+    for (const inv of invoices) {
+      const match = (inv.invoice_number || "").match(DETAIL_SUFFIX_RE);
+      if (!match) continue;
+      const baseNum = inv.invoice_number.slice(0, -match[0].length);
+      const key = `${inv.provider_id}::${baseNum}`;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push({ suffix: match[1], invoice: inv });
+    }
+    return m;
+  })();
+  const filteredInvoices = (() => {
+    let r = filterProvider ? invoices.filter(i => providers.find(p => p.id === i.provider_id)?.code === filterProvider) : invoices;
+    if (hideDetailFiles) r = r.filter(i => !DETAIL_SUFFIX_RE.test(i.invoice_number || ""));
+    return r;
+  })();
 
   // KPI calcs for list view
   const kpis = (() => {
@@ -2169,6 +2178,12 @@ export default function ThreePLBilling() {
                 {PROVIDERS_META[p.code]?.flag} {p.name}
               </button>
             ))}
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setHideDetailFiles(h => !h)}
+              title="Show detail files: per-shipment transaction history (-TXN), per-line dispatch (-DISPATCH), and per-shipment freight reports (-FREIGHT). These share the same total as the base invoice and are hidden by default."
+              style={{ ...btn, background: hideDetailFiles ? T.surface2 : T.accent, color: hideDetailFiles ? T.text3 : "#fff", fontSize: 11 }}>
+              {hideDetailFiles ? "👁 Show detail files" : "🙈 Hide detail files"}
+            </button>
           </div>
 
           {/* Invoice table */}
@@ -2199,7 +2214,19 @@ export default function ThreePLBilling() {
                         onMouseEnter={e => e.currentTarget.style.background = T.surface2 + "60"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600 }}>{meta?.flag} {prov?.name || "—"}</td>
-                        <td style={{ padding: "10px 12px", fontSize: 12, fontFamily: "monospace" }}>{inv.invoice_number}</td>
+                        <td style={{ padding: "10px 12px", fontSize: 12, fontFamily: "monospace" }}>
+                          {inv.invoice_number}
+                          {(() => {
+                            const details = detailFilesByBase.get(`${inv.provider_id}::${inv.invoice_number}`);
+                            if (!details || !details.length) return null;
+                            return (
+                              <span title={`Has ${details.length} detail file${details.length === 1 ? "" : "s"} (${details.map(d => d.suffix).join(", ")}) hidden by default`}
+                                style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px", borderRadius: 3, background: T.surface2, color: T.text3, fontWeight: 600, letterSpacing: 0.3 }}>
+                                +{details.map(d => d.suffix).join("/")}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td style={{ padding: "10px 12px", fontSize: 12, color: T.text2 }}>{inv.period_start} → {inv.period_end}</td>
                         <td style={{ padding: "10px 12px", fontSize: 11, color: T.text3 }}>{inv.currency}</td>
                         <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 700, fontFamily: "monospace" }}>{fmtCurrency(Number(inv.total), inv.currency)}</td>
