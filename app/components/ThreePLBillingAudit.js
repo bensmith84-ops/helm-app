@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback, createContext, useContext } from "react";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 import { useAuth } from "../lib/auth";
@@ -26,9 +26,19 @@ const fmtCompact = (n) => {
   if (Math.abs(x) >= 1_000) return (x / 1e3).toFixed(1) + "k";
   return x.toLocaleString();
 };
-const fmt$ = (n) => (Number(n||0) < 0 ? "-$" : "$") + fmtCompact(Math.abs(Number(n||0)));
-const fmt$Full = (n, frac = 2) =>
-  (Number(n||0) < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac });
+// Currency context — every sub-component reads the active currency via useFmt().
+const CCY_SYM = { USD: "$", GBP: "£", AUD: "A$", EUR: "€", CAD: "C$" };
+const CcyCtx = createContext("USD");
+const useFmt = () => {
+  const cur = useContext(CcyCtx);
+  return useMemo(() => {
+    const sym = CCY_SYM[cur] || "$";
+    return {
+      fmt$:     (n) => (Number(n||0) < 0 ? "-" : "") + sym + fmtCompact(Math.abs(Number(n||0))),
+      fmt$Full: (n, frac = 2) => (Number(n||0) < 0 ? "-" : "") + sym + Math.abs(Number(n || 0)).toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac }),
+    };
+  }, [cur]);
+};
 const fmtNum = (n) => Number(n || 0).toLocaleString();
 const fmtMonth = (s) => {
   if (!s) return "";
@@ -140,6 +150,7 @@ function StatusCard({ T, label, value, color, sub, icon, onClick }) {
 }
 
 function RateAlertsTable({ data, T, setTip }) {
+  const { fmt$, fmt$Full } = useFmt();
   if (!data || !data.length) return <EmptyState T={T} message="No material rate changes detected between latest and prior month" color="#10B981" />;
   return (
     <div style={{ fontSize: 11.5 }}>
@@ -190,6 +201,7 @@ function RateAlertsTable({ data, T, setTip }) {
 
 // ─── Uncategorized table — with per-row Apply / category override ───────
 function UncategorizedTable({ data, T, setTip, totalOther, onRelabel, busyDescriptions }) {
+  const { fmt$, fmt$Full } = useFmt();
   // Per-row category selection (defaults to suggested_category if present)
   const [picks, setPicks] = useState(() => {
     const p = {};
@@ -289,6 +301,7 @@ function UncategorizedTable({ data, T, setTip, totalOther, onRelabel, busyDescri
 }
 
 function CreditsTable({ data, T, setTip }) {
+  const { fmt$, fmt$Full } = useFmt();
   if (!data || !data.length) return <EmptyState T={T} message="No credits or negative amounts on file" color="#10B981" />;
   return (
     <div style={{ fontSize: 11.5 }}>
@@ -321,6 +334,7 @@ function CreditsTable({ data, T, setTip }) {
 }
 
 function ChangedChargesPanel({ T, newCharges, vanished, setTip }) {
+  const { fmt$, fmt$Full } = useFmt();
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
       <div>
@@ -384,6 +398,7 @@ function ChangedChargesPanel({ T, newCharges, vanished, setTip }) {
 }
 
 function OutlierShipmentsTable({ data, T, setTip }) {
+  const { fmt$, fmt$Full } = useFmt();
   if (!data || !data.length) return <EmptyState T={T} message="No outlier shipments found above $30" />;
   return (
     <div style={{ overflowX: "auto", fontSize: 11 }}>
@@ -458,6 +473,7 @@ function MiniRateChart({ history, T, color = "#3B82F6" }) {
 }
 
 function RateHistoryExplorer({ data, T }) {
+  const { fmt$, fmt$Full } = useFmt();
   const [selected, setSelected] = useState(data && data[0] ? data[0].description : null);
   const current = useMemo(() => data?.find(d => d.description === selected), [data, selected]);
   if (!data || !data.length) return <EmptyState T={T} message="No rate history available" />;
@@ -522,6 +538,7 @@ function RateHistoryExplorer({ data, T }) {
 }
 
 function ReconciliationTable({ data, T, summary }) {
+  const { fmt$, fmt$Full } = useFmt();
   const [showAll, setShowAll] = useState(false);
   if (!data || !data.length) return <EmptyState T={T} message="No invoices in scope" />;
   const visible = showAll ? data : data.filter(r => r.status === "discrepancy").concat(data.filter(r => r.status === "ok").slice(0, 10));
@@ -592,6 +609,17 @@ export default function ThreePLBillingAudit({ goBack }) {
   const [tip, setTip] = useState(null);
   const [busyDescriptions, setBusyDescriptions] = useState({});
   const [toast, setToast] = useState(null);
+  const [selectedCurrency, setSelectedCurrency] = useState("USD");
+
+  // Locally-computed formatters for this component's own JSX. Sub-components
+  // access these through CcyCtx.Provider via useFmt() — no prop-drilling needed.
+  const { fmt$, fmt$Full } = useMemo(() => {
+    const sym = CCY_SYM[selectedCurrency] || "$";
+    return {
+      fmt$:     (n) => (Number(n||0) < 0 ? "-" : "") + sym + fmtCompact(Math.abs(Number(n||0))),
+      fmt$Full: (n, frac = 2) => (Number(n||0) < 0 ? "-" : "") + sym + Math.abs(Number(n || 0)).toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac }),
+    };
+  }, [selectedCurrency]);
 
   // Section refs for status-card scroll-to
   const refRateAlerts = useRef(null);
@@ -607,7 +635,15 @@ export default function ThreePLBillingAudit({ goBack }) {
     if (!orgId) return;
     setLoading(true); setErr(null);
     try {
-      const { data, error } = await supabase.rpc("wms_3pl_billing_audit", { p_org_id: orgId });
+      const { data, error } = await supabase.rpc("wms_3pl_billing_audit", {
+        p_org_id: orgId,
+        p_provider_codes: null,
+        p_warehouse_codes: null,
+        p_source_formats: null,
+        p_period_start: null,
+        p_period_end: null,
+        p_currency: selectedCurrency,
+      });
       if (error) throw error;
       setAudit(data);
     } catch (e) {
@@ -615,7 +651,7 @@ export default function ThreePLBillingAudit({ goBack }) {
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [orgId, selectedCurrency]);
 
   useEffect(() => { fetchAudit(); }, [fetchAudit]);
 
@@ -656,7 +692,23 @@ export default function ThreePLBillingAudit({ goBack }) {
   const uncategorizedCount = (audit?.uncategorized || []).length;
 
   return (
-    <div style={{ position: "relative" }}>
+    <CcyCtx.Provider value={selectedCurrency}><div style={{ position: "relative" }}>
+      {/* Currency selector */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 12, alignItems: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: T.text3, marginRight: 8, textTransform: "uppercase", letterSpacing: 0.4 }}>Currency</span>
+        {["USD","GBP","AUD"].map(c => (
+          <button key={c} onClick={() => setSelectedCurrency(c)}
+            style={{
+              padding: "5px 12px", fontSize: 11, fontWeight: 600,
+              background: selectedCurrency === c ? (T.accent || "#3B82F6") : "transparent",
+              color: selectedCurrency === c ? "#fff" : T.text2,
+              border: `1px solid ${selectedCurrency === c ? "transparent" : T.border}`,
+              borderRadius: 14, cursor: "pointer", transition: "all 120ms",
+            }}>
+            {CCY_SYM[c]} {c}
+          </button>
+        ))}
+      </div>
       <FloatingTooltip tip={tip} T={T} />
 
       {toast && (
@@ -813,6 +865,6 @@ export default function ThreePLBillingAudit({ goBack }) {
           </div>
         </>
       )}
-    </div>
+    </div></CcyCtx.Provider>
   );
 }
