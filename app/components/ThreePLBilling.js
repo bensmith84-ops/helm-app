@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 const ThreePLBillingReports = lazy(() => import("./ThreePLBillingReports"));
+const ThreePLOrderDetail   = lazy(() => import("./ThreePLOrderDetail"));
 const ThreePLBillingAudit   = lazy(() => import("./ThreePLBillingAudit"));
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
@@ -2135,6 +2136,7 @@ export default function ThreePLBilling() {
         </div>
         {view === "list" && (
           <>
+            <button onClick={() => setView("orders")} style={btnGhost}>📦 Orders</button>
             <button onClick={() => setView("audit")} style={btnGhost}>🔍 Audit</button>
             <button onClick={() => setView("reports")} style={btnGhost}>📊 Reports</button>
             <button onClick={() => { resetQueue(); setView("upload"); }} style={btnPrimary}>＋ Upload Invoices</button>
@@ -2147,6 +2149,14 @@ export default function ThreePLBilling() {
             </div>
             <Suspense fallback={<div style={{ padding: 30, color: T.text3 }}>Loading audit…</div>}>
               <ThreePLBillingAudit goBack={() => setView("list")} />
+            </Suspense>
+          </div>
+        )}
+
+        {view === "orders" && (
+          <div>
+            <Suspense fallback={<div style={{ padding: 30, color: T.text3 }}>Loading order detail…</div>}>
+              <ThreePLOrderDetail goBack={() => setView("list")} initialInvoiceId={selectedInvoice?.id || null} />
             </Suspense>
           </div>
         )}
