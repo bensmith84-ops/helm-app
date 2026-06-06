@@ -28,9 +28,8 @@ const csvEscape = (v) => {
 };
 
 export default function ThreePLOrderDetail({ goBack, initialInvoiceId = null }) {
-  const { T } = useTheme();
-  const { profile } = useAuth();
-  const orgId = profile?.active_org_id;
+  const { tokens: T } = useTheme();
+  const { orgId } = useAuth();
 
   const [rows, setRows] = useState([]);
   const [totalRows, setTotalRows] = useState(0);
