@@ -26,7 +26,7 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
   const [providers, setProviders] = useState([]);
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(true);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiResult, setAiResult] = useState(null);
   const [aiChat, setAiChat] = useState([]);
