@@ -87,7 +87,7 @@ export default function ThreePLOrderDetail({ goBack, initialInvoiceId = null }) 
     try {
       let q = supabase
         .from("wms_3pl_order_detail")
-        .select("*", { count: "exact" })
+        .select("*", { count: "planned" })
         .eq("org_id", orgId);
       q = buildQuery(q);
       q = q.order(sortCol, { ascending: sortDir === "asc", nullsFirst: false });
