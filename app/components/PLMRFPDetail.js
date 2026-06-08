@@ -1,8 +1,11 @@
 "use client";
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
+
+const PLMRFPBrief       = lazy(() => import("./PLMRFPBrief"));
+const PLMRFPSubmissions = lazy(() => import("./PLMRFPSubmissions"));
 
 const STATUS_COLORS = {
   draft: { bg: "#94a3b815", color: "#94a3b8", label: "Draft" },
@@ -264,6 +267,11 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
           <SmallField label="Unit" value={rfp.target_volume_unit || ""} onChange={v => updateRfp({ target_volume_unit: v })} disabled={!isEditable} />
         </div>
 
+        {/* Product Development Brief */}
+        <Suspense fallback={<div style={{ padding: 20, color: T.text3, fontSize: 12 }}>Loading brief editor…</div>}>
+          <PLMRFPBrief rfp={rfp} program={program} onUpdate={setRfp} />
+        </Suspense>
+
         {/* Items */}
         <Section title={`Items (${items.length})`} action={isEditable && <button onClick={addItem} style={ghostBtn}>+ Add item</button>}>
           {items.length === 0 ? <Empty hint="No items yet — add what you want providers to bid on" /> : (
@@ -384,6 +392,11 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
             </div>
           </Section>
         )}
+
+        {/* Provider Submissions (rich) */}
+        <Suspense fallback={<div style={{ padding: 20, color: T.text3, fontSize: 12 }}>Loading submissions…</div>}>
+          <PLMRFPSubmissions rfp={rfp} brief={rfp.brief} providers={providers} items={items} />
+        </Suspense>
       </div>
 
       {/* AI Panel */}
