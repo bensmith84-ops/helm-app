@@ -652,6 +652,29 @@ export default function SettingsView({ isAdmin }) {
                         {qboSyncing ? "Syncing…" : "⟲ Sync Now"}
                       </button>
                       <button onClick={async ()=>{
+                        try {
+                          let recaptcha_token = "";
+                          if (typeof window !== "undefined" && window.grecaptcha && typeof RECAPTCHA_SITE_KEY !== "undefined" && RECAPTCHA_SITE_KEY) {
+                            recaptcha_token = await new Promise((resolve, reject) => {
+                              window.grecaptcha.ready(() => {
+                                window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: "qbo_connect" })
+                                  .then(resolve).catch(reject);
+                              });
+                            });
+                          }
+                          const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-auth-url", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4" },
+                            body: JSON.stringify({ org_id: orgId, user_id: user?.id, recaptcha_token })
+                          });
+                          const data = await res.json();
+                          if (data.auth_url) { window.location.href = data.auth_url; }
+                          else { showToast("Reconnect failed: " + (data.error || "no auth_url"), "#ef4444"); }
+                        } catch(e) { showToast("Reconnect failed: " + (e?.message || e), "#ef4444"); }
+                      }} title="Re-authorize QBO connection (use this if sync is failing with token errors)" style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", flexShrink:0, background:"#f97316", color:"#fff", border:"none" }}>
+                        🔄 Reconnect
+                      </button>
+                      <button onClick={async ()=>{
                         if (!confirm("Disconnect QuickBooks? You can reconnect later.")) return;
                         await supabase.from("qbo_connections").delete().eq("org_id", orgId).eq("id", qboConn.id);
                         setQboConn(null);
