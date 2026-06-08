@@ -257,7 +257,7 @@ export default function PLMSourcingTab({ program }) {
               {(aiResult.data.providers || []).map((p, i) => (
                 <div key={i} style={{ padding: 10, background: T.surface, borderRadius: 6, marginBottom: 6 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{p.company_name}</div>
-                  <div style={{ fontSize: 10, color: T.text3 }}>{p.country}{p.website && <> · <a href={p.website} target="_blank" rel="noreferrer" style={{ color: T.text3 }}>{p.website.replace(/^https?:\\/\\//, "")}</a></>} · {p.confidence}% match</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{p.country}{p.website && <> · <a href={p.website} target="_blank" rel="noreferrer" style={{ color: T.text3 }}>{p.website.replace("https://","").replace("http://","")}</a></>} · {p.confidence}% match</div>
                   <div style={{ fontSize: 11, color: T.text2, marginTop: 4 }}>{p.why_suggested}</div>
                 </div>
               ))}
