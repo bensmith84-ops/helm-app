@@ -25,12 +25,22 @@ async function refreshToken(pool, conn) {
     },
     body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: conn.refresh_token }),
   });
-  if (!r.ok) throw new Error(`Token refresh ${r.status}: ${await r.text()}`);
+  if (!r.ok) {
+    const errBody = await r.text();
+    // Surface the failure on the connection row so it's not silent
+    try {
+      await pool.query(
+        `UPDATE qbo_connections SET sync_status=$1, last_error=$2 WHERE realm_id=$3`,
+        ['error', `Token refresh ${r.status}: ${errBody}`.slice(0, 1000), conn.realm_id]
+      );
+    } catch (_) { /* ignore secondary failure */ }
+    throw new Error(`Token refresh ${r.status}: ${errBody}`);
+  }
   const t = await r.json();
   const expiresAt = new Date(Date.now() + t.expires_in * 1000).toISOString();
   await pool.query(
-    `UPDATE qbo_connections SET access_token=$1, refresh_token=$2, token_expires_at=$3 WHERE realm_id=$4`,
-    [t.access_token, t.refresh_token || conn.refresh_token, expiresAt, conn.realm_id]
+    `UPDATE qbo_connections SET access_token=$1, refresh_token=$2, token_expires_at=$3, sync_status=$4, last_error=NULL WHERE realm_id=$5`,
+    [t.access_token, t.refresh_token || conn.refresh_token, expiresAt, 'idle', conn.realm_id]
   );
   return t.access_token;
 }
