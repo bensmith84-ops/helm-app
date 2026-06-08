@@ -32,6 +32,11 @@ export default function PLMSourcingTab({ program }) {
   const [loading, setLoading] = useState(true);
   const [selectedRFP, setSelectedRFP] = useState(null);
   const [showNewRFP, setShowNewRFP]   = useState(false);
+  const [aiOpen, setAiOpen]           = useState(true);
+  const [aiBusy, setAiBusy]           = useState(false);
+  const [aiResult, setAiResult]       = useState(null);
+  const [aiChat, setAiChat]           = useState([]);
+  const [aiInput, setAiInput]         = useState("");
 
   const load = useCallback(async () => {
     if (!orgId || !program?.id) return;
@@ -119,8 +124,50 @@ export default function PLMSourcingTab({ program }) {
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading sourcing…</div>;
 
+  const callAI = async (action, body) => {
+    setAiBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("plm-rfp-assist", { body: { action, ...body } });
+      if (error) throw error;
+      return data;
+    } catch (e) {
+      setAiResult({ kind: "error", message: e.message || String(e) });
+      return null;
+    } finally {
+      setAiBusy(false);
+    }
+  };
+  const aiSuggestItems = async () => {
+    const r = await callAI("chat", {
+      rfp: { name: program.name + " (program-level sourcing)", rfp_type: "other" }, items: [], providers: [], responses: [], history: [],
+      user_message: `I am working on the program "${program.name}". Description: ${program.description || "(no description)"}. Category: ${program.category || "n/a"}. Target markets: ${(program.target_markets_v2 || []).join(", ") || "n/a"}. Current sourcing items already added: ${items.length === 0 ? "none" : items.map(i => `${i.sourcing_type}: ${i.name}`).join("; ")}. \\n\\nWhat sourcing items (ingredients, packaging, contract manufacturers, services) should I be considering for this program? Give a short prioritized list with 1-line rationales.`,
+    });
+    if (r?.reply) setAiResult({ kind: "items_suggestion", text: r.reply });
+  };
+  const aiSuggestProviders = async () => {
+    if (items.length === 0) { setAiResult({ kind: "error", message: "Add at least one sourcing item first so I know what to find providers for." }); return; }
+    const r = await callAI("suggest_providers", {
+      rfp: { name: program.name, rfp_type: items[0].sourcing_type, currency: "USD" },
+      items: items.map(i => ({ item_name: i.name, specification: i.notes, quantity_unit: i.moq_unit })),
+      known_providers: items.filter(i => i.supplier_name).map(i => ({ company_name: i.supplier_name })),
+    });
+    if (r?.providers) setAiResult({ kind: "providers", data: r });
+  };
+  const aiChatSend = async () => {
+    if (!aiInput.trim()) return;
+    const msg = aiInput.trim(); setAiInput("");
+    const hist = [...aiChat, { role: "user", content: msg }];
+    setAiChat(hist);
+    const r = await callAI("chat", {
+      rfp: { name: program.name, rfp_type: "other" }, items, providers: [], responses: [], history: aiChat,
+      user_message: `Program context — name: "${program.name}", description: ${program.description || "n/a"}, current sourcing items: ${items.length} (${items.map(i => i.sourcing_type + ": " + i.name).join("; ")}).\\n\\nUser question: ${msg}`,
+    });
+    if (r?.reply) setAiChat([...hist, { role: "assistant", content: r.reply }]);
+  };
+
   return (
-    <div>
+    <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
       {/* ── Sourcing Items ── */}
       <div style={{ marginBottom: 32 }}>
         <SectionHeader title="Sourcing Items" subtitle="Ingredients, packaging, contract manufacturers, and other inputs you need for this program.">
@@ -181,6 +228,58 @@ export default function PLMSourcingTab({ program }) {
       </div>
 
       {showNewRFP && <NewRFPModal program={program} items={items} onClose={() => setShowNewRFP(false)} onCreated={(rfp) => { setShowNewRFP(false); setSelectedRFP(rfp); load(); }} />}
+      </div>
+
+      {/* ── AI Assistant side panel ── */}
+      {aiOpen ? (
+        <div style={{ width: 360, flexShrink: 0, position: "sticky", top: 0, background: T.surface2, border: "1px solid " + T.border, borderRadius: 10, padding: 14, maxHeight: "calc(100vh - 80px)", overflow: "auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#8b5cf6" }}>✨ AI Sourcing Assistant</div>
+            <button onClick={() => setAiOpen(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>✕</button>
+          </div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>Get help deciding what to source and which suppliers to consider for <strong>{program.name}</strong>.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
+            <button onClick={aiSuggestItems} disabled={aiBusy} style={{ background: T.surface, border: "1px solid " + T.border, color: T.text2, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: aiBusy ? "default" : "pointer", textAlign: "left", opacity: aiBusy ? 0.5 : 1 }}>🧭 Suggest items to source</button>
+            <button onClick={aiSuggestProviders} disabled={aiBusy} style={{ background: T.surface, border: "1px solid " + T.border, color: T.text2, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: aiBusy ? "default" : "pointer", textAlign: "left", opacity: aiBusy ? 0.5 : 1 }}>🔍 Suggest providers</button>
+          </div>
+          {aiBusy && <div style={{ padding: 12, textAlign: "center", color: T.text3, fontSize: 12 }}>AI is thinking…</div>}
+          {aiResult?.kind === "error" && <div style={{ padding: 10, background: "#ef444415", color: "#ef4444", borderRadius: 6, fontSize: 11, marginBottom: 10 }}>{aiResult.message}</div>}
+          {aiResult?.kind === "items_suggestion" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>Suggested items</div>
+              <div style={{ fontSize: 11, color: T.text2, lineHeight: 1.6, padding: 10, background: T.surface, borderRadius: 6, whiteSpace: "pre-wrap" }}>{aiResult.text}</div>
+            </div>
+          )}
+          {aiResult?.kind === "providers" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>Suggested providers</div>
+              {aiResult.data.market_notes && <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", marginBottom: 8 }}>{aiResult.data.market_notes}</div>}
+              {(aiResult.data.providers || []).map((p, i) => (
+                <div key={i} style={{ padding: 10, background: T.surface, borderRadius: 6, marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{p.company_name}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{p.country}{p.website && <> · <a href={p.website} target="_blank" rel="noreferrer" style={{ color: T.text3 }}>{p.website.replace(/^https?:\\/\\//, "")}</a></>} · {p.confidence}% match</div>
+                  <div style={{ fontSize: 11, color: T.text2, marginTop: 4 }}>{p.why_suggested}</div>
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 6, fontStyle: "italic" }}>Tip: Create an RFP below to invite these providers and collect bids.</div>
+            </div>
+          )}
+          <div style={{ borderTop: "1px solid " + T.border, paddingTop: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Ask anything</div>
+            <div style={{ maxHeight: 200, overflow: "auto", marginBottom: 6 }}>
+              {aiChat.map((m, i) => (
+                <div key={i} style={{ marginBottom: 6, padding: 8, background: m.role === "user" ? T.accent + "15" : T.surface, borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{m.content}</div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 4 }}>
+              <input value={aiInput} onChange={e => setAiInput(e.target.value)} onKeyDown={e => e.key === "Enter" && aiChatSend()} placeholder="e.g. Which suppliers do Method or Seventh Gen use?" style={{ flex: 1, background: T.surface, border: "1px solid " + T.border, color: T.text, fontSize: 12, padding: "7px 10px", borderRadius: 5, outline: "none" }} />
+              <button onClick={aiChatSend} disabled={aiBusy || !aiInput.trim()} style={{ background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 5, padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: (aiBusy || !aiInput.trim()) ? 0.5 : 1 }}>→</button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAiOpen(true)} style={{ position: "fixed", bottom: 24, right: 24, background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(139,92,246,0.4)", zIndex: 100 }}>✨ AI Assistant</button>
+      )}
     </div>
   );
 }
