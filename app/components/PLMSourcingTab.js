@@ -37,6 +37,7 @@ export default function PLMSourcingTab({ program }) {
   const [aiResult, setAiResult]       = useState(null);
   const [aiChat, setAiChat]           = useState([]);
   const [aiInput, setAiInput]         = useState("");
+  const [selectedAgent, setSelectedAgent] = useState("sourcing_expert");
 
   const load = useCallback(async () => {
     if (!orgId || !program?.id) return;
@@ -158,11 +159,12 @@ export default function PLMSourcingTab({ program }) {
     const msg = aiInput.trim(); setAiInput("");
     const hist = [...aiChat, { role: "user", content: msg }];
     setAiChat(hist);
-    const r = await callAI("chat", {
-      rfp: { name: program.name, rfp_type: "other" }, items, providers: [], responses: [], history: aiChat,
-      user_message: `Program context — name: "${program.name}", description: ${program.description || "n/a"}, current sourcing items: ${items.length} (${items.map(i => i.sourcing_type + ": " + i.name).join("; ")}).\\n\\nUser question: ${msg}`,
+    const r = await callAI("agent_chat", {
+      agent: selectedAgent,
+      program: { name: program.name, description: program.description, category: program.category, target_markets_v2: program.target_markets_v2, target_gross_margin_pct: program.target_gross_margin_pct, target_unit_price: program.target_unit_price },
+      items, history: aiChat, user_message: msg,
     });
-    if (r?.reply) setAiChat([...hist, { role: "assistant", content: r.reply }]);
+    if (r?.reply) setAiChat([...hist, { role: "assistant", content: r.reply, agent_name: r.agent_name, agent_emoji: r.agent_emoji }]);
   };
 
   return (
@@ -265,14 +267,29 @@ export default function PLMSourcingTab({ program }) {
             </div>
           )}
           <div style={{ borderTop: "1px solid " + T.border, paddingTop: 10 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Ask anything</div>
-            <div style={{ maxHeight: 200, overflow: "auto", marginBottom: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Chat with an expert agent</div>
+            <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+              <button onClick={() => setSelectedAgent("sourcing_expert")} style={{ flex: 1, padding: "7px 8px", fontSize: 10, fontWeight: 700, border: "1px solid " + (selectedAgent === "sourcing_expert" ? "#8b5cf6" : T.border), background: selectedAgent === "sourcing_expert" ? "#8b5cf6" : T.surface, color: selectedAgent === "sourcing_expert" ? "#fff" : T.text2, borderRadius: 5, cursor: "pointer", textAlign: "left" }}>🧭 Sourcing Expert</button>
+              <button onClick={() => setSelectedAgent("rfp_writer")} style={{ flex: 1, padding: "7px 8px", fontSize: 10, fontWeight: 700, border: "1px solid " + (selectedAgent === "rfp_writer" ? "#8b5cf6" : T.border), background: selectedAgent === "rfp_writer" ? "#8b5cf6" : T.surface, color: selectedAgent === "rfp_writer" ? "#fff" : T.text2, borderRadius: 5, cursor: "pointer", textAlign: "left" }}>📝 RFP Writer</button>
+            </div>
+            <div style={{ maxHeight: 240, overflow: "auto", marginBottom: 6 }}>
+              {aiChat.length === 0 && (
+                <div style={{ padding: 10, fontSize: 11, color: T.text3, fontStyle: "italic", lineHeight: 1.5, background: T.surface, borderRadius: 6 }}>
+                  {selectedAgent === "sourcing_expert"
+                    ? "Hi — I find specialized contract manufacturers and boutique suppliers, not the big CPG conglomerates. Tell me what you're sourcing and the region, and I'll suggest CMs in the LAW Chemical / HNW Manufacturing tier."
+                    : "Hi — I write RFPs that get you the best terms even when you don't know your volume yet. Tell me what you're sourcing and I'll start with tier-pricing structure, MOQ flexibility, and ramp commitments."}
+                </div>
+              )}
               {aiChat.map((m, i) => (
-                <div key={i} style={{ marginBottom: 6, padding: 8, background: m.role === "user" ? T.accent + "15" : T.surface, borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{m.content}</div>
+                <div key={i} style={{ marginBottom: 6, padding: 8, background: m.role === "user" ? T.accent + "15" : T.surface, borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
+                  {m.role === "assistant" && m.agent_emoji && <div style={{ fontSize: 9, fontWeight: 700, color: "#8b5cf6", marginBottom: 4, letterSpacing: 0.3 }}>{m.agent_emoji} {m.agent_name?.toUpperCase()}</div>}
+                  {m.content}
+                </div>
               ))}
+              {aiBusy && <div style={{ padding: 8, fontSize: 11, color: T.text3, fontStyle: "italic" }}>{selectedAgent === "sourcing_expert" ? "🧭 Sourcing Expert is thinking…" : "📝 RFP Writer is thinking…"}</div>}
             </div>
             <div style={{ display: "flex", gap: 4 }}>
-              <input value={aiInput} onChange={e => setAiInput(e.target.value)} onKeyDown={e => e.key === "Enter" && aiChatSend()} placeholder="e.g. Which suppliers do Method or Seventh Gen use?" style={{ flex: 1, background: T.surface, border: "1px solid " + T.border, color: T.text, fontSize: 12, padding: "7px 10px", borderRadius: 5, outline: "none" }} />
+              <input value={aiInput} onChange={e => setAiInput(e.target.value)} onKeyDown={e => e.key === "Enter" && aiChatSend()} placeholder={selectedAgent === "sourcing_expert" ? "e.g. Find me liquid-fill CMs in the US Midwest" : "e.g. Draft the pricing-tier table for this RFP"} style={{ flex: 1, background: T.surface, border: "1px solid " + T.border, color: T.text, fontSize: 12, padding: "7px 10px", borderRadius: 5, outline: "none" }} />
               <button onClick={aiChatSend} disabled={aiBusy || !aiInput.trim()} style={{ background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 5, padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: (aiBusy || !aiInput.trim()) ? 0.5 : 1 }}>→</button>
             </div>
           </div>
