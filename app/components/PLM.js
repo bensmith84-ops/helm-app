@@ -6,6 +6,7 @@ import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import PLMLibraryView from "./PLMLibrary";
 const PrintBatchRecord = lazy(() => import("./PrintBatchRecord"));
+const PLMSourcingTab  = lazy(() => import("./PLMSourcingTab"));
 const PrintFormulaSheet = lazy(() => import("./PrintFormulaSheet"));
 const PrintAIChat = lazy(() => import("./PrintAIChat"));
 
@@ -2935,6 +2936,7 @@ const DETAIL_TABS = [
   { key:"ai_agent",      label:"\u{1F916} AI Agent"    },
   { key:"claims_sub",    label:"Claims & Evidence"},
   { key:"formulations",  label:"Formulations"   },
+  { key:"sourcing",      label:"🤝 Sourcing"    },
   { key:"gm_scenarios",  label:"GM% Scenarios"  },
   { key:"experiments",   label:"Experiments"    },
   { key:"trials",        label:"Trials"         },
@@ -2971,6 +2973,7 @@ function ProgramDetail({ program, onBack, onUpdate, onDelete }) {
       case "ai_agent":     return <AIAgentTab program={program} />;      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
       case "gm_scenarios": return <GMScenarioTab program={program} />;
       case "formulations": return <FormulationsTab programId={program.id} />;
+      case "sourcing":     return <Suspense fallback={<div style={{padding:30,color:T.text3}}>Loading sourcing…</div>}><PLMSourcingTab program={program} /></Suspense>;
       case "experiments":  return <ExperimentsTab programId={program.id} />;
       case "trials":       return <TrialsTab programId={program.id} />;
       case "reg_claims":   return <RegClaimsTab programId={program.id} />;
