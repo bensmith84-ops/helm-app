@@ -310,6 +310,15 @@ export default function AsanaImportModal({ onClose, onImported }) {
       setImportProgress("Linking dependencies...");
       await linkAllDependencies();
 
+      // Register for ongoing background mirror so post-import Asana changes flow into Helm (Helm wins).
+      try {
+        await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/asana-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "register", org_id: orgId, project_gid: selectedProject.gid, helm_project_id: proj.id }),
+        });
+      } catch (e) { console.warn("asana-sync register failed (import still succeeded):", e); }
+
       setImportResult({ projectId: proj.id, projectName: proj.name, sections: totalSections, tasks: totalTasks, comments: importedComments, attachments: importedAttachments });
       setStep("done");
     } catch (err) {
@@ -447,6 +456,15 @@ export default function AsanaImportModal({ onClose, onImported }) {
       // Re-link dependencies
       setImportProgress("Linking dependencies...");
       await linkAllDependencies();
+
+      // Register for ongoing background mirror so post-import Asana changes flow into Helm (Helm wins).
+      try {
+        await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/asana-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "register", org_id: orgId, project_gid: selectedProject.gid, helm_project_id: projId }),
+        });
+      } catch (e) { console.warn("asana-sync register failed (update still succeeded):", e); }
 
       setImportResult({
         projectId: projId, projectName: projectDetail.name,
