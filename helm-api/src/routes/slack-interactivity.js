@@ -149,10 +149,11 @@ async function handleBlockActions(payload, pool, slackToken) {
         text: `\u26a0\ufe0f Can't approve \u2014 request is currently *${reqRow.status}*.` } };
     }
     const actor = await resolveActor(pool, slackUserId);
-    const isPersonChain = String(reqRow.approval_chain || '').startsWith('person_');
-    const chain = isPersonChain ? [{ role: 'Approver' }] : (APPROVAL_CHAINS[reqRow.approval_chain] || APPROVAL_CHAINS.standard);
+    const customSteps = Array.isArray(reqRow.approval_chain_steps) && reqRow.approval_chain_steps.length ? reqRow.approval_chain_steps : null;
+    const isPersonChain = !customSteps && String(reqRow.approval_chain || '').startsWith('person_');
+    const chain = customSteps ? customSteps : (isPersonChain ? [{ role: 'Approver' }] : (APPROVAL_CHAINS[reqRow.approval_chain] || APPROVAL_CHAINS.standard));
     const newStep = (reqRow.approval_step || 0) + 1;
-    const done = isPersonChain || newStep >= chain.length;
+    const done = (!customSteps && isPersonChain) || newStep >= chain.length;
     const today = new Date().toISOString().slice(0, 10);
 
     const updates = {
