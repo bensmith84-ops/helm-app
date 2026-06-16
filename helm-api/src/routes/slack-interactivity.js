@@ -152,6 +152,31 @@ async function handleBlockActions(payload, pool, slackToken) {
     const customSteps = Array.isArray(reqRow.approval_chain_steps) && reqRow.approval_chain_steps.length ? reqRow.approval_chain_steps : null;
     const isPersonChain = !customSteps && String(reqRow.approval_chain || '').startsWith('person_');
     const chain = customSteps ? customSteps : (isPersonChain ? [{ role: 'Approver' }] : (APPROVAL_CHAINS[reqRow.approval_chain] || APPROVAL_CHAINS.standard));
+
+    // Per-step approver enforcement (mirror of the in-app rule). When the current
+    // chain step names specific approver(s), only they (or an org admin) may clear it.
+    if (customSteps) {
+      const cur = customSteps[reqRow.approval_step] || null;
+      const allowedIds = cur && Array.isArray(cur.approver_ids) ? cur.approver_ids.filter(Boolean) : [];
+      if (allowedIds.length && !(actor.id && allowedIds.includes(actor.id))) {
+        let isAdmin = false;
+        if (actor.id) {
+          try {
+            const { rows: mRows } = await pool.query(
+              `SELECT af_role, role FROM org_memberships WHERE user_id = $1 AND org_id = $2 LIMIT 1`,
+              [actor.id, reqRow.org_id]
+            );
+            isAdmin = !!(mRows[0] && (mRows[0].af_role === 'admin' || mRows[0].role === 'owner'));
+          } catch (e) { /* fail closed */ }
+        }
+        if (!isAdmin) {
+          const names = (cur.approver_names || []).join(', ') || 'a designated approver';
+          return { status: 200, body: { replace_original: false, response_type: 'ephemeral',
+            text: `\ud83d\udd12 This approval step is restricted to ${names}.` } };
+        }
+      }
+    }
+
     const newStep = (reqRow.approval_step || 0) + 1;
     const done = (!customSteps && isPersonChain) || newStep >= chain.length;
     const today = new Date().toISOString().slice(0, 10);
