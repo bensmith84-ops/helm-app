@@ -87,8 +87,11 @@ const ProgressBar = ({ value, max, color = T.accent, height = 6 }) => {
 
 // ── Approval Chain Stepper ───────────────────────────────────────────────────
 const ApprovalChain = ({ req, members }) => {
-  const isPersonChain = (req.approval_chain || "").startsWith("person_");
-  const chain = isPersonChain
+  const customSteps = Array.isArray(req.approval_chain_steps) && req.approval_chain_steps.length ? req.approval_chain_steps : null;
+  const isPersonChain = !customSteps && (req.approval_chain || "").startsWith("person_");
+  const chain = customSteps
+    ? customSteps
+    : isPersonChain
     ? [{ role: "Specific", label: req.require_person_name || "Named Approver" }]
     : (APPROVAL_CHAINS[req.approval_chain] || APPROVAL_CHAINS.standard);
   return (
@@ -4164,7 +4167,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   };
 
   const submitRequest = async () => {
-    if (!form.title || !form.amount) return;
+    if (!form.title || !form.amount || !form.gl_code) return;
     const amt = parseFloat(form.amount);
     const glEntry = glCodes.find(g => g.code === form.gl_code);
     const candidateReq = { amount: amt, gl_code: form.gl_code, department: form.department };
@@ -4173,8 +4176,26 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 
     let chain = amt > 10000 ? "high_value" : "standard";
     let requirePersonId = null, requirePersonName = null;
-    if (matchedRule?.action === "require_cfo") chain = "high_value";
-    if (matchedRule?.action === "require_person" && matchedRule.require_person_id) {
+    let chainSteps = null;
+    // Multi-step approver chains: a rule can define an ordered list of approvers,
+    // each with an optional amount threshold. A step is included only when the
+    // request amount clears its threshold (no threshold = always included).
+    if (matchedRule?.approver_steps?.length) {
+      const STEP_LABELS = { manager: "Manager", finance: "Finance", cfo: "CFO", cmo: "CMO", coo: "COO" };
+      const resolved = (matchedRule.approver_steps || [])
+        .filter(st => st && (st.min_amount == null || st.min_amount === "" || amt > Number(st.min_amount)))
+        .map(st => st.type === "person"
+          ? { role: "Specific", label: st.person_name || "Approver", person_id: st.person_id || null, person_name: st.person_name || null }
+          : { role: STEP_LABELS[st.type] || st.type, label: STEP_LABELS[st.type] || st.type });
+      if (resolved.length) {
+        chainSteps = resolved;
+        chain = "custom";
+        const fp = resolved.find(r => r.person_id);
+        if (fp) { requirePersonId = fp.person_id; requirePersonName = fp.person_name; }
+      }
+    }
+    if (!chainSteps && matchedRule?.action === "require_cfo") chain = "high_value";
+    if (!chainSteps && matchedRule?.action === "require_person" && matchedRule.require_person_id) {
       requirePersonId = matchedRule.require_person_id;
       requirePersonName = matchedRule.require_person_name || null;
       chain = "person_" + requirePersonId;
@@ -4197,6 +4218,12 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         quotes_obtained: form.quotes_obtained || null,
         attachments: formAttachments.length > 0 ? formAttachments : null,
         status: "pending", approval_step: 0, // reset approval
+        approval_chain: chain,
+        approval_chain_steps: chainSteps,
+        matched_rule_id: matchedRule?.id || null,
+        matched_rule_name: matchedRule?.name || null,
+        require_person_id: requirePersonId,
+        require_person_name: requirePersonName,
         updated_at: new Date().toISOString(),
       };
       await updateRequest(editMode, patch);
@@ -4215,6 +4242,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         status: isAuto ? "approved" : "pending",
         approval_step: isAuto ? 2 : 0,
         approval_chain: chain,
+        approval_chain_steps: chainSteps,
         matched_rule_id: matchedRule?.id || null,
         matched_rule_name: matchedRule?.name || null,
         require_person_id: requirePersonId,
@@ -4399,10 +4427,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 
   const doApprove = async () => {
     if (!selReq) return;
-    const isPersonChain = (selReq.approval_chain || "").startsWith("person_");
-    const chain = isPersonChain ? [{ role: "Approver" }] : (APPROVAL_CHAINS[selReq.approval_chain] || APPROVAL_CHAINS.standard);
+    const customSteps = Array.isArray(selReq.approval_chain_steps) && selReq.approval_chain_steps.length ? selReq.approval_chain_steps : null;
+    const isPersonChain = !customSteps && (selReq.approval_chain || "").startsWith("person_");
+    const chain = customSteps ? customSteps : (isPersonChain ? [{ role: "Approver" }] : (APPROVAL_CHAINS[selReq.approval_chain] || APPROVAL_CHAINS.standard));
     const newStep = selReq.approval_step + 1;
-    const done = isPersonChain || newStep >= chain.length;
+    const done = (!customSteps && isPersonChain) || newStep >= chain.length;
     const patch = {
       approval_step: newStep,
       status: done ? "approved" : "pending",
@@ -4669,8 +4698,9 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                     style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>GL Code</div>
+                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>GL Code *</div>
                   <GLCodePicker value={form.gl_code} onChange={code => setForm(f => ({ ...f, gl_code: code }))} codes={glCodes} />
+                  {!form.gl_code && <div style={{ fontSize: 10, color: "#EF4444", marginTop: 4 }}>A GL code is required.</div>}
                 </div>
               </div>
 
@@ -4884,7 +4914,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => { setShowNew(false); setForm(FORM_INIT); setEditMode(false); }} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
-                <button onClick={submitRequest} disabled={!form.title || !form.amount} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.title || !form.amount ? 0.5 : 1 }}>{editMode ? "Update Request" : "Submit Request"}</button>
+                <button onClick={submitRequest} disabled={!form.title || !form.amount || !form.gl_code} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: (!form.title || !form.amount || !form.gl_code) ? 0.5 : 1 }}>{editMode ? "Update Request" : "Submit Request"}</button>
               </div>
             </div>
           </div>
@@ -6822,23 +6852,35 @@ function DepartmentsView({ isMobile, departments, setDepartments, members, reque
 function RulesView({ isMobile, rules, setRules, glCodes, departments = [], members, user }) {
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState(null); // null = new rule, rule.id = edit
-  const FORM_DEFAULT = { name: "", description: "", action: "require_manager", conditions: [{ field: "amount", operator: ">", value: "", join: null }], require_person_id: "", require_person_name: "" };
+  const FORM_DEFAULT = { name: "", description: "", action: "chain", conditions: [{ field: "amount", operator: ">", value: "", join: null }], approver_steps: [{ type: "manager", min_amount: "" }], require_person_id: "", require_person_name: "" };
   const [form, setForm] = useState(FORM_DEFAULT);
 
   const openNew = () => { setEditingId(null); setForm(FORM_DEFAULT); setShowNew(true); };
   const openEdit = (rule) => {
     setEditingId(rule.id);
+    // Migrate a legacy single-action rule into the multi-step chain model so it
+    // edits cleanly in the new builder. auto_approve / block stay as actions.
+    const LEGACY_TO_STEP = { require_manager: [{ type: "manager", min_amount: "" }], require_cfo: [{ type: "cfo", min_amount: "" }], require_cmo: [{ type: "cmo", min_amount: "" }] };
+    let action = rule.action || "chain";
+    let approver_steps = Array.isArray(rule.approver_steps)
+      ? rule.approver_steps.map(st => ({ type: st.type, person_id: st.person_id || "", person_name: st.person_name || "", min_amount: st.min_amount == null ? "" : String(st.min_amount) }))
+      : [];
+    if (!approver_steps.length) {
+      if (action === "require_person") { approver_steps = [{ type: "person", person_id: rule.require_person_id || "", person_name: rule.require_person_name || "", min_amount: "" }]; action = "chain"; }
+      else if (LEGACY_TO_STEP[action]) { approver_steps = LEGACY_TO_STEP[action].map(x => ({ ...x })); action = "chain"; }
+      else if (action !== "auto_approve" && action !== "block") { approver_steps = [{ type: "manager", min_amount: "" }]; action = "chain"; }
+    }
     setForm({
       name: rule.name || "",
       description: rule.description || "",
-      action: rule.action || "require_manager",
-      // Backfill operator default for legacy rules where gl/department had no operator stored.
-      conditions: (rule.conditions || []).map(c => ({
-        field: c.field,
-        operator: c.operator || (c.field === "gl" || c.field === "department" ? "is" : ">"),
-        value: c.value ?? "",
-        join: c.join ?? null,
-      })),
+      action,
+      // Backfill operator default for legacy rules; normalize legacy gl/department "==" / "!=" to is / is_not.
+      conditions: (rule.conditions || []).map(c => {
+        let operator = c.operator || ((c.field === "gl" || c.field === "department") ? "is" : ">");
+        if (c.field === "gl" || c.field === "department") { if (operator === "==") operator = "is"; else if (operator === "!=") operator = "is_not"; }
+        return { field: c.field, operator, value: c.value ?? "", join: c.join ?? null };
+      }),
+      approver_steps,
       require_person_id: rule.require_person_id || "",
       require_person_name: rule.require_person_name || "",
     });
@@ -6859,19 +6901,39 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
   });
   const remCond = i => setForm(f => ({ ...f, conditions: f.conditions.filter((_, idx) => idx !== i) }));
 
+  const addStep = () => setForm(f => ({ ...f, approver_steps: [...(f.approver_steps || []), { type: "manager", min_amount: "" }] }));
+  const updStep = (i, k, v) => setForm(f => {
+    const st = [...(f.approver_steps || [])];
+    st[i] = { ...st[i], [k]: v };
+    if (k === "type" && v !== "person") { st[i].person_id = ""; st[i].person_name = ""; }
+    return { ...f, approver_steps: st };
+  });
+  const remStep = i => setForm(f => ({ ...f, approver_steps: (f.approver_steps || []).filter((_, idx) => idx !== i) }));
+
   const saveRule = async () => {
     if (!form.name.trim()) return;
-    if (form.action === "require_person" && !form.require_person_id) return; // person required
-    const isPerson = form.action === "require_person";
+    const isChain = form.action === "chain";
+    if (isChain) {
+      const steps = form.approver_steps || [];
+      if (!steps.length) return; // a chain needs at least one approver
+      if (steps.some(st => st.type === "person" && !st.person_id)) return; // person steps need a person
+    }
+    // Normalize steps for storage: numeric-or-null threshold; person fields only on person steps.
+    const cleanSteps = isChain ? (form.approver_steps || []).map(st => ({
+      type: st.type,
+      ...(st.type === "person" ? { person_id: st.person_id || null, person_name: st.person_name || null } : {}),
+      min_amount: (st.min_amount === "" || st.min_amount == null) ? null : Number(st.min_amount),
+    })) : [];
+    // Mirror the first person step into require_person_* for notification routing / back-compat.
+    const firstPerson = cleanSteps.find(st => st.type === "person");
     const payload = {
       name: form.name,
       description: form.description,
       action: form.action,
       conditions: form.conditions,
-      // Always write both fields so flipping the action away from require_person
-      // clears any previously-stored person.
-      require_person_id: isPerson ? form.require_person_id : null,
-      require_person_name: isPerson ? form.require_person_name : null,
+      approver_steps: cleanSteps,
+      require_person_id: firstPerson ? firstPerson.person_id : null,
+      require_person_name: firstPerson ? firstPerson.person_name : null,
     };
     if (editingId) {
       const { data } = await supabase.from("af_rules").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", editingId).select().single();
@@ -6897,7 +6959,8 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
     setRules(p => p.filter(r => r.id !== id));
   };
 
-  const ACTION_LABELS = { require_manager: "Require Manager", require_cfo: "Require CFO", require_cmo: "Require CMO", require_person: "Require Specific Person", auto_approve: "Auto-Approve", block: "Block Request" };
+  const ACTION_LABELS = { chain: "Approval Chain", require_manager: "Require Manager", require_cfo: "Require CFO", require_cmo: "Require CMO", require_person: "Require Specific Person", auto_approve: "Auto-Approve", block: "Block Request" };
+  const STEP_TYPE_LABELS = { manager: "Your Manager", finance: "Finance", cfo: "CFO", cmo: "CMO", coo: "COO", person: "Specific Person" };
   const FIELD_LABELS = { amount: "Amount ($)", gl: "GL Code", department: "Department" };
   const OP_LABELS = { ">": ">", "<": "<", "==": "==", "!=": "≠", ">=": "≥", "<=": "≤", is: "is", is_not: "is not", starts_with: "starts with" };
 
@@ -6947,7 +7010,20 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                   </span>
                 ))}
                 <span style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>→ THEN</span>
-                <span style={{ background: T.accent, color: "#fff", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{ACTION_LABELS[rule.action] || rule.action}{rule.action === "require_person" && rule.require_person_name ? ` · ${rule.require_person_name}` : ""}</span>
+                {(rule.approver_steps && rule.approver_steps.length) ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                    {rule.approver_steps.map((st, si) => (
+                      <span key={si} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        {si > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.text3 }}>→</span>}
+                        <span style={{ background: T.accent, color: "#fff", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>
+                          {st.type === "person" ? (st.person_name || "Specific Person") : (STEP_TYPE_LABELS[st.type] || st.type)}{(st.min_amount != null && st.min_amount !== "") ? ` · >${fmt(Number(st.min_amount))}` : ""}
+                        </span>
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  <span style={{ background: T.accent, color: "#fff", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{ACTION_LABELS[rule.action] || rule.action}{rule.action === "require_person" && rule.require_person_name ? ` · ${rule.require_person_name}` : ""}</span>
+                )}
               </div>
               {rule.description && <div style={{ fontSize: 11, color: T.text3 }}>{rule.description}</div>}
             </div>
@@ -7040,41 +7116,55 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                 <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Action (THEN)</div>
                 <select value={form.action} onChange={e => {
                   const next = e.target.value;
-                  // Clear the person fields if switching away from require_person.
-                  setForm(f => ({ ...f, action: next, ...(next !== "require_person" ? { require_person_id: "", require_person_name: "" } : {}) }));
+                  setForm(f => ({ ...f, action: next, ...(next === "chain" && !(f.approver_steps || []).length ? { approver_steps: [{ type: "manager", min_amount: "" }] } : {}) }));
                 }}
                   style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
-                  {Object.entries(ACTION_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  <option value="chain">Route for Approval (chain)</option>
+                  <option value="auto_approve">Auto-Approve</option>
+                  <option value="block">Block Request</option>
                 </select>
               </div>
 
-              {/* Person picker — only when action requires it */}
-              {form.action === "require_person" && (
+              {/* Approver chain builder — sequential approvers, each with an optional amount threshold */}
+              {form.action === "chain" && (
                 <div>
-                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Approver *</div>
-                  <select value={form.require_person_id} onChange={e => {
-                    const id = e.target.value;
-                    const m = (members || []).find(x => x.user_id === id);
-                    const name = m?.profiles?.display_name || m?.profiles?.email || "";
-                    setForm(f => ({ ...f, require_person_id: id, require_person_name: name }));
-                  }}
-                    style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
-                    <option value="">Select approver…</option>
-                    {(members || []).map(m => (
-                      <option key={m.user_id} value={m.user_id}>
-                        {m.profiles?.display_name || m.profiles?.email || m.user_id}
-                      </option>
-                    ))}
-                  </select>
-                  {!form.require_person_id && <div style={{ fontSize: 10, color: "#EF4444", marginTop: 4 }}>Pick the person who should approve when this rule fires.</div>}
+                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Approvers — in order</div>
+                  <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>Each approver must sign off before it moves to the next. Add a threshold to only involve someone when the amount is over a set value (e.g. Manager always, then CFO if over $5,000).</div>
+                  {(form.approver_steps || []).map((step, idx) => (
+                    <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#5B21B6", background: "#EDE9FE", borderRadius: 4, padding: "3px 7px", minWidth: 20, textAlign: "center" }}>{idx + 1}</span>
+                      <select value={step.type} onChange={e => updStep(idx, "type", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
+                        {Object.entries(STEP_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                      {step.type === "person" && (
+                        <select value={step.person_id || ""} onChange={e => {
+                          const id = e.target.value;
+                          const m = (members || []).find(x => x.user_id === id);
+                          const name = m?.profiles?.display_name || m?.profiles?.email || "";
+                          updStep(idx, "person_id", id); updStep(idx, "person_name", name);
+                        }} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, minWidth: 150 }}>
+                          <option value="">Select person…</option>
+                          {(members || []).map(m => <option key={m.user_id} value={m.user_id}>{m.profiles?.display_name || m.profiles?.email || m.user_id}</option>)}
+                        </select>
+                      )}
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 10, color: T.text3 }}>only if &gt; $</span>
+                        <input type="number" value={step.min_amount ?? ""} onChange={e => updStep(idx, "min_amount", e.target.value)} placeholder="any"
+                          style={{ width: 84, padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, outline: "none" }} />
+                      </div>
+                      {(form.approver_steps || []).length > 1 && <button onClick={() => remStep(idx)} style={{ background: "#FEE2E2", border: "none", borderRadius: 6, padding: "6px 8px", cursor: "pointer", color: "#991B1B", fontSize: 10, fontWeight: 700 }}>✕</button>}
+                    </div>
+                  ))}
+                  {(form.approver_steps || []).some(st => st.type === "person" && !st.person_id) && <div style={{ fontSize: 10, color: "#EF4444", marginBottom: 6 }}>Each “Specific Person” step needs a person selected.</div>}
+                  <button onClick={addStep} style={{ fontSize: 12, color: T.text3, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}>+ Add approver</button>
                 </div>
               )}
 
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={closeForm} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={saveRule}
-                  disabled={!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "require_person" && !form.require_person_id)}
-                  style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "require_person" && !form.require_person_id) ? 0.5 : 1 }}>{editingId ? "Update Rule" : "Save Rule"}</button>
+                  disabled={!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "chain" && (!(form.approver_steps || []).length || (form.approver_steps || []).some(st => st.type === "person" && !st.person_id)))}
+                  style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: (!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "chain" && (!(form.approver_steps || []).length || (form.approver_steps || []).some(st => st.type === "person" && !st.person_id)))) ? 0.5 : 1 }}>{editingId ? "Update Rule" : "Save Rule"}</button>
               </div>
             </div>
           </div>
