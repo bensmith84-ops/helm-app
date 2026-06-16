@@ -4145,14 +4145,16 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         } else if (c.field === "gl") {
           const gl = String(req.gl_code || "");
           const v = String(c.value || "");
-          const op = c.operator || "is";
+          let op = c.operator || "is";
+          if (op === "==") op = "is"; else if (op === "!=") op = "is_not";
           if (op === "is") pass = gl === v;
           else if (op === "is_not") pass = gl !== v;
           else if (op === "starts_with") pass = v.length > 0 && gl.startsWith(v);
         } else if (c.field === "department") {
           const d = String(req.department || "");
           const v = String(c.value || "");
-          const op = c.operator || "is";
+          let op = c.operator || "is";
+          if (op === "==") op = "is"; else if (op === "!=") op = "is_not";
           if (op === "is") pass = d === v;
           else if (op === "is_not") pass = d !== v;
           else if (op === "starts_with") pass = v.length > 0 && d.toLowerCase().startsWith(v.toLowerCase());
