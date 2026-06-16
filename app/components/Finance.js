@@ -4186,14 +4186,18 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       const STEP_LABELS = { manager: "Manager", finance: "Finance", cfo: "CFO", cmo: "CMO", coo: "COO" };
       const resolved = (matchedRule.approver_steps || [])
         .filter(st => st && (st.min_amount == null || st.min_amount === "" || amt > Number(st.min_amount)))
-        .map(st => st.type === "person"
-          ? { role: "Specific", label: st.person_name || "Approver", person_id: st.person_id || null, person_name: st.person_name || null }
-          : { role: STEP_LABELS[st.type] || st.type, label: STEP_LABELS[st.type] || st.type });
+        .map(st => {
+          const ids = Array.isArray(st.approver_ids) ? st.approver_ids.filter(Boolean) : (st.person_id ? [st.person_id] : []);
+          const names = Array.isArray(st.approver_names) ? st.approver_names.filter(Boolean) : (st.person_name ? [st.person_name] : []);
+          return st.type === "person"
+            ? { role: "Specific", label: names[0] || "Approver", approver_ids: ids, approver_names: names, person_id: ids[0] || null, person_name: names[0] || null }
+            : { role: STEP_LABELS[st.type] || st.type, label: STEP_LABELS[st.type] || st.type, approver_ids: ids, approver_names: names };
+        });
       if (resolved.length) {
         chainSteps = resolved;
         chain = "custom";
-        const fp = resolved.find(r => r.person_id);
-        if (fp) { requirePersonId = fp.person_id; requirePersonName = fp.person_name; }
+        const fp = resolved.find(r => (r.approver_ids || []).length);
+        if (fp) { requirePersonId = fp.approver_ids[0]; requirePersonName = (fp.approver_names || [])[0] || null; }
       }
     }
     if (!chainSteps && matchedRule?.action === "require_cfo") chain = "high_value";
@@ -4427,8 +4431,31 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     });
   };
 
+  // Per-step approver enforcement. A resolved chain step may name the specific
+  // user(s) allowed to clear it. Admins can always override (prevents deadlock).
+  // Steps with no designated approver stay open to any approver (advisory).
+  const stepApproverInfo = (req) => {
+    const steps = Array.isArray(req?.approval_chain_steps) ? req.approval_chain_steps : null;
+    if (!steps || !steps.length) return { ids: [], names: [], gated: false };
+    const cur = steps[req.approval_step] || null;
+    const ids = cur && Array.isArray(cur.approver_ids) ? cur.approver_ids.filter(Boolean) : [];
+    const names = cur && Array.isArray(cur.approver_names) ? cur.approver_names.filter(Boolean) : [];
+    return { ids, names, gated: ids.length > 0 };
+  };
+  const canApproveStep = (req) => {
+    if (isAdmin) return true;
+    const { ids, gated } = stepApproverInfo(req);
+    if (!gated) return true;
+    return ids.includes(user?.id);
+  };
+
   const doApprove = async () => {
     if (!selReq) return;
+    if (!canApproveStep(selReq)) {
+      const { names } = stepApproverInfo(selReq);
+      alert(`This approval step is restricted to ${names.length ? names.join(", ") : "a designated approver"}.`);
+      return;
+    }
     const customSteps = Array.isArray(selReq.approval_chain_steps) && selReq.approval_chain_steps.length ? selReq.approval_chain_steps : null;
     const isPersonChain = !customSteps && (selReq.approval_chain || "").startsWith("person_");
     const chain = customSteps ? customSteps : (isPersonChain ? [{ role: "Approver" }] : (APPROVAL_CHAINS[selReq.approval_chain] || APPROVAL_CHAINS.standard));
@@ -5224,8 +5251,9 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
             {isApprover && !isMyRequest && (selReq.status === "pending" || selReq.status === "conditionally_approved_info_added") && (
               <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
                 {!showReject && !showConditional ? (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={doApprove} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Approve</button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <button onClick={doApprove} disabled={!canApproveStep(selReq)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, cursor: canApproveStep(selReq) ? "pointer" : "not-allowed", opacity: canApproveStep(selReq) ? 1 : 0.5 }}>✓ Approve</button>
+                    {!canApproveStep(selReq) && (() => { const { names } = stepApproverInfo(selReq); return <span style={{ fontSize: 11, color: T.text3, width: "100%", marginTop: 4 }}>🔒 This step can only be approved by {names.join(", ") || "the designated approver"}.</span>; })()}
                     <button onClick={() => setShowConditional(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#F59E0B", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>⚠ Request Info</button>
                     <button onClick={() => setShowReject(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#EF4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✗ Reject</button>
                   </div>
@@ -6854,7 +6882,7 @@ function DepartmentsView({ isMobile, departments, setDepartments, members, reque
 function RulesView({ isMobile, rules, setRules, glCodes, departments = [], members, user }) {
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState(null); // null = new rule, rule.id = edit
-  const FORM_DEFAULT = { name: "", description: "", action: "chain", conditions: [{ field: "amount", operator: ">", value: "", join: null }], approver_steps: [{ type: "manager", min_amount: "" }], require_person_id: "", require_person_name: "" };
+  const FORM_DEFAULT = { name: "", description: "", action: "chain", conditions: [{ field: "amount", operator: ">", value: "", join: null }], approver_steps: [{ type: "manager", approver_ids: [], approver_names: [], min_amount: "" }], require_person_id: "", require_person_name: "" };
   const [form, setForm] = useState(FORM_DEFAULT);
 
   const openNew = () => { setEditingId(null); setForm(FORM_DEFAULT); setShowNew(true); };
@@ -6862,15 +6890,20 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
     setEditingId(rule.id);
     // Migrate a legacy single-action rule into the multi-step chain model so it
     // edits cleanly in the new builder. auto_approve / block stay as actions.
-    const LEGACY_TO_STEP = { require_manager: [{ type: "manager", min_amount: "" }], require_cfo: [{ type: "cfo", min_amount: "" }], require_cmo: [{ type: "cmo", min_amount: "" }] };
+    const LEGACY_TO_STEP = { require_manager: "manager", require_cfo: "cfo", require_cmo: "cmo" };
     let action = rule.action || "chain";
     let approver_steps = Array.isArray(rule.approver_steps)
-      ? rule.approver_steps.map(st => ({ type: st.type, person_id: st.person_id || "", person_name: st.person_name || "", min_amount: st.min_amount == null ? "" : String(st.min_amount) }))
+      ? rule.approver_steps.map(st => ({
+          type: st.type,
+          approver_ids: Array.isArray(st.approver_ids) ? st.approver_ids.filter(Boolean) : (st.person_id ? [st.person_id] : []),
+          approver_names: Array.isArray(st.approver_names) ? st.approver_names.filter(Boolean) : (st.person_name ? [st.person_name] : []),
+          min_amount: st.min_amount == null ? "" : String(st.min_amount),
+        }))
       : [];
     if (!approver_steps.length) {
-      if (action === "require_person") { approver_steps = [{ type: "person", person_id: rule.require_person_id || "", person_name: rule.require_person_name || "", min_amount: "" }]; action = "chain"; }
-      else if (LEGACY_TO_STEP[action]) { approver_steps = LEGACY_TO_STEP[action].map(x => ({ ...x })); action = "chain"; }
-      else if (action !== "auto_approve" && action !== "block") { approver_steps = [{ type: "manager", min_amount: "" }]; action = "chain"; }
+      if (action === "require_person") { approver_steps = [{ type: "person", approver_ids: rule.require_person_id ? [rule.require_person_id] : [], approver_names: rule.require_person_name ? [rule.require_person_name] : [], min_amount: "" }]; action = "chain"; }
+      else if (LEGACY_TO_STEP[action]) { approver_steps = [{ type: LEGACY_TO_STEP[action], approver_ids: [], approver_names: [], min_amount: "" }]; action = "chain"; }
+      else if (action !== "auto_approve" && action !== "block") { approver_steps = [{ type: "manager", approver_ids: [], approver_names: [], min_amount: "" }]; action = "chain"; }
     }
     setForm({
       name: rule.name || "",
@@ -6903,14 +6936,27 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
   });
   const remCond = i => setForm(f => ({ ...f, conditions: f.conditions.filter((_, idx) => idx !== i) }));
 
-  const addStep = () => setForm(f => ({ ...f, approver_steps: [...(f.approver_steps || []), { type: "manager", min_amount: "" }] }));
+  const addStep = () => setForm(f => ({ ...f, approver_steps: [...(f.approver_steps || []), { type: "manager", approver_ids: [], approver_names: [], min_amount: "" }] }));
   const updStep = (i, k, v) => setForm(f => {
     const st = [...(f.approver_steps || [])];
     st[i] = { ...st[i], [k]: v };
-    if (k === "type" && v !== "person") { st[i].person_id = ""; st[i].person_name = ""; }
     return { ...f, approver_steps: st };
   });
   const remStep = i => setForm(f => ({ ...f, approver_steps: (f.approver_steps || []).filter((_, idx) => idx !== i) }));
+  const addStepApprover = (i, id, name) => setForm(f => {
+    const st = [...(f.approver_steps || [])];
+    const ids = [...(st[i].approver_ids || [])]; const names = [...(st[i].approver_names || [])];
+    if (id && !ids.includes(id)) { ids.push(id); names.push(name); }
+    st[i] = { ...st[i], approver_ids: ids, approver_names: names };
+    return { ...f, approver_steps: st };
+  });
+  const remStepApprover = (i, ai) => setForm(f => {
+    const st = [...(f.approver_steps || [])];
+    const ids = (st[i].approver_ids || []).filter((_, x) => x !== ai);
+    const names = (st[i].approver_names || []).filter((_, x) => x !== ai);
+    st[i] = { ...st[i], approver_ids: ids, approver_names: names };
+    return { ...f, approver_steps: st };
+  });
 
   const saveRule = async () => {
     if (!form.name.trim()) return;
@@ -6918,24 +6964,25 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
     if (isChain) {
       const steps = form.approver_steps || [];
       if (!steps.length) return; // a chain needs at least one approver
-      if (steps.some(st => st.type === "person" && !st.person_id)) return; // person steps need a person
+      if (steps.some(st => st.type === "person" && !(st.approver_ids || []).length)) return; // person steps need an approver
     }
-    // Normalize steps for storage: numeric-or-null threshold; person fields only on person steps.
+    // Normalize steps for storage: numeric-or-null threshold; designated approver id/name arrays.
     const cleanSteps = isChain ? (form.approver_steps || []).map(st => ({
       type: st.type,
-      ...(st.type === "person" ? { person_id: st.person_id || null, person_name: st.person_name || null } : {}),
+      approver_ids: Array.isArray(st.approver_ids) ? st.approver_ids.filter(Boolean) : [],
+      approver_names: Array.isArray(st.approver_names) ? st.approver_names.filter(Boolean) : [],
       min_amount: (st.min_amount === "" || st.min_amount == null) ? null : Number(st.min_amount),
     })) : [];
-    // Mirror the first person step into require_person_* for notification routing / back-compat.
-    const firstPerson = cleanSteps.find(st => st.type === "person");
+    // Mirror the first designated approver into require_person_* for notification routing / back-compat.
+    const firstPerson = cleanSteps.find(st => (st.approver_ids || []).length);
     const payload = {
       name: form.name,
       description: form.description,
       action: form.action,
       conditions: form.conditions,
       approver_steps: cleanSteps,
-      require_person_id: firstPerson ? firstPerson.person_id : null,
-      require_person_name: firstPerson ? firstPerson.person_name : null,
+      require_person_id: firstPerson ? firstPerson.approver_ids[0] : null,
+      require_person_name: firstPerson ? (firstPerson.approver_names[0] || null) : null,
     };
     if (editingId) {
       const { data } = await supabase.from("af_rules").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", editingId).select().single();
@@ -7018,7 +7065,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                       <span key={si} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         {si > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.text3 }}>→</span>}
                         <span style={{ background: T.accent, color: "#fff", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>
-                          {st.type === "person" ? (st.person_name || "Specific Person") : (STEP_TYPE_LABELS[st.type] || st.type)}{(st.min_amount != null && st.min_amount !== "") ? ` · >${fmt(Number(st.min_amount))}` : ""}
+                          {st.type === "person" ? ((st.approver_names && st.approver_names[0]) || st.person_name || "Specific Person") : (STEP_TYPE_LABELS[st.type] || st.type)}{(st.type !== "person" && st.approver_names && st.approver_names.length) ? ` (${st.approver_names.join(", ")})` : ""}{(st.min_amount != null && st.min_amount !== "") ? ` · >${fmt(Number(st.min_amount))}` : ""}
                         </span>
                       </span>
                     ))}
@@ -7118,7 +7165,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                 <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Action (THEN)</div>
                 <select value={form.action} onChange={e => {
                   const next = e.target.value;
-                  setForm(f => ({ ...f, action: next, ...(next === "chain" && !(f.approver_steps || []).length ? { approver_steps: [{ type: "manager", min_amount: "" }] } : {}) }));
+                  setForm(f => ({ ...f, action: next, ...(next === "chain" && !(f.approver_steps || []).length ? { approver_steps: [{ type: "manager", approver_ids: [], approver_names: [], min_amount: "" }] } : {}) }));
                 }}
                   style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, cursor: "pointer", boxSizing: "border-box" }}>
                   <option value="chain">Route for Approval (chain)</option>
@@ -7138,17 +7185,22 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                       <select value={step.type} onChange={e => updStep(idx, "type", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
                         {Object.entries(STEP_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
-                      {step.type === "person" && (
-                        <select value={step.person_id || ""} onChange={e => {
-                          const id = e.target.value;
-                          const m = (members || []).find(x => x.user_id === id);
-                          const name = m?.profiles?.display_name || m?.profiles?.email || "";
-                          updStep(idx, "person_id", id); updStep(idx, "person_name", name);
-                        }} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, minWidth: 150 }}>
-                          <option value="">Select person…</option>
-                          {(members || []).map(m => <option key={m.user_id} value={m.user_id}>{m.profiles?.display_name || m.profiles?.email || m.user_id}</option>)}
-                        </select>
-                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 180 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                          {(step.approver_ids || []).map((aid, ai) => (
+                            <span key={aid} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#EDE9FE", color: "#5B21B6", borderRadius: 12, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>
+                              {(step.approver_names || [])[ai] || "—"}
+                              <span onClick={() => remStepApprover(idx, ai)} style={{ cursor: "pointer", fontWeight: 800 }}>×</span>
+                            </span>
+                          ))}
+                          <select value="" onChange={e => { const id = e.target.value; if (!id) return; const m = (members || []).find(x => x.user_id === id); addStepApprover(idx, id, m?.profiles?.display_name || m?.profiles?.email || id); }}
+                            style={{ padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, background: T.surface2, color: T.text3 }}>
+                            <option value="">{step.type === "person" ? "Select person…" : "+ who approves…"}</option>
+                            {(members || []).filter(m => !(step.approver_ids || []).includes(m.user_id)).map(m => <option key={m.user_id} value={m.user_id}>{m.profiles?.display_name || m.profiles?.email || m.user_id}</option>)}
+                          </select>
+                        </div>
+                        {!(step.approver_ids || []).length && <span style={{ fontSize: 9, color: T.text3 }}>{step.type === "person" ? "Required: pick who approves this step" : "Optional — leave blank to allow any approver, or lock to specific people"}</span>}
+                      </div>
                       <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         <span style={{ fontSize: 10, color: T.text3 }}>only if &gt; $</span>
                         <input type="number" value={step.min_amount ?? ""} onChange={e => updStep(idx, "min_amount", e.target.value)} placeholder="any"
@@ -7157,7 +7209,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                       {(form.approver_steps || []).length > 1 && <button onClick={() => remStep(idx)} style={{ background: "#FEE2E2", border: "none", borderRadius: 6, padding: "6px 8px", cursor: "pointer", color: "#991B1B", fontSize: 10, fontWeight: 700 }}>✕</button>}
                     </div>
                   ))}
-                  {(form.approver_steps || []).some(st => st.type === "person" && !st.person_id) && <div style={{ fontSize: 10, color: "#EF4444", marginBottom: 6 }}>Each “Specific Person” step needs a person selected.</div>}
+                  {(form.approver_steps || []).some(st => st.type === "person" && !(st.approver_ids || []).length) && <div style={{ fontSize: 10, color: "#EF4444", marginBottom: 6 }}>Each “Specific Person” step needs an approver selected.</div>}
                   <button onClick={addStep} style={{ fontSize: 12, color: T.text3, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}>+ Add approver</button>
                 </div>
               )}
@@ -7165,8 +7217,8 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={closeForm} style={{ padding: "8px 14px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={saveRule}
-                  disabled={!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "chain" && (!(form.approver_steps || []).length || (form.approver_steps || []).some(st => st.type === "person" && !st.person_id)))}
-                  style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: (!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "chain" && (!(form.approver_steps || []).length || (form.approver_steps || []).some(st => st.type === "person" && !st.person_id)))) ? 0.5 : 1 }}>{editingId ? "Update Rule" : "Save Rule"}</button>
+                  disabled={!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "chain" && (!(form.approver_steps || []).length || (form.approver_steps || []).some(st => st.type === "person" && !(st.approver_ids || []).length)))}
+                  style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: (!form.name.trim() || form.conditions.some(c => c.value === "" || c.value == null) || (form.action === "chain" && (!(form.approver_steps || []).length || (form.approver_steps || []).some(st => st.type === "person" && !(st.approver_ids || []).length)))) ? 0.5 : 1 }}>{editingId ? "Update Rule" : "Save Rule"}</button>
               </div>
             </div>
           </div>
