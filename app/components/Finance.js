@@ -4202,6 +4202,10 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           // "Dept C-Level" walks up the reporting chain to the first Chief-titled
           // ancestor (or the org root / CEO if no Chief is found first).
           if (st.type === "c_level" && !ids.length) {
+            // COO catch-all: anyone without a department Chief above them (e.g. teams
+            // reporting straight to the CEO) and the C-level execs themselves route to
+            // the COO for travel — never to the CEO.
+            const COO_FALLBACK = "32cad5dd-9e94-4095-a16d-b4521391b050";
             let curId = user?.id; const seen = new Set(); let found = null;
             while (curId && !seen.has(curId)) {
               seen.add(curId);
@@ -4209,14 +4213,17 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               const mgrId = curMem?.profiles?.reports_to;
               if (!mgrId) break;
               const mgrMem = (members || []).find(m => m.user_id === mgrId);
-              const mTitle = mgrMem?.profiles?.title || "";
-              if (/chief/i.test(mTitle) || !mgrMem?.profiles?.reports_to) {
+              if (/chief/i.test(mgrMem?.profiles?.title || "")) {
                 found = { id: mgrId, name: mgrMem?.profiles?.display_name || mgrMem?.profiles?.email || "Executive" };
                 break;
               }
               curId = mgrId;
             }
-            if (found) { ids = [found.id]; names = [found.name]; }
+            if (!found) {
+              const cooMem = (members || []).find(m => m.user_id === COO_FALLBACK);
+              found = { id: COO_FALLBACK, name: cooMem?.profiles?.display_name || "COO" };
+            }
+            ids = [found.id]; names = [found.name];
           }
           return st.type === "person"
             ? { role: "Specific", label: names[0] || "Approver", approver_ids: ids, approver_names: names, person_id: ids[0] || null, person_name: names[0] || null }
