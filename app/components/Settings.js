@@ -77,6 +77,7 @@ export default function SettingsView({ isAdmin }) {
   // QBO connection
   const [qboConn, setQboConn] = useState(null);
   const [qboSyncing, setQboSyncing] = useState(false);
+  const [qboSyncStep, setQboSyncStep] = useState("");
   useEffect(() => {
     supabase.from("qbo_connections").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1).then(({ data }) => {
       if (data && data.length > 0) setQboConn(data[0]);
@@ -634,22 +635,38 @@ export default function SettingsView({ isAdmin }) {
                     <div style={{ display:"flex", gap:6 }}>
                       <button onClick={async ()=>{
                         setQboSyncing(true);
+                        // Per-resource sequencing: the legacy qbo-sync edge function
+                        // runs every resource when called with {} (what:"all"), which
+                        // blows past the 150s edge wall-clock limit and 504s. Instead we
+                        // call it once per resource (each ~15-20s). Critical financials
+                        // sync first; the slow attachment crawler runs last so a timeout
+                        // there never blocks the rest.
+                        const QBO_RESOURCES = ["accounts","vendors","items","customers","bills","purchases","journal_entries","payments","deposits","transfers","invoices","pl","pl_monthly","balance_sheet","attachments"];
+                        const totals = {}; const errors = [];
                         try {
-                          const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-sync", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({}),
-                          });
-                          const data = await res.json();
-                          if (data.error) { showToast("QBO sync error: " + data.error, "#ef4444"); }
-                          else { showToast(`QBO synced: ${data.accounts||0} accounts, ${data.vendors||0} vendors, ${data.bills||0} bills, ${data.customers||0} customers, ${data.invoices||0} invoices`, "#22c55e"); }
+                          for (const what of QBO_RESOURCES) {
+                            setQboSyncStep(what);
+                            try {
+                              const res = await fetch("https://upbjdmnykheubxkuknuj.supabase.co/functions/v1/qbo-sync", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ what }),
+                              });
+                              const data = await res.json();
+                              if (data && data.error) errors.push(`${what}: ${data.error}`);
+                              else if (data) Object.assign(totals, data);
+                            } catch(e) { errors.push(`${what}: ${e?.message || e}`); }
+                          }
+                          if (errors.length) { showToast(`QBO synced with ${errors.length} issue(s): ` + errors.slice(0,2).join("; "), "#f59e0b"); }
+                          else { showToast(`QBO synced: ${totals.accounts||0} accounts, ${totals.vendors||0} vendors, ${totals.bills||0} bills, ${totals.customers||0} customers, ${totals.invoices||0} invoices`, "#22c55e"); }
                           // Refresh connection state
                           const { data: conn } = await supabase.from("qbo_connections").select("*").eq("org_id", orgId).order("connected_at", { ascending: false }).limit(1);
                           if (conn && conn.length > 0) setQboConn(conn[0]);
                         } catch(e) { showToast("Sync failed: " + e, "#ef4444"); }
+                        setQboSyncStep("");
                         setQboSyncing(false);
                       }} disabled={qboSyncing} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor: qboSyncing ? "wait" : "pointer", flexShrink:0, background: qboSyncing ? T.surface3 : T.accent, color: qboSyncing ? T.text3 : "#fff", border:"none" }}>
-                        {qboSyncing ? "Syncing…" : "⟲ Sync Now"}
+                        {qboSyncing ? (qboSyncStep ? `Syncing ${qboSyncStep}…` : "Syncing…") : "⟲ Sync Now"}
                       </button>
                       <button onClick={async ()=>{
                         try {
