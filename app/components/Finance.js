@@ -221,7 +221,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {}, p
         supabase.from("af_gl_categories").select("*").order("sort_order"),
         supabase.from("af_gl_codes").select("*").order("code"),
         supabase.from("af_departments").select("*").order("name"),
-        supabase.from("org_memberships").select("*, profiles(display_name, email, avatar_url, reports_to)").eq("org_id", orgId).eq("org_id", profile?.org_id),
+        supabase.from("org_memberships").select("*, profiles(display_name, email, avatar_url, reports_to, title)").eq("org_id", orgId).eq("org_id", profile?.org_id),
         supabase.from("af_rules").select("*").order("sort_order"),
         supabase.from("af_audit_log").select("*").order("created_at", { ascending: false }).limit(200),
         supabase.from("af_budget_versions").select("*").order("saved_at", { ascending: false }),
@@ -4183,7 +4183,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     // each with an optional amount threshold. A step is included only when the
     // request amount clears its threshold (no threshold = always included).
     if (matchedRule?.approver_steps?.length) {
-      const STEP_LABELS = { manager: "Manager", finance: "Finance", cfo: "CFO", cmo: "CMO", coo: "COO", ceo: "CEO", evp_retail: "EVP Retail" };
+      const STEP_LABELS = { manager: "Manager", finance: "Finance", cfo: "CFO", cmo: "CMO", coo: "COO", ceo: "CEO", evp_retail: "EVP Retail", c_level: "Dept C-Level" };
       const resolved = (matchedRule.approver_steps || [])
         .filter(st => st && (st.min_amount == null || st.min_amount === "" || amt > Number(st.min_amount)))
         .map(st => {
@@ -4199,14 +4199,42 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               names = [mgrMem?.profiles?.display_name || mgrMem?.profiles?.email || "Manager"];
             }
           }
+          // "Dept C-Level" walks up the reporting chain to the first Chief-titled
+          // ancestor (or the org root / CEO if no Chief is found first).
+          if (st.type === "c_level" && !ids.length) {
+            let curId = user?.id; const seen = new Set(); let found = null;
+            while (curId && !seen.has(curId)) {
+              seen.add(curId);
+              const curMem = (members || []).find(m => m.user_id === curId);
+              const mgrId = curMem?.profiles?.reports_to;
+              if (!mgrId) break;
+              const mgrMem = (members || []).find(m => m.user_id === mgrId);
+              const mTitle = mgrMem?.profiles?.title || "";
+              if (/chief/i.test(mTitle) || !mgrMem?.profiles?.reports_to) {
+                found = { id: mgrId, name: mgrMem?.profiles?.display_name || mgrMem?.profiles?.email || "Executive" };
+                break;
+              }
+              curId = mgrId;
+            }
+            if (found) { ids = [found.id]; names = [found.name]; }
+          }
           return st.type === "person"
             ? { role: "Specific", label: names[0] || "Approver", approver_ids: ids, approver_names: names, person_id: ids[0] || null, person_name: names[0] || null }
             : { role: STEP_LABELS[st.type] || st.type, label: STEP_LABELS[st.type] || st.type, approver_ids: ids, approver_names: names };
         });
-      if (resolved.length) {
-        chainSteps = resolved;
+      // Collapse consecutive steps that resolve to the exact same approver
+      // (e.g. dept C-Level == COO for an ops employee).
+      const keyOf = (arr) => (arr || []).slice().sort().join(",");
+      const deduped = [];
+      for (const stp of resolved) {
+        const prev = deduped[deduped.length - 1];
+        if (prev && keyOf(prev.approver_ids) && keyOf(prev.approver_ids) === keyOf(stp.approver_ids)) continue;
+        deduped.push(stp);
+      }
+      if (deduped.length) {
+        chainSteps = deduped;
         chain = "custom";
-        const fp = resolved.find(r => (r.approver_ids || []).length);
+        const fp = deduped.find(r => (r.approver_ids || []).length);
         if (fp) { requirePersonId = fp.approver_ids[0]; requirePersonName = (fp.approver_names || [])[0] || null; }
       }
     }
@@ -7019,7 +7047,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
   };
 
   const ACTION_LABELS = { chain: "Approval Chain", require_manager: "Require Manager", require_cfo: "Require CFO", require_cmo: "Require CMO", require_person: "Require Specific Person", auto_approve: "Auto-Approve", block: "Block Request" };
-  const STEP_TYPE_LABELS = { manager: "Your Manager", cmo: "CMO", evp_retail: "EVP Retail", cfo: "CFO", coo: "COO", ceo: "CEO", finance: "Finance", person: "Specific Person" };
+  const STEP_TYPE_LABELS = { manager: "Your Manager", c_level: "Your Dept C-Level", cmo: "CMO", evp_retail: "EVP Retail", cfo: "CFO", coo: "COO", ceo: "CEO", finance: "Finance", person: "Specific Person" };
   const FIELD_LABELS = { amount: "Amount ($)", gl: "GL Code", department: "Department" };
   const OP_LABELS = { ">": ">", "<": "<", "==": "==", "!=": "≠", ">=": "≥", "<=": "≤", is: "is", is_not: "is not", starts_with: "starts with" };
 
@@ -7195,8 +7223,8 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                       <select value={step.type} onChange={e => updStep(idx, "type", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
                         {Object.entries(STEP_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
-                      {step.type === "manager" ? (
-                        <div style={{ flex: 1, minWidth: 180, fontSize: 10, color: T.text3, fontStyle: "italic" }}>Resolves automatically to each requester's manager (from Teams).</div>
+                      {(step.type === "manager" || step.type === "c_level") ? (
+                        <div style={{ flex: 1, minWidth: 180, fontSize: 10, color: T.text3, fontStyle: "italic" }}>{step.type === "manager" ? "Resolves automatically to each requester's manager (from Teams)." : "Resolves to the requester's department C-level (walks up the org chart from Teams)."}</div>
                       ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 180 }}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
