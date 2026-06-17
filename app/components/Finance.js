@@ -221,7 +221,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {}, p
         supabase.from("af_gl_categories").select("*").order("sort_order"),
         supabase.from("af_gl_codes").select("*").order("code"),
         supabase.from("af_departments").select("*").order("name"),
-        supabase.from("org_memberships").select("*, profiles(display_name, email, avatar_url)").eq("org_id", orgId).eq("org_id", profile?.org_id),
+        supabase.from("org_memberships").select("*, profiles(display_name, email, avatar_url, reports_to)").eq("org_id", orgId).eq("org_id", profile?.org_id),
         supabase.from("af_rules").select("*").order("sort_order"),
         supabase.from("af_audit_log").select("*").order("created_at", { ascending: false }).limit(200),
         supabase.from("af_budget_versions").select("*").order("saved_at", { ascending: false }),
@@ -4183,12 +4183,22 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     // each with an optional amount threshold. A step is included only when the
     // request amount clears its threshold (no threshold = always included).
     if (matchedRule?.approver_steps?.length) {
-      const STEP_LABELS = { manager: "Manager", finance: "Finance", cfo: "CFO", cmo: "CMO", coo: "COO" };
+      const STEP_LABELS = { manager: "Manager", finance: "Finance", cfo: "CFO", cmo: "CMO", coo: "COO", ceo: "CEO", evp_retail: "EVP Retail" };
       const resolved = (matchedRule.approver_steps || [])
         .filter(st => st && (st.min_amount == null || st.min_amount === "" || amt > Number(st.min_amount)))
         .map(st => {
-          const ids = Array.isArray(st.approver_ids) ? st.approver_ids.filter(Boolean) : (st.person_id ? [st.person_id] : []);
-          const names = Array.isArray(st.approver_names) ? st.approver_names.filter(Boolean) : (st.person_name ? [st.person_name] : []);
+          let ids = Array.isArray(st.approver_ids) ? st.approver_ids.filter(Boolean) : (st.person_id ? [st.person_id] : []);
+          let names = Array.isArray(st.approver_names) ? st.approver_names.filter(Boolean) : (st.person_name ? [st.person_name] : []);
+          // "Your Manager" resolves dynamically to the requester's manager (profiles.reports_to).
+          if (st.type === "manager" && !ids.length) {
+            const meMem = (members || []).find(m => m.user_id === user?.id);
+            const mgrId = meMem?.profiles?.reports_to || null;
+            if (mgrId) {
+              const mgrMem = (members || []).find(m => m.user_id === mgrId);
+              ids = [mgrId];
+              names = [mgrMem?.profiles?.display_name || mgrMem?.profiles?.email || "Manager"];
+            }
+          }
           return st.type === "person"
             ? { role: "Specific", label: names[0] || "Approver", approver_ids: ids, approver_names: names, person_id: ids[0] || null, person_name: names[0] || null }
             : { role: STEP_LABELS[st.type] || st.type, label: STEP_LABELS[st.type] || st.type, approver_ids: ids, approver_names: names };
@@ -7009,7 +7019,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
   };
 
   const ACTION_LABELS = { chain: "Approval Chain", require_manager: "Require Manager", require_cfo: "Require CFO", require_cmo: "Require CMO", require_person: "Require Specific Person", auto_approve: "Auto-Approve", block: "Block Request" };
-  const STEP_TYPE_LABELS = { manager: "Your Manager", finance: "Finance", cfo: "CFO", cmo: "CMO", coo: "COO", person: "Specific Person" };
+  const STEP_TYPE_LABELS = { manager: "Your Manager", cmo: "CMO", evp_retail: "EVP Retail", cfo: "CFO", coo: "COO", ceo: "CEO", finance: "Finance", person: "Specific Person" };
   const FIELD_LABELS = { amount: "Amount ($)", gl: "GL Code", department: "Department" };
   const OP_LABELS = { ">": ">", "<": "<", "==": "==", "!=": "≠", ">=": "≥", "<=": "≤", is: "is", is_not: "is not", starts_with: "starts with" };
 
@@ -7185,6 +7195,9 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                       <select value={step.type} onChange={e => updStep(idx, "type", e.target.value)} style={{ padding: "6px 8px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text }}>
                         {Object.entries(STEP_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
+                      {step.type === "manager" ? (
+                        <div style={{ flex: 1, minWidth: 180, fontSize: 10, color: T.text3, fontStyle: "italic" }}>Resolves automatically to each requester's manager (from Teams).</div>
+                      ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 180 }}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                           {(step.approver_ids || []).map((aid, ai) => (
@@ -7201,6 +7214,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                         </div>
                         {!(step.approver_ids || []).length && <span style={{ fontSize: 9, color: T.text3 }}>{step.type === "person" ? "Required: pick who approves this step" : "Optional — leave blank to allow any approver, or lock to specific people"}</span>}
                       </div>
+                      )}
                       <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         <span style={{ fontSize: 10, color: T.text3 }}>only if &gt; $</span>
                         <input type="number" value={step.min_amount ?? ""} onChange={e => updStep(idx, "min_amount", e.target.value)} placeholder="any"
