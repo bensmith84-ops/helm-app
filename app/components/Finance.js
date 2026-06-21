@@ -2957,6 +2957,19 @@ function PLExplorer({ isMobile }) {
         </div>
       </div>
 
+      {months.some(isOpenMonth) && (() => {
+        const oi = months.findIndex(isOpenMonth);
+        return (
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 14px", background: "#F59E0B14", border: `1px solid #F59E0B45`, borderRadius: 10, fontSize: 12, color: T.text2, lineHeight: 1.45 }}>
+            <span style={{ fontSize: 14, lineHeight: "18px" }}>⚠️</span>
+            <div>
+              <span style={{ fontWeight: 700, color: T.text }}>{monthLabels[oi]} is the current open month — revenue is incomplete.</span>{" "}
+              Shopify and Amazon revenue posts to QuickBooks after month-end reconciliation, so the latest month often shows only refunds and trade deductions (and can read negative) until gross sales are booked. It updates automatically once QuickBooks has them.
+            </div>
+          </div>
+        );
+      })()}
+
       {/* P&L Table */}
       <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
