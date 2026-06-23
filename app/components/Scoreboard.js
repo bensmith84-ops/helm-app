@@ -841,19 +841,24 @@ export default function ScoreboardView() {
       supabase.from("okr_financial_metrics").select("*, okr_financial_monthly(month, actual, target)").eq("year", yr - 1).order("sort_order"),
     ]);
 
-    // Paginate daily data fetch (Supabase default max is 1000 per request)
-    let dailyRows = [];
-    let page = 0;
+    // Fetch daily data in parallel with only the columns the daily map needs.
+    // (Previously: up to ~36 SEQUENTIAL round-trips of select("*").)
     const pageSize = 1000;
-    while (true) {
-      const { data: batch } = await supabase.from("scoreboard_daily").select("*").eq("org_id", orgId)
-        .order("date", { ascending: false })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-      if (!batch?.length) break;
-      dailyRows = dailyRows.concat(batch);
-      if (batch.length < pageSize) break;
-      page++;
-    }
+    const { count: dailyCount } = await supabase
+      .from("scoreboard_daily")
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", orgId);
+    const pageCount = Math.max(1, Math.ceil((dailyCount || 0) / pageSize));
+    const pageResults = await Promise.all(
+      Array.from({ length: pageCount }, (_, p) =>
+        supabase.from("scoreboard_daily")
+          .select("metric_key,date,value")
+          .eq("org_id", orgId)
+          .order("date", { ascending: false })
+          .range(p * pageSize, (p + 1) * pageSize - 1)
+      )
+    );
+    const dailyRows = pageResults.flatMap(r => r.data || []);
 
     // Build monthly map
     const mMap = {};
@@ -876,9 +881,6 @@ export default function ScoreboardView() {
       if (!dMap[r.metric_key]) dMap[r.metric_key] = [];
       dMap[r.metric_key].push({ date:r.date, value:Number(r.value), label:r.date?.slice(5) });
     }
-    console.log("[Scoreboard] Total daily rows loaded:", dailyRows.length, "| Pages:", page + 1);
-    console.log("[Scoreboard] Jan 2026 revenue rows:", dailyRows.filter(r => r.metric_key === "revenue" && r.date?.startsWith("2026-01")).length);
-    console.log("[Scoreboard] Date range:", dailyRows[dailyRows.length-1]?.date, "to", dailyRows[0]?.date);
     setDaily(dMap);
     if (Object.keys(dMap).length) {
       setSelectedMetric(Object.keys(dMap)[0]);
