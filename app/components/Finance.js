@@ -2836,6 +2836,54 @@ function CashFlowView({ isMobile }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // P&L EXPLORER — Monthly drill-down
 // ═══════════════════════════════════════════════════════════════════════════════
+function ClearingPending({ T, orgId, fmt }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase
+        .from("qbo_accounts")
+        .select("name,current_balance")
+        .eq("org_id", orgId)
+        .eq("account_type", "Other Current Asset")
+        .ilike("name", "%clearing%");
+      if (!alive) return;
+      const mapped = (data || [])
+        .filter(a => Number(a.current_balance) < 0)
+        .map(a => ({ name: String(a.name).replace(/\s*Clearing$/i, ""), pending: -Number(a.current_balance) }))
+        .sort((a, b) => b.pending - a.pending);
+      setRows(mapped);
+    })();
+    return () => { alive = false; };
+  }, [orgId]);
+
+  if (!rows || rows.length === 0) return null;
+  const total = rows.reduce((s, r) => s + r.pending, 0);
+
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>Pending revenue recognition</div>
+          <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Cash collected into payment-clearing accounts, not yet booked to revenue — a leading signal of open-month revenue still to post.</div>
+        </div>
+        <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: T.accent }}>{fmt(total)}</div>
+          <div style={{ fontSize: 10, color: T.text3 }}>awaiting recognition</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {rows.map(r => (
+          <div key={r.name} style={{ flex: "1 1 130px", minWidth: 120, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
+            <div style={{ fontSize: 11, color: T.text3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{fmt(r.pending)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PLExplorer({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
     ? { bg:"#0a0a0f",surface:"#13131a",surface2:"#1a1a24",surface3:"#22222e",text:"#e8e8f0",text2:"#b0b0c0",text3:"#6b6b80",border:"#2a2a3a",accent:"#6366f1",green:"#10B981",red:"#EF4444",yellow:"#F59E0B" }
@@ -2969,6 +3017,8 @@ function PLExplorer({ isMobile }) {
           </div>
         );
       })()}
+
+      <ClearingPending T={T} orgId={orgId} fmt={fmt} />
 
       {/* P&L Table */}
       <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
