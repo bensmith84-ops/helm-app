@@ -937,7 +937,7 @@ export default function DashboardView({ setActive }) {
   const [finMonthly, setFinMonthly] = useState({});
   const [plmPrograms, setPlmPrograms] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
-  const [scoreboardData, setScoreboardData] = useState([]);
+  const [qboPL, setQboPL] = useState([]);
   const [inbox, setInbox] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
   const [focusItems, setFocusItems] = useState([]);
@@ -962,7 +962,7 @@ export default function DashboardView({ setActive }) {
       setPendingApprovals(snap.pendingApprovals || []);
       setPlmPrograms(snap.plmPrograms || []);
       setRecentActivity(snap.recentActivity || []);
-      setScoreboardData(snap.scoreboardData || []);
+      setQboPL(snap.qboPL || []);
       setFocusItems(snap.focusItems || []);
       setInbox(snap.inbox || []);
       if (snap.checkIns !== undefined) setCheckIns(snap.checkIns);
@@ -980,7 +980,7 @@ export default function DashboardView({ setActive }) {
         { data: projects }, { data: sections }, { data: tasks }, { data: profiles },
         { data: objectives }, { data: keyResults }, { data: cycles },
         { data: approvals }, { data: spendRequests }, { data: fmData }, { data: plm },
-        { data: activity }, { data: focus }, { data: scoreboardDaily },
+        { data: activity }, { data: focus }, { data: qboPLData },
       ] = await Promise.all([
         supabase.from("projects").select("*").eq("org_id", orgId).is("deleted_at", null).order("name"),
         supabase.from("sections").select("*").order("sort_order"),
@@ -995,7 +995,7 @@ export default function DashboardView({ setActive }) {
         supabase.from("plm_programs").select("*").is("deleted_at", null).order("created_at", { ascending: false }).limit(10),
         supabase.from("activity_log").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(20),
         supabase.from("dashboard_focus_items").select("*").eq("focus_date", todayStr).eq("user_id", profile.id).order("sort_order"),
-        supabase.from("scoreboard_daily").select("date,metric_key,value").eq("org_id", orgId).in("metric_key", ["revenue", "amazon_revenue", "net_dollars"]).gte("date", `${yr}-01-01`).order("date"),
+        supabase.rpc("get_qbo_pl_monthly_summary", { p_org: orgId, p_year: String(yr) }),
       ]);
 
       const profMap = {};
@@ -1030,7 +1030,7 @@ export default function DashboardView({ setActive }) {
       snap.pendingApprovals = [...myApprovals, ...mySpendApprovals]; setPendingApprovals(snap.pendingApprovals);
       snap.plmPrograms = plm || []; setPlmPrograms(snap.plmPrograms);
       snap.recentActivity = activity || []; setRecentActivity(snap.recentActivity);
-      snap.scoreboardData = scoreboardDaily || []; setScoreboardData(snap.scoreboardData);
+      snap.qboPL = qboPLData || []; setQboPL(snap.qboPL);
       snap.focusItems = focus || []; setFocusItems(snap.focusItems);
 
       // Load inbox notifications for current user
@@ -1095,19 +1095,29 @@ export default function DashboardView({ setActive }) {
   const myTasks      = openTasks.filter(t => t.assignee_id === profile?.id && !t.parent_task_id)
     .sort((a,b) => { if(!a.due_date&&!b.due_date) return 0; if(!a.due_date) return 1; if(!b.due_date) return -1; return a.due_date.localeCompare(b.due_date); }).slice(0, 6);
 
-  // YTD from Daily Scoreboard — sum Shopify (revenue) + Amazon (amazon_revenue)
-  const sbShopifyRev = scoreboardData.filter(r => r.metric_key === "revenue").reduce((s, r) => s + (Number(r.value) || 0), 0);
-  const sbAmazonRev = scoreboardData.filter(r => r.metric_key === "amazon_revenue").reduce((s, r) => s + (Number(r.value) || 0), 0);
-  const ytdRev = (sbShopifyRev + sbAmazonRev) || null;
-  const ytdNet = scoreboardData.filter(r => r.metric_key === "net_dollars").reduce((s, r) => s + (Number(r.value) || 0), 0) || null;
+  // YTD from QuickBooks P&L (qbo_pl_monthly via RPC) — net = revenue − expense.
+  // Exclude the current calendar month: it's still open / being reconciled in QBO
+  // (Shopify & Amazon revenue post via month-end journal entries), so including it
+  // would badly understate net. We report YTD through the last closed month.
+  const curYear = now.getFullYear();
+  const _plMonth = (r) => Number(String(r.period_month).slice(5, 7));
+  const yearRows = qboPL.filter(r => String(r.period_month).startsWith(String(curYear)));
+  const monthsPresent = yearRows.map(_plMonth);
+  const closedMonths = monthsPresent.filter(m => m < curMonth);
+  const cutoff = closedMonths.length ? Math.max(...closedMonths) : (monthsPresent.length ? Math.max(...monthsPresent) : 0);
+  const ytdRows = yearRows.filter(r => _plMonth(r) <= cutoff);
+  const ytdRev = ytdRows.reduce((s, r) => s + (Number(r.revenue) || 0), 0) || null;
+  const ytdExp = ytdRows.reduce((s, r) => s + (Number(r.expense) || 0), 0);
+  const ytdNet = ytdRev != null ? ytdRev - ytdExp : null;
+  const ytdMargin = ytdRev ? (ytdNet / ytdRev) * 100 : null;
+  const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const ytdThrough = cutoff > 0 ? MONTH_ABBR[cutoff - 1] : null;
+  const openMonthExcluded = (monthsPresent.includes(curMonth) && cutoff < curMonth) ? MONTH_ABBR[curMonth - 1] : null;
 
-  // Monthly sparkline from scoreboard — group by month, sum shopify + amazon per month
+  // Monthly revenue sparkline from QBO P&L (closed months only)
   const revByMonth = {};
-  scoreboardData.filter(r => r.metric_key === "revenue" || r.metric_key === "amazon_revenue").forEach(r => {
-    const m = new Date(r.date + "T00:00:00").getMonth() + 1;
-    revByMonth[m] = (revByMonth[m] || 0) + (Number(r.value) || 0);
-  });
-  const revSparkline = Array.from({ length: curMonth }, (_, i) => revByMonth[i + 1] || 0);
+  ytdRows.forEach(r => { const m = _plMonth(r); if (m) revByMonth[m] = Number(r.revenue) || 0; });
+  const revSparkline = Array.from({ length: cutoff || 0 }, (_, i) => revByMonth[i + 1] || 0);
 
   const inDev = plmPrograms.filter(p => ["development","optimization","validation","scale_up"].includes(p.current_stage)).length;
   const launchReady = plmPrograms.filter(p => p.current_stage === "launch_ready").length;
@@ -1276,11 +1286,11 @@ export default function DashboardView({ setActive }) {
         {/* ── KPI Row ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>
           <KPICard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"—"}
-            sub={ytdRev ? `Shopify ${fmt$(sbShopifyRev)} · Amazon ${fmt$(sbAmazonRev)}` : "Sync Daily Scoreboard for data"}
-            color="#22c55e" onClick={() => setActive("okrs")} />
+            sub={ytdRev!=null ? `Through ${ytdThrough} · QuickBooks` : "Connect QuickBooks in ERP"}
+            color="#22c55e" onClick={() => setActive("erp", "pl_explorer")} />
           <KPICard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"—"}
-            sub={ytdRev&&ytdNet ? `${((ytdNet/ytdRev)*100).toFixed(1)}% margin` : ""}
-            color={ytdNet!=null&&ytdNet>=0?"#22c55e":"#ef4444"} onClick={() => setActive("okrs")} />
+            sub={ytdMargin!=null ? `${ytdMargin.toFixed(1)}% net margin` : ""}
+            color={ytdNet!=null&&ytdNet>=0?"#22c55e":"#ef4444"} onClick={() => setActive("erp", "pl_explorer")} />
           <KPICard icon="◎" label="OKR Progress" value={`${overallProgress}%`}
             sub={`${onTrackCount} on track · ${atRiskCount} at risk`}
             color={overallProgress>=60?"#22c55e":overallProgress>=30?"#eab308":"#ef4444"} onClick={() => setActive("okrs")} />
@@ -1413,16 +1423,17 @@ export default function DashboardView({ setActive }) {
         <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
           <Card>
             <SectionHeader title="Revenue This Year" icon="📊" action={
-              <button onClick={() => setActive("okrs")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View metrics →</button>
+              <button onClick={() => setActive("erp", "pl_explorer")} style={{ background:"none", border:"none", color:T.accent, fontSize:12, cursor:"pointer", fontWeight:500 }}>View P&L →</button>
             } />
             {revSparkline.some(v=>v>0) ? (
               <div>
                 <div style={{ display:"flex", gap:24, marginBottom:16, flexWrap:"wrap" }}>
-                  <div><div style={{ fontSize:24, fontWeight:800, color:"#22c55e" }}>{fmt$(ytdRev)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Revenue (Shopify + Amazon)</div></div>
+                  <div><div style={{ fontSize:24, fontWeight:800, color:"#22c55e" }}>{fmt$(ytdRev)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Revenue (QuickBooks)</div></div>
                   {ytdNet!=null&&<div><div style={{ fontSize:24, fontWeight:800, color:ytdNet>=0?"#22c55e":"#ef4444" }}>{fmt$(ytdNet)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Net $</div></div>}
-                  <div><div style={{ fontSize:16, fontWeight:700, color:T.text2 }}>{fmt$(sbShopifyRev)}</div><div style={{ fontSize:10, color:T.text3 }}>Shopify</div></div>
-                  <div><div style={{ fontSize:16, fontWeight:700, color:T.text2 }}>{fmt$(sbAmazonRev)}</div><div style={{ fontSize:10, color:T.text3 }}>Amazon</div></div>
+                  <div><div style={{ fontSize:16, fontWeight:700, color:T.text2 }}>{fmt$(ytdExp)}</div><div style={{ fontSize:10, color:T.text3 }}>Expenses</div></div>
+                  <div><div style={{ fontSize:16, fontWeight:700, color:ytdMargin!=null&&ytdMargin>=0?"#22c55e":"#ef4444" }}>{ytdMargin!=null?ytdMargin.toFixed(1)+"%":"—"}</div><div style={{ fontSize:10, color:T.text3 }}>Net margin</div></div>
                 </div>
+                {openMonthExcluded && <div style={{ fontSize:10, color:T.text3, marginBottom:8 }}>YTD through {ytdThrough} — {openMonthExcluded} still open in QuickBooks, excluded</div>}
                 <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:80 }}>
                   {revSparkline.map((v, i) => {
                     const maxV = Math.max(...revSparkline, 1);
@@ -1442,9 +1453,9 @@ export default function DashboardView({ setActive }) {
             ) : (
               <div style={{ textAlign:"center", padding:"24px 0", color:T.text3 }}>
                 <div style={{ fontSize:32, marginBottom:8 }}>📊</div>
-                <div style={{ fontSize:13, marginBottom:4 }}>No financial data yet</div>
-                <div style={{ fontSize:11, marginBottom:12 }}>Go to OKRs and click "Sync from Sheet"</div>
-                <button onClick={() => setActive("okrs")} style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer" }}>Go to OKRs →</button>
+                <div style={{ fontSize:13, marginBottom:4 }}>No QuickBooks P&L data yet</div>
+                <div style={{ fontSize:11, marginBottom:12 }}>Connect & sync QuickBooks in ERP to see revenue & net</div>
+                <button onClick={() => setActive("erp", "pl_explorer")} style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:T.accent, color:"#fff", border:"none", borderRadius:6, cursor:"pointer" }}>Open P&L →</button>
               </div>
             )}
           </Card>
