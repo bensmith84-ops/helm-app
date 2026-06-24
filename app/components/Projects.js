@@ -254,39 +254,76 @@ function ProfileCardPopover({ userId, pos, profilesMap, orgId, T, onClose }) {
   );
 }
 
-function AlsoInProjects({ task, homeProject, projects, linkedProjectIds, onAdd, onRemove, T }) {
+function AlsoInProjects({ task, homeProject, projects, sections, links, onAdd, onRemove, onSetSection, T }) {
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState("");
-  const linkedSet = new Set(linkedProjectIds);
+  const [pendProj, setPendProj] = useState(null);   // project chosen in the add flow, awaiting section
+  const [secFor, setSecFor] = useState(null);        // existing link's project_id whose section is being changed
+  const linkedSet = new Set((links || []).map(l => l.project_id));
   const term = q.trim().toLowerCase();
   const candidates = projects.filter(p => p.id !== (task && task.project_id) && !linkedSet.has(p.id) && (!term || (p.name || "").toLowerCase().includes(term)));
-  const chipBase = { fontSize: 11, padding: "3px 8px", borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6 };
+  const secsOf = (pid) => (sections || []).filter(s => s.project_id === pid).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const secName = (pid, sid) => { const s = (sections || []).find(x => x.id === sid && x.project_id === pid); return s ? s.name : null; };
+  const chipBase = { fontSize: 11, padding: "3px 8px", borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" };
+  const SecList = ({ pid, current, onPick }) => (
+    <div style={{ marginTop: 6, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, maxHeight: 170, overflow: "auto" }}>
+      <div onClick={() => onPick(null)} style={{ padding: "6px 8px", fontSize: 12, cursor: "pointer", color: !current ? T.accent : T.text2, fontWeight: !current ? 700 : 400 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Also here (no section)</div>
+      {secsOf(pid).map(s => (
+        <div key={s.id} onClick={() => onPick(s.id)} style={{ padding: "6px 8px", fontSize: 12, cursor: "pointer", color: current === s.id ? T.accent : T.text, fontWeight: current === s.id ? 700 : 400 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{s.name}</div>
+      ))}
+      {secsOf(pid).length === 0 && <div style={{ padding: "6px 8px", fontSize: 11, color: T.text3 }}>This project has no sections</div>}
+    </div>
+  );
   return (
     <div style={{ marginBottom: 16 }}>
       <label style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>In projects</label>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
         {homeProject && <span style={{ ...chipBase, background: T.surface3, color: T.text2 }}>{homeProject.name}<span style={{ fontSize: 8, color: T.text3, fontWeight: 700, letterSpacing: 0.5 }}>HOME</span></span>}
-        {linkedProjectIds.map(pid => { const p = projects.find(x => x.id === pid); if (!p) return null; return (
-          <span key={pid} style={{ ...chipBase, background: `${T.accent}15`, color: T.accent, fontWeight: 600 }}>{p.name}<button onClick={() => onRemove(pid)} title="Remove from this project" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 13, padding: 0, lineHeight: 1 }}>×</button></span>
+        {(links || []).map(l => { const p = projects.find(x => x.id === l.project_id); if (!p) return null; const sn = secName(l.project_id, l.section_id); return (
+          <span key={l.project_id} style={{ ...chipBase, background: `${T.accent}15`, color: T.accent, fontWeight: 600 }}>
+            {p.name}
+            <button onClick={() => setSecFor(secFor === l.project_id ? null : l.project_id)} title="Choose section" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 10, padding: "0 2px", opacity: 0.85, textDecoration: "underline" }}>{sn || "Also here"}</button>
+            <button onClick={() => onRemove(l.project_id)} title="Remove from this project" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
+          </span>
         ); })}
       </div>
+      {secFor && (() => { const l = (links || []).find(x => x.project_id === secFor); if (!l) return null; const p = projects.find(x => x.id === secFor); return (
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, background: T.surface2, marginBottom: 6 }}>
+          <div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Section in {p ? p.name : "project"}</div>
+          <SecList pid={secFor} current={l.section_id} onPick={(sid) => { onSetSection(secFor, sid); setSecFor(null); }} />
+        </div>
+      ); })()}
       {!adding ? (
-        <button onClick={() => setAdding(true)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>+ Add to project</button>
+        <button onClick={() => { setAdding(true); setPendProj(null); setQ(""); }} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>+ Add to project</button>
       ) : (
         <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, background: T.surface2 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-            <span style={{ fontSize: 10, color: T.text3 }}>Add this task to another project</span>
-            <button onClick={() => { setAdding(false); setQ(""); }} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
-          </div>
-          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search projects…" style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
-          <div style={{ marginTop: 6, maxHeight: 180, overflow: "auto" }}>
-            {candidates.length === 0 && <div style={{ fontSize: 11, color: T.text3, padding: "4px 2px" }}>No other projects</div>}
-            {candidates.map(p => (
-              <div key={p.id} onClick={() => { onAdd(p.id); setAdding(false); setQ(""); }} style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, color: T.text }}
-                onMouseEnter={e => e.currentTarget.style.background = T.surface3}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{p.name}</div>
-            ))}
-          </div>
+          {!pendProj ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 10, color: T.text3 }}>Add this task to another project</span>
+                <button onClick={() => { setAdding(false); setQ(""); }} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+              </div>
+              <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search projects…" style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ marginTop: 6, maxHeight: 180, overflow: "auto" }}>
+                {candidates.length === 0 && <div style={{ fontSize: 11, color: T.text3, padding: "4px 2px" }}>No other projects</div>}
+                {candidates.map(p => (
+                  <div key={p.id} onClick={() => setPendProj(p)} style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, color: T.text, display: "flex", alignItems: "center", justifyContent: "space-between" }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{p.name}<span style={{ fontSize: 13, color: T.text3 }}>›</span></div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                <button onClick={() => setPendProj(null)} title="Back" style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 0 }}>‹</button>
+                <span style={{ fontSize: 11, color: T.text2, fontWeight: 600 }}>{pendProj.name}</span>
+                <span style={{ fontSize: 10, color: T.text3 }}>— pick a section</span>
+                <button onClick={() => { setAdding(false); setPendProj(null); setQ(""); }} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+              </div>
+              <SecList pid={pendProj.id} current={null} onPick={(sid) => { onAdd(pendProj.id, sid); setAdding(false); setPendProj(null); setQ(""); }} />
+            </>
+          )}
         </div>
       )}
     </div>
@@ -645,17 +682,25 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
 
   const proj = projects.find(p => p.id === activeProject);
   const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
-  const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
   // ── Multi-home: a task can also appear in other projects beyond its home project ──
   const linkedIdsByProject = useMemo(() => { const m = {}; taskProjects.forEach(l => { (m[l.project_id] = m[l.project_id] || new Set()).add(l.task_id); }); return m; }, [taskProjects]);
   const linkedProjectsByTask = useMemo(() => { const m = {}; taskProjects.forEach(l => { (m[l.task_id] = m[l.task_id] || []).push(l.project_id); }); return m; }, [taskProjects]);
-  const sharedRoots = useMemo(() => {
-    const set = linkedIdsByProject[activeProject];
-    if (!set) return [];
-    const out = [];
-    set.forEach(id => { const t = tasks.find(x => x.id === id) || linkedTaskObjs[id]; if (t && t.project_id !== activeProject && !t.parent_task_id) out.push(t); });
-    return out;
-  }, [linkedIdsByProject, activeProject, tasks, linkedTaskObjs]);
+  // Split incoming links: ones pinned to a section render inside that section; ones with no section show in the "Also here" group.
+  const sharedSplit = useMemo(() => {
+    const sectioned = []; const rootless = [];
+    const validSec = new Set(sections.filter(s => s.project_id === activeProject).map(s => s.id));
+    taskProjects.forEach(l => {
+      if (l.project_id !== activeProject) return;
+      const t = tasks.find(x => x.id === l.task_id) || linkedTaskObjs[l.task_id];
+      if (!t || t.project_id === activeProject || t.parent_task_id) return;
+      if (l.section_id && validSec.has(l.section_id)) sectioned.push({ ...t, section_id: l.section_id, __sharedLink: l.id, __homeProjectId: t.project_id });
+      else rootless.push(t);
+    });
+    return { sectioned, rootless };
+  }, [taskProjects, activeProject, tasks, linkedTaskObjs, sections]);
+  const sharedSectioned = sharedSplit.sectioned;
+  const sharedRoots = sharedSplit.rootless;
+  const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject).concat(sharedSectioned), [tasks, activeProject, sharedSectioned]);
   const projOpenCount = (pid) => {
     let c = tasks.filter(t => t.project_id === pid && t.status !== "done" && !t.parent_task_id).length;
     const set = linkedIdsByProject[pid];
@@ -1240,10 +1285,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("org_id", orgId).eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
   const addDependency = async (pre, suc) => { if (pre === suc || dependencies.some(d => (d.predecessor_id === pre && d.successor_id === suc) || (d.predecessor_id === suc && d.successor_id === pre))) return; const { data, error } = await supabase.from("task_dependencies").insert({ predecessor_id: pre, successor_id: suc, dependency_type: "finish_to_start", org_id: orgId }).select().single(); if (!error && data) { setDependencies(p => [...p, data]); showToast("Dependency added", "success"); } else if (error) { showToast("Failed to add dependency"); } };
   const removeDependency = async (depId) => { await supabase.from("task_dependencies").delete().eq("id", depId); setDependencies(p => p.filter(d => d.id !== depId)); };
-  const addTaskToProject = async (taskId, projectId) => {
+  const addTaskToProject = async (taskId, projectId, sectionId = null) => {
     if (!taskId || !projectId) return;
     if (taskProjects.some(l => l.task_id === taskId && l.project_id === projectId)) return;
-    const { data, error } = await supabase.from("task_projects").insert({ task_id: taskId, project_id: projectId, org_id: orgId, created_by: user?.id }).select().single();
+    const { data, error } = await supabase.from("task_projects").insert({ task_id: taskId, project_id: projectId, section_id: sectionId || null, org_id: orgId, created_by: user?.id }).select().single();
     if (error || !data) { showToast("Failed to add to project"); return; }
     setTaskProjects(p => [...p, data]);
     setLinkedTaskObjs(m => { if (m[taskId]) return m; const t = tasks.find(x => x.id === taskId); return t ? { ...m, [taskId]: t } : m; });
@@ -1255,6 +1300,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     if (!link) return;
     setTaskProjects(p => p.filter(l => l.id !== link.id));
     await supabase.from("task_projects").delete().eq("id", link.id);
+  };
+  const setLinkSection = async (taskId, projectId, sectionId) => {
+    const link = taskProjects.find(l => l.task_id === taskId && l.project_id === projectId);
+    if (!link) return;
+    setTaskProjects(p => p.map(l => l.id === link.id ? { ...l, section_id: sectionId || null } : l));
+    await supabase.from("task_projects").update({ section_id: sectionId || null }).eq("id", link.id);
   };
   const [showCFCreate, setShowCFCreate] = useState(false);
   const [cfForm, setCfForm] = useState({ name: "", field_type: "text", currency_prefix: "$", options: [] });
@@ -1440,7 +1491,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     }
   };
 
-  const handleBoardDrop = async (taskId, newSec) => { await updateField(taskId, "section_id", newSec); setDragTask(null); setDragOverTarget(null); };
+  const handleBoardDrop = async (taskId, newSec) => {
+    const link = taskProjects.find(l => l.task_id === taskId && l.project_id === activeProject);
+    const real = tasks.find(t => t.id === taskId) || linkedTaskObjs[taskId];
+    if (link && real && real.project_id !== activeProject) {
+      // This is a shared (multi-homed) instance in this project — re-pin the link, don't move the home task.
+      setTaskProjects(p => p.map(l => l.id === link.id ? { ...l, section_id: newSec } : l));
+      await supabase.from("task_projects").update({ section_id: newSec }).eq("id", link.id);
+      setDragTask(null); setDragOverTarget(null); return;
+    }
+    await updateField(taskId, "section_id", newSec); setDragTask(null); setDragOverTarget(null);
+  };
   const { gridTemplate: projGrid, onResizeStart: projResize } = useResizableColumns([280, 110, 90, 110, 100], "projects");
   const mobileGrid = "1fr 70px"; // title + status only
   const activeGrid = isMobile ? mobileGrid : projGrid;
@@ -1795,7 +1856,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     const saveTitle = async () => { if (_editTitleRef.current.trim() && _editTitleRef.current !== task.title) { await updateField(task.id, "title", _editTitleRef.current.trim()); } setEditingTaskId(null); };
     const rowRef = useRef(null);
     const TaskRow = _taskRowRef.current;
-    return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); if (!exp && _loadSubtasksRef.current) _loadSubtasksRef.current(task.id); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input value={editTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{((subs.length > 0) || (task.subtask_count || 0) > 0) && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length || task.subtask_count}</span>}{task.recurrence && task.recurrence !== "none" && !isEditingTitle && <span title={`Repeats ${task.recurrence}`} style={{ fontSize: 10, color: T.text3, opacity: 0.6 }}>🔄</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={S.iconBtn} title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div>{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div>}{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={_profilesRef.current} profile={_profileRef.current} ini={ini} acol={acol} uname={uname} projectMembers={_projMembersRef.current} activeProject={activeProject} /></div>}{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div>}</div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSub === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newSubTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (_newSubTitleRef.current.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} autoFocus placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div>{!_isMobileRef.current && <><div /><div /><div /></>}</div>}</>); };
+    return (<>{/* row */}<div ref={rowRef} className="task-row" style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent" }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); if (!exp && _loadSubtasksRef.current) _loadSubtasksRef.current(task.id); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input value={editTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{((subs.length > 0) || (task.subtask_count || 0) > 0) && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length || task.subtask_count}</span>}{task.recurrence && task.recurrence !== "none" && !isEditingTitle && <span title={`Repeats ${task.recurrence}`} style={{ fontSize: 10, color: T.text3, opacity: 0.6 }}>🔄</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); if (task.__sharedLink) { removeTaskFromProject(task.id, activeProject); } else { deleteTask(task.id); } }} style={S.iconBtn} title={task.__sharedLink ? "Remove from this project" : "Delete"}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div>{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div>}{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={_profilesRef.current} profile={_profileRef.current} ini={ini} acol={acol} uname={uname} projectMembers={_projMembersRef.current} activeProject={activeProject} /></div>}{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div>}</div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSub === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newSubTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (_newSubTitleRef.current.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} autoFocus placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div>{!_isMobileRef.current && <><div /><div /><div /></>}</div>}</>); };
 
   const listViewEl = (() => { const TaskRow = _taskRowRef.current; const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
@@ -2692,9 +2753,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 task={task}
                 homeProject={projects.find(p => p.id === task.project_id)}
                 projects={projects}
-                linkedProjectIds={linkedProjectsByTask[task.id] || []}
-                onAdd={(pid) => addTaskToProject(task.id, pid)}
+                sections={sections}
+                links={taskProjects.filter(l => l.task_id === task.id)}
+                onAdd={(pid, sid) => addTaskToProject(task.id, pid, sid)}
                 onRemove={(pid) => removeTaskFromProject(task.id, pid)}
+                onSetSection={(pid, sid) => setLinkSection(task.id, pid, sid)}
                 T={T}
               />
 
