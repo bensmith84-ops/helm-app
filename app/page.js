@@ -126,6 +126,7 @@ export default function HelmApp() {
   }, []);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [pendingTaskId, setPendingTaskId] = useState(null);
+  const [pendingProjectId, setPendingProjectId] = useState(null);
   const [allowedModules, setAllowedModules] = useState(null); // null = loading, array = loaded
   const [isAdmin, setIsAdmin] = useState(false);
   const [isExternal, setIsExternal] = useState(false);
@@ -201,6 +202,7 @@ export default function HelmApp() {
     }
     setActive(module);
   }, []);
+  const navigateToProject = useCallback((pid) => { setPendingProjectId(pid); setActive("projects"); }, []);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [badges, setBadges] = useState({});
   const [globalToast, setGlobalToast] = useState(null);
@@ -350,7 +352,7 @@ export default function HelmApp() {
     }
     switch (active) {
       case "dashboard": return <DashboardView setActive={navigateTo} />;
-      case "projects": return <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} />;
+      case "projects": return <ProjectsView pendingTaskId={pendingTaskId} clearPendingTask={() => setPendingTaskId(null)} pendingProjectId={pendingProjectId} clearPendingProject={() => setPendingProjectId(null)} />;
       case "okrs": return <OKRsView />;
       case "scorecard": return <ScorecardView />;
       case "learning": return <LearningView modulePerms={allowedModules?.perms || {}} />;
@@ -361,7 +363,7 @@ export default function HelmApp() {
       case "calendar": return <CalendarView />;
       case "calls": return <CallsView />;
       case "campaigns": return <CampaignsView />;
-      case "plm": return <PLMView />;
+      case "plm": return <PLMView navigateTo={navigateTo} navigateToProject={navigateToProject} />;
       case "erp": return <ERPView modulePerms={allowedModules?.perms || {}} pendingSubView={pendingSubView} clearPendingSubView={() => setPendingSubView(null)} />;
       case "wms": return <WMSView />;
       case "3pl_billing": return <ThreePLBillingView />;
