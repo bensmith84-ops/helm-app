@@ -82,7 +82,7 @@ export default function ReportsView() {
       { data: data11 },
     ] = await Promise.all([
       supabase.from("projects").select("*").is("deleted_at", null),
-      supabase.from("tasks").select("*").is("deleted_at", null),
+      supabase.from("tasks").select("id,project_id,section_id,parent_task_id,title,status,priority,assignee_id,due_date,completed_at,created_at").is("deleted_at", null),
       supabase.from("profiles").select("id,display_name"),
       supabase.from("objectives").select("*").eq("org_id", orgId).is("deleted_at", null),
       supabase.from("key_results").select("*").eq("org_id", orgId).is("deleted_at", null),
