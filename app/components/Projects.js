@@ -2478,6 +2478,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                   />
                 </div>
               </div>
+              {/* Created by */}
+              <div style={{ marginTop: 18, paddingTop: 12, borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.text3 }}>
+                Created by {(() => {
+                  const c = profiles[task.created_by] || allProfiles.find(p => p.id === task.created_by);
+                  const nm = c ? (c.display_name || c.email || "Unknown") : "Unknown";
+                  return c && c.email
+                    ? <a href={`mailto:${c.email}`} style={{ color: T.accent, textDecoration: "none", fontWeight: 600 }}>{nm}</a>
+                    : <span style={{ color: T.text2, fontWeight: 600 }}>{nm}</span>;
+                })()}
+                {task.created_at ? ` · ${toDateStr(task.created_at)}` : ""}
+              </div>
             </div>
           )}
 
