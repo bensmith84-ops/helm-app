@@ -122,6 +122,8 @@ function SupplyChainView({ isMobile, orgId }) {
   const reloadOverrides = useCallback(async () => {
     const r = await supabase.from("dp_sku_overrides").select("*").eq("org_id", orgId).limit(2000);
     setSkuOverrides(r.data || []);
+    // Keep the cached dataset consistent so a revisit within the TTL reflects the edit.
+    if (DP_SUPPLY_CACHE && DP_SUPPLY_CACHE.orgId === orgId) DP_SUPPLY_CACHE.data.skuOverrides = r.data || [];
   }, [orgId]);
 
   useEffect(() => {
