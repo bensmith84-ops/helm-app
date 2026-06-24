@@ -831,6 +831,10 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
 /* ═══════════════════════════════════════════════════════
    MAIN DASHBOARD
    ═══════════════════════════════════════════════════════ */
+// Module-level stale-while-revalidate cache so returning to Home renders instantly.
+let DASH_CACHE = null;
+const DASH_TTL = 5 * 60 * 1000;
+
 export default function DashboardView({ setActive }) {
   const { profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
@@ -857,7 +861,25 @@ export default function DashboardView({ setActive }) {
   }, []);
 
   useEffect(() => {
+    let _alive = true;
+    const _key = `${orgId}:${profile?.id}`;
+    const _applyDash = (snap) => {
+      if (snap.data) setData(snap.data);
+      setPendingApprovals(snap.pendingApprovals || []);
+      setPlmPrograms(snap.plmPrograms || []);
+      setRecentActivity(snap.recentActivity || []);
+      setScoreboardData(snap.scoreboardData || []);
+      setFocusItems(snap.focusItems || []);
+      setInbox(snap.inbox || []);
+      if (snap.checkIns !== undefined) setCheckIns(snap.checkIns);
+      if (snap.finMetrics !== undefined) setFinMetrics(snap.finMetrics);
+      if (snap.finMonthly !== undefined) setFinMonthly(snap.finMonthly);
+    };
+    const _cached = (DASH_CACHE && DASH_CACHE.key === _key) ? DASH_CACHE : null;
+    if (_cached) { _applyDash(_cached.data); setLoading(false); }
+    if (_cached && Date.now() - _cached.ts < DASH_TTL) { return () => { _alive = false; }; }
     (async () => {
+      const snap = {};
       const yr = new Date().getFullYear();
       const todayStr = new Date().toISOString().split("T")[0];
       const [
@@ -889,8 +911,9 @@ export default function DashboardView({ setActive }) {
       const cycleObjs = activeCycle ? (objectives || []).filter(o => o.cycle_id === activeCycle.id) : (objectives || []);
       const cycleKRs = (keyResults || []).filter(k => cycleObjs.some(o => o.id === k.objective_id));
 
-      setData({ projects: projects||[], sections: sections||[], tasks: tasks||[], profiles: profMap,
-        objectives: cycleObjs, keyResults: cycleKRs, cycles: cycles||[], activeCycle });
+      const _dataObj = { projects: projects||[], sections: sections||[], tasks: tasks||[], profiles: profMap,
+        objectives: cycleObjs, keyResults: cycleKRs, cycles: cycles||[], activeCycle };
+      snap.data = _dataObj; setData(_dataObj);
       // Merge spend requests where user is the designated approver (not their own requests)
       const mySpendApprovals = (spendRequests || []).filter(r => {
         if (r.requester_id === profile?.id) return false; // never show your own requests as approvals
@@ -910,18 +933,18 @@ export default function DashboardView({ setActive }) {
         ...r,
         requester_name: profMap[r.requester_id]?.display_name || "Unknown",
       }));
-      setPendingApprovals([...myApprovals, ...mySpendApprovals]);
-      setPlmPrograms(plm || []);
-      setRecentActivity(activity || []);
-      setScoreboardData(scoreboardDaily || []);
-      setFocusItems(focus || []);
+      snap.pendingApprovals = [...myApprovals, ...mySpendApprovals]; setPendingApprovals(snap.pendingApprovals);
+      snap.plmPrograms = plm || []; setPlmPrograms(snap.plmPrograms);
+      snap.recentActivity = activity || []; setRecentActivity(snap.recentActivity);
+      snap.scoreboardData = scoreboardDaily || []; setScoreboardData(snap.scoreboardData);
+      snap.focusItems = focus || []; setFocusItems(snap.focusItems);
 
       // Load inbox notifications for current user
       if (profile?.id) {
         const { data: notifs } = await supabase.from("notifications")
           .select("*").eq("user_id", profile.id)
           .order("created_at", { ascending: false }).limit(50);
-        setInbox(notifs || []);
+        snap.inbox = notifs || []; setInbox(snap.inbox);
       }
 
       if (cycleKRs.length > 0) {
@@ -930,11 +953,11 @@ export default function DashboardView({ setActive }) {
           .select("key_result_id, check_in_date, created_at")
           .in("key_result_id", krIds)
           .order("created_at", { ascending: false });
-        setCheckIns(ciData || []);
+        snap.checkIns = ciData || []; setCheckIns(snap.checkIns);
       }
 
       if (fmData?.length) {
-        setFinMetrics(fmData);
+        snap.finMetrics = fmData; setFinMetrics(fmData);
         const { data: mData } = await supabase.from("okr_financial_monthly")
           .select("*").in("metric_id", fmData.map(m => m.id)).eq("year", yr);
         const mMap = {};
@@ -942,11 +965,14 @@ export default function DashboardView({ setActive }) {
           if (!mMap[r.metric_id]) mMap[r.metric_id] = {};
           mMap[r.metric_id][r.month] = r;
         });
-        setFinMonthly(mMap);
+        snap.finMonthly = mMap; setFinMonthly(mMap);
       }
 
+      if (!_alive) return;
+      DASH_CACHE = { key: _key, ts: Date.now(), data: snap };
       setLoading(false);
     })();
+    return () => { _alive = false; };
   }, []);
 
   if (loading) return (
