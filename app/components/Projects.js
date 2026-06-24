@@ -254,6 +254,45 @@ function ProfileCardPopover({ userId, pos, profilesMap, orgId, T, onClose }) {
   );
 }
 
+function AlsoInProjects({ task, homeProject, projects, linkedProjectIds, onAdd, onRemove, T }) {
+  const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState("");
+  const linkedSet = new Set(linkedProjectIds);
+  const term = q.trim().toLowerCase();
+  const candidates = projects.filter(p => p.id !== (task && task.project_id) && !linkedSet.has(p.id) && (!term || (p.name || "").toLowerCase().includes(term)));
+  const chipBase = { fontSize: 11, padding: "3px 8px", borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6 };
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>In projects</label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+        {homeProject && <span style={{ ...chipBase, background: T.surface3, color: T.text2 }}>{homeProject.name}<span style={{ fontSize: 8, color: T.text3, fontWeight: 700, letterSpacing: 0.5 }}>HOME</span></span>}
+        {linkedProjectIds.map(pid => { const p = projects.find(x => x.id === pid); if (!p) return null; return (
+          <span key={pid} style={{ ...chipBase, background: `${T.accent}15`, color: T.accent, fontWeight: 600 }}>{p.name}<button onClick={() => onRemove(pid)} title="Remove from this project" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 13, padding: 0, lineHeight: 1 }}>×</button></span>
+        ); })}
+      </div>
+      {!adding ? (
+        <button onClick={() => setAdding(true)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>+ Add to project</button>
+      ) : (
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, background: T.surface2 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <span style={{ fontSize: 10, color: T.text3 }}>Add this task to another project</span>
+            <button onClick={() => { setAdding(false); setQ(""); }} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+          </div>
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search projects…" style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+          <div style={{ marginTop: 6, maxHeight: 180, overflow: "auto" }}>
+            {candidates.length === 0 && <div style={{ fontSize: 11, color: T.text3, padding: "4px 2px" }}>No other projects</div>}
+            {candidates.map(p => (
+              <div key={p.id} onClick={() => { onAdd(p.id); setAdding(false); setQ(""); }} style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, color: T.text }}
+                onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{p.name}</div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const { user, profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
@@ -323,6 +362,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [dependencies, setDependencies] = useState([]);
   const [depTasks, setDepTasks] = useState({}); // id -> {id,title,...} for dependency targets not in the loaded task set
   const [profileCard, setProfileCard] = useState(null); // {userId,x,y} for the read-only creator profile popover
+  const [taskProjects, setTaskProjects] = useState([]); // additional project memberships (multi-home links)
+  const [linkedTaskObjs, setLinkedTaskObjs] = useState({}); // id -> task row, for linked tasks not in the loaded set
   const [customFields, setCustomFields] = useState([]);
   const [projectLabels, setProjectLabels] = useState([]);
   const [customFieldValues, setCustomFieldValues] = useState({});
@@ -571,6 +612,25 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     });
   }, [activeProject]);
 
+  // Load multi-home links (which tasks also appear in other projects) for the org.
+  useEffect(() => {
+    if (!orgId) return;
+    let alive = true;
+    (async () => {
+      const { data } = await supabase.from("task_projects").select("id,task_id,project_id").eq("org_id", orgId);
+      if (!alive) return;
+      const links = data || [];
+      setTaskProjects(links);
+      const ids = [...new Set(links.map(l => l.task_id))];
+      if (ids.length) {
+        const { data: trows } = await supabase.from("tasks").select("*").in("id", ids).is("deleted_at", null);
+        if (!alive) return;
+        const m = {}; (trows || []).forEach(t => { m[t.id] = t; }); setLinkedTaskObjs(m);
+      } else setLinkedTaskObjs({});
+    })();
+    return () => { alive = false; };
+  }, [orgId]);
+
   // Resolve titles for dependency targets that aren't in the loaded (top-level) task set.
   useEffect(() => {
     if (!dependencies.length) return;
@@ -586,6 +646,22 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const proj = projects.find(p => p.id === activeProject);
   const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
   const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
+  // ── Multi-home: a task can also appear in other projects beyond its home project ──
+  const linkedIdsByProject = useMemo(() => { const m = {}; taskProjects.forEach(l => { (m[l.project_id] = m[l.project_id] || new Set()).add(l.task_id); }); return m; }, [taskProjects]);
+  const linkedProjectsByTask = useMemo(() => { const m = {}; taskProjects.forEach(l => { (m[l.task_id] = m[l.task_id] || []).push(l.project_id); }); return m; }, [taskProjects]);
+  const sharedRoots = useMemo(() => {
+    const set = linkedIdsByProject[activeProject];
+    if (!set) return [];
+    const out = [];
+    set.forEach(id => { const t = tasks.find(x => x.id === id) || linkedTaskObjs[id]; if (t && t.project_id !== activeProject && !t.parent_task_id) out.push(t); });
+    return out;
+  }, [linkedIdsByProject, activeProject, tasks, linkedTaskObjs]);
+  const projOpenCount = (pid) => {
+    let c = tasks.filter(t => t.project_id === pid && t.status !== "done" && !t.parent_task_id).length;
+    const set = linkedIdsByProject[pid];
+    if (set) set.forEach(id => { const t = tasks.find(x => x.id === id) || linkedTaskObjs[id]; if (t && t.project_id !== pid && t.status !== "done" && !t.parent_task_id) c++; });
+    return c;
+  };
   const projectsById = useMemo(() => { const m = {}; projects.forEach(p => { m[p.id] = p; }); return m; }, [projects]);
   // External-user access_scope gating: hide tabs the user has no scope for.
   // Internal users (no membership row, or invited_as_external = false) see everything.
@@ -1164,6 +1240,22 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("org_id", orgId).eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
   const addDependency = async (pre, suc) => { if (pre === suc || dependencies.some(d => (d.predecessor_id === pre && d.successor_id === suc) || (d.predecessor_id === suc && d.successor_id === pre))) return; const { data, error } = await supabase.from("task_dependencies").insert({ predecessor_id: pre, successor_id: suc, dependency_type: "finish_to_start", org_id: orgId }).select().single(); if (!error && data) { setDependencies(p => [...p, data]); showToast("Dependency added", "success"); } else if (error) { showToast("Failed to add dependency"); } };
   const removeDependency = async (depId) => { await supabase.from("task_dependencies").delete().eq("id", depId); setDependencies(p => p.filter(d => d.id !== depId)); };
+  const addTaskToProject = async (taskId, projectId) => {
+    if (!taskId || !projectId) return;
+    if (taskProjects.some(l => l.task_id === taskId && l.project_id === projectId)) return;
+    const { data, error } = await supabase.from("task_projects").insert({ task_id: taskId, project_id: projectId, org_id: orgId, created_by: user?.id }).select().single();
+    if (error || !data) { showToast("Failed to add to project"); return; }
+    setTaskProjects(p => [...p, data]);
+    setLinkedTaskObjs(m => { if (m[taskId]) return m; const t = tasks.find(x => x.id === taskId); return t ? { ...m, [taskId]: t } : m; });
+    const pname = projects.find(p => p.id === projectId)?.name || "project";
+    showToast(`Added to ${pname}`, "success");
+  };
+  const removeTaskFromProject = async (taskId, projectId) => {
+    const link = taskProjects.find(l => l.task_id === taskId && l.project_id === projectId);
+    if (!link) return;
+    setTaskProjects(p => p.filter(l => l.id !== link.id));
+    await supabase.from("task_projects").delete().eq("id", link.id);
+  };
   const [showCFCreate, setShowCFCreate] = useState(false);
   const [cfForm, setCfForm] = useState({ name: "", field_type: "text", currency_prefix: "$", options: [] });
   const FIELD_TYPES = [
@@ -1398,7 +1490,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.emoji || ""} {p.name}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 10, background: act ? T.accent : T.surface3, color: act ? "#fff" : T.text2, flexShrink: 0 }}>{tasks.filter(t => t.project_id === p.id && t.status !== "done" && !t.parent_task_id).length}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 10, background: act ? T.accent : T.surface3, color: act ? "#fff" : T.text2, flexShrink: 0 }}>{projOpenCount(p.id)}</span>
               </div>
               <div style={{ fontSize: 11, color: T.text3, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: pHealth, display: "inline-block" }} />
@@ -1434,7 +1526,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: act ? 600 : 400, color: act ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.emoji || ""} {p.name}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 10, background: act ? T.accent : T.surface3, color: act ? "#fff" : T.text2, flexShrink: 0 }}>{tasks.filter(t => t.project_id === p.id && t.status !== "done" && !t.parent_task_id).length}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 10, background: act ? T.accent : T.surface3, color: act ? "#fff" : T.text2, flexShrink: 0 }}>{projOpenCount(p.id)}</span>
               </div>
               <div style={{ fontSize: 11, color: T.text3, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: pHealth, display: "inline-block" }} />
@@ -1714,6 +1806,30 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle index={3} onStart={projResize} /></div>}
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("due_date")} title="Sort by due date">Dates{arrow("due_date")}<ResizeHandle index={4} onStart={projResize} /></div>}
       </div>
+      {sharedRoots.length > 0 && (() => { const coll = collapsed["__shared__"]; return (
+        <div key="__shared__">
+          <div onClick={() => setCollapsed(p => ({ ...p, ["__shared__"]: !coll }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer", userSelect: "none" }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: coll ? "rotate(-90deg)" : "rotate(0)", transition: "transform 0.15s" }}><path d="M3 4.5l3 3 3-3" stroke={T.accent} strokeWidth="1.5" strokeLinecap="round" /></svg>
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, flex: 1 }}>📎 Also here (from other projects)</span>
+            <span style={{ fontSize: 11, color: T.text3, fontWeight: 500 }}>{sharedRoots.length}</span>
+          </div>
+          {!coll && sharedRoots.map(task => { const home = projects.find(p => p.id === task.project_id); return (
+            <div key={"shared-" + task.id} style={{ ...S.row(false, false) }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                <div style={{ width: 12 }} />
+                <Checkbox task={task} />
+                <span onClick={() => setSelectedTask(task)} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>
+                {home && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: `${T.accent}15`, color: T.accent, fontWeight: 700, flexShrink: 0 }}>{home.name}</span>}
+                <button onClick={(e) => { e.stopPropagation(); removeTaskFromProject(task.id, activeProject); }} title="Remove from this project" style={S.iconBtn}>✕</button>
+              </div>
+              <div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div>
+              {!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div>}
+              {!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={_profilesRef.current} profile={_profileRef.current} ini={ini} acol={acol} uname={uname} projectMembers={_projMembersRef.current} activeProject={activeProject} /></div>}
+              {!_isMobileRef.current && <div />}
+            </div>
+          ); })}
+        </div>
+      ); })()}
       {projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id); const roots = sortedTasks(rootTasks(st)); const isColl = collapsed[sec.id]; const sd = st.filter(t => t.status === "done").length; const color = secColor(si);
         const wipBreached = sec.wip_limit && st.filter(t => t.status !== "done").length > sec.wip_limit;
         return (
@@ -1764,6 +1880,29 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     </div>); })();
   const boardViewEl = (
     <div style={{ flex: 1, display: "flex", gap: 16, padding: "16px 20px", overflow: "auto" }}>
+      {sharedRoots.length > 0 && (
+        <div style={{ width: isMobile ? 260 : 280, flexShrink: 0, display: "flex", flexDirection: "column", borderRadius: 10, background: T.surface, border: `1px dashed ${T.accent}55` }}>
+          <div style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center", gap: 8, borderBottom: `2px solid ${T.accent}` }}>
+            <span style={{ fontSize: 13 }}>📎</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, flex: 1 }}>Also here</span>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 8, background: T.surface3, color: T.text3 }}>{sharedRoots.length}</span>
+          </div>
+          <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 8, overflow: "auto" }}>
+            {sharedRoots.map(task => { const pr = PRIORITY[task.priority] || PRIORITY.none; const isDone = task.status === "done"; const home = projects.find(p => p.id === task.project_id); return (
+              <div key={"shared-" + task.id} onClick={() => setSelectedTask(task)} style={{ padding: "10px 12px", borderRadius: 8, background: isDone ? T.surface3 : T.surface2, border: `1px solid ${T.border}`, cursor: "pointer" }}>
+                {task.priority && task.priority !== "none" && <div style={{ width: "100%", height: 2, borderRadius: 1, background: pr.dot, marginBottom: 6 }} />}
+                <div style={{ fontSize: 13, fontWeight: 500, color: isDone ? T.text3 : T.text, textDecoration: isDone ? "line-through" : "none", marginBottom: 6, lineHeight: 1.4 }}>{task.title}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  {home && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: `${T.accent}15`, color: T.accent, fontWeight: 700 }}>{home.name}</span>}
+                  {task.due_date && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: isOverdue(task.due_date) && !isDone ? T.redDim : T.surface3, color: isOverdue(task.due_date) && !isDone ? T.red : T.text3, fontWeight: 500 }}>{toDateStr(task.due_date)}</span>}
+                  <div style={{ flex: 1 }} />
+                  {task.assignee_id && <div style={{ width: 22, height: 22, borderRadius: 11, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div>}
+                </div>
+              </div>
+            ); })}
+          </div>
+        </div>
+      )}
       {projSections.map((sec, si) => {
         const st = filteredTasks.filter(t => t.section_id === sec.id && !t.parent_task_id);
         const color = secColor(si);
@@ -2548,6 +2687,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                   />
                 </div>
               </div>
+              {/* Also in projects (multi-home) */}
+              <AlsoInProjects
+                task={task}
+                homeProject={projects.find(p => p.id === task.project_id)}
+                projects={projects}
+                linkedProjectIds={linkedProjectsByTask[task.id] || []}
+                onAdd={(pid) => addTaskToProject(task.id, pid)}
+                onRemove={(pid) => removeTaskFromProject(task.id, pid)}
+                T={T}
+              />
+
               {/* Created by */}
               <div style={{ marginTop: 18, paddingTop: 12, borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.text3 }}>
                 Created by {(() => {
