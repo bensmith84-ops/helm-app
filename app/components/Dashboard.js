@@ -1212,6 +1212,7 @@ export default function DashboardView({ setActive }) {
               });
               setActive("docs");
             }, color:"#06b6d4" },
+            { icon:"💸", label:"New Spend Request", action:() => { try { sessionStorage.setItem("helm_new_spend_request", "1"); } catch {} setActive("erp", "fin_requests"); }, color:"#a855f7" },
             { icon:"📊", label:"Reports", action:() => setActive("reports"), color:"#f97316" },
           ].map(a => (
             <button key={a.label} onClick={a.action} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:8, border:`1px solid ${a.color}30`, background:`${a.color}10`, color:a.color, fontSize:12, fontWeight:600, cursor:"pointer", transition:"all 0.15s" }}
