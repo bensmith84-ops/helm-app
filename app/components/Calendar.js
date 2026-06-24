@@ -30,7 +30,7 @@ export default function CalendarView() {
     if (!profile?.org_id) return;
     (async () => {
       const [{ data: t }, { data: p }, { data: ms }] = await Promise.all([
-        supabase.from("tasks").select("*").is("deleted_at", null).not("due_date", "is", null).order("due_date"),
+        supabase.from("tasks").select("id,project_id,section_id,parent_task_id,title,status,priority,assignee_id,due_date,completed_at,created_at").is("deleted_at", null).not("due_date", "is", null).order("due_date"),
         supabase.from("projects").select("id,name,color,emoji").eq("org_id", orgId).is("deleted_at", null),
         supabase.from("okr_milestones").select("id,title,start_date,end_date,health,progress,color").order("start_date"),
       ]);
