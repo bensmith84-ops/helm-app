@@ -70,7 +70,7 @@ function Card({ children, style={} }) {
 /* ═══════════════════════════════════════════════════════
    TODAY'S FOCUS — Enhanced with + Add Focus Item
    ═══════════════════════════════════════════════════════ */
-function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, setActive, profile }) {
+function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, setActive, profile, onOpenTask }) {
   const [addMode, setAddMode] = useState(null); // null | "custom" | "task"
   const [customTitle, setCustomTitle] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -166,7 +166,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
           const isDueToday = t.due_date === todayStr;
           const isOverdue = t.due_date && t.due_date < todayStr;
           return (
-            <div key={`auto-${t.id}`} onClick={() => setActive("projects", t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${priColor}` }}
+            <div key={`auto-${t.id}`} onClick={() => onOpenTask(t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${priColor}` }}
               onMouseEnter={e => e.currentTarget.style.background = T.surface3}
               onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
               <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${T.border2}`, flexShrink:0 }} />
@@ -194,7 +194,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
                 style={{ width:16, height:16, borderRadius:4, border:`2px solid ${item.is_completed ? "#22c55e" : T.border2}`, background: item.is_completed ? "#22c55e" : "transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
                 {item.is_completed && <span style={{ color:"#fff", fontSize:10, lineHeight:1 }}>✓</span>}
               </div>
-              <div onClick={() => linkedTask && setActive("projects", linkedTask.id)} style={{ flex:1, minWidth:0, cursor: linkedTask ? "pointer" : "default" }}>
+              <div onClick={() => linkedTask && onOpenTask(linkedTask.id)} style={{ flex:1, minWidth:0, cursor: linkedTask ? "pointer" : "default" }}>
                 <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textDecoration: item.is_completed ? "line-through" : "none" }}>{item.title}</div>
                 <div style={{ fontSize:10, color:T.text3, marginTop:2, display:"flex", gap:6 }}>
                   {proj && <span style={{ display:"flex", alignItems:"center", gap:3 }}><span style={{ width:5, height:5, borderRadius:3, background:proj.color||T.accent }} />{proj.name}</span>}
@@ -835,6 +835,98 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
 let DASH_CACHE = null;
 const DASH_TTL = 5 * 60 * 1000;
 
+function TaskQuickView({ taskId, onClose, setActive, profiles, projects, T, isMobile, onTaskUpdated }) {
+  const [task, setTask] = useState(null);
+  const [subs, setSubs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    (async () => {
+      const [{ data: t }, { data: sList }] = await Promise.all([
+        supabase.from("tasks").select("*").eq("id", taskId).is("deleted_at", null).maybeSingle(),
+        supabase.from("tasks").select("id,title,status,sort_order").eq("parent_task_id", taskId).is("deleted_at", null).order("sort_order"),
+      ]);
+      if (!alive) return;
+      setTask(t || null); setSubs(sList || []); setLoading(false);
+    })();
+    return () => { alive = false; };
+  }, [taskId]);
+
+  const chip = { fontSize: 11, color: T.text3, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap" };
+  const btn = { padding: "8px 14px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer" };
+  const PRI = { urgent: { c: "#ef4444", l: "Urgent" }, high: { c: "#f97316", l: "High" }, medium: { c: "#eab308", l: "Medium" }, low: { c: "#22c55e", l: "Low" }, none: { c: T.text3, l: "None" } };
+  const fmtDate = (d) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+
+  const proj = task ? (projects || []).find(p => p.id === task.project_id) : null;
+  const assignee = task && profiles ? profiles[task.assignee_id] : null;
+  const pri = task ? (PRI[task.priority] || PRI.none) : PRI.none;
+
+  const toggleTask = async () => {
+    if (!task || busy) return; setBusy(true);
+    const next = task.status === "done" ? "todo" : "done";
+    const patch = { status: next, completed_at: next === "done" ? new Date().toISOString() : null };
+    const { error } = await supabase.from("tasks").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", task.id);
+    setBusy(false);
+    if (!error) { setTask(p => ({ ...p, ...patch })); onTaskUpdated && onTaskUpdated(task.id, { status: next }); }
+  };
+  const toggleSub = async (sub) => {
+    const next = sub.status === "done" ? "todo" : "done";
+    setSubs(prev => prev.map(x => x.id === sub.id ? { ...x, status: next } : x));
+    await supabase.from("tasks").update({ status: next, completed_at: next === "done" ? new Date().toISOString() : null, updated_at: new Date().toISOString() }).eq("id", sub.id);
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", padding: isMobile ? 0 : 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: isMobile ? "16px 16px 0 0" : 12, width: "100%", maxWidth: 520, maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading task…</div>
+        ) : !task ? (
+          <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
+            Task not found or was removed.
+            <div style={{ marginTop: 12 }}><button onClick={onClose} style={btn}>Close</button></div>
+          </div>
+        ) : (
+          <div style={{ padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <button onClick={toggleTask} title="Toggle complete" style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${task.status === "done" ? "#22c55e" : T.border}`, background: task.status === "done" ? "#22c55e" : "transparent", cursor: "pointer", flexShrink: 0, color: "#fff", fontSize: 13, lineHeight: "18px", marginTop: 1 }}>{task.status === "done" ? "✓" : ""}</button>
+                <div style={{ fontSize: 16, fontWeight: 700, color: T.text, textDecoration: task.status === "done" ? "line-through" : "none" }}>{task.title}</div>
+              </div>
+              <button onClick={onClose} style={{ background: "none", border: "none", color: T.text3, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              {proj && <span style={chip}>📁 {proj.name}</span>}
+              <span style={{ ...chip, color: task.status === "done" ? "#22c55e" : T.text2 }}>{String(task.status || "todo").replace(/_/g, " ")}</span>
+              <span style={{ ...chip, color: pri.c }}>⚑ {pri.l}</span>
+              {task.due_date && <span style={chip}>📅 {fmtDate(task.due_date)}</span>}
+              {assignee && <span style={chip}>👤 {assignee.display_name || "Assigned"}</span>}
+            </div>
+            {task.description && <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.6, marginBottom: 14, whiteSpace: "pre-wrap", maxHeight: 180, overflow: "auto" }}>{task.description}</div>}
+            {subs.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Subtasks ({subs.filter(x => x.status === "done").length}/{subs.length})</div>
+                {subs.map(sub => (
+                  <div key={sub.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "5px 0" }}>
+                    <button onClick={() => toggleSub(sub)} style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${sub.status === "done" ? "#22c55e" : T.border}`, background: sub.status === "done" ? "#22c55e" : "transparent", cursor: "pointer", flexShrink: 0, color: "#fff", fontSize: 11, lineHeight: "14px" }}>{sub.status === "done" ? "✓" : ""}</button>
+                    <span style={{ fontSize: 13, color: sub.status === "done" ? T.text3 : T.text, textDecoration: sub.status === "done" ? "line-through" : "none" }}>{sub.title}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <button onClick={toggleTask} disabled={busy} style={btn}>{task.status === "done" ? "Reopen" : "Mark complete"}</button>
+              <button onClick={() => { setActive("projects", task.id); onClose(); }} style={{ ...btn, background: T.accent, color: "#fff", border: "none" }}>Open in Projects →</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardView({ setActive }) {
   const { profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
@@ -849,6 +941,8 @@ export default function DashboardView({ setActive }) {
   const [inbox, setInbox] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
   const [focusItems, setFocusItems] = useState([]);
+  const [quickTaskId, setQuickTaskId] = useState(null);
+  const openTask = useCallback((id) => setQuickTaskId(id), []);
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTaskForm, setNewTaskForm] = useState({ title: "", project_id: "", section_id: "", priority: "none", due_date: new Date().toISOString().split("T")[0] });
   const [calCollapsed, setCalCollapsed] = useState(() => {
@@ -1177,7 +1271,7 @@ export default function DashboardView({ setActive }) {
         )}
 
         {/* ── Daily Focus ── */}
-        <TodaysFocus tasks={tasks} projects={projects} focusItems={focusItems} setFocusItems={setFocusItems} todayStr={todayStr} setActive={setActive} profile={profile} />
+        <TodaysFocus tasks={tasks} projects={projects} focusItems={focusItems} setFocusItems={setFocusItems} todayStr={todayStr} setActive={setActive} profile={profile} onOpenTask={openTask} />
 
         {/* ── KPI Row ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>
@@ -1215,7 +1309,7 @@ export default function DashboardView({ setActive }) {
                   const priColors = { urgent:"#ef4444", high:"#f97316", medium:"#eab308", low:"#22c55e" };
                   const priColor = priColors[t.priority] || T.text3;
                   return (
-                    <div key={t.id} onClick={() => setActive("projects", t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}` }}>
+                    <div key={t.id} onClick={() => openTask(t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}` }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
                         <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{proj?.name || "—"}</div>
@@ -1273,7 +1367,7 @@ export default function DashboardView({ setActive }) {
                           await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", n.id);
                           setInbox(p => p.map(x => x.id === n.id ? { ...x, is_read: true } : x));
                         }
-                        if (n.entity_type === "task" && n.entity_id) setActive("projects", n.entity_id);
+                        if (n.entity_type === "task" && n.entity_id) openTask(n.entity_id);
                       }}
                       style={{
                         display:"flex", gap:10, padding:"10px 12px", borderRadius:8, cursor:"pointer",
@@ -1666,6 +1760,19 @@ export default function DashboardView({ setActive }) {
 
       {/* ── Calendar Sidebar ── */}
       <TodaysCalendar profile={profile} collapsed={calCollapsed} setCollapsed={toggleCalCollapsed} />
+
+      {quickTaskId && (
+        <TaskQuickView
+          taskId={quickTaskId}
+          onClose={() => setQuickTaskId(null)}
+          setActive={setActive}
+          profiles={profiles}
+          projects={projects}
+          T={T}
+          isMobile={isMobile}
+          onTaskUpdated={(id, patch) => setData(prev => prev ? { ...prev, tasks: prev.tasks.map(t => t.id === id ? { ...t, ...patch } : t) } : prev)}
+        />
+      )}
     </div>
   );
 }
