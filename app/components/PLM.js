@@ -3015,7 +3015,7 @@ function LinkedWorkTab({ programId, navigateTo, navigateToProject }) {
   );
 }
 
-function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, navigateToProject }) {
+function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, navigateToProject, linkCount }) {
   const { orgId } = useAuth();
   const [tab, setTab] = useState("overview");
   const [counts, setCounts] = useState({});
@@ -3075,7 +3075,7 @@ function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, naviga
       </div>
       <div style={{ display:"flex",gap:0,borderBottom:"1px solid "+T.border,paddingLeft:24,flexShrink:0,overflowX:"auto" }}>
         {DETAIL_TABS.map(t=>(
-          <button key={t.key} onClick={()=>setTab(t.key)} style={{ background:"none",border:"none",cursor:"pointer",padding:"10px 12px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",color:tab===t.key?T.accent:T.text3,borderBottom:"2px solid "+(tab===t.key?T.accent:"transparent"),transition:"color 0.15s" }}>{t.label}</button>
+          <button key={t.key} onClick={()=>setTab(t.key)} style={{ background:"none",border:"none",cursor:"pointer",padding:"10px 12px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",color:tab===t.key?T.accent:T.text3,borderBottom:"2px solid "+(tab===t.key?T.accent:"transparent"),transition:"color 0.15s" }}>{t.key==="linked_work"&&linkCount?`${t.label} (${linkCount})`:t.label}</button>
         ))}
       </div>
       <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }} className="content-area">{renderTab()}</div>
@@ -3331,11 +3331,22 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
   const [showNew, setShowNew]   = useState(false);
   const [search, setSearch]     = useState("");
   const [allSkus, setAllSkus]   = useState([]);
+  const [linkCounts, setLinkCounts] = useState({});
 
   useEffect(()=>{
     const load=async()=>{
       const{data}=await supabase.from("plm_programs").select("*").eq("org_id", orgId).is("deleted_at",null).order("created_at",{ascending:false});
       setPrograms(data||[]); setLoading(false);
+      // linked-work counts per program (linked projects + tasks)
+      Promise.all([
+        supabase.from("projects").select("plm_program_id").eq("org_id", orgId).not("plm_program_id","is",null).is("deleted_at",null),
+        supabase.from("tasks").select("plm_program_id").eq("org_id", orgId).not("plm_program_id","is",null).is("deleted_at",null),
+      ]).then(([{ data: lp }, { data: lt }]) => {
+        const c = {};
+        (lp||[]).forEach(r => { c[r.plm_program_id] = (c[r.plm_program_id]||0) + 1; });
+        (lt||[]).forEach(r => { c[r.plm_program_id] = (c[r.plm_program_id]||0) + 1; });
+        setLinkCounts(c);
+      });
       // Load all SKUs for roadmap view
       supabase.from("plm_skus").select("*").eq("org_id", orgId).order("launch_date").then(({ data: skuData }) => setAllSkus(skuData || []));
     };
@@ -3351,7 +3362,7 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
     if(selected?.id===id)setSelected(null);
   };
 
-  if(selected)return <ProgramDetail program={selected} onBack={()=>setSelected(null)} onUpdate={handleUpdate} onDelete={()=>deleteProgram(selected.id)} navigateTo={navigateTo} navigateToProject={navigateToProject} />;
+  if(selected)return <ProgramDetail program={selected} onBack={()=>setSelected(null)} onUpdate={handleUpdate} onDelete={()=>deleteProgram(selected.id)} navigateTo={navigateTo} navigateToProject={navigateToProject} linkCount={linkCounts[selected.id]||0} />;
 
   return (
     <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
@@ -3410,6 +3421,7 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
                       <div style={{ fontSize:13,fontWeight:600,color:T.text,marginBottom:4 }}>{p.name}</div>
                       <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
                         <PriorityBadge priority={p.priority} />
+                        {linkCounts[p.id]>0&&<span style={{ fontSize:10,fontWeight:700,background:T.accent+"18",color:T.accent,padding:"2px 7px",borderRadius:4 }}>🔗 {linkCounts[p.id]}</span>}
                         {p.target_gross_margin_pct&&<span style={{ fontSize:10,fontWeight:700,background:"#22c55e15",color:"#22c55e",padding:"2px 7px",borderRadius:4 }}>GM {p.target_gross_margin_pct}%</span>}
                       </div>
                       {(p.target_markets_v2||[]).length>0&&<div style={{ marginTop:4,fontSize:10,color:T.text3 }}>📍 {p.target_markets_v2.join(" · ")}</div>}
@@ -3428,7 +3440,7 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
                 <tr key={p.id} onClick={()=>setSelected(p)} style={{ borderBottom:"1px solid "+T.border,cursor:"pointer" }}
                   onMouseEnter={e=>e.currentTarget.style.background=T.surface2}
                   onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <td style={{ padding:"10px 12px",fontSize:13,fontWeight:500,color:T.text }}>{p.name}</td>
+                  <td style={{ padding:"10px 12px",fontSize:13,fontWeight:500,color:T.text }}>{p.name}{linkCounts[p.id]>0&&<span style={{ marginLeft:8,fontSize:10,fontWeight:700,background:T.accent+"18",color:T.accent,padding:"2px 7px",borderRadius:4,whiteSpace:"nowrap" }}>🔗 {linkCounts[p.id]}</span>}</td>
                   <td style={{ padding:"10px 12px",fontSize:12,color:T.text2 }}>{p.program_type?.replace(/_/g," ")}</td>
                   <td style={{ padding:"10px 12px" }}><StageBadge stage={p.current_stage} /></td>
                   <td style={{ padding:"10px 12px" }}><PriorityBadge priority={p.priority} /></td>
