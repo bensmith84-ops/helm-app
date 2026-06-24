@@ -330,7 +330,7 @@ function AlsoInProjects({ task, homeProject, projects, sections, links, onAdd, o
   );
 }
 
-export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
+export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingProjectId, clearPendingProject }) {
   const { user, profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
   const { showPrompt, showConfirm } = useModal();
@@ -624,6 +624,16 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       }
     }
   }, [pendingTaskId, tasks, loading]);
+
+  // Open a specific project when navigating from elsewhere (e.g. PLM linked-projects)
+  useEffect(() => {
+    if (!pendingProjectId) return;
+    if (projects.some(p => p.id === pendingProjectId)) {
+      setActiveProject(pendingProjectId);
+      setShowMyTasks(false);
+      clearPendingProject?.();
+    }
+  }, [pendingProjectId, projects]);
 
   useEffect(() => {
     if (!selectedTask) return;
