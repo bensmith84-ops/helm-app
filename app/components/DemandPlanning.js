@@ -78,6 +78,23 @@ function MiniBar({ data, maxH = 40, barW = 6, gap = 2, color = T.accent }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUPPLY CHAIN VIEW — Inventory planning, PO recommendations, stockout risk
 // ═══════════════════════════════════════════════════════════════════════════════
+// Parallel paginator: fetch all rows for a table as concurrent pages (count + Promise.all)
+// instead of sequential round-trips. A unique `id` tiebreaker in the sort keeps page
+// boundaries deterministic so no row is duplicated or skipped across pages.
+async function _dpPaginateAll(table, orgId, orders) {
+  const pageSize = 1000;
+  const { count } = await supabase.from(table).select("*", { count: "exact", head: true }).eq("org_id", orgId);
+  const pages = Math.max(1, Math.ceil((count || 0) / pageSize));
+  const results = await Promise.all(
+    Array.from({ length: pages }, (_, p) => {
+      let q = supabase.from(table).select("*").eq("org_id", orgId);
+      for (const o of orders) q = q.order(o[0], { ascending: !!o[1], nullsFirst: o[2] });
+      return q.range(p * pageSize, (p + 1) * pageSize - 1);
+    })
+  );
+  return results.flatMap(r => r.data || []);
+}
+
 // Module-level cache for the heavy Supply Chain dataset so navigating back to
 // Demand Planning renders instantly (stale-while-revalidate; refreshed after TTL).
 let DP_SUPPLY_CACHE = null;
@@ -147,26 +164,7 @@ function SupplyChainView({ isMobile, orgId }) {
       // .limit(). To get all daily rows, paginate using .range() until we get fewer than
       // pageSize rows back.
       async function fetchAllDaily() {
-        const pageSize = 1000;
-        const all = [];
-        for (let page = 0; page < 50; page++) { // hard cap at 50K rows
-          const from = page * pageSize;
-          const to = from + pageSize - 1;
-          const { data, error } = await supabase
-            .from("dp_daily_sales")
-            .select("*")
-            .eq("org_id", orgId)
-            .order("sale_date", { ascending: false })
-            .range(from, to);
-          if (error) {
-            console.error("[DP] dp_daily_sales fetch error:", error.message);
-            break;
-          }
-          if (!data || data.length === 0) break;
-          all.push(...data);
-          if (data.length < pageSize) break;
-        }
-        return all;
+        return _dpPaginateAll("dp_daily_sales", orgId, [["sale_date", false], ["id", true]]);
       }
 
       // dp_inventory stores DAILY snapshots — same (sku, warehouse) pair has
@@ -177,23 +175,7 @@ function SupplyChainView({ isMobile, orgId }) {
               // snapshot_date DESC, then dedupe to one row per (sku, warehouse_location)
               // keeping the latest snapshot only.
       async function fetchAllInventory() {
-        const pageSize = 1000;
-        const all = [];
-        for (let page = 0; page < 50; page++) { // hard cap 50K rows
-          const from = page * pageSize;
-          const to = from + pageSize - 1;
-          const { data, error } = await supabase
-            .from("dp_inventory")
-            .select("*")
-            .eq("org_id", orgId)
-            .order("snapshot_date", { ascending: false, nullsFirst: false })
-            .order("imported_at", { ascending: false, nullsFirst: false })
-            .range(from, to);
-          if (error) { console.error("[DP] dp_inventory fetch error:", error.message); break; }
-          if (!data || data.length === 0) break;
-          all.push(...data);
-          if (data.length < pageSize) break;
-        }
+        const all = await _dpPaginateAll("dp_inventory", orgId, [["snapshot_date", false, false], ["imported_at", false, false], ["id", true]]);
         // Dedupe: keep first occurrence of each (sku, warehouse) pair. Since rows
         // arrive newest-first, "first occurrence" = latest snapshot.
         const seen = new Set();
@@ -266,21 +248,7 @@ function SupplyChainView({ isMobile, orgId }) {
           }
         }
         // Legacy Supabase path — kept as fallback during cutover
-        const pageSize = 1000; const all = [];
-        for (let page = 0; page < 50; page++) {
-          const from = page * pageSize, to = from + pageSize - 1;
-          const { data, error } = await supabase
-            .from("dp_daily_sales_by_warehouse")
-            .select("*")
-            .eq("org_id", orgId)
-            .order("sale_date", { ascending: false })
-            .range(from, to);
-          if (error) { console.error("[DP] dp_daily_sales_by_warehouse:", error.message); break; }
-          if (!data || data.length === 0) break;
-          all.push(...data);
-          if (data.length < pageSize) break;
-        }
-        return all;
+        return _dpPaginateAll("dp_daily_sales_by_warehouse", orgId, [["sale_date", false], ["id", true]]);
       }
 
       // Orders come from dp_orders (very large table) and are only shown in the
