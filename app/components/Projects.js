@@ -109,6 +109,82 @@ function MentionInput({ members, profiles, onSubmit, placeholder, T, ini, acol }
   );
 }
 
+function DependencyEditor({ task, blockedBy, blocking, onAdd, onRemove, orgId, T, S, projectsById }) {
+  const [mode, setMode] = useState(null); // 'blocked_by' | 'blocking'
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!mode) return;
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); setSearching(false); return; }
+    let alive = true; setSearching(true);
+    const h = setTimeout(async () => {
+      const linked = new Set([task.id, ...blockedBy.map(d => d.task && d.task.id), ...blocking.map(d => d.task && d.task.id)].filter(Boolean));
+      const { data } = await supabase.from("tasks")
+        .select("id,title,project_id,parent_task_id")
+        .eq("org_id", orgId).is("deleted_at", null)
+        .ilike("title", `%${term}%`)
+        .order("updated_at", { ascending: false })
+        .limit(15);
+      if (!alive) return;
+      setResults((data || []).filter(t => !linked.has(t.id)));
+      setSearching(false);
+    }, 250);
+    return () => { alive = false; clearTimeout(h); };
+  }, [q, mode, task.id]);
+
+  const close = () => { setMode(null); setQ(""); setResults([]); };
+  const pick = (t) => { onAdd(mode, t); close(); };
+
+  const depRow = (d, kind) => (
+    <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", fontSize: 12 }}>
+      <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: kind === "bb" ? "#ef444420" : "#f9731620", color: kind === "bb" ? "#ef4444" : "#f97316", fontWeight: 700, flexShrink: 0 }}>{kind === "bb" ? "BLOCKED BY" : "BLOCKING"}</span>
+      <span style={{ color: T.text2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.task.title}</span>
+      <button onClick={() => onRemove(d.id)} style={S.iconBtn} title="Remove dependency">✕</button>
+    </div>
+  );
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>Dependencies</label>
+      {blockedBy.map(d => depRow(d, "bb"))}
+      {blocking.map(d => depRow(d, "bl"))}
+      {!mode ? (
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <button onClick={() => setMode("blocked_by")} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>+ Blocked by</button>
+          <button onClick={() => setMode("blocking")} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "none", color: T.text3, cursor: "pointer" }}>+ Blocking</button>
+        </div>
+      ) : (
+        <div style={{ marginTop: 6, border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, background: T.surface2 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: mode === "blocked_by" ? "#ef4444" : "#f97316", textTransform: "uppercase", letterSpacing: 0.4 }}>{mode === "blocked_by" ? "Blocked by" : "Blocking"}</span>
+            <span style={{ fontSize: 10, color: T.text3 }}>— search a task to link</span>
+            <button onClick={close} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
+          </div>
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Type to search tasks…"
+            style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", boxSizing: "border-box" }} />
+          <div style={{ marginTop: 6, maxHeight: 190, overflow: "auto" }}>
+            {searching && <div style={{ fontSize: 11, color: T.text3, padding: "4px 2px" }}>Searching…</div>}
+            {!searching && q.trim().length >= 2 && results.length === 0 && <div style={{ fontSize: 11, color: T.text3, padding: "4px 2px" }}>No matching tasks</div>}
+            {!searching && q.trim().length < 2 && <div style={{ fontSize: 11, color: T.text3, padding: "4px 2px" }}>Type at least 2 characters…</div>}
+            {results.map(t => (
+              <div key={t.id} onClick={() => pick(t)} style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, color: T.text, display: "flex", alignItems: "center", gap: 6 }}
+                onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                {t.parent_task_id && <span style={{ fontSize: 10, color: T.text3, flexShrink: 0 }}>↳</span>}
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                {projectsById && projectsById[t.project_id] && <span style={{ fontSize: 9, color: T.text3, flexShrink: 0, maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projectsById[t.project_id].name}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const { user, profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
@@ -176,6 +252,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const editCommentRef = useRef(null);
   const [attachments, setAttachments] = useState([]);
   const [dependencies, setDependencies] = useState([]);
+  const [depTasks, setDepTasks] = useState({}); // id -> {id,title,...} for dependency targets not in the loaded task set
   const [customFields, setCustomFields] = useState([]);
   const [projectLabels, setProjectLabels] = useState([]);
   const [customFieldValues, setCustomFieldValues] = useState({});
@@ -411,7 +488,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   useEffect(() => {
     if (!activeProject) return;
     Promise.all([
-      supabase.from("task_dependencies").select("*"),
+      supabase.from("task_dependencies").select("*").eq("org_id", orgId),
       supabase.from("custom_fields").select("*").eq("project_id", activeProject).order("sort_order"),
       supabase.from("custom_field_values").select("*"),
       supabase.from("milestones").select("*").eq("project_id", activeProject).order("sort_order"),
@@ -424,9 +501,22 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     });
   }, [activeProject]);
 
+  // Resolve titles for dependency targets that aren't in the loaded (top-level) task set.
+  useEffect(() => {
+    if (!dependencies.length) return;
+    const refIds = [...new Set(dependencies.flatMap(d => [d.predecessor_id, d.successor_id]))];
+    const known = new Set(tasks.map(t => t.id));
+    const missing = refIds.filter(id => !known.has(id) && !depTasks[id]);
+    if (!missing.length) return;
+    supabase.from("tasks").select("id,title,project_id,parent_task_id").in("id", missing).then(({ data }) => {
+      if (data && data.length) setDepTasks(prev => { const next = { ...prev }; data.forEach(t => { next[t.id] = t; }); return next; });
+    });
+  }, [dependencies, tasks, depTasks]);
+
   const proj = projects.find(p => p.id === activeProject);
   const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
   const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject), [tasks, activeProject]);
+  const projectsById = useMemo(() => { const m = {}; projects.forEach(p => { m[p.id] = p; }); return m; }, [projects]);
   // External-user access_scope gating: hide tabs the user has no scope for.
   // Internal users (no membership row, or invited_as_external = false) see everything.
   const myAccessScope = useMemo(() => {
@@ -597,8 +687,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
       showToast("🎉 Project complete! All tasks done.", "success");
     }
   }, [showToast]);
-  const getBlockedBy = (tid) => dependencies.filter(d => d.successor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.predecessor_id) })).filter(d => d.task);
-  const getBlocking = (tid) => dependencies.filter(d => d.predecessor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.successor_id) })).filter(d => d.task);
+  const getBlockedBy = (tid) => dependencies.filter(d => d.successor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.predecessor_id) || depTasks[d.predecessor_id] })).filter(d => d.task);
+  const getBlocking = (tid) => dependencies.filter(d => d.predecessor_id === tid).map(d => ({ ...d, task: tasks.find(t => t.id === d.successor_id) || depTasks[d.successor_id] })).filter(d => d.task);
   // Resolve the org_id to write on rows being created in this project.
   // External collaborators may have profile.org_id pointing to a different
   // org (or null), so we read it from the project itself when possible.
@@ -1002,7 +1092,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     else if (error) showToast("Attach failed: " + error.message);
   };
   const deleteAttachment = async (att) => { await supabase.storage.from("attachments").remove([att.file_path]); await supabase.from("attachments").delete().eq("org_id", orgId).eq("id", att.id); setAttachments(p => p.filter(a => a.id !== att.id)); };
-  const addDependency = async (pre, suc) => { if (pre === suc || dependencies.some(d => d.predecessor_id === pre && d.successor_id === suc)) return; const { data, error } = await supabase.from("task_dependencies").insert({ predecessor_id: pre, successor_id: suc, dependency_type: "finish_to_start" }).select().single(); if (!error && data) setDependencies(p => [...p, data]); };
+  const addDependency = async (pre, suc) => { if (pre === suc || dependencies.some(d => (d.predecessor_id === pre && d.successor_id === suc) || (d.predecessor_id === suc && d.successor_id === pre))) return; const { data, error } = await supabase.from("task_dependencies").insert({ predecessor_id: pre, successor_id: suc, dependency_type: "finish_to_start", org_id: orgId }).select().single(); if (!error && data) { setDependencies(p => [...p, data]); showToast("Dependency added", "success"); } else if (error) { showToast("Failed to add dependency"); } };
   const removeDependency = async (depId) => { await supabase.from("task_dependencies").delete().eq("id", depId); setDependencies(p => p.filter(d => d.id !== depId)); };
   const [showCFCreate, setShowCFCreate] = useState(false);
   const [cfForm, setCfForm] = useState({ name: "", field_type: "text", currency_prefix: "$", options: [] });
@@ -2322,21 +2412,21 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
               )}
 
               {/* Dependencies */}
-              {(bb.length > 0 || bl.length > 0) && (
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Dependencies</label>
-                  {bb.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", fontSize: 12 }}>
-                    <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#ef444420", color: "#ef4444", fontWeight: 700 }}>BLOCKED BY</span>
-                    <span style={{ color: T.text2, flex: 1 }}>{d.task.title}</span>
-                    <button onClick={() => removeDependency(d.id)} style={S.iconBtn}>✕</button>
-                  </div>)}
-                  {bl.map(d => <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", fontSize: 12 }}>
-                    <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#f9731620", color: "#f97316", fontWeight: 700 }}>BLOCKING</span>
-                    <span style={{ color: T.text2, flex: 1 }}>{d.task.title}</span>
-                    <button onClick={() => removeDependency(d.id)} style={S.iconBtn}>✕</button>
-                  </div>)}
-                </div>
-              )}
+              <DependencyEditor
+                task={task}
+                blockedBy={bb}
+                blocking={bl}
+                onAdd={(mode, tt) => {
+                  setDepTasks(prev => ({ ...prev, [tt.id]: tt }));
+                  if (mode === "blocked_by") addDependency(tt.id, task.id);
+                  else addDependency(task.id, tt.id);
+                }}
+                onRemove={removeDependency}
+                orgId={orgId}
+                T={T}
+                S={S}
+                projectsById={projectsById}
+              />
 
               {/* Comments */}
               <div>
