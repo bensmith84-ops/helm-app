@@ -938,6 +938,7 @@ export default function DashboardView({ setActive }) {
   const [plmPrograms, setPlmPrograms] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [qboPL, setQboPL] = useState([]);
+  const [sbMonth, setSbMonth] = useState({ shopify: 0, amazon: 0 });
   const [inbox, setInbox] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
   const [focusItems, setFocusItems] = useState([]);
@@ -963,6 +964,7 @@ export default function DashboardView({ setActive }) {
       setPlmPrograms(snap.plmPrograms || []);
       setRecentActivity(snap.recentActivity || []);
       setQboPL(snap.qboPL || []);
+      if (snap.sbMonth !== undefined) setSbMonth(snap.sbMonth);
       setFocusItems(snap.focusItems || []);
       setInbox(snap.inbox || []);
       if (snap.checkIns !== undefined) setCheckIns(snap.checkIns);
@@ -980,7 +982,7 @@ export default function DashboardView({ setActive }) {
         { data: projects }, { data: sections }, { data: tasks }, { data: profiles },
         { data: objectives }, { data: keyResults }, { data: cycles },
         { data: approvals }, { data: spendRequests }, { data: fmData }, { data: plm },
-        { data: activity }, { data: focus }, { data: qboPLData },
+        { data: activity }, { data: focus }, { data: qboPLData }, { data: sbMonthRows },
       ] = await Promise.all([
         supabase.from("projects").select("*").eq("org_id", orgId).is("deleted_at", null).order("name"),
         supabase.from("sections").select("*").order("sort_order"),
@@ -996,6 +998,7 @@ export default function DashboardView({ setActive }) {
         supabase.from("activity_log").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(20),
         supabase.from("dashboard_focus_items").select("*").eq("focus_date", todayStr).eq("user_id", profile.id).order("sort_order"),
         supabase.rpc("get_qbo_pl_monthly_summary", { p_org: orgId, p_year: String(yr) }),
+        supabase.from("scoreboard_daily").select("metric_key,value").eq("org_id", orgId).in("metric_key", ["shopify_revenue", "amazon_revenue"]).gte("date", `${yr}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`),
       ]);
 
       const profMap = {};
@@ -1031,6 +1034,11 @@ export default function DashboardView({ setActive }) {
       snap.plmPrograms = plm || []; setPlmPrograms(snap.plmPrograms);
       snap.recentActivity = activity || []; setRecentActivity(snap.recentActivity);
       snap.qboPL = qboPLData || []; setQboPL(snap.qboPL);
+      snap.sbMonth = {
+        shopify: (sbMonthRows || []).filter(r => r.metric_key === "shopify_revenue").reduce((a, r) => a + (Number(r.value) || 0), 0),
+        amazon: (sbMonthRows || []).filter(r => r.metric_key === "amazon_revenue").reduce((a, r) => a + (Number(r.value) || 0), 0),
+      };
+      setSbMonth(snap.sbMonth);
       snap.focusItems = focus || []; setFocusItems(snap.focusItems);
 
       // Load inbox notifications for current user
@@ -1118,6 +1126,21 @@ export default function DashboardView({ setActive }) {
   const revByMonth = {};
   ytdRows.forEach(r => { const m = _plMonth(r); if (m) revByMonth[m] = Number(r.revenue) || 0; });
   const revSparkline = Array.from({ length: cutoff || 0 }, (_, i) => revByMonth[i + 1] || 0);
+
+  // Channel mix (YTD, closed months, from QBO booked accounts). Retail = revenue − Shopify − Amazon.
+  const shopYTD = ytdRows.reduce((s, r) => s + (Number(r.shopify) || 0), 0);
+  const amzYTD = ytdRows.reduce((s, r) => s + (Number(r.amazon) || 0), 0);
+  const retailYTD = ytdRev != null ? ytdRev - shopYTD - amzYTD : null;
+
+  // "Not yet booked" — current open month. Retail from QuickBooks (booked monthly), Shopify &
+  // Amazon from the Daily Scoreboard (QBO only books marketplace at month-end via journal entries).
+  const openRow = qboPL.find(r => String(r.period_month) === `${curYear}-${String(curMonth).padStart(2, "0")}`);
+  const retailOpen = openRow ? (Number(openRow.revenue) || 0) - (Number(openRow.shopify) || 0) - (Number(openRow.amazon) || 0) : 0;
+  const shopOpen = Number(sbMonth.shopify) || 0;
+  const amzOpen = Number(sbMonth.amazon) || 0;
+  const notYetBooked = retailOpen + shopOpen + amzOpen;
+  const hasOpenData = !!(shopOpen || amzOpen || retailOpen);
+  const openMonthName = MONTH_ABBR[curMonth - 1];
 
   const inDev = plmPrograms.filter(p => ["development","optimization","validation","scale_up"].includes(p.current_stage)).length;
   const launchReady = plmPrograms.filter(p => p.current_stage === "launch_ready").length;
@@ -1433,6 +1456,7 @@ export default function DashboardView({ setActive }) {
                   <div><div style={{ fontSize:16, fontWeight:700, color:T.text2 }}>{fmt$(ytdExp)}</div><div style={{ fontSize:10, color:T.text3 }}>Expenses</div></div>
                   <div><div style={{ fontSize:16, fontWeight:700, color:ytdMargin!=null&&ytdMargin>=0?"#22c55e":"#ef4444" }}>{ytdMargin!=null?ytdMargin.toFixed(1)+"%":"—"}</div><div style={{ fontSize:10, color:T.text3 }}>Net margin</div></div>
                 </div>
+                {(shopYTD>0||amzYTD>0) && <div style={{ fontSize:11, color:T.text3, marginBottom:10 }}>Channel mix: <b style={{color:T.text2}}>Shopify</b> {fmt$(shopYTD)} · <b style={{color:T.text2}}>Amazon</b> {fmt$(amzYTD)} · <b style={{color:T.text2}}>Retail</b> {fmt$(retailYTD)}</div>}
                 {openMonthExcluded && <div style={{ fontSize:10, color:T.text3, marginBottom:8 }}>YTD through {ytdThrough} — {openMonthExcluded} still open in QuickBooks, excluded</div>}
                 <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:80 }}>
                   {revSparkline.map((v, i) => {
@@ -1449,6 +1473,20 @@ export default function DashboardView({ setActive }) {
                     );
                   })}
                 </div>
+                {hasOpenData && (
+                  <div style={{ marginTop:16, paddingTop:14, borderTop:`1px solid ${T.border}` }}>
+                    <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:8 }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:"0.04em" }}>Not yet booked · {openMonthName}</span>
+                      <span style={{ fontSize:18, fontWeight:800, color:T.accent }}>{fmt$(notYetBooked)}</span>
+                    </div>
+                    <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
+                      <div><div style={{ fontSize:15, fontWeight:700, color:T.text2 }}>{fmt$(shopOpen)}</div><div style={{ fontSize:10, color:T.text3 }}>Shopify</div></div>
+                      <div><div style={{ fontSize:15, fontWeight:700, color:T.text2 }}>{fmt$(amzOpen)}</div><div style={{ fontSize:10, color:T.text3 }}>Amazon</div></div>
+                      <div><div style={{ fontSize:15, fontWeight:700, color:T.text2 }}>{fmt$(retailOpen)}</div><div style={{ fontSize:10, color:T.text3 }}>Retail</div></div>
+                    </div>
+                    <div style={{ fontSize:10, color:T.text3, marginTop:8, lineHeight:1.5 }}>Shopify &amp; Amazon from the Daily Scoreboard (month-to-date); retail from QuickBooks. Posts to the P&amp;L at month-end.</div>
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ textAlign:"center", padding:"24px 0", color:T.text3 }}>
