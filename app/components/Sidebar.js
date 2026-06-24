@@ -24,7 +24,6 @@ export const NAV_GROUPS = [
   { label: "Operations", items: [
     { key: "plm", icon: "⬢", label: "PLM" },
     { key: "erp", icon: "◧", label: "ERP" },
-    { key: "3pl_billing", icon: "🚚", label: "3PL Billing" },
     { key: "wms", icon: "◨", label: "WMS" },
   ]},
   { label: "System", items: [
