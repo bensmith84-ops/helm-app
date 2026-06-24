@@ -9,6 +9,7 @@ export const NAV_GROUPS = [
     { key: "projects", icon: "◫", label: "Projects" },
     { key: "launches", icon: "🚀", label: "Launches" },
     { key: "scorecard", icon: "▣", label: "Scorecard" },
+    { key: "scoreboard", icon: "▩", label: "Scoreboard" },
     { key: "learning", icon: "📚", label: "Learning" },
     { key: "support", icon: "🎧", label: "Support" },
     { key: "docs", icon: "▤", label: "Docs" },
@@ -23,9 +24,8 @@ export const NAV_GROUPS = [
   { label: "Operations", items: [
     { key: "plm", icon: "⬢", label: "PLM" },
     { key: "erp", icon: "◧", label: "ERP" },
-    { key: "wms", icon: "◨", label: "WMS" },
     { key: "3pl_billing", icon: "🚚", label: "3PL Billing" },
-    { key: "scoreboard", icon: "▩", label: "Scoreboard" },
+    { key: "wms", icon: "◨", label: "WMS" },
   ]},
   { label: "System", items: [
     { key: "automation", icon: "⚡", label: "Automation" },
@@ -33,7 +33,6 @@ export const NAV_GROUPS = [
     { key: "people", icon: "◔", label: "Users" },
     { key: "activity", icon: "◑", label: "Activity" },
     { key: "settings", icon: "⚙", label: "Settings" },
-    { key: "ai-builder", icon: "✦", label: "AI Builder", adminOnly: true },
   ]},
 ];
 
