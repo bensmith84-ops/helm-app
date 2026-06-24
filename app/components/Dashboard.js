@@ -1142,6 +1142,13 @@ export default function DashboardView({ setActive }) {
   const hasOpenData = !!(shopOpen || amzOpen || retailOpen);
   const openMonthName = MONTH_ABBR[curMonth - 1];
 
+  // Per-month channel stack (closed months) for the stacked bar chart
+  const CH = { shopify: "#22c55e", amazon: "#f59e0b", retail: "#8b5cf6" };
+  const chByMonth = {};
+  ytdRows.forEach(r => { const m = _plMonth(r); const rev = Number(r.revenue) || 0, sh = Number(r.shopify) || 0, am = Number(r.amazon) || 0; chByMonth[m] = { shopify: sh, amazon: am, retail: rev - sh - am }; });
+  const stackMonths = Array.from({ length: cutoff || 0 }, (_, i) => chByMonth[i + 1] || { shopify: 0, amazon: 0, retail: 0 });
+  const maxStackTotal = Math.max(1, ...stackMonths.map(c => c.shopify + c.amazon + c.retail));
+
   const inDev = plmPrograms.filter(p => ["development","optimization","validation","scale_up"].includes(p.current_stage)).length;
   const launchReady = plmPrograms.filter(p => p.current_stage === "launch_ready").length;
 
@@ -1309,11 +1316,14 @@ export default function DashboardView({ setActive }) {
         {/* ── KPI Row ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>
           <KPICard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"—"}
-            sub={ytdRev!=null ? `Through ${ytdThrough} · QuickBooks` : "Connect QuickBooks in ERP"}
+            sub={ytdRev!=null ? `Shopify ${fmt$(shopYTD)} · Amazon ${fmt$(amzYTD)} · Retail ${fmt$(retailYTD)}` : "Connect QuickBooks in ERP"}
             color="#22c55e" onClick={() => setActive("erp", "pl_explorer")} />
           <KPICard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"—"}
             sub={ytdMargin!=null ? `${ytdMargin.toFixed(1)}% net margin` : ""}
             color={ytdNet!=null&&ytdNet>=0?"#22c55e":"#ef4444"} onClick={() => setActive("erp", "pl_explorer")} />
+          {hasOpenData && <KPICard icon="⏳" label="Not Yet Booked" value={fmt$(notYetBooked)}
+            sub={`${openMonthName}: Shopify ${fmt$(shopOpen)} · Amazon ${fmt$(amzOpen)} · Retail ${fmt$(retailOpen)}`}
+            color={T.accent} onClick={() => setActive("erp", "pl_explorer")} />}
           <KPICard icon="◎" label="OKR Progress" value={`${overallProgress}%`}
             sub={`${onTrackCount} on track · ${atRiskCount} at risk`}
             color={overallProgress>=60?"#22c55e":overallProgress>=30?"#eab308":"#ef4444"} onClick={() => setActive("okrs")} />
@@ -1456,18 +1466,29 @@ export default function DashboardView({ setActive }) {
                   <div><div style={{ fontSize:16, fontWeight:700, color:T.text2 }}>{fmt$(ytdExp)}</div><div style={{ fontSize:10, color:T.text3 }}>Expenses</div></div>
                   <div><div style={{ fontSize:16, fontWeight:700, color:ytdMargin!=null&&ytdMargin>=0?"#22c55e":"#ef4444" }}>{ytdMargin!=null?ytdMargin.toFixed(1)+"%":"—"}</div><div style={{ fontSize:10, color:T.text3 }}>Net margin</div></div>
                 </div>
-                {(shopYTD>0||amzYTD>0) && <div style={{ fontSize:11, color:T.text3, marginBottom:10 }}>Channel mix: <b style={{color:T.text2}}>Shopify</b> {fmt$(shopYTD)} · <b style={{color:T.text2}}>Amazon</b> {fmt$(amzYTD)} · <b style={{color:T.text2}}>Retail</b> {fmt$(retailYTD)}</div>}
                 {openMonthExcluded && <div style={{ fontSize:10, color:T.text3, marginBottom:8 }}>YTD through {ytdThrough} — {openMonthExcluded} still open in QuickBooks, excluded</div>}
-                <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:80 }}>
-                  {revSparkline.map((v, i) => {
-                    const maxV = Math.max(...revSparkline, 1);
-                    const h = Math.max(4, (v/maxV)*76);
+                <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:8, flexWrap:"wrap" }}>
+                  {[["Shopify",CH.shopify],["Amazon",CH.amazon],["Retail",CH.retail]].map(([lbl,c])=>(
+                    <div key={lbl} style={{ display:"flex", alignItems:"center", gap:5 }}>
+                      <span style={{ width:9, height:9, borderRadius:2, background:c, display:"inline-block" }} />
+                      <span style={{ fontSize:10, color:T.text3 }}>{lbl}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display:"flex", alignItems:"flex-end", gap:4, minHeight:96 }}>
+                  {stackMonths.map((c, i) => {
+                    const total = c.shopify + c.amazon + c.retail;
                     const months = ["J","F","M","A","M","J","J","A","S","O","N","D"];
                     const isCur = i+1 === curMonth;
+                    const segH = (val) => `${Math.max(val>0?1:0, (val/maxStackTotal)*82)}px`;
                     return (
                       <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-                        <div style={{ fontSize:9, color:T.text3, fontWeight:600 }}>{v>0?fmt$(v):""}</div>
-                        <div style={{ width:"100%", height:`${h}px`, borderRadius:"3px 3px 0 0", background: isCur ? T.accent : v>0 ? T.accent+"70" : T.surface3, transition:"height 0.4s" }} />
+                        <div style={{ fontSize:9, color:T.text3, fontWeight:600 }}>{total>0?fmt$(total):""}</div>
+                        <div title={`Shopify ${fmt$(c.shopify)} · Amazon ${fmt$(c.amazon)} · Retail ${fmt$(c.retail)}`} style={{ width:"100%", display:"flex", flexDirection:"column", borderRadius:"3px 3px 0 0", overflow:"hidden" }}>
+                          <div style={{ width:"100%", height:segH(c.retail), background:CH.retail }} />
+                          <div style={{ width:"100%", height:segH(c.amazon), background:CH.amazon }} />
+                          <div style={{ width:"100%", height:segH(c.shopify), background:CH.shopify }} />
+                        </div>
                         <div style={{ fontSize:9, color:isCur?T.accent:T.text3, fontWeight:isCur?700:400 }}>{months[i]}</div>
                       </div>
                     );
