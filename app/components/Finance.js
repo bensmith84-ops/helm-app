@@ -4872,7 +4872,9 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                   return <div style={{ background: T.surface2, borderRadius: 10, padding: "10px 14px", fontSize: 11, color: T.text3 }}>Loading budget pacing for this GL…</div>;
                 }
                 if (!formBudgetSnap?.hasPlan) return null;
-                const reqAmt = Number(form.amount) || 0;
+                const reqAmt = form.cost_type === "recurring"
+                  ? annualiseAmount({ cost_type: "recurring", amount: Number(form.amount) || 0, recurring_amount: Number(form.recurring_amount) || Number(form.amount) || 0, first_amount: Number(form.first_amount) || 0, recurring_frequency: form.recurring_frequency, recurring_end_date: form.recurring_end_date })
+                  : Number(form.amount) || 0;
 
                 // No-budget mode: show actuals only, no pacing chart possible.
                 if (!formBudgetSnap.hasBudget) {
@@ -4950,7 +4952,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                     </div>
                     <div style={{ fontSize: 10, color: T.text3, marginTop: 8, lineHeight: 1.5 }}>
                       YTD: <strong style={{ color: T.text }}>{fmt(ytdSpent)}</strong> of <strong style={{ color: T.text }}>{fmt(ytdBudget)}</strong> budget
-                      {reqAmt > 0 && <> · This request adds <strong style={{ color: T.text }}>{fmt(reqAmt)}</strong></>}
+                      {reqAmt > 0 && <> · This request adds <strong style={{ color: T.text }}>{fmt(reqAmt)}</strong>{form.cost_type === "recurring" ? " over the full year" : ""}</>}
                       {!onTrackAfter && (
                         <> · <span style={{ color: statusColor, fontWeight: 600 }}>{Math.round(overspendAfter * 100)}pp ahead of year pace</span></>
                       )}
@@ -5171,6 +5173,17 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                       <em>Spent includes approved-but-unpaid: {fmt(budgetSnap.monthApproved)} this month / {fmt(budgetSnap.ytdApproved)} YTD</em>
                     </div>
                   )}
+                  {selReq.cost_type === "recurring" && (() => {
+                    const total = annualiseAmount(selReq);
+                    const annualBudget = budgetSnap.monthBudget > 0 ? budgetSnap.monthBudget * 12 : budgetSnap.ytdBudget;
+                    const overAnnual = annualBudget > 0 && (budgetSnap.ytdSpent + total) > annualBudget;
+                    return (
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+                        ↻ Recurring — full-year commitment <strong style={{ color: T.text }}>{fmt(total)}</strong>
+                        {annualBudget > 0 && <> vs annual budget <strong style={{ color: T.text }}>{fmt(annualBudget)}</strong>{overAnnual && <span style={{ color: "#EF4444", fontWeight: 700 }}> · exceeds annual budget</span>}</>}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
