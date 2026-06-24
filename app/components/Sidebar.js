@@ -30,7 +30,7 @@ export const NAV_GROUPS = [
   { label: "System", items: [
     { key: "automation", icon: "⚡", label: "Automation" },
     { key: "reports", icon: "▥", label: "Reports" },
-    { key: "people", icon: "◔", label: "Team" },
+    { key: "people", icon: "◔", label: "Users" },
     { key: "activity", icon: "◑", label: "Activity" },
     { key: "settings", icon: "⚙", label: "Settings" },
     { key: "ai-builder", icon: "✦", label: "AI Builder", adminOnly: true },
