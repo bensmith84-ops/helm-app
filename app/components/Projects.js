@@ -1220,6 +1220,19 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
     setShowTemplateManager(false);
   };
 
+  const createTeamInline = async () => {
+    const name = (projectForm._newTeamName || "").trim();
+    if (!name) return;
+    if (!profile?.org_id) return showToast("No organization found");
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "team";
+    const mk = (slug) => supabase.from("teams").insert({ org_id: profile.org_id, name, slug, color: projectForm.color || "#3b82f6", created_by: profile?.id || null }).select().single();
+    let { data, error } = await mk(base);
+    if (error && (error.code === "23505" || /duplicate|unique/i.test(error.message || ""))) { ({ data, error } = await mk(base + "-" + Math.random().toString(36).slice(2, 6))); }
+    if (error || !data) { return showToast("Failed to create team: " + (error?.message || "unknown")); }
+    setTeams(p => [...p, data].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+    setProjectForm(p => ({ ...p, team_id: data.id, _addingTeam: false, _newTeamName: "" }));
+    showToast("Team created", "success");
+  };
   const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, key_result_id: projectForm.key_result_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); for (let i = 0; i < 3; i++) { const n = ["To Do", "In Progress", "Done"][i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, name: n, sort_order: i + 1 }).select().single(); if (sec) setSections(p => [...p, sec]); } if (projectForm.members.length > 0) { const newMembers = []; for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); newMembers.push({ project_id: data.id, user_id: uid, role: "member" }); if (uid !== user?.id) { await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: uid, type: "project_added", title: `${uname(user?.id)} added you to ${data.name}`, body: data.description || "You've been added to a project", entity_type: "project", entity_id: data.id, actor_id: user?.id, is_read: false, category: "assignment", metadata: { project_name: data.name } }); } } setProjMembersList(p => [...p, ...newMembers]); } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) { await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); setProjMembersList(p => [...p, { project_id: data.id, user_id: projectForm.owner_id, role: "owner" }]); if (projectForm.owner_id !== user?.id) { await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: projectForm.owner_id, type: "project_added", title: `${uname(user?.id)} made you owner of ${data.name}`, body: "You've been assigned as project owner", entity_type: "project", entity_id: data.id, actor_id: user?.id, is_read: false, category: "assignment", metadata: { project_name: data.name } }); } } } } else { const { error } = await supabase.from("projects").update(payload).eq("org_id", orgId).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
   const addCommentFromRef = async (text) => {
     if (!text || !selectedTask) return;
@@ -2921,7 +2934,23 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 </div>))}
             </div>
             {/* Team assignment - show when visibility is team or always as optional */}
-            <div style={{ marginBottom: 16 }}><label style={lbl}>Assign to Team</label><SearchableMultiSelect multi={false} placeholder="No team" options={teams.map(t => ({ value: t.id, label: t.name, icon: "👥" }))} selected={f.team_id||""} onChange={val => set("team_id", val)} />{teams.length === 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>No teams created yet</div>}</div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <label style={{ ...lbl, marginBottom: 0 }}>Assign to Team <span style={{ color: T.text3, fontWeight: 400 }}>(optional)</span></label>
+                <button type="button" onClick={() => set("_addingTeam", !f._addingTeam)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, fontWeight: 600, padding: 0 }}>{f._addingTeam ? "Cancel" : "+ New team"}</button>
+              </div>
+              {f._addingTeam ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input autoFocus value={f._newTeamName || ""} onChange={e => set("_newTeamName", e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); createTeamInline(); } if (e.key === "Escape") { set("_addingTeam", false); set("_newTeamName", ""); } }} placeholder="Team name…" style={inp} />
+                  <button type="button" onClick={createTeamInline} disabled={!(f._newTeamName || "").trim()} style={{ padding: "0 14px", borderRadius: 6, background: (f._newTeamName || "").trim() ? T.accent : T.surface3, color: (f._newTeamName || "").trim() ? "#fff" : T.text3, border: "none", fontSize: 12, fontWeight: 600, cursor: (f._newTeamName || "").trim() ? "pointer" : "default", whiteSpace: "nowrap" }}>Create</button>
+                </div>
+              ) : (
+                <>
+                  <SearchableMultiSelect multi={false} placeholder="No team" options={teams.map(t => ({ value: t.id, label: t.name, icon: "👥" }))} selected={f.team_id || ""} onChange={val => set("team_id", val)} />
+                  {teams.length === 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>No teams yet — use “+ New team” to create one.</div>}
+                </>
+              )}
+            </div>
             <div style={{ marginBottom: 16 }}><label style={lbl}>Link to PLM Product</label><SearchableMultiSelect multi={false} placeholder="No product linked" options={plmPrograms.map(p => ({ value: p.id, label: `${p.name}${p.category ? ` (${p.category})` : ""}`, icon: "⬢" }))} selected={f.plm_program_id||""} onChange={val => set("plm_program_id", val)} />{f.plm_program_id && <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: "#8b5cf620", fontSize: 11, color: "#8b5cf6", display: "flex", alignItems: "center", gap: 6 }}>⬢ Linked to: {plmPrograms.find(p => p.id === f.plm_program_id)?.name}</div>}</div>
             {/* Join policy */}
             <div style={{ marginBottom: 16 }}>
