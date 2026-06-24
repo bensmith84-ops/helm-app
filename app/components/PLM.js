@@ -2933,6 +2933,7 @@ function AIAgentTab({ program }) {
 
 const DETAIL_TABS = [
   { key:"overview",      label:"Overview"       },
+  { key:"linked_work",   label:"🔗 Projects"  },
   { key:"ai_agent",      label:"\u{1F916} AI Agent"    },
   { key:"claims_sub",    label:"Claims & Evidence"},
   { key:"formulations",  label:"Formulations"   },
@@ -2947,7 +2948,74 @@ const DETAIL_TABS = [
   { key:"gate_reviews",  label:"Gate Reviews"   },
 ];
 
-function ProgramDetail({ program, onBack, onUpdate, onDelete }) {
+function LinkedWorkTab({ programId, navigateTo, navigateToProject }) {
+  const { orgId } = useAuth();
+  const [projects, setProjects] = useState(null);
+  const [projMap, setProjMap]   = useState({});
+  const [tasks, setTasks]       = useState([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [{ data: allPr }, { data: tk }] = await Promise.all([
+        supabase.from("projects").select("id,name,status,color,target_end_date,plm_program_id").eq("org_id", orgId).is("deleted_at", null),
+        supabase.from("tasks").select("id,title,status,priority,due_date,project_id").eq("org_id", orgId).eq("plm_program_id", programId).is("deleted_at", null).limit(500),
+      ]);
+      if (!alive) return;
+      const linked = (allPr || []).filter(p => p.plm_program_id === programId).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+      const map = {}; (allPr || []).forEach(p => { map[p.id] = p.name; });
+      setProjects(linked); setProjMap(map); setTasks(tk || []);
+    })();
+    return () => { alive = false; };
+  }, [programId, orgId]);
+
+  const PSTATUS = { active:["#22c55e","Active"], on_hold:["#eab308","On Hold"], completed:["#3b82f6","Completed"], archived:["#6b7280","Archived"] };
+  const TSTATUS = { todo:["#6b7280","To Do"], in_progress:["#3b82f6","In Progress"], in_review:["#a855f7","In Review"], blocked:["#ef4444","Blocked"], done:["#22c55e","Done"], cancelled:["#6b7280","Cancelled"] };
+  const pill = (def) => { const [c,l] = def; return <span style={{ fontSize:10,fontWeight:700,background:c+"18",color:c,padding:"2px 8px",borderRadius:4,whiteSpace:"nowrap" }}>{l}</span>; };
+
+  if (projects === null) return <div style={{ color:T.text3,fontSize:13 }}>Loading linked work…</div>;
+
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:24,maxWidth:820 }}>
+      <div>
+        <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:8 }}>Linked projects <span style={{ color:T.text3,fontWeight:500 }}>({projects.length})</span></div>
+        {projects.length === 0 ? (
+          <div style={{ fontSize:12,color:T.text3,padding:"4px 0 8px" }}>No projects linked yet. In Projects, open a project, edit it, and set <b style={{color:T.text2}}>Link to PLM Product</b> to this program.</div>
+        ) : projects.map(p => (
+          <div key={p.id} onClick={() => navigateToProject && navigateToProject(p.id)}
+            style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",border:"1px solid "+T.border,borderRadius:8,marginBottom:8,cursor:navigateToProject?"pointer":"default",background:T.surface2 }}
+            onMouseEnter={e=>{ if(navigateToProject) e.currentTarget.style.background=T.surface3; }} onMouseLeave={e=>{ e.currentTarget.style.background=T.surface2; }}>
+            <div style={{ width:10,height:10,borderRadius:3,background:p.color||T.accent,flexShrink:0 }} />
+            <div style={{ flex:1,minWidth:0 }}>
+              <div style={{ fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{p.name}</div>
+              {p.target_end_date && <div style={{ fontSize:11,color:T.text3 }}>Target: {p.target_end_date}</div>}
+            </div>
+            {pill(PSTATUS[p.status] || ["#6b7280", p.status || "—"])}
+            {navigateToProject && <span style={{ color:T.text3,fontSize:14 }}>→</span>}
+          </div>
+        ))}
+      </div>
+      <div>
+        <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:8 }}>Linked tasks <span style={{ color:T.text3,fontWeight:500 }}>({tasks.length})</span></div>
+        {tasks.length === 0 ? (
+          <div style={{ fontSize:12,color:T.text3,padding:"4px 0 8px" }}>No tasks linked yet. Open a task, edit it, and set its <b style={{color:T.text2}}>Link to PLM Product</b> to this program.</div>
+        ) : tasks.map(t => (
+          <div key={t.id} onClick={() => navigateTo && navigateTo("projects", t.id)}
+            style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 12px",border:"1px solid "+T.border,borderRadius:8,marginBottom:6,cursor:navigateTo?"pointer":"default",background:T.surface2 }}
+            onMouseEnter={e=>{ if(navigateTo) e.currentTarget.style.background=T.surface3; }} onMouseLeave={e=>{ e.currentTarget.style.background=T.surface2; }}>
+            <div style={{ flex:1,minWidth:0 }}>
+              <div style={{ fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.title}</div>
+              {projMap[t.project_id] && <div style={{ fontSize:11,color:T.text3 }}>{projMap[t.project_id]}</div>}
+            </div>
+            {pill(TSTATUS[t.status] || ["#6b7280", t.status || "—"])}
+            {navigateTo && <span style={{ color:T.text3,fontSize:14 }}>→</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProgramDetail({ program, onBack, onUpdate, onDelete, navigateTo, navigateToProject }) {
   const { orgId } = useAuth();
   const [tab, setTab] = useState("overview");
   const [counts, setCounts] = useState({});
@@ -2970,6 +3038,7 @@ function ProgramDetail({ program, onBack, onUpdate, onDelete }) {
   const renderTab=()=>{
     switch(tab){
       case "overview":     return <OverviewTab program={program} onUpdate={onUpdate} counts={counts} />;
+      case "linked_work":  return <LinkedWorkTab programId={program.id} navigateTo={navigateTo} navigateToProject={navigateToProject} />;
       case "ai_agent":     return <AIAgentTab program={program} />;      case "claims_sub":   return <ClaimsSubstantiationTab program={program} onUpdate={onUpdate} />;
       case "gm_scenarios": return <GMScenarioTab program={program} />;
       case "formulations": return <FormulationsTab programId={program.id} />;
@@ -3252,7 +3321,7 @@ function ProductRoadmap({ programs, allSkus, onSelectProgram, isMobile }) {
 
 // ─── MAIN PLM VIEW ────────────────────────────────────────────────────────────
 
-export default function PLMView() {
+export default function PLMView({ navigateTo, navigateToProject } = {}) {
   const { isMobile } = useResponsive();
   const { orgId } = useAuth();
   const [programs, setPrograms] = useState([]);
@@ -3282,7 +3351,7 @@ export default function PLMView() {
     if(selected?.id===id)setSelected(null);
   };
 
-  if(selected)return <ProgramDetail program={selected} onBack={()=>setSelected(null)} onUpdate={handleUpdate} onDelete={()=>deleteProgram(selected.id)} />;
+  if(selected)return <ProgramDetail program={selected} onBack={()=>setSelected(null)} onUpdate={handleUpdate} onDelete={()=>deleteProgram(selected.id)} navigateTo={navigateTo} navigateToProject={navigateToProject} />;
 
   return (
     <div style={{ display:"flex",flexDirection:"column",height:"100%" }}>
