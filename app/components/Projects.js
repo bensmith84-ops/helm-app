@@ -185,6 +185,75 @@ function DependencyEditor({ task, blockedBy, blocking, onAdd, onRemove, orgId, T
   );
 }
 
+function ProfileCardPopover({ userId, pos, profilesMap, orgId, T, onClose }) {
+  const seed = (profilesMap && profilesMap[userId]) || null;
+  const [p, setP] = useState(seed);
+  const [manager, setManager] = useState(null);
+  const [openCount, setOpenCount] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      let prof = (profilesMap && profilesMap[userId]) || null;
+      if (!prof) {
+        const { data } = await supabase.from("profiles")
+          .select("id,display_name,email,title,department,sub_department,location,reports_to,avatar_url")
+          .eq("id", userId).maybeSingle();
+        prof = data || null;
+        if (alive) setP(prof);
+      }
+      if (prof && prof.reports_to) {
+        const m = (profilesMap && profilesMap[prof.reports_to]) || null;
+        if (m) { if (alive) setManager(m); }
+        else {
+          const { data: md } = await supabase.from("profiles").select("id,display_name").eq("id", prof.reports_to).maybeSingle();
+          if (alive) setManager(md || null);
+        }
+      }
+      const { count } = await supabase.from("tasks").select("id", { count: "exact", head: true })
+        .eq("assignee_id", userId).is("deleted_at", null).not("status", "in", "(done,cancelled)");
+      if (alive) setOpenCount(count == null ? 0 : count);
+    })();
+    return () => { alive = false; };
+  }, [userId]);
+
+  const W = 264;
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1000;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  const left = Math.min(Math.max(8, (pos && pos.x) || 100), vw - W - 8);
+  const top = Math.min(((pos && pos.y) || 100) + 6, vh - 240);
+
+  const name = (p && (p.display_name || p.email)) || "Unknown";
+  const initials = (name === "Unknown" ? "?" : name).split(/\s+/).map(x => x[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
+  const COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
+  const color = userId ? COLORS[userId.charCodeAt(userId.length - 1) % COLORS.length] : T.text3;
+  const subtitle = [p && p.title, p && p.department].filter(Boolean).join(" \u00b7 ");
+  const labelStyle = { color: T.text3, width: 70, flexShrink: 0 };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1199 }} />
+      <div onClick={e => e.stopPropagation()} style={{ position: "fixed", left, top, width: W, zIndex: 1200, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.28)", padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: subtitle || (p && p.email) ? 12 : 0 }}>
+          {p && p.avatar_url
+            ? <img src={p.avatar_url} alt="" style={{ width: 44, height: 44, borderRadius: 22, objectFit: "cover", flexShrink: 0 }} />
+            : <div style={{ width: 44, height: 44, borderRadius: 22, background: `${color}18`, border: `2px solid ${color}50`, color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, flexShrink: 0 }}>{initials}</div>}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+            {subtitle && <div style={{ fontSize: 11, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: T.text2 }}>
+          {p && p.email && <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Email</span><a href={`mailto:${p.email}`} style={{ color: T.accent, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.email}</a></div>}
+          {p && p.location && <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Location</span><span>{p.location}</span></div>}
+          {manager && <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Manager</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{manager.display_name || "\u2014"}</span></div>}
+          <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Open tasks</span><span>{openCount == null ? "\u2026" : openCount}</span></div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const { user, profile, orgId } = useAuth();
   const { isMobile, isTablet } = useResponsive();
@@ -253,6 +322,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
   const [attachments, setAttachments] = useState([]);
   const [dependencies, setDependencies] = useState([]);
   const [depTasks, setDepTasks] = useState({}); // id -> {id,title,...} for dependency targets not in the loaded task set
+  const [profileCard, setProfileCard] = useState(null); // {userId,x,y} for the read-only creator profile popover
   const [customFields, setCustomFields] = useState([]);
   const [projectLabels, setProjectLabels] = useState([]);
   const [customFieldValues, setCustomFieldValues] = useState({});
@@ -2483,9 +2553,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
                 Created by {(() => {
                   const c = profiles[task.created_by] || allProfiles.find(p => p.id === task.created_by);
                   const nm = c ? (c.display_name || c.email || "Unknown") : "Unknown";
-                  return c && c.email
-                    ? <a href={`mailto:${c.email}`} style={{ color: T.accent, textDecoration: "none", fontWeight: 600 }}>{nm}</a>
-                    : <span style={{ color: T.text2, fontWeight: 600 }}>{nm}</span>;
+                  if (!task.created_by) return <span style={{ color: T.text2, fontWeight: 600 }}>{nm}</span>;
+                  return <span onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setProfileCard({ userId: task.created_by, x: r.left, y: r.bottom }); }} style={{ color: T.accent, fontWeight: 600, cursor: "pointer" }}>{nm}</span>;
                 })()}
                 {task.created_at ? ` · ${toDateStr(task.created_at)}` : ""}
               </div>
@@ -3974,6 +4043,16 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask }) {
           </div>
         );
       })()}
+      {profileCard && (
+        <ProfileCardPopover
+          userId={profileCard.userId}
+          pos={profileCard}
+          profilesMap={profiles}
+          orgId={orgId}
+          T={T}
+          onClose={() => setProfileCard(null)}
+        />
+      )}
     </div>
   );
 }
