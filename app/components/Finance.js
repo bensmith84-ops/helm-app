@@ -4017,6 +4017,16 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   const [uploadingFile, setUploadingFile] = useState(false);
   const [formAttachments, setFormAttachments] = useState([]);
 
+  // Auto-open the New Request modal when arriving from a "New Spend Request" shortcut (e.g. Home quick action)
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && sessionStorage.getItem("helm_new_spend_request")) {
+        sessionStorage.removeItem("helm_new_spend_request");
+        setEditMode(false); setForm(FORM_INIT); setFormAttachments([]); setShowNew(true);
+      }
+    } catch {}
+  }, []);
+
   const uploadFile = async (file) => {
     if (!file || file.size > 10 * 1024 * 1024) { alert("File too large (max 10MB)"); return; }
     setUploadingFile(true);
