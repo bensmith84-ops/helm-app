@@ -78,6 +78,11 @@ function MiniBar({ data, maxH = 40, barW = 6, gap = 2, color = T.accent }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUPPLY CHAIN VIEW — Inventory planning, PO recommendations, stockout risk
 // ═══════════════════════════════════════════════════════════════════════════════
+// Module-level cache for the heavy Supply Chain dataset so navigating back to
+// Demand Planning renders instantly (stale-while-revalidate; refreshed after TTL).
+let DP_SUPPLY_CACHE = null;
+const DP_SUPPLY_TTL = 5 * 60 * 1000;
+
 function SupplyChainView({ isMobile, orgId }) {
   const [weeklySales, setWeeklySales] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -120,8 +125,21 @@ function SupplyChainView({ isMobile, orgId }) {
   }, [orgId]);
 
   useEffect(() => {
+    let _alive = true;
+    const _applyDP = (d) => {
+      setWeeklySales(d.weeklySales || []);
+      setInventory(d.inventory || []);
+      setOffers(d.offers || []);
+      setSkuMaster(d.skuMaster || []);
+      setSkuOverrides(d.skuOverrides || []);
+      setWarehouseSales(d.warehouseSales || []);
+    };
+    const _cached = (DP_SUPPLY_CACHE && DP_SUPPLY_CACHE.orgId === orgId) ? DP_SUPPLY_CACHE : null;
+    if (_cached) { _applyDP(_cached.data); setLoading(false); }
+    else { setLoading(true); }
+    // Cache still fresh -> skip the heavy refetch entirely.
+    if (_cached && Date.now() - _cached.ts < DP_SUPPLY_TTL) { return () => { _alive = false; }; }
     (async () => {
-      setLoading(true);
 
       // Supabase PostgREST has a server-side max-rows cap (default 1000) that overrides
       // .limit(). To get all daily rows, paginate using .range() until we get fewer than
@@ -211,6 +229,7 @@ function SupplyChainView({ isMobile, orgId }) {
         });
       }
       console.log(`[DP] Loaded ${salesData.length} daily sales rows, ${new Set(salesData.map(r => r.week_start)).size} distinct weeks`);
+      if (!_alive) return;
       setWeeklySales(salesData);
       setInventory(invRows || []);
       setOffers(offR.data || []);
@@ -262,52 +281,52 @@ function SupplyChainView({ isMobile, orgId }) {
         return all;
       }
 
-      async function fetchRecentOrders() {
-        if (useProxy) {
-          const end = new Date(); const start = new Date(); start.setUTCDate(start.getUTCDate() - 90);
-          const url = `${BQ_PROXY_URL}/dp/orders?start_date=${start.toISOString().split("T")[0]}&end_date=${end.toISOString().split("T")[0]}&limit=200000`;
-          try {
-            const res = await fetch(url, { headers: { Authorization: `Bearer ${BQ_PROXY_TOKEN}` } });
-            if (!res.ok) {
-              console.error("[DP] bq-proxy orders failed:", res.status, await res.text().catch(() => ""));
-              return [];
-            }
-            const { rows } = await res.json();
-            return rows || [];
-          } catch (err) {
-            console.error("[DP] bq-proxy orders threw:", err.message);
-            return [];
-          }
-        }
-        // Legacy Supabase path
-        const cutoff = new Date(); cutoff.setUTCDate(cutoff.getUTCDate() - 90);
-        const cutoffStr = cutoff.toISOString().split("T")[0];
-        const pageSize = 1000; const all = [];
-        for (let page = 0; page < 20; page++) {
-          const from = page * pageSize, to = from + pageSize - 1;
-          const { data, error } = await supabase
-            .from("dp_orders")
-            .select("*")
-            .eq("org_id", orgId)
-            .gte("order_date", cutoffStr)
-            .order("order_date", { ascending: false })
-            .order("order_timestamp", { ascending: false, nullsFirst: false })
-            .range(from, to);
-          if (error) { console.error("[DP] dp_orders:", error.message); break; }
-          if (!data || data.length === 0) break;
-          all.push(...data);
-          if (data.length < pageSize) break;
-        }
-        return all;
-      }
-      const [whSales, ordRows] = await Promise.all([fetchAllWarehouseSales(), fetchRecentOrders()]);
-      console.log(`[DP] Loaded ${whSales.length} warehouse-sales rows, ${ordRows.length} order rows`);
+      // Orders come from dp_orders (very large table) and are only shown in the
+      // Orders sub-tab, so they are loaded lazily by a separate effect on first open.
+      const whSales = await fetchAllWarehouseSales();
+      if (!_alive) return;
+      console.log(`[DP] Loaded ${whSales.length} warehouse-sales rows`);
       setWarehouseSales(whSales);
-      setOrders(ordRows);
+
+      // Cache the full dataset (stale-while-revalidate) so re-opening this tab is instant.
+      DP_SUPPLY_CACHE = { orgId, ts: Date.now(), data: { weeklySales: salesData, inventory: invRows || [], offers: offR.data || [], skuMaster: skuR.data || [], skuOverrides: ovR.data || [], warehouseSales: whSales } };
 
       setLoading(false);
     })();
+    return () => { _alive = false; };
   }, [orgId]);
+
+  // Lazy-load order-level detail only when the Orders sub-tab is first opened.
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  useEffect(() => {
+    if (subTab !== "orders" || ordersLoaded || ordersLoading) return;
+    let alive = true;
+    (async () => {
+      setOrdersLoading(true);
+      const cutoff = new Date(); cutoff.setUTCDate(cutoff.getUTCDate() - 90);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
+      const pageSize = 1000; const all = [];
+      for (let page = 0; page < 20; page++) {
+        const from = page * pageSize, to = from + pageSize - 1;
+        const { data, error } = await supabase
+          .from("dp_orders")
+          .select("*")
+          .eq("org_id", orgId)
+          .gte("order_date", cutoffStr)
+          .order("order_date", { ascending: false })
+          .order("order_timestamp", { ascending: false, nullsFirst: false })
+          .range(from, to);
+        if (error) { console.error("[DP] dp_orders:", error.message); break; }
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < pageSize) break;
+      }
+      if (!alive) return;
+      setOrders(all); setOrdersLoaded(true); setOrdersLoading(false);
+    })();
+    return () => { alive = false; };
+  }, [subTab, ordersLoaded, ordersLoading, orgId]);
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>Loading demand data...</div>;
   if (weeklySales.length === 0 && inventory.length === 0) {
@@ -1019,6 +1038,11 @@ function SupplyChainView({ isMobile, orgId }) {
 
       {/* ─── ORDERS TAB (Option C) ──────────────────────────────────────── */}
       {subTab === "orders" && (() => {
+        if (ordersLoading && orders.length === 0) {
+          return (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 40, textAlign: "center", color: T.text3 }}>Loading orders…</div>
+          );
+        }
         if (orders.length === 0) {
           return (
             <div style={{ background: T.surface, border: `1px dashed ${T.border}`, borderRadius: 12, padding: 40, textAlign: "center" }}>
