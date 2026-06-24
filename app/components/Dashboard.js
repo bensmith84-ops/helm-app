@@ -868,7 +868,7 @@ export default function DashboardView({ setActive }) {
       ] = await Promise.all([
         supabase.from("projects").select("*").eq("org_id", orgId).is("deleted_at", null).order("name"),
         supabase.from("sections").select("*").order("sort_order"),
-        supabase.from("tasks").select("*").is("deleted_at", null),
+        supabase.from("tasks").select("id,project_id,section_id,parent_task_id,title,status,priority,assignee_id,due_date,completed_at,sort_order,created_at").is("deleted_at", null),
         supabase.from("profiles").select("id,display_name,avatar_url"),
         supabase.from("objectives").select("*").eq("org_id", orgId).is("deleted_at", null).order("sort_order"),
         supabase.from("key_results").select("*").eq("org_id", orgId).is("deleted_at", null),
