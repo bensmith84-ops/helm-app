@@ -22,6 +22,14 @@ const mkBlock = (type = "text", content = "") => {
 const now = () => new Date().toISOString();
 
 // ──── STABLE EDITABLE BLOCK (no re-render on typing) ────
+const styleEq = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every(k => a[k] === b[k]);
+};
+
 const EditableBlock = memo(function EditableBlock({ blockId, initialContent, style, placeholder, onContentChange, onKeyDown, onFocus, onSlash, blockRef }) {
   const ref = useRef(null);
   const contentRef = useRef(initialContent || "");
@@ -56,14 +64,18 @@ const EditableBlock = memo(function EditableBlock({ blockId, initialContent, sty
         const text = e.target.innerText;
         contentRef.current = text;
         onContentChangeRef.current?.(text);
-        if (text === "/") { onSlashRef.current?.(e.target.getBoundingClientRect(), ""); }
-        else if (text.startsWith("/") && text.length < 20) { onSlashRef.current?.(e.target.getBoundingClientRect(), text.slice(1).toLowerCase()); }
       }}
       onKeyDown={e => onKeyDownRef.current?.(e, contentRef.current)}
       onFocus={() => onFocusRef.current?.()}
     />
   );
-}, () => true); // NEVER re-render — content is managed entirely via DOM/refs
+}, (prev, next) => (
+  // Re-render only when something visual changes (type-driven style, placeholder, or a new
+  // block takes this slot). Typing doesn't change these props, so the caret is never reset.
+  prev.blockId === next.blockId &&
+  prev.placeholder === next.placeholder &&
+  styleEq(prev.style, next.style)
+));
 EditableBlock.displayName = "EditableBlock";
 
 // ──── TABLE FORMULA ENGINE ────
@@ -128,7 +140,10 @@ export default function DocsView({ setActive }) {
   const blockContents = useRef({}); // Store content in ref to avoid re-renders
   const saveTimer = useRef(null);
   const titleSaveTimer = useRef(null);
-  const slashSuppress = useRef(false); // when true, "/" will not reopen the menu (user pressed esc to keep a literal slash)
+  const blocksRef = useRef(blocks); blocksRef.current = blocks;
+  const slashMenuRef = useRef(slashMenu); slashMenuRef.current = slashMenu;
+  const calloutPickerRef = useRef(calloutEmojiPicker); calloutPickerRef.current = calloutEmojiPicker;
+  const handleKeyRef = useRef(null);
 
   const [projects, setProjects] = useState([]);
 
@@ -188,9 +203,16 @@ export default function DocsView({ setActive }) {
   // Content change handler — does NOT trigger re-render
   const handleContentChange = useCallback((blockId, text) => {
     blockContents.current[blockId] = text;
-    if (!text.startsWith("/")) {
-      slashSuppress.current = false;
-      setSlashMenu(m => (m && m.blockId === blockId) ? null : m);
+    // While the menu is open for this block, mirror the text typed after "/" into the filter.
+    // Deleting the "/" or typing a space closes it (space = "I want a literal slash, carry on").
+    const sm = slashMenuRef.current;
+    if (sm && sm.blockId === blockId) {
+      if (!text.startsWith("/")) setSlashMenu(null);
+      else {
+        const f = text.slice(1);
+        if (f.includes(" ")) setSlashMenu(null);
+        else setSlashMenu(m => (m && m.blockId === blockId) ? { ...m, filter: f.toLowerCase(), index: 0 } : m);
+      }
     }
     queueSave();
   }, [queueSave]);
@@ -224,7 +246,6 @@ export default function DocsView({ setActive }) {
 
   const changeBlockType = (bid, type) => {
     blockContents.current[bid] = "";
-    slashSuppress.current = false;
     setBlocks(prev => prev.map(b => b.id === bid ? { ...b, type, content: "", ...(type === "table" ? { tableData: { cols: ["Column A","Column B","Column C"], rows: [["","",""],["","",""]], formulas: {} } } : {}) } : b));
     setSlashMenu(null);
     queueSave();
@@ -256,10 +277,15 @@ export default function DocsView({ setActive }) {
     } else if (e.key === "ArrowDown") {
       const i = blocks.findIndex(b => b.id === blockId);
       if (i < blocks.length - 1) { e.preventDefault(); blockRefs.current[blocks[i + 1].id]?.focus(); }
+    } else if (e.key === "/" && !currentContent && !slashMenuRef.current) {
+      // "/" at the start of an empty block opens the menu. Mid-text "/" stays literal.
+      const r = e.target.getBoundingClientRect();
+      setSlashMenu({ blockId, x: r.left, y: r.bottom + 4, filter: "", index: 0 });
     } else if (e.key === "Escape") {
       setSlashMenu(null);
     }
   }, [blocks]);
+  handleKeyRef.current = handleKey;
 
   // Keyboard navigation for the slash menu. Capture-phase on window so it fires BEFORE
   // the block's contentEditable handler (which would otherwise insert a newline or move
@@ -284,7 +310,6 @@ export default function DocsView({ setActive }) {
       } else if (e.key === "Escape") {
         e.preventDefault(); e.stopPropagation();
         setSlashMenu(null);
-        slashSuppress.current = true; // keep the "/" the user typed; don't reopen until it's deleted or they refocus
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -471,9 +496,9 @@ export default function DocsView({ setActive }) {
     );
 
     let numIdx = 1;
-    if (block.type === "numbered") { for (let j = index - 1; j >= 0; j--) { if (blocks[j].type === "numbered") numIdx++; else break; } }
+    if (block.type === "numbered") { for (let j = index - 1; j >= 0; j--) { if (blocksRef.current[j]?.type === "numbered") numIdx++; else break; } }
 
-    const placeholder = block.type === "h1" ? "Heading 1" : block.type === "h2" ? "Heading 2" : block.type === "h3" ? "Heading 3" : block.type === "quote" ? "Quote..." : index === 0 && blocks.length <= 1 ? "Type '/' for commands..." : "";
+    const placeholder = block.type === "h1" ? "Heading 1" : block.type === "h2" ? "Heading 2" : block.type === "h3" ? "Heading 3" : block.type === "quote" ? "Quote..." : index === 0 && blocksRef.current.length <= 1 ? "Type '/' for commands..." : "";
 
     return (
       <div style={{ position: "relative", padding: "1px 0", display: "flex", alignItems: "flex-start", gap: 0, marginLeft: (block.indent || 0) * 24 }}
@@ -485,10 +510,10 @@ export default function DocsView({ setActive }) {
         {block.type === "numbered" && <span style={{ color: T.text3, fontSize: 13, lineHeight: "26px", flexShrink: 0, width: 22, textAlign: "right", paddingRight: 4, fontFamily: "monospace" }}>{numIdx}.</span>}
         {block.type === "todo" && <input type="checkbox" checked={block.checked || false} onChange={() => updateBlockMeta(block.id, { checked: !block.checked })} style={{ marginTop: 6, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }} />}
         {block.type === "callout" && (
-          <span onClick={() => setCalloutEmojiPicker(calloutEmojiPicker === block.id ? null : block.id)}
+          <span onClick={() => setCalloutEmojiPicker(calloutPickerRef.current === block.id ? null : block.id)}
             style={{ fontSize: 18, marginTop: 10, flexShrink: 0, cursor: "pointer", position: "relative" }} title="Change emoji">
             {block.emoji || "💡"}
-            {calloutEmojiPicker === block.id && (
+            {calloutPickerRef.current === block.id && (
               <div style={{ position: "absolute", top: "100%", left: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", zIndex: 50, display: "flex", gap: 2, flexWrap: "wrap", width: 200 }}
                 onClick={e => e.stopPropagation()}>
                 {CALLOUT_EMOJIS.map(em => (
@@ -520,9 +545,8 @@ export default function DocsView({ setActive }) {
               }}
               placeholder={placeholder}
               onContentChange={(text) => handleContentChange(block.id, text)}
-              onKeyDown={(e, content) => handleKey(e, block.id, content)}
-              onFocus={() => { slashSuppress.current = false; }}
-              onSlash={(rect, filter) => { if (slashSuppress.current) return; setSlashMenu({ blockId: block.id, x: rect.left, y: rect.bottom + 4, filter, index: 0 }); }}
+              onKeyDown={(e, content) => handleKeyRef.current?.(e, block.id, content)}
+              onFocus={() => {}}
               blockRef={(el) => { blockRefs.current[block.id] = el; }}
             />
           )}
