@@ -354,6 +354,17 @@ export default function DocsView({ setActive }) {
     if (data) { setDocs(p => [...p, data]); openDoc(data); }
   };
 
+  // Arriving from Home's "New Doc" quick action: create a fresh doc and open it straight away.
+  useEffect(() => {
+    if (loading || !orgId) return;
+    let flag = null;
+    try { flag = sessionStorage.getItem("helm_new_doc"); } catch (_) {}
+    if (flag) {
+      try { sessionStorage.removeItem("helm_new_doc"); } catch (_) {}
+      createDoc();
+    }
+  }, [loading, orgId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const deleteDoc = async (id) => {
     await supabase.from("documents").update({ deleted_at: now() }).eq("org_id", orgId).eq("id", id);
     setDocs(p => p.filter(d => d.id !== id));
