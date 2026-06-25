@@ -263,6 +263,20 @@ export default function DocsView({ setActive }) {
       e.preventDefault();
       const keepType = ["bullet", "numbered", "todo"].includes(block.type);
       insertBlockAfter(block.id, keepType && currentContent ? block.type : "text");
+    } else if (e.key === "Tab") {
+      // Tab nests a block under the one above (sub-bullet / sub-item / toggle child);
+      // Shift+Tab outdents. Always preventDefault so focus never leaves the editor.
+      e.preventDefault();
+      const i = blocks.findIndex(b => b.id === blockId);
+      const cur = block.indent || 0;
+      if (e.shiftKey) {
+        if (cur > 0) updateBlockMeta(block.id, { indent: cur - 1 });
+      } else {
+        const prev = i > 0 ? blocks[i - 1] : null;
+        const maxAllowed = prev ? Math.min((prev.indent || 0) + 1, 6) : 0; // can't skip levels / can't indent the first block
+        const next = Math.min(cur + 1, maxAllowed);
+        if (next !== cur) updateBlockMeta(block.id, { indent: next });
+      }
     } else if (e.key === "Backspace" && !currentContent) {
       e.preventDefault();
       if (block.type !== "text") changeBlockType(block.id, "text");
@@ -496,7 +510,17 @@ export default function DocsView({ setActive }) {
     );
 
     let numIdx = 1;
-    if (block.type === "numbered") { for (let j = index - 1; j >= 0; j--) { if (blocksRef.current[j]?.type === "numbered") numIdx++; else break; } }
+    if (block.type === "numbered") {
+      const ci = block.indent || 0;
+      for (let j = index - 1; j >= 0; j--) {
+        const pb = blocksRef.current[j]; if (!pb) break;
+        const pi = pb.indent || 0;
+        if (pi > ci) continue;                 // deeper descendant of an earlier sibling — skip
+        if (pi < ci) break;                    // parent level — numbering restarts under it
+        if (pb.type === "numbered") numIdx++;  // sibling at the same level
+        else break;                            // same-level non-numbered ends the run
+      }
+    }
 
     const placeholder = block.type === "h1" ? "Heading 1" : block.type === "h2" ? "Heading 2" : block.type === "h3" ? "Heading 3" : block.type === "quote" ? "Quote..." : index === 0 && blocksRef.current.length <= 1 ? "Type '/' for commands..." : "";
 
@@ -868,7 +892,20 @@ export default function DocsView({ setActive }) {
                   placeholder="Untitled" style={{ fontSize: 34, fontWeight: 800, color: T.text, background: "transparent", border: "none", outline: "none", width: "100%", fontFamily: "inherit", padding: 0, letterSpacing: "-0.02em" }} />
               </div>
               <div style={{ paddingBottom: 200, paddingTop: 8 }}>
-                {blocks.map((b, i) => <Block key={b.id} block={b} index={i} />)}
+                {(() => {
+                  // A collapsed toggle hides the contiguous blocks beneath it that are indented deeper.
+                  const hidden = new Set();
+                  for (let i = 0; i < blocks.length; i++) {
+                    const b = blocks[i];
+                    if (b.type === "toggle" && b.collapsed) {
+                      const L = b.indent || 0;
+                      for (let j = i + 1; j < blocks.length; j++) {
+                        if ((blocks[j].indent || 0) > L) hidden.add(blocks[j].id); else break;
+                      }
+                    }
+                  }
+                  return blocks.map((b, i) => hidden.has(b.id) ? null : <Block key={b.id} block={b} index={i} />);
+                })()}
                 <div style={{ paddingLeft: 32, paddingTop: 8 }}>
                   <button onClick={() => { const last = blocks[blocks.length - 1]; if (last) insertBlockAfter(last.id); else { const nb = mkBlock(); blockContents.current[nb.id] = ""; setBlocks([nb]); } }}
                     style={{ background: "none", border: "none", color: T.text3, fontSize: 12, cursor: "pointer", padding: "4px 8px", borderRadius: 4, opacity: 0.4 }}
