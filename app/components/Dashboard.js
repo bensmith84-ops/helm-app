@@ -1205,13 +1205,7 @@ export default function DashboardView({ setActive }) {
         <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap", alignItems:"center" }}>
           {[
             { icon:"☐", label:"New Task", action:() => { setNewTaskForm({ title: "", project_id: "", section_id: "", priority: "none", due_date: new Date().toISOString().split("T")[0] }); setShowNewTask(true); }, color:"#3b82f6" },
-            { icon:"📄", label:"New Doc", action:async () => {
-              await supabase.from("documents").insert({
-                org_id: profile.org_id, title: "Untitled", emoji: "📄", status: "draft", visibility: "team",
-                created_by: profile.id, content: [{ type: "text", content: "" }], sort_order: 0, depth: 0,
-              });
-              setActive("docs");
-            }, color:"#06b6d4" },
+            { icon:"📄", label:"New Doc", action:() => { try { sessionStorage.setItem("helm_new_doc", "1"); } catch {} setActive("docs"); }, color:"#06b6d4" },
             { icon:"💸", label:"New Spend Request", action:() => { try { sessionStorage.setItem("helm_new_spend_request", "1"); } catch {} setActive("erp", "fin_requests"); }, color:"#a855f7" },
             { icon:"📊", label:"Reports", action:() => setActive("reports"), color:"#f97316" },
           ].map(a => (
