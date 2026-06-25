@@ -413,6 +413,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [projMembersList, setProjMembersList] = useState([]); // [{ project_id, user_id, role }]
   const [myProjectMemberships, setMyProjectMemberships] = useState([]); // current user only, with access_scope + invited_as_external
   const [showAddMember, setShowAddMember] = useState(false);
+  const [memberSearch, setMemberSearch] = useState("");
   const _profilesRef = useRef({});
   const _loadedSubRef = useRef(new Set());
   const _loadSubtasksRef = useRef(null);
@@ -1686,7 +1687,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 );
               })}
               {extra > 0 && <div style={{ width: 28, height: 28, borderRadius: 14, background: T.surface3, border: `2px solid ${T.surface}`, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, marginLeft: -6 }}>+{extra}</div>}
-              <button onClick={() => setShowAddMember(true)} title="Manage members"
+              <button onClick={() => { setMemberSearch(""); setShowAddMember(true); }} title="Manage members"
                 style={{ width: 28, height: 28, borderRadius: 14, background: "transparent", border: `1.5px dashed ${T.border}`, color: T.text3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, cursor: "pointer", marginLeft: 4 }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}>+</button>
@@ -4301,15 +4302,24 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 {/* Add new members */}
                 {availableProfiles.length > 0 && <>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 16, marginBottom: 8 }}>Add Members</div>
-                  {availableProfiles.map(p => {
-                    const c = acol(p.id);
-                    return <div key={p.id} onClick={() => addMember(p.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}`, cursor: "pointer", borderRadius: 6 }}
-                      onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <div style={{ width: 30, height: 30, borderRadius: 15, background: `${c}20`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{ini(p.id)}</div>
-                      <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{p.display_name}</div><div style={{ fontSize: 10, color: T.text3 }}>{p.email}</div></div>
-                      <span style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>+ Add</span>
-                    </div>;
-                  })}
+                  <input value={memberSearch} onChange={e => setMemberSearch(e.target.value)} placeholder="Search by name or email…"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", marginBottom: 8, fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface2 || T.bg, color: T.text, outline: "none", fontFamily: "inherit" }} />
+                  {(() => {
+                    const q = memberSearch.trim().toLowerCase();
+                    const filtered = q
+                      ? availableProfiles.filter(p => (p.display_name || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q))
+                      : availableProfiles;
+                    if (filtered.length === 0) return <div style={{ fontSize: 12, color: T.text3, padding: "10px 0" }}>No people match “{memberSearch}”.</div>;
+                    return filtered.map(p => {
+                      const c = acol(p.id);
+                      return <div key={p.id} onClick={() => addMember(p.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}`, cursor: "pointer", borderRadius: 6 }}
+                        onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <div style={{ width: 30, height: 30, borderRadius: 15, background: `${c}20`, color: c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{ini(p.id)}</div>
+                        <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 500 }}>{p.display_name}</div><div style={{ fontSize: 10, color: T.text3 }}>{p.email}</div></div>
+                        <span style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>+ Add</span>
+                      </div>;
+                    });
+                  })()}
                 </>}
               </div>
             </div>
