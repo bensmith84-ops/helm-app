@@ -213,6 +213,12 @@ export default function DocsView({ setActive }) {
         if (f.includes(" ")) setSlashMenu(null);
         else setSlashMenu(m => (m && m.blockId === blockId) ? { ...m, filter: f.toLowerCase(), index: 0 } : m);
       }
+    } else if (text === "/") {
+      // Fallback open: if the "/" keydown was missed (focus/timing race on a freshly
+      // created block, e.g. a toggle child), opening here on a lone "/" still works.
+      const el = blockRefs.current[blockId];
+      const r = (el && el.getBoundingClientRect) ? el.getBoundingClientRect() : { left: 120, bottom: 120 };
+      setSlashMenu({ blockId, x: r.left, y: r.bottom + 4, filter: "", index: 0 });
     }
     queueSave();
   }, [queueSave]);
@@ -376,7 +382,7 @@ export default function DocsView({ setActive }) {
     quote: { fontSize: 15, lineHeight: 1.65, fontStyle: "italic", borderLeft: `3px solid ${T.accent}`, paddingLeft: 16, color: T.text2 },
     callout: { fontSize: 14, lineHeight: 1.6, background: T.surface2 || T.surface, padding: "12px 14px", borderRadius: 8, border: `1px solid ${T.border}` },
     code: { fontSize: 13, lineHeight: 1.5, fontFamily: "monospace", background: T.surface2 || T.surface, padding: "12px 14px", borderRadius: 8, whiteSpace: "pre-wrap" },
-    toggle: { fontSize: 15, lineHeight: 1.65 }, divider: {}, table: {},
+    toggle: { fontSize: 16, lineHeight: 1.55, fontWeight: 600 }, divider: {}, table: {},
   }[type] || {});
 
   // ──── TABLE COMPONENT ────
@@ -546,7 +552,7 @@ export default function DocsView({ setActive }) {
             )}
           </span>
         )}
-        {block.type === "toggle" && <span onClick={() => updateBlockMeta(block.id, { collapsed: !block.collapsed })} style={{ cursor: "pointer", fontSize: 10, marginTop: 6, flexShrink: 0, color: T.text3, transition: "transform 0.15s", transform: block.collapsed ? "rotate(0deg)" : "rotate(90deg)", display: "inline-block" }}>▶</span>}
+        {block.type === "toggle" && <span onClick={() => updateBlockMeta(block.id, { collapsed: !block.collapsed })} style={{ cursor: "pointer", fontSize: 11, marginTop: 7, marginRight: 8, flexShrink: 0, color: T.text3, transition: "transform 0.15s", transform: block.collapsed ? "rotate(0deg)" : "rotate(90deg)", display: "inline-block" }}>▶</span>}
         <div style={{ flex: 1, minWidth: 0 }}>
           {block.type === "code" ? (
             <textarea ref={el => blockRefs.current[block.id] = el}
