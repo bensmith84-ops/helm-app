@@ -636,6 +636,18 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     }
   }, [pendingProjectId, projects]);
 
+  // Open a project flagged before a reload (e.g. just imported from Asana) once it has loaded.
+  useEffect(() => {
+    let pid = null;
+    try { pid = sessionStorage.getItem("helm_open_project"); } catch (_) {}
+    if (!pid) return;
+    if (projects.some(p => p.id === pid)) {
+      setActiveProject(pid);
+      setShowMyTasks(false);
+      try { sessionStorage.removeItem("helm_open_project"); } catch (_) {}
+    }
+  }, [projects]);
+
   useEffect(() => {
     if (!selectedTask) return;
     Promise.all([
@@ -4174,7 +4186,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       {templatesModalEl}
       {templateManagerEl}
       {templateEditorEl}
-      {showAsanaImport && <AsanaImportModal onClose={() => setShowAsanaImport(false)} onImported={(projId) => { setShowAsanaImport(false); window.location.reload(); }} />}
+      {showAsanaImport && <AsanaImportModal onClose={() => setShowAsanaImport(false)} onImported={(projId) => { setShowAsanaImport(false); try { if (projId) sessionStorage.setItem("helm_open_project", projId); } catch (_) {} window.location.reload(); }} />}
       {saveAsTemplateModalEl}
       {copyModalEl}
       {statusFormModalEl}
