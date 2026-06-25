@@ -4339,6 +4339,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         recurring_frequency: form.cost_type === "recurring" ? form.recurring_frequency : null,
         recurring_amount: form.cost_type === "recurring" ? parseFloat(form.recurring_amount || form.amount) : null,
         budget_accounted_for: form.budget_accounted_for || null,
+        is_requesting_additional_budget: form.budget_accounted_for === "no",
         quotes_obtained: form.quotes_obtained || null,
         attachments: formAttachments.length > 0 ? formAttachments : null,
         status: "pending", approval_step: 0, // reset approval
@@ -4372,6 +4373,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         require_person_id: requirePersonId,
         require_person_name: requirePersonName,
         budget_accounted_for: form.budget_accounted_for || null,
+        is_requesting_additional_budget: form.budget_accounted_for === "no",
         quotes_obtained: form.quotes_obtained || null,
         attachments: formAttachments.length > 0 ? formAttachments : null,
         date: new Date().toISOString().slice(0, 10),
@@ -4950,16 +4952,29 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                         </div>
                       </div>
                     </div>
-                    <div style={{ fontSize: 10, color: T.text3, marginTop: 8, lineHeight: 1.5 }}>
-                      YTD: <strong style={{ color: T.text }}>{fmt(ytdSpent)}</strong> of <strong style={{ color: T.text }}>{fmt(ytdBudget)}</strong> budget
-                      {reqAmt > 0 && <> · This request adds <strong style={{ color: T.text }}>{fmt(reqAmt)}</strong>{form.cost_type === "recurring" ? " over the full year" : ""}</>}
-                      {!onTrackAfter && (
-                        <> · <span style={{ color: statusColor, fontWeight: 600 }}>{Math.round(overspendAfter * 100)}pp ahead of year pace</span></>
-                      )}
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 8, lineHeight: 1.6 }}>
+                      <div>Annual budget <strong style={{ color: T.text }}>{fmt(annualBudget)}</strong> · spent + committed YTD <strong style={{ color: T.text }}>{fmt(ytdSpent)}</strong>{reqAmt > 0 && <> · this request <strong style={{ color: T.text }}>{fmt(reqAmt)}</strong>{form.cost_type === "recurring" ? " (full year)" : ""}</>}</div>
+                      <div style={{ marginTop: 2 }}>Remaining after this: <strong style={{ color: (annualBudget - ytdSpent - reqAmt) < 0 ? "#EF4444" : T.text }}>{fmt(annualBudget - ytdSpent - reqAmt)}</strong> of the year's budget{!onTrackAfter && <> · <span style={{ color: statusColor, fontWeight: 600 }}>{Math.round(overspendAfter * 100)}pp ahead of pace</span></>}</div>
                     </div>
                   </div>
                 );
               })()}
+
+              {/* Is this already in the budget? — surfaced next to live pacing so it's answered in context */}
+              {form.gl_code && (
+              <div style={{ background: form.budget_accounted_for === "no" ? "#F59E0B10" : T.surface2, border: `1px solid ${form.budget_accounted_for === "no" ? "#F59E0B60" : (!form.budget_accounted_for ? T.accent + "60" : T.border)}`, borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 4 }}>📋 Is this already in the budget?</div>
+                <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>Whether this cost is already in the approved annual budget for this GL, or it's net-new spend on top of it.</div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 6 }}>
+                  {[["yes_exact","✓ Yes — at this cost"],["yes_lower","↑ Yes — but higher than budgeted"],["yes_higher","↓ Yes — lower than budgeted"],["no","✗ No — net-new / not budgeted"],["unsure","? Unsure"]].map(([v,l]) => (
+                    <button key={v} type="button" onClick={() => setForm(f => ({ ...f, budget_accounted_for: v }))}
+                      style={{ padding: "8px 10px", borderRadius: 8, border: `2px solid ${form.budget_accounted_for === v ? T.accent : T.border}`, background: form.budget_accounted_for === v ? T.accent + "15" : "transparent", color: form.budget_accounted_for === v ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>{l}</button>
+                  ))}
+                </div>
+                {form.budget_accounted_for === "no" && <div style={{ fontSize: 10, color: "#B45309", marginTop: 8, lineHeight: 1.5 }}>⚠️ Net-new spend — not in the current budget. It'll be flagged as requesting additional budget, and the pacing above already adds it on top of what's been spent this year.</div>}
+                {form.budget_accounted_for === "yes_lower" && <div style={{ fontSize: 10, color: "#B45309", marginTop: 8, lineHeight: 1.5 }}>⚠️ Costs more than budgeted — the amount above plan is effectively additional spend.</div>}
+              </div>
+              )}
 
               {form.cost_type === "recurring" && (
                 <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
@@ -4994,18 +5009,6 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Description</div>
                 <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} placeholder="Context for the approver…"
                   style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
-              </div>
-
-              {/* Budget Accountability */}
-              <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>📋 Budget Accountability</div>
-                <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>Is this spend already reflected in your approved budget?</div>
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 6 }}>
-                  {[["yes_exact","✓ Yes, at this cost"],["yes_lower","↑ Higher than budgeted"],["yes_higher","↓ Lower than budgeted"],["no","✗ Not in budget"],["unsure","? Unsure"]].map(([v,l]) => (
-                    <button key={v} type="button" onClick={() => setForm(f => ({ ...f, budget_accounted_for: v }))}
-                      style={{ padding: "8px 10px", borderRadius: 8, border: `2px solid ${form.budget_accounted_for === v ? T.accent : T.border}`, background: form.budget_accounted_for === v ? T.accent + "15" : "transparent", color: form.budget_accounted_for === v ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>{l}</button>
-                  ))}
-                </div>
               </div>
 
               {/* Alternative Quotes */}
