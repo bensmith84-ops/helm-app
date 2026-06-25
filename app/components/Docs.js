@@ -128,6 +128,7 @@ export default function DocsView({ setActive }) {
   const blockContents = useRef({}); // Store content in ref to avoid re-renders
   const saveTimer = useRef(null);
   const titleSaveTimer = useRef(null);
+  const slashSuppress = useRef(false); // when true, "/" will not reopen the menu (user pressed esc to keep a literal slash)
 
   const [projects, setProjects] = useState([]);
 
@@ -187,6 +188,10 @@ export default function DocsView({ setActive }) {
   // Content change handler — does NOT trigger re-render
   const handleContentChange = useCallback((blockId, text) => {
     blockContents.current[blockId] = text;
+    if (!text.startsWith("/")) {
+      slashSuppress.current = false;
+      setSlashMenu(m => (m && m.blockId === blockId) ? null : m);
+    }
     queueSave();
   }, [queueSave]);
 
@@ -218,11 +223,15 @@ export default function DocsView({ setActive }) {
   };
 
   const changeBlockType = (bid, type) => {
-    if (type === "divider") blockContents.current[bid] = "";
-    setBlocks(prev => prev.map(b => b.id === bid ? { ...b, type, ...(type === "table" ? { tableData: { cols: ["Column A","Column B","Column C"], rows: [["","",""],["","",""]], formulas: {} } } : {}) } : b));
+    blockContents.current[bid] = "";
+    slashSuppress.current = false;
+    setBlocks(prev => prev.map(b => b.id === bid ? { ...b, type, content: "", ...(type === "table" ? { tableData: { cols: ["Column A","Column B","Column C"], rows: [["","",""],["","",""]], formulas: {} } } : {}) } : b));
     setSlashMenu(null);
     queueSave();
-    if (type !== "divider" && type !== "table") setTimeout(() => blockRefs.current[bid]?.focus(), 50);
+    if (type !== "divider" && type !== "table") setTimeout(() => {
+      const el = blockRefs.current[bid];
+      if (el) { try { if (el.isContentEditable) el.innerText = ""; } catch (_) {} el.focus(); }
+    }, 50);
   };
 
   const handleKey = useCallback((e, blockId, currentContent) => {
@@ -251,6 +260,36 @@ export default function DocsView({ setActive }) {
       setSlashMenu(null);
     }
   }, [blocks]);
+
+  // Keyboard navigation for the slash menu. Capture-phase on window so it fires BEFORE
+  // the block's contentEditable handler (which would otherwise insert a newline or move
+  // the caret). Arrows move the highlight, Enter/Tab insert the highlighted block, and
+  // Escape dismisses while leaving the literal "/" in place.
+  useEffect(() => {
+    if (!slashMenu) return;
+    const matches = () => SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter));
+    const onKey = (e) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault(); e.stopPropagation();
+        const n = matches().length;
+        setSlashMenu(p => p ? { ...p, index: Math.min((p.index || 0) + 1, Math.max(0, n - 1)) } : p);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault(); e.stopPropagation();
+        setSlashMenu(p => p ? { ...p, index: Math.max((p.index || 0) - 1, 0) } : p);
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        const list = matches();
+        const pick = list[Math.min(slashMenu.index || 0, list.length - 1)];
+        if (pick) { e.preventDefault(); e.stopPropagation(); changeBlockType(slashMenu.blockId, pick.type); }
+        else { setSlashMenu(null); }
+      } else if (e.key === "Escape") {
+        e.preventDefault(); e.stopPropagation();
+        setSlashMenu(null);
+        slashSuppress.current = true; // keep the "/" the user typed; don't reopen until it's deleted or they refocus
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [slashMenu]);
 
   const createDoc = async (parentId = null) => {
     const { data } = await supabase.from("documents").insert({
@@ -482,8 +521,8 @@ export default function DocsView({ setActive }) {
               placeholder={placeholder}
               onContentChange={(text) => handleContentChange(block.id, text)}
               onKeyDown={(e, content) => handleKey(e, block.id, content)}
-              onFocus={() => {}}
-              onSlash={(rect, filter) => setSlashMenu({ blockId: block.id, x: rect.left, y: rect.bottom + 4, filter })}
+              onFocus={() => { slashSuppress.current = false; }}
+              onSlash={(rect, filter) => { if (slashSuppress.current) return; setSlashMenu({ blockId: block.id, x: rect.left, y: rect.bottom + 4, filter, index: 0 }); }}
               blockRef={(el) => { blockRefs.current[block.id] = el; }}
             />
           )}
@@ -817,24 +856,37 @@ export default function DocsView({ setActive }) {
         </>}
       </div>
 
-      {/* SLASH MENU with search */}
-      {slashMenu && <div style={{ position: "fixed", left: Math.min(slashMenu.x, window.innerWidth - 240), top: Math.min(slashMenu.y, window.innerHeight - 340), width: 230, background: T.surface || "#fff", borderRadius: 8, border: `1px solid ${T.border}`, boxShadow: "0 8px 30px rgba(0,0,0,0.2)", zIndex: 100, overflow: "hidden", maxHeight: 340 }}>
-        <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
-          <input value={slashMenu.filter} onChange={e => setSlashMenu(p => ({ ...p, filter: e.target.value.toLowerCase() }))}
-            placeholder="Search blocks..." onKeyDown={e => { if (e.key === "Escape") setSlashMenu(null); if (e.key === "Enter") { const filtered = SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter)); if (filtered.length) { changeBlockType(slashMenu.blockId, filtered[0].type); blockContents.current[slashMenu.blockId] = ""; } } }}
-            style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12, fontFamily: "inherit" }} />
-        </div>
-        <div style={{ overflowY: "auto", maxHeight: 290 }}>
-          {SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter)).map(cmd => (
-            <div key={cmd.type} onClick={() => { changeBlockType(slashMenu.blockId, cmd.type); blockContents.current[slashMenu.blockId] = ""; }}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", fontSize: 13, color: T.text }}
-              onMouseEnter={e => e.currentTarget.style.background = T.surface2 || T.border} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ width: 28, height: 28, borderRadius: 4, background: T.surface2 || T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: T.text2, flexShrink: 0 }}>{cmd.icon}</span>
-              <span>{cmd.label}</span>
+      {/* SLASH MENU — keyboard navigable: up/down highlight, Enter/Tab select, Esc keeps the "/" */}
+      {slashMenu && (() => {
+        const filtered = SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter));
+        const activeIdx = Math.min(slashMenu.index || 0, Math.max(0, filtered.length - 1));
+        return (
+          <div style={{ position: "fixed", left: Math.min(slashMenu.x, window.innerWidth - 250), top: Math.min(slashMenu.y, window.innerHeight - 360), width: 240, background: T.surface || "#fff", borderRadius: 8, border: `1px solid ${T.border}`, boxShadow: "0 8px 30px rgba(0,0,0,0.2)", zIndex: 100, overflow: "hidden", maxHeight: 360, display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "7px 12px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontSize: 11, color: T.text2, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{slashMenu.filter ? `Filter: ${slashMenu.filter}` : "Insert block"}</span>
+              <span style={{ fontSize: 9, color: T.text3, whiteSpace: "nowrap", flexShrink: 0, letterSpacing: 0.3 }}>up/down · enter · esc</span>
             </div>
-          ))}
-        </div>
-      </div>}
+            <div style={{ overflowY: "auto", maxHeight: 312 }}>
+              {filtered.length === 0 && (
+                <div style={{ padding: "10px 12px", fontSize: 12, color: T.text3, lineHeight: 1.5 }}>No blocks match. Press <strong style={{ color: T.text2 }}>Esc</strong> to keep typing &quot;/&quot;.</div>
+              )}
+              {filtered.map((cmd, idx) => {
+                const active = idx === activeIdx;
+                return (
+                  <div key={cmd.type}
+                    ref={active ? (el => { if (el) el.scrollIntoView({ block: "nearest" }); }) : undefined}
+                    onClick={() => changeBlockType(slashMenu.blockId, cmd.type)}
+                    onMouseEnter={() => setSlashMenu(p => (p && p.index !== idx) ? { ...p, index: idx } : p)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", fontSize: 13, color: T.text, background: active ? (T.surface2 || T.border) : "transparent" }}>
+                    <span style={{ width: 28, height: 28, borderRadius: 4, background: active ? T.accent + "22" : (T.surface2 || T.bg), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: active ? T.accent : T.text2, flexShrink: 0 }}>{cmd.icon}</span>
+                    <span>{cmd.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       <style>{`[contenteditable]:empty:before{content:attr(data-placeholder);color:${T.text3};pointer-events:none}[contenteditable]:focus{outline:none}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}`}</style>
     </div>
