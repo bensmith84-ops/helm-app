@@ -468,7 +468,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const secColor = (i) => SECTION_COLORS[i % SECTION_COLORS.length];
   const timeAgo = (ds) => { const m = Math.floor((Date.now() - new Date(ds).getTime()) / 60000); if (m < 1) return "just now"; if (m < 60) return m + "m ago"; const h = Math.floor(m / 60); if (h < 24) return h + "h ago"; return Math.floor(h / 24) + "d ago"; };
   const formatFileSize = (b) => { if (!b) return "0 B"; const k = 1024; const s = ["B", "KB", "MB", "GB"]; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(1)) + " " + s[i]; };
-  const getFileUrl = (path) => `https://upbjdmnykheubxkuknuj.supabase.co/storage/v1/object/public/attachments/${path}`;
+  const getFileUrl = (path) => (path && /^https?:\/\//.test(path)) ? path : `https://upbjdmnykheubxkuknuj.supabase.co/storage/v1/object/public/attachments/${path}`;
   useEffect(() => {
     if (!profile) return;
     // External collaborators: load only the projects they're a member of, with no org_id.
