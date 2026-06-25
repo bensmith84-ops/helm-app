@@ -121,6 +121,25 @@ export default function AsanaImportModal({ onClose, onImported }) {
     } catch { return null; }
   };
 
+  // Re-host an Asana attachment in Helm storage (Asana download URLs expire), falling back
+  // to an external link for files hosted elsewhere or if the download/upload fails.
+  const importOneAttachment = async (att, entityId, tGid) => {
+    let file_path = att.url || "", mime = "link/external", size = att.size || 0;
+    if (att.gid) {
+      try {
+        const r = await callProxy({ action: "import_attachment", task_gid: tGid, attachment_gid: att.gid });
+        if (r?.stored && r.path) { file_path = r.path; mime = r.mime || "application/octet-stream"; size = r.size || size; }
+        else if (r?.external && r.url) { file_path = r.url; mime = "link/external"; }
+      } catch {}
+    }
+    if (!file_path) return;
+    await supabase.from("attachments").insert({
+      org_id: orgId, entity_type: "task", entity_id: entityId,
+      filename: att.name, file_path, file_size: size, mime_type: mime, uploaded_by: user?.id,
+    });
+    importedAttachments++;
+  };
+
   // Import a single task + its subtasks recursively
   const importTask = async (taskGid, projectId, sectionId, sortOrder, parentTaskId = null, previewData = null) => {
     // Fetch full details from Asana
@@ -177,15 +196,9 @@ export default function AsanaImportModal({ onClose, onImported }) {
       importedComments++;
     }
 
-    // Import attachments
+    // Import attachments (downloaded + re-hosted in Helm storage)
     for (const att of (task.attachments || [])) {
-      await supabase.from("attachments").insert({
-        org_id: orgId, entity_type: "task", entity_id: created.id,
-        filename: att.name, file_path: att.url,
-        file_size: att.size || 0, mime_type: "link/external",
-        uploaded_by: user?.id,
-      });
-      importedAttachments++;
+      await importOneAttachment(att, created.id, taskGid);
     }
 
     // Import tags
@@ -244,13 +257,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
               importedComments++;
             }
             for (const att of (stExtras?.attachments || [])) {
-              await supabase.from("attachments").insert({
-                org_id: orgId, entity_type: "task", entity_id: stCreated.id,
-                filename: att.name, file_path: att.url,
-                file_size: att.size || 0, mime_type: "link/external",
-                uploaded_by: user?.id,
-              });
-              importedAttachments++;
+              await importOneAttachment(att, stCreated.id, st.gid);
             }
           } catch {}
         }
@@ -418,12 +425,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
         const existingFilenames = new Set((existingAtts || []).map(a => a.filename));
         for (const att of (task.attachments || [])) {
           if (!existingFilenames.has(att.name)) {
-            await supabase.from("attachments").insert({
-              org_id: orgId, entity_type: "task", entity_id: helmTaskId,
-              filename: att.name, file_path: att.url,
-              file_size: att.size || 0, mime_type: "link/external",
-              uploaded_by: user?.id,
-            });
+            await importOneAttachment(att, helmTaskId, task.gid || selectedProject.gid);
           }
         }
 
