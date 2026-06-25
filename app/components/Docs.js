@@ -223,8 +223,9 @@ export default function DocsView({ setActive }) {
     queueSave();
   };
 
-  const insertBlockAfter = (afterId, type = "text") => {
+  const insertBlockAfter = (afterId, type = "text", indent = 0) => {
     const nb = mkBlock(type);
+    if (indent) nb.indent = indent;
     blockContents.current[nb.id] = "";
     setBlocks(prev => { const i = prev.findIndex(b => b.id === afterId); return [...prev.slice(0, i + 1), nb, ...prev.slice(i + 1)]; });
     queueSave();
@@ -261,8 +262,16 @@ export default function DocsView({ setActive }) {
     if (e.key === "Enter" && !e.shiftKey) {
       if (block.type === "divider" || block.type === "table") return;
       e.preventDefault();
-      const keepType = ["bullet", "numbered", "todo"].includes(block.type);
-      insertBlockAfter(block.id, keepType && currentContent ? block.type : "text");
+      const curIndent = block.indent || 0;
+      if (block.type === "toggle") {
+        // Enter on a toggle drops a child INSIDE it (indented one level), so the toggle has
+        // something to collapse. Expand it first if it was collapsed.
+        if (block.collapsed) updateBlockMeta(block.id, { collapsed: false });
+        insertBlockAfter(block.id, "text", curIndent + 1);
+      } else {
+        const keepType = ["bullet", "numbered", "todo"].includes(block.type);
+        insertBlockAfter(block.id, keepType && currentContent ? block.type : "text", curIndent);
+      }
     } else if (e.key === "Tab") {
       // Tab nests a block under the one above (sub-bullet / sub-item / toggle child);
       // Shift+Tab outdents. Always preventDefault so focus never leaves the editor.
@@ -493,7 +502,7 @@ export default function DocsView({ setActive }) {
 
   // ──── BLOCK RENDERER ────
   const _blockRef = useRef(null);
-  if (!_blockRef.current) _blockRef.current = ({ block, index }) => {
+  if (!_blockRef.current) _blockRef.current = ({ block, index, num }) => {
     const [hov, setHov] = useState(false);
     if (block.type === "divider") return (
       <div style={{ padding: "8px 0 8px 32", position: "relative" }} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}>
@@ -509,18 +518,6 @@ export default function DocsView({ setActive }) {
       </div>
     );
 
-    let numIdx = 1;
-    if (block.type === "numbered") {
-      const ci = block.indent || 0;
-      for (let j = index - 1; j >= 0; j--) {
-        const pb = blocksRef.current[j]; if (!pb) break;
-        const pi = pb.indent || 0;
-        if (pi > ci) continue;                 // deeper descendant of an earlier sibling — skip
-        if (pi < ci) break;                    // parent level — numbering restarts under it
-        if (pb.type === "numbered") numIdx++;  // sibling at the same level
-        else break;                            // same-level non-numbered ends the run
-      }
-    }
 
     const placeholder = block.type === "h1" ? "Heading 1" : block.type === "h2" ? "Heading 2" : block.type === "h3" ? "Heading 3" : block.type === "quote" ? "Quote..." : index === 0 && blocksRef.current.length <= 1 ? "Type '/' for commands..." : "";
 
@@ -531,7 +528,7 @@ export default function DocsView({ setActive }) {
           <span style={{ fontSize: 10, color: T.text3, userSelect: "none" }}>⠿</span>
         </div>
         {block.type === "bullet" && <span style={{ color: T.text3, fontSize: block.indent >= 2 ? 10 : block.indent === 1 ? 14 : 20, lineHeight: "26px", flexShrink: 0, width: 18, textAlign: "center" }}>{block.indent >= 2 ? "▪" : block.indent === 1 ? "◦" : "•"}</span>}
-        {block.type === "numbered" && <span style={{ color: T.text3, fontSize: 13, lineHeight: "26px", flexShrink: 0, width: 22, textAlign: "right", paddingRight: 4, fontFamily: "monospace" }}>{numIdx}.</span>}
+        {block.type === "numbered" && <span style={{ color: T.text3, fontSize: 13, lineHeight: "26px", flexShrink: 0, minWidth: 22, textAlign: "right", paddingRight: 6, fontFamily: "monospace", whiteSpace: "nowrap" }}>{(num && num.includes(".")) ? num : `${num || 1}.`}</span>}
         {block.type === "todo" && <input type="checkbox" checked={block.checked || false} onChange={() => updateBlockMeta(block.id, { checked: !block.checked })} style={{ marginTop: 6, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }} />}
         {block.type === "callout" && (
           <span onClick={() => setCalloutEmojiPicker(calloutPickerRef.current === block.id ? null : block.id)}
@@ -904,7 +901,21 @@ export default function DocsView({ setActive }) {
                       }
                     }
                   }
-                  return blocks.map((b, i) => hidden.has(b.id) ? null : <Block key={b.id} block={b} index={i} />);
+                  // Outline numbering: counters[level]; a numbered item bumps its level and
+                  // resets deeper ones; any block resets numbering at its level and below.
+                  const numbering = {}; const counters = [];
+                  for (const b of blocks) {
+                    const L = b.indent || 0;
+                    if (b.type === "numbered") {
+                      counters[L] = (counters[L] || 0) + 1;
+                      for (let k = L + 1; k < counters.length; k++) counters[k] = 0;
+                      const parts = []; for (let k = 0; k <= L; k++) parts.push(counters[k] || 1);
+                      numbering[b.id] = parts.join(".");
+                    } else {
+                      for (let k = L; k < counters.length; k++) counters[k] = 0;
+                    }
+                  }
+                  return blocks.map((b, i) => hidden.has(b.id) ? null : <Block key={b.id} block={b} index={i} num={numbering[b.id]} />);
                 })()}
                 <div style={{ paddingLeft: 32, paddingTop: 8 }}>
                   <button onClick={() => { const last = blocks[blocks.length - 1]; if (last) insertBlockAfter(last.id); else { const nb = mkBlock(); blockContents.current[nb.id] = ""; setBlocks([nb]); } }}
