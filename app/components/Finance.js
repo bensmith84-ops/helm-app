@@ -2902,19 +2902,23 @@ function PLExplorer({ isMobile }) {
   const [showType, setShowType] = useState("all"); // all, revenue, expense
   const [showExport, setShowExport] = useState(false);
   const [exportOpts, setExportOpts] = useState({ startMonth: "", endMonth: "", granularity: "monthly", detail: "accounts", includeVendors: false });
+  const [pendingClearing, setPendingClearing] = useState(0);
 
   useEffect(() => {
     (async () => {
-      const [r1, r2, r3, r4] = await Promise.all([
+      const [r1, r2, r3, r4, r5] = await Promise.all([
         supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).order("period_month"),
         // qbo_pl_ytd: server-side view aggregating qbo_pl_monthly to YTD.
         // Replaces qbo_pl which is no longer kept current by the QBO sync.
         supabase.from("qbo_pl_ytd").select("*"),
         supabase.from("qbo_bills").select("vendor_name,total_amount,txn_date,gl_accounts,memo").eq("org_id", orgId),
         supabase.from("qbo_purchases").select("vendor_name,total_amount,txn_date,gl_accounts,memo").eq("org_id", orgId).limit(5000),
+        // Payment-clearing balances = cash collected but not yet booked to revenue (open-month signal)
+        supabase.from("qbo_accounts").select("name,current_balance").eq("org_id", orgId).eq("account_type", "Other Current Asset").ilike("name", "%clearing%"),
       ]);
       setPLMonthly(r1.data || []); setPLYTD(r2.data || []);
       setBills(r3.data || []); setPurchases(r4.data || []);
+      setPendingClearing((r5.data || []).filter(a => Number(a.current_balance) < 0).reduce((sum, a) => sum + (-Number(a.current_balance)), 0));
       setLoading(false);
     })();
   }, []);
@@ -3012,7 +3016,7 @@ function PLExplorer({ isMobile }) {
             <span style={{ fontSize: 14, lineHeight: "18px" }}>⚠️</span>
             <div>
               <span style={{ fontWeight: 700, color: T.text }}>{monthLabels[oi]} is the current open month — revenue is incomplete.</span>{" "}
-              Shopify and Amazon revenue posts to QuickBooks after month-end reconciliation, so the latest month often shows only refunds and trade deductions (and can read negative) until gross sales are booked. It updates automatically once QuickBooks has them.
+              Shopify and Amazon revenue posts to QuickBooks after month-end reconciliation, so the latest month often shows only refunds and trade deductions (and can read negative) until gross sales are booked. It updates automatically once QuickBooks has them.{pendingClearing > 0 ? <><br /><span style={{ fontWeight: 600 }}>≈ {fmtK(pendingClearing)} is already collected and sitting in payment-clearing accounts, not yet booked to revenue.</span></> : null}
             </div>
           </div>
         );
@@ -3038,7 +3042,10 @@ function PLExplorer({ isMobile }) {
                   {/* Section header */}
                   <tr style={{ background: T.surface2 }}>
                     <td style={{ padding: "8px 8px", fontSize: 12, fontWeight: 800, color: section.color, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>{section.label}</td>
-                    {months.map(m => <td key={m} style={{ ...TD, fontWeight: 700, color: section.color, background: T.surface2 }}>{fmtK(getSectionMonthTotal(section.accounts, m))}</td>)}
+                    {months.map(m => {
+                      const partial = section.label === "Revenue" && isOpenMonth(m);
+                      return <td key={m} title={partial ? "Open month — gross sales not yet booked to revenue" : undefined} style={{ ...TD, fontWeight: 700, color: partial ? T.text3 : section.color, opacity: partial ? 0.55 : 1, background: T.surface2 }}>{fmtK(getSectionMonthTotal(section.accounts, m))}{partial ? "*" : ""}</td>;
+                    })}
                     <td style={{ ...TD, fontWeight: 800, color: section.color, background: T.surface2 }}>{fmtK(getSectionYTDTotal(section.accounts))}</td>
                   </tr>
                   {/* Account rows */}
@@ -3101,7 +3108,8 @@ function PLExplorer({ isMobile }) {
                 <td style={{ padding: "10px 8px", fontSize: 13, fontWeight: 900, color: T.text, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>NET INCOME</td>
                 {months.map((m, i) => {
                   const net = revMonthly[i] - expMonthly[i];
-                  return <td key={m} style={{ ...TD, fontSize: 12, fontWeight: 900, color: net >= 0 ? T.green : T.red }}>{fmtK(net)}</td>;
+                  const partial = isOpenMonth(m);
+                  return <td key={m} title={partial ? "Open month — revenue not fully booked; net income is not meaningful until close" : undefined} style={{ ...TD, fontSize: 12, fontWeight: 900, color: partial ? T.text3 : (net >= 0 ? T.green : T.red), opacity: partial ? 0.5 : 1 }}>{fmtK(net)}{partial ? "*" : ""}</td>;
                 })}
                 <td style={{ ...TD, fontSize: 13, fontWeight: 900, color: revYTD - expYTD >= 0 ? T.green : T.red }}>{fmtK(revYTD - expYTD)}</td>
               </tr>
