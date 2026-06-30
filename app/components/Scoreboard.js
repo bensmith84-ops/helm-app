@@ -1103,6 +1103,31 @@ export default function ScoreboardView() {
             const get7d = (key) => (daily[key]||[]).slice(0,7).reverse();
             const sum7d = (key) => (daily[key]||[]).slice(0,7).reduce((s,r)=>s+r.value,0);
 
+            // Staleness guardrail: flag any metric that has stopped updating while
+            // the rest of the scoreboard moves on (e.g. its source column was removed
+            // from the sheet). A metric is "stale" only if it normally updates ~daily
+            // (recent internal gap <= 2d) but now lags the freshest metric by > 3 days —
+            // so naturally weekly/monthly-cadence metrics are not flagged.
+            const STALE_DAYS = 3;
+            const refLatest = Object.values(daily).map(rows => rows?.[0]?.date).filter(Boolean).sort().reverse()[0] || null;
+            const dayGap = (d) => (d && refLatest) ? Math.round((new Date(refLatest) - new Date(d)) / 86400000) : 0;
+            const metricLatest = (key) => daily[key]?.[0]?.date || null;
+            const recentInternalGap = (key) => {
+              const rows = daily[key] || [];
+              if (rows.length < 2) return Infinity;
+              return Math.round((new Date(rows[0].date) - new Date(rows[1].date)) / 86400000);
+            };
+            const isStale = (key) => {
+              const rows = daily[key] || [];
+              if (rows.length < 5) return false;
+              if (recentInternalGap(key) > 2) return false;
+              return dayGap(metricLatest(key)) > STALE_DAYS;
+            };
+            const staleMetrics = Object.keys(daily)
+              .filter(isStale)
+              .map(k => ({ key:k, date: metricLatest(k), gap: dayGap(metricLatest(k)), label: (METRIC_META[k]?.label || k) }))
+              .sort((a,b) => b.gap - a.gap);
+
             // All available metrics. Source of truth is sheets-daily-sync
             // METRIC_MAP — every metric_key emitted there should appear here.
             // The Net $ color is dynamic (green when positive, red when negative);
@@ -1140,6 +1165,24 @@ export default function ScoreboardView() {
                       <span>·</span>
                       <span style={{ cursor:"pointer", color:T.accent, textDecoration:"underline" }} onClick={()=>setActiveTab("chat")}>Ask the AI →</span>
                     </div>
+
+                    {/* Staleness guardrail banner */}
+                    {staleMetrics.length > 0 && (
+                      <div style={{ background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.35)", borderRadius:10, padding:"10px 14px", marginBottom:16, display:"flex", alignItems:"flex-start", gap:10 }}>
+                        <span style={{ fontSize:15, lineHeight:1.2 }}>⚠️</span>
+                        <div style={{ fontSize:12, color:T.text2, lineHeight:1.6 }}>
+                          <span style={{ fontWeight:700, color:"#b45309" }}>{staleMetrics.length} metric{staleMetrics.length>1?"s":""} {staleMetrics.length>1?"have":"has"} stopped updating</span> while the rest of the scoreboard is current (latest data: {refLatest}). The value shown for {staleMetrics.length>1?"these":"this"} is the last one that synced — treat it as out of date until the source is fixed.
+                          <div style={{ marginTop:6, display:"flex", flexWrap:"wrap", gap:6 }}>
+                            {staleMetrics.slice(0,12).map(sm => (
+                              <span key={sm.key} style={{ fontSize:11, fontWeight:600, color:"#92400e", background:"rgba(245,158,11,0.14)", border:"1px solid rgba(245,158,11,0.3)", borderRadius:5, padding:"2px 7px" }}>
+                                {sm.label}: last {sm.date} ({sm.gap}d behind)
+                              </span>
+                            ))}
+                            {staleMetrics.length > 12 && <span style={{ fontSize:11, color:T.text3 }}>+{staleMetrics.length-12} more</span>}
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* AI Summary — manual only */}
                     {aiSummary ? (
@@ -1204,7 +1247,15 @@ export default function ScoreboardView() {
                             style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer" }}
                             onMouseEnter={e=>e.currentTarget.style.borderColor=color}
                             onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
-                            <div style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5, marginBottom:4 }}>{label}</div>
+                            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+                              <span style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</span>
+                              {isStale(key) && (
+                                <span title={`Last updated ${metricLatest(key)} — ${dayGap(metricLatest(key))} days behind the rest of the scoreboard`}
+                                  style={{ fontSize:8, fontWeight:800, color:"#f59e0b", background:"rgba(245,158,11,0.12)", border:"1px solid rgba(245,158,11,0.4)", borderRadius:4, padding:"1px 5px", textTransform:"uppercase", letterSpacing:0.3, whiteSpace:"nowrap" }}>
+                                  ⚠ Stale
+                                </span>
+                              )}
+                            </div>
                             <div style={{ fontSize:22, fontWeight:800, color: v==null ? T.text3 : (v<0 ? "#ef4444" : color), lineHeight:1, marginBottom:4 }}>
                               {fmtVal(v, unit, true)}
                             </div>
