@@ -1109,6 +1109,7 @@ export default function ScoreboardView() {
             // (recent internal gap <= 2d) but now lags the freshest metric by > 3 days —
             // so naturally weekly/monthly-cadence metrics are not flagged.
             const STALE_DAYS = 3;
+            const STALE_MAX_DAYS = 60; // beyond this, a metric is discontinued/dormant, not a fresh break worth flagging
             const refLatest = Object.values(daily).map(rows => rows?.[0]?.date).filter(Boolean).sort().reverse()[0] || null;
             const dayGap = (d) => (d && refLatest) ? Math.round((new Date(refLatest) - new Date(d)) / 86400000) : 0;
             const metricLatest = (key) => daily[key]?.[0]?.date || null;
@@ -1121,7 +1122,8 @@ export default function ScoreboardView() {
               const rows = daily[key] || [];
               if (rows.length < 5) return false;
               if (recentInternalGap(key) > 2) return false;
-              return dayGap(metricLatest(key)) > STALE_DAYS;
+              const gap = dayGap(metricLatest(key));
+              return gap > STALE_DAYS && gap <= STALE_MAX_DAYS;
             };
             const staleMetrics = Object.keys(daily)
               .filter(isStale)
