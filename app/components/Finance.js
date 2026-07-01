@@ -5777,6 +5777,28 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     }
   }, [activeFinBudgetId, budgetLines, budgetYear]);
 
+  // Surface QBO expense categories that carry booked actuals but aren't part of the
+  // active budget (e.g. COGS on an opex-only budget) as actuals-only cards, so booked
+  // spend is never silently hidden. Cards are additive with $0 budget; uncheck to
+  // exclude from totals. Categories already covered directly or via QBO_TO_BUDGET_MAP
+  // are skipped, so this doesn't create duplicates.
+  useEffect(() => {
+    if (budgetData.length === 0) return;
+    const covered = new Set(budgetData.map(b => normalizeCat(b.name)));
+    Object.entries(QBO_TO_BUDGET_MAP).forEach(([qboName, budgetName]) => {
+      if (budgetData.some(b => normalizeCat(b.name) === normalizeCat(budgetName))) covered.add(normalizeCat(qboName));
+    });
+    const missing = Object.keys(qboByCategory).filter(g => Math.abs(qboByCategory[g]) >= 1 && !covered.has(normalizeCat(g)));
+    if (missing.length === 0) return;
+    setBudgetData(prev => {
+      const have = new Set(prev.map(b => normalizeCat(b.name)));
+      const toAdd = missing
+        .filter(g => !have.has(normalizeCat(g)))
+        .map(g => ({ id: `qbo:${normalizeCat(g)}`, name: g, icon: "📦", color: "#EC4899", companyBudget: 0, allocations: [] }));
+      return toAdd.length ? [...prev, ...toAdd] : prev;
+    });
+  }, [qboPL, customMappings, budgetData, budgetYear]);
+
   const isLineChecked = (glName) => !uncheckedLines.has(glName);
   const isCatChecked = (catName) => !uncheckedCats.has(catName);
   const toggleLine = (glName) => {
