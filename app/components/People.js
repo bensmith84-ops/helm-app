@@ -77,6 +77,7 @@ const MODULE_TREE = [
     { key: "support.ai_config", label: "Configure AI Agent" },
   ]},
   { key: "docs", label: "Docs", icon: "▤" },
+  { key: "esign", label: "E-Sign", icon: "✍️" },
   { key: "messages", label: "Messages", icon: "◬" },
   { key: "calendar", label: "Calendar", icon: "▦" },
   { key: "calls", label: "Calls", icon: "◉" },
