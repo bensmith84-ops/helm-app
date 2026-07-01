@@ -5661,16 +5661,8 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     "Consultants": "Consultants & Prof. Services",
     "T&E": "Travel & Entertainment",
   };
-  // Merge budget-name aliases — both names should have the combined total
-  Object.entries(QBO_TO_BUDGET_MAP).forEach(([qboName, budgetName]) => {
-    const qboVal = qboByCategory[qboName] || 0;
-    const budgetVal = qboByCategory[budgetName] || 0;
-    if (qboVal || budgetVal) {
-      const combined = qboVal + budgetVal;
-      qboByCategory[qboName] = combined;
-      qboByCategory[budgetName] = combined;
-    }
-  });
+  // (No pre-merge of alias names: getQBOSpend below sums every normalized/aliased
+  // variant directly, so duplicating totals across keys here would double-count.)
   // Get P&L accounts mapped to a given budget category name
   const getAccountsForCat = (catName) => {
     const reverseMap = {};
@@ -5732,18 +5724,23 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     if (budgetYear === 2025 && activeFinBudgetId) {
       return getCatBudgetFromLines(catName);
     }
-    // Direct match first
-    if (qboByCategory[catName]) return qboByCategory[catName];
-    // Check reverse map (budget name → qbo name)
-    for (const [qboName, budgetName] of Object.entries(QBO_TO_BUDGET_MAP)) {
-      if (budgetName === catName && qboByCategory[qboName]) return qboByCategory[qboName];
-    }
-    // Fuzzy match by normalized name
+    // Sum ALL QBO ga_category variants that roll into this budget category: the
+    // category's own normalized name plus any QBO name aliased to it via
+    // QBO_TO_BUDGET_MAP. QBO sometimes carries near-duplicate names for one
+    // category (e.g. "Non-Fixed and Other" AND "Non-Fixed & Other"); returning
+    // only the first exact match could land on a tiny/negative variant and make
+    // the card read 0% while the account drill-down shows the real total. Summing
+    // every match keeps the card consistent with the drill-down.
     const norm = normalizeCat(catName);
+    const targetNorms = new Set([norm]);
+    Object.entries(QBO_TO_BUDGET_MAP).forEach(([qboName, budgetName]) => {
+      if (normalizeCat(budgetName) === norm) targetNorms.add(normalizeCat(qboName));
+    });
+    let total = 0, matched = false;
     for (const [key, val] of Object.entries(qboByCategory)) {
-      if (normalizeCat(key) === norm) return val;
+      if (targetNorms.has(normalizeCat(key))) { total += Number(val) || 0; matched = true; }
     }
-    return 0;
+    return matched ? total : 0;
   };
 
   const getSpend = (catId) => requests.filter(r => r.budget_category_id === catId && r.status === "approved").reduce((s, r) => s + annualiseAmount(r), 0);
