@@ -41,7 +41,7 @@ const inp = {
   boxSizing:"border-box",
 };
 
-export default function SettingsView({ isAdmin }) {
+export default function SettingsView({ isAdmin, allowedModules }) {
   const { isMobile } = useResponsive();
   const { user, profile, signOut, orgId, orgs, switchOrg } = useAuth();
   const { mode, toggle, accentKey, setAccent, ACCENT_PRESETS } = useTheme();
@@ -171,6 +171,21 @@ export default function SettingsView({ isAdmin }) {
   const acol = uid => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length-1)%AVATAR_COLORS.length] : T.text3;
   const ini = name => name ? name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase() : "?";
 
+  // Mirror Sidebar's access logic so the rearrange list only shows modules this
+  // user can actually open. Previously every module rendered here regardless of
+  // the user's module_permissions, exposing modules they have no access to.
+  const canAccessModule = (item) => {
+    if (!item) return false;
+    if (item.adminOnly && !isAdmin) return false;
+    const key = item.key;
+    if (key === "settings" || key === "dashboard") return true;
+    if (allowedModules == null) return true; // owner/admin or legacy full access
+    if (allowedModules?.mode === "allow") return !!allowedModules.allowed?.includes(key);
+    if (allowedModules?.mode === "block") return allowedModules.perms?.[key] !== false;
+    if (Array.isArray(allowedModules)) return allowedModules.includes(key);
+    return true;
+  };
+
   return (
     <div style={{ display:"flex", height:"100%", overflow:"hidden" }}>
       {/* Sidebar */}
@@ -297,7 +312,10 @@ export default function SettingsView({ isAdmin }) {
             <Section title="Sidebar Menu" subtitle="Customize your navigation — drag to reorder, toggle visibility, create custom groups">
               {sidebarGroups && (
               <div>
-                {sidebarGroups.map((group, gi) => (
+                {sidebarGroups
+                  .map((group, gi) => ({ group, gi }))
+                  .filter(({ group }) => group.items.length === 0 || group.items.some(it => canAccessModule(it)))
+                  .map(({ group, gi }) => (
                   <div key={group.label} style={{ marginBottom: 12 }}
                     onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
                     onDrop={() => {
@@ -315,14 +333,17 @@ export default function SettingsView({ isAdmin }) {
                       style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: dragGroup === gi ? T.accentDim : T.surface3, cursor: "grab", marginBottom: 4 }}>
                       <span style={{ color: T.text3, fontSize: 11, cursor: "grab" }}>⠿</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: "0.05em", flex: 1 }}>{group.label}</span>
-                      <span style={{ fontSize: 10, color: T.text3 }}>{group.items.filter(i => i.visible).length}/{group.items.length}</span>
+                      <span style={{ fontSize: 10, color: T.text3 }}>{group.items.filter(i => canAccessModule(i) && i.visible).length}/{group.items.filter(i => canAccessModule(i)).length}</span>
                       {!["Work","Connect","Operations","System"].includes(group.label) && (
                         <button onClick={() => { const next = sidebarGroups.filter((_, i) => i !== gi); setSidebarGroups(next); saveSidebarConfig(next); }}
                           style={{ fontSize: 10, color: "#ef4444", background: "none", border: "none", cursor: "pointer", padding: "0 4px" }} title="Delete group">✕</button>
                       )}
                     </div>
                     {/* Items in group */}
-                    {group.items.map((item, ii) => (
+                    {group.items
+                      .map((item, ii) => ({ item, ii }))
+                      .filter(({ item }) => canAccessModule(item))
+                      .map(({ item, ii }) => (
                       <div key={item.key} draggable
                         onDragStart={() => { setDragItem({ gi, ii }); setDragGroup(null); }}
                         onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
