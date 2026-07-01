@@ -5651,7 +5651,16 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
   // af_gl_categories.name has been renamed to match QBO, so the map is now
   // empty and the rest of this block is a no-op kept for shape compatibility
   // with the helpers below.
-  const QBO_TO_BUDGET_MAP = {};
+  // Bridge QBO's short ga_category names to the budget's longer display names.
+  // Budgets (af_budget_versions / fin_budget_lines) use "Consultants & Prof.
+  // Services" and "Travel & Entertainment", but QBO's ga_category uses
+  // "Consultants" and "T&E". normalizeCat only reconciles punctuation/&, not
+  // different words, so booked actuals for these two categories were dropping
+  // out of the Budget tab. Keyed { qboName: budgetName }.
+  const QBO_TO_BUDGET_MAP = {
+    "Consultants": "Consultants & Prof. Services",
+    "T&E": "Travel & Entertainment",
+  };
   // Merge budget-name aliases — both names should have the combined total
   Object.entries(QBO_TO_BUDGET_MAP).forEach(([qboName, budgetName]) => {
     const qboVal = qboByCategory[qboName] || 0;
