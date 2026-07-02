@@ -499,17 +499,36 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
       clearPendingSubView?.();
     }
   }, [pendingSubView]);
-  // Filter ERP nav by sub-module permissions
-  const filteredNav = ERP_NAV.filter(n => {
-    if (n.type === "header") return true;
-    const permKey = `erp.${n.id}`;
-    return modulePerms[permKey] !== false;
+  // Resolve ERP sub-view visibility with the canonical default-deny model
+  // (mirrors People.js hasModuleAccess). modulePerms is the raw
+  // module_permissions object; {} means full access (admin/owner).
+  const subAllowed = (id) => {
+    if (!modulePerms || Object.keys(modulePerms).length === 0) return true; // full access
+    const key = `erp.${id}`;
+    if (modulePerms._default_deny === true) {
+      // Allow-list: explicit grant/deny wins, else inherit from an `erp` parent grant, else deny.
+      if (modulePerms[key] === true) return true;
+      if (modulePerms[key] === false) return false;
+      return modulePerms.erp === true;
+    }
+    // Legacy block mode: allowed unless this key or the `erp` parent is explicitly denied.
+    if (modulePerms[key] === false) return false;
+    if (modulePerms.erp === false) return false;
+    return true;
+  };
+  // Filter ERP nav; drop section headers that have no visible items beneath them.
+  const filteredNav = ERP_NAV.filter((n, i) => {
+    if (n.type !== "header") return subAllowed(n.id);
+    for (let j = i + 1; j < ERP_NAV.length; j++) {
+      if (ERP_NAV[j].type === "header") break;
+      if (subAllowed(ERP_NAV[j].id)) return true;
+    }
+    return false;
   });
-  // Permission guard: if user lands on a view they don't have access to, redirect to first allowed view
+  // Permission guard: if the user lands on a view they can't access, redirect to the first allowed view.
   useEffect(() => {
     if (pendingSubView) return; // don't fight an in-flight deep-link (e.g. New Spend Request)
-    const permKey = `erp.${view}`;
-    if (modulePerms[permKey] === false) {
+    if (!subAllowed(view)) {
       const firstAllowed = filteredNav.find(n => n.type !== "header");
       if (firstAllowed) setView(firstAllowed.id);
     }
