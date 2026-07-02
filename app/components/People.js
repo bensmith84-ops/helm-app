@@ -1150,6 +1150,7 @@ export default function PeopleView() {
               { k: "calendar", l: "Calendar" },
               { k: "calls", l: "Calls" },
               { k: "docs", l: "Docs" },
+              { k: "esign", l: "E-Sign" },
               { k: "learning", l: "Learning" },
               { k: "support", l: "Support" },
               { k: "campaigns", l: "Campaigns" },
