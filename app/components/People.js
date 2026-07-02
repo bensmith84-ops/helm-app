@@ -684,12 +684,21 @@ export default function PeopleView() {
 
   // === DETAIL PANEL ===
   const DetailPanel = () => { if (!selected) return null; const c = acol(selected.id); const stats = getStats(selected.id); const om = getMembership(selected.id); const memberTasks = tasks.filter(t => t.assignee_id === selected.id && t.status !== "done").sort((a, b) => { if (!a.due_date) return 1; if (!b.due_date) return -1; return new Date(a.due_date) - new Date(b.due_date); }).slice(0, 12); const memberProjs = stats.projs.map(pid => projects.find(p => p.id === pid)).filter(Boolean); const isMe = selected.id === user?.id; const isOwner = om?.role === "owner"; const userTeams = teamMembers.filter(tm => tm.user_id === selected.id).map(tm => teams.find(t => t.id === tm.team_id)).filter(Boolean); return (
-    <div style={{ width: isMobile ? "100%" : 380, position: isMobile ? "fixed" : "relative", inset: isMobile ? 0 : "auto", zIndex: isMobile ? 50 : "auto", borderLeft: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: T.text3 }}>Member Details</span>
-        <button onClick={() => setSelected(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>×</button>
+    <div style={{ flex: 1, width: "100%", minWidth: 0, position: isMobile ? "fixed" : "relative", inset: isMobile ? 0 : "auto", zIndex: isMobile ? 50 : "auto", background: T.surface, overflow: "auto", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "14px 24px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 19, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: c, flexShrink: 0 }}>{ini(selected.display_name)}</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.display_name || "Unknown"}</div>
+            <div style={{ fontSize: 11, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[selected.title, om?.role ? (om.role.charAt(0).toUpperCase() + om.role.slice(1)) : null].filter(Boolean).join(" · ") || selected.email}</div>
+          </div>
+        </div>
+        <button onClick={() => setSelected(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>×</button>
       </div>
-      <div style={{ padding: "20px 20px 12px" }}>
+      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, padding: isMobile ? "0 10px" : "0 24px" }}>
+        {["overview", "approval", "permissions"].map(t => <button key={t} onClick={() => setTab(t)} style={{ padding: "12px 18px", fontSize: 13, fontWeight: tab === t ? 700 : 500, color: tab === t ? T.accent : T.text3, background: "none", border: "none", borderBottom: tab === t ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", textTransform: "capitalize" }}>{t === "approval" ? "Approval" : t}</button>)}
+      </div>
+      {tab === "overview" && (<div style={{ padding: "20px 20px 12px", maxWidth: 760 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
           <div style={{ width: 52, height: 52, borderRadius: 26, background: `${c}18`, border: `2px solid ${c}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: c }}>{ini(selected.display_name)}</div>
           <div style={{ flex: 1 }}>
@@ -844,10 +853,7 @@ export default function PeopleView() {
           {!isMe && <button onClick={() => deactivateUser(selected.id)} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: om?.is_active !== false ? T.surface2 : T.greenDim, color: om?.is_active !== false ? T.text2 : T.green, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>{om?.is_active !== false ? "Deactivate" : "Reactivate"}</button>}
           {!isMe && !isOwner && <button onClick={() => deleteUser(selected.id)} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${T.red}30`, background: T.redDim, color: T.red, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>Remove</button>}
         </div>
-      </div>
-      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, padding: isMobile ? "0 10px" : "0 20px" }}>
-        {["overview", "approval", "permissions"].map(t => <button key={t} onClick={() => setTab(t)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: tab === t ? 600 : 400, color: tab === t ? T.accent : T.text3, background: "none", border: "none", borderBottom: tab === t ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", textTransform: "capitalize" }}>{t === "approval" ? "Approval" : t}</button>)}
-      </div>
+      </div>)}
       <div data-perm-scroll="1" style={{ flex: 1, overflow: "auto", padding: 20 }}>
         {tab === "overview" && <>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 20 }}>
@@ -1235,7 +1241,7 @@ export default function PeopleView() {
     <div style={{ display: "flex", height: "100%", overflow: "hidden", flexDirection: isMobile && selected ? "column" : "row" }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
       {toast && <div style={{ position: "fixed", top: 16, right: 16, zIndex: 200, padding: "10px 16px", borderRadius: 8, background: toast.type === "success" ? T.greenDim : T.redDim, color: toast.type === "success" ? T.green : T.red, fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", animation: "slideIn 0.2s ease" }}>{toast.msg}</div>}
-      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "16px 12px" : "28px 32px", display: isMobile && selected ? "none" : "block" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "16px 12px" : "28px 32px", display: selected ? "none" : "block" }}>
         <div style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between", marginBottom: 20, flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0 }}>
           <div><h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, marginBottom: 4 }}>Users</h1><p style={{ fontSize: 12, color: T.text3 }}>{members.length} member{members.length !== 1 ? "s" : ""} · {memberships.filter(m => m.is_active !== false).length} active · {teams.length} team{teams.length !== 1 ? "s" : ""}</p></div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
