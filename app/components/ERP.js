@@ -97,6 +97,8 @@ const postJournalEntry = async (source, refType, refId, description, lines, enti
   return je;
 };
 
+const FINANCE_EMBED_VIEWS = new Set(["cfo_dash","pl_explorer","cash_flow","balance_sheet","vendor_intel","ap_aging","txn_search","revenue","fin_requests","fin_budgets","fin_budget_planner","fin_rules","fin_audit"]);
+
 const ERP_NAV = [
   { type: "header", label: "Overview" },
   { id: "dashboard", label: "Dashboard", icon: "⬡" },
@@ -488,7 +490,8 @@ function RampExpensesView({ isMobile, orgId }) {
 export default function ERPView({ modulePerms = {}, pendingSubView, clearPendingSubView }) {
   const { user, profile, orgId } = useAuth();
   const { isMobile } = useResponsive();
-  const [view, setView] = useState("dashboard");
+  const [view, setView] = useState(pendingSubView || "dashboard");
+  const isFinanceView = FINANCE_EMBED_VIEWS.has(view);
   // Handle pending sub-view navigation from other modules (e.g. Dashboard approval badge)
   useEffect(() => {
     if (pendingSubView) {
@@ -504,15 +507,17 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
   });
   // Permission guard: if user lands on a view they don't have access to, redirect to first allowed view
   useEffect(() => {
+    if (pendingSubView) return; // don't fight an in-flight deep-link (e.g. New Spend Request)
     const permKey = `erp.${view}`;
     if (modulePerms[permKey] === false) {
       const firstAllowed = filteredNav.find(n => n.type !== "header");
       if (firstAllowed) setView(firstAllowed.id);
     }
-  }, [view, modulePerms]);
+  }, [view, modulePerms, pendingSubView]);
   const [pendingNav, setPendingNav] = useState(null); // { view, selectId }
   const navigateTo = (targetView, selectId) => { setPendingNav({ view: targetView, selectId }); setView(targetView); };
   const [loading, setLoading] = useState(true);
+  const [erpLoaded, setErpLoaded] = useState(false);
 
   // Core data
   const [products, setProducts] = useState([]);
@@ -560,6 +565,11 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
   const [qboPL, setQboPL] = useState([]);
 
   useEffect(() => {
+    if (!user) return;
+    // Finance-embedded views (Spend Requests, P&L, etc.) load their own data, so
+    // skip the heavy ERP core load and don't block the render behind it.
+    if (isFinanceView || erpLoaded) { setLoading(false); return; }
+    setLoading(true);
     const load = async () => {
       const [
         { data: prods }, { data: vars }, { data: bm }, { data: bi },
@@ -629,10 +639,11 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
         setQboAccounts(qa || []); setQboVendors(qv || []); setQboBills(qb || []); setQboCustomers(qc || []); setQboInvoices(qi || []); setQboPL(qp || []);
       } catch (e) { console.error("[ERP] QBO load error:", e); }
 
+      setErpLoaded(true);
       setLoading(false);
     };
-    if (user) load();
-  }, [user, orgId]);
+    load();
+  }, [user, orgId, view, erpLoaded, isFinanceView]);
 
   // Derived
   const finishedGoods = products.filter(p => p.product_type === "finished_good");
@@ -642,7 +653,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
   const openPOs = purchaseOrders.filter(p => !["received", "closed", "cancelled"].includes(p.status));
   const pendingOrders = orders.filter(o => o.fulfillment_status !== "fulfilled" && o.status !== "cancelled");
 
-  if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: T.text3, fontSize: 13 }}>Loading ERP…</div>;
+  if (loading && !isFinanceView) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: T.text3, fontSize: 13 }}>Loading ERP…</div>;
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
