@@ -338,7 +338,7 @@ export default function HelmApp() {
 
   const renderView = () => {
     // Check module permissions (settings and dashboard always allowed)
-    const isBlocked = allowedModules && !isAdmin && active !== "dashboard" && active !== "settings" && (
+    const isBlocked = allowedModules && !isAdmin && active !== "dashboard" && active !== "settings" && active !== "spend_request" && (
       allowedModules?.mode === "allow" ? !allowedModules.allowed.includes(active) :
       allowedModules?.mode === "block" ? allowedModules.perms[active] === false :
       Array.isArray(allowedModules) ? !allowedModules.includes(active) : false
@@ -368,6 +368,7 @@ export default function HelmApp() {
       case "wms": return <WMSView />;
       case "3pl_billing": return <ThreePLBillingView />;
       case "finance": return <FinanceView pendingSubView={pendingSubView} clearPendingSubView={() => setPendingSubView(null)} />;
+      case "spend_request": return <FinanceView initialView="requests" embedded />;
       case "automation": return <AutomationView />;
       case "reports": return <ReportsView />;
       case "people": return <PeopleView />;
