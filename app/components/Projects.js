@@ -12,7 +12,7 @@ import SearchableMultiSelect from "./SearchableSelect";
 import AsanaImportModal from "./AsanaImport";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
-const TABS = ["Info", "List", "Board", "Timeline", "Calendar", "Updates", "Docs", "Rules"];
+const TABS = ["Info", "List", "Board", "Timeline", "Calendar", "Forms & Templates", "Updates", "Docs", "Rules"];
 const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
 
@@ -743,7 +743,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     if (!myAccessScope) return TABS;
     return TABS.filter(t => {
       // Tasks scope governs the task-centric tabs (always on for any project member)
-      if (["Info", "List", "Board", "Timeline", "Calendar", "Updates", "Rules"].includes(t)) {
+      if (["Info", "List", "Board", "Timeline", "Calendar", "Forms & Templates", "Updates", "Rules"].includes(t)) {
         return myAccessScope.tasks !== false;
       }
       if (t === "Docs") return myAccessScope.documents === true;
@@ -1132,6 +1132,13 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [savingAsTemplateForm, setSavingAsTemplateForm] = useState({ name: "", description: "", icon: "📋", color: "#3b82f6" });
   const [templateEditor, setTemplateEditor] = useState(null); // { mode: "new"|"edit", id?, name, description, icon, color, sections: [{name, tasks: [string]}] }
   const [showTemplateManager, setShowTemplateManager] = useState(false);
+  // Forms & Templates
+  const [ftTab, setFtTab] = useState("templates");
+  const [taskTemplates, setTaskTemplates] = useState([]);
+  const [projectForms, setProjectForms] = useState([]);
+  const [ttEditor, setTtEditor] = useState(null);
+  const [formEditor, setFormEditor] = useState(null);
+  const [fillingForm, setFillingForm] = useState(null);
 
   const saveAsTemplate = async (srcProject) => {
     if (!profile?.org_id) return;
@@ -3678,6 +3685,371 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       </div>
     );
 
+  // ═══════════════ Forms & Templates ═══════════════
+  useEffect(() => {
+    if (!activeProject) { setTaskTemplates([]); setProjectForms([]); return; }
+    supabase.from("task_templates").select("*").eq("project_id", activeProject).order("created_at").then(({ data }) => setTaskTemplates(data || []));
+    supabase.from("project_forms").select("*").eq("project_id", activeProject).order("created_at").then(({ data }) => setProjectForms(data || []));
+  }, [activeProject]);
+  // Deep-link: /?form=<token> opens the fill modal for that form (logged-in org members)
+  useEffect(() => {
+    try {
+      const token = new URLSearchParams(window.location.search).get("form");
+      if (!token) return;
+      supabase.from("project_forms").select("*").eq("public_token", token).eq("is_active", true).maybeSingle().then(({ data }) => {
+        if (data) { setActiveProject(data.project_id); setShowMyTasks(false); const init = {}; (data.fields || []).forEach(f => { init[f.id] = ""; }); setFillingForm({ form: data, values: init }); }
+      });
+    } catch (e) {}
+  }, []);
+
+  const memberOpts = () => Object.values(profiles).map(u => ({ value: u.id, label: u.display_name || u.email || "Unknown", icon: "👤" }));
+  const sectionOpts = () => projSections.map(s => ({ value: s.id, label: s.name }));
+  const priorityOpts = () => Object.entries(PRIORITY).map(([k, v]) => ({ value: k, label: v.label, color: v.dot }));
+  const FORM_FIELD_TYPES = [
+    { maps_to: "description", label: "Description" },
+    { maps_to: "assignee", label: "Assignee" },
+    { maps_to: "due_date", label: "Due date" },
+    { maps_to: "priority", label: "Priority" },
+    { maps_to: "section", label: "Section" },
+    { maps_to: "note_short", label: "Short answer" },
+    { maps_to: "note_long", label: "Paragraph" },
+  ];
+
+  const openNewTaskTemplate = () => setTtEditor({ id: null, name: "", template_data: { title: "", description: "", priority: "none", assignee_id: "", section_id: "", due_in_days: "", subtasks: [""] } });
+  const openEditTaskTemplate = (t) => setTtEditor({ id: t.id, name: t.name, template_data: { title: "", description: "", priority: "none", assignee_id: "", section_id: "", due_in_days: "", subtasks: [""], ...(t.template_data || {}), subtasks: [...((t.template_data || {}).subtasks || []), ""] } });
+  const saveTaskTemplate = async () => {
+    const ed = ttEditor; if (!ed) return;
+    if (!ed.name.trim()) return showToast("Template name required");
+    const td = { ...ed.template_data, subtasks: (ed.template_data.subtasks || []).map(s => (s || "").trim()).filter(Boolean) };
+    const payload = { name: ed.name.trim(), template_data: td, project_id: activeProject };
+    if (ed.id) {
+      const { data, error } = await supabase.from("task_templates").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", ed.id).select().single();
+      if (error) return showToast("Failed: " + error.message);
+      setTaskTemplates(p => p.map(t => t.id === ed.id ? data : t));
+    } else {
+      const { data, error } = await supabase.from("task_templates").insert({ ...payload, org_id: resolveOrgId(activeProject), created_by: user?.id }).select().single();
+      if (error) return showToast("Failed: " + error.message);
+      setTaskTemplates(p => [...p, data]);
+    }
+    setTtEditor(null);
+    showToast("Template saved", "success");
+  };
+  const deleteTaskTemplate = async (id) => { if (!window.confirm("Delete this template?")) return; await supabase.from("task_templates").delete().eq("id", id); setTaskTemplates(p => p.filter(t => t.id !== id)); };
+  const useTaskTemplate = async (tmpl) => {
+    const td = tmpl.template_data || {};
+    const orgIdForInsert = resolveOrgId(activeProject);
+    if (!orgIdForInsert) return showToast("No org context");
+    const sid = td.section_id && projSections.some(s => s.id === td.section_id) ? td.section_id : (projSections[0]?.id || null);
+    const st = tasks.filter(t => t.section_id === sid && !t.parent_task_id);
+    const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    let due = null;
+    if (td.due_in_days !== "" && td.due_in_days != null) { const d = new Date(); d.setDate(d.getDate() + Number(td.due_in_days)); due = d.toISOString().split("T")[0]; }
+    const { data, error } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: sid, title: td.title || tmpl.name, description: td.description || "", status: "todo", priority: td.priority || "none", assignee_id: td.assignee_id || null, due_date: due, sort_order: mx + 1, created_by: user?.id }).select().single();
+    if (error) return showToast("Failed to create task: " + error.message);
+    setTasks(p => [...p, data]);
+    const subs = (td.subtasks || []).filter(s => (s || "").trim());
+    for (let i = 0; i < subs.length; i++) {
+      const { data: sub } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: sid, parent_task_id: data.id, title: subs[i].trim(), status: "todo", priority: "none", sort_order: i + 1, created_by: user?.id }).select().single();
+      if (sub) setTasks(p => [...p, sub]);
+    }
+    executeRules(data.id, "__created", true, null, data);
+    showToast(`Task created from "${tmpl.name}"`, "success");
+    setViewMode("List");
+  };
+
+  const openNewForm = () => setFormEditor({ id: null, name: "", description: "", fields: [{ id: "f_title", label: "Task name", maps_to: "title", required: true }], target_section_id: "", default_assignee_id: "", default_priority: "none", is_active: true });
+  const openEditForm = (f) => setFormEditor({ id: f.id, name: f.name, description: f.description || "", fields: (f.fields && f.fields.length ? f.fields : [{ id: "f_title", label: "Task name", maps_to: "title", required: true }]), target_section_id: f.target_section_id || "", default_assignee_id: f.default_assignee_id || "", default_priority: f.default_priority || "none", is_active: f.is_active !== false, public_token: f.public_token, submit_count: f.submit_count });
+  const saveForm = async () => {
+    const ed = formEditor; if (!ed) return;
+    if (!ed.name.trim()) return showToast("Form name required");
+    const payload = { name: ed.name.trim(), description: ed.description || "", fields: ed.fields, target_section_id: ed.target_section_id || null, default_assignee_id: ed.default_assignee_id || null, default_priority: ed.default_priority || "none", is_active: ed.is_active !== false, project_id: activeProject };
+    if (ed.id) {
+      const { data, error } = await supabase.from("project_forms").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", ed.id).select().single();
+      if (error) return showToast("Failed: " + error.message);
+      setProjectForms(p => p.map(f => f.id === ed.id ? data : f));
+    } else {
+      const { data, error } = await supabase.from("project_forms").insert({ ...payload, org_id: resolveOrgId(activeProject), created_by: user?.id }).select().single();
+      if (error) return showToast("Failed: " + error.message);
+      setProjectForms(p => [...p, data]);
+    }
+    setFormEditor(null);
+    showToast("Form saved", "success");
+  };
+  const deleteForm = async (id) => { if (!window.confirm("Delete this form?")) return; await supabase.from("project_forms").delete().eq("id", id); setProjectForms(p => p.filter(f => f.id !== id)); };
+  const toggleFormActive = async (form) => { const { data } = await supabase.from("project_forms").update({ is_active: !form.is_active }).eq("id", form.id).select().single(); if (data) setProjectForms(p => p.map(f => f.id === form.id ? data : f)); };
+  const copyFormLink = (form) => { try { const url = `${window.location.origin}/?form=${form.public_token}`; navigator.clipboard.writeText(url); showToast("Form link copied", "success"); } catch (e) { showToast("Copy failed"); } };
+  const openFillForm = (form) => { const init = {}; (form.fields || []).forEach(f => { init[f.id] = ""; }); setFillingForm({ form, values: init }); };
+  const submitForm = async () => {
+    const { form, values } = fillingForm || {};
+    if (!form) return;
+    for (const fld of (form.fields || [])) { if (fld.required && !String(values[fld.id] ?? "").trim()) return showToast(`"${fld.label}" is required`); }
+    const orgIdForInsert = resolveOrgId(form.project_id || activeProject);
+    if (!orgIdForInsert) return showToast("No org context");
+    let title = ""; let description = ""; let assignee = form.default_assignee_id || null; let priority = form.default_priority || "none"; let due = null; let secOverride = null; const extra = [];
+    for (const fld of (form.fields || [])) {
+      const v = values[fld.id];
+      if (v == null || v === "") continue;
+      if (fld.maps_to === "title") title = String(v);
+      else if (fld.maps_to === "description") description = String(v);
+      else if (fld.maps_to === "assignee") assignee = v;
+      else if (fld.maps_to === "priority") priority = v;
+      else if (fld.maps_to === "due_date") due = v;
+      else if (fld.maps_to === "section") secOverride = v;
+      else extra.push(`${fld.label}: ${v}`);
+    }
+    const sid = secOverride || (form.target_section_id && projSections.some(s => s.id === form.target_section_id) ? form.target_section_id : (projSections[0]?.id || null));
+    const fullDesc = [description, extra.join("\n")].filter(Boolean).join("\n\n");
+    const st = tasks.filter(t => t.section_id === sid && !t.parent_task_id);
+    const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    const { data, error } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: form.project_id || activeProject, section_id: sid, title: title || form.name, description: fullDesc, status: "todo", priority: priority || "none", assignee_id: assignee || null, due_date: due || null, sort_order: mx + 1, created_by: user?.id }).select().single();
+    if (error) return showToast("Failed to submit: " + error.message);
+    setTasks(p => [...p, data]);
+    supabase.from("project_forms").update({ submit_count: (form.submit_count || 0) + 1 }).eq("id", form.id);
+    setProjectForms(p => p.map(f => f.id === form.id ? { ...f, submit_count: (f.submit_count || 0) + 1 } : f));
+    executeRules(data.id, "__created", true, null, data);
+    setFillingForm(null);
+    showToast("Task created from form", "success");
+  };
+
+  const ftCard = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px", marginBottom: 10 };
+  const ftBtn = (bg, col, brd) => ({ padding: "6px 12px", borderRadius: 6, background: bg, color: col, border: brd || "none", fontSize: 12, fontWeight: 600, cursor: "pointer" });
+
+  const formsTemplatesViewEl = (() => (
+    <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "16px 14px" : "24px 32px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 20, borderBottom: `1px solid ${T.border}` }}>
+        {[{ k: "templates", l: "Task Templates" }, { k: "forms", l: "Forms" }].map(t => (
+          <button key={t.k} onClick={() => setFtTab(t.k)} style={{ padding: "10px 16px", fontSize: 14, fontWeight: ftTab === t.k ? 700 : 500, color: ftTab === t.k ? T.accent : T.text3, background: "none", border: "none", borderBottom: ftTab === t.k ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer" }}>{t.l}</button>
+        ))}
+      </div>
+
+      {ftTab === "templates" && (
+        <div style={{ maxWidth: 760 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div><div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Task Templates</div><div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Save a reusable task and spawn it in one click with everything pre-filled.</div></div>
+            <button onClick={openNewTaskTemplate} style={ftBtn(T.accent, "#fff")}>＋ New Template</button>
+          </div>
+          {taskTemplates.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "50px 0", color: T.text3 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🧩</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.text2 }}>No task templates yet</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Create one for anything you set up repeatedly.</div>
+            </div>
+          ) : taskTemplates.map(t => { const td = t.template_data || {}; const sec = projSections.find(s => s.id === td.section_id); const asg = td.assignee_id ? profiles[td.assignee_id] : null; return (
+            <div key={t.id} style={ftCard}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{t.name}</div>
+                  {td.title && <div style={{ fontSize: 12, color: T.text2, marginTop: 3 }}>Creates: {td.title}</div>}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {td.priority && td.priority !== "none" && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: (PRIORITY[td.priority]?.dot || T.accent) + "20", color: PRIORITY[td.priority]?.dot || T.accent, fontWeight: 700 }}>{PRIORITY[td.priority]?.label || td.priority}</span>}
+                    {sec && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.surface3, color: T.text3, fontWeight: 600 }}>📁 {sec.name}</span>}
+                    {asg && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.surface3, color: T.text3, fontWeight: 600 }}>👤 {asg.display_name || asg.email}</span>}
+                    {td.due_in_days !== "" && td.due_in_days != null && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.surface3, color: T.text3, fontWeight: 600 }}>📅 +{td.due_in_days}d</span>}
+                    {(td.subtasks || []).filter(Boolean).length > 0 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: T.surface3, color: T.text3, fontWeight: 600 }}>☑ {(td.subtasks || []).filter(Boolean).length} subtasks</span>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => useTaskTemplate(t)} style={ftBtn(T.accentDim, T.accent, `1px solid ${T.accent}40`)}>+ Use</button>
+                  <button onClick={() => openEditTaskTemplate(t)} style={ftBtn(T.surface2, T.text2, `1px solid ${T.border}`)}>Edit</button>
+                  <button onClick={() => deleteTaskTemplate(t.id)} style={{ ...S.iconBtn, color: T.red }} title="Delete">✕</button>
+                </div>
+              </div>
+            </div>
+          ); })}
+        </div>
+      )}
+
+      {ftTab === "forms" && (
+        <div style={{ maxWidth: 760 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div><div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Forms</div><div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Share a form; each submission creates a task in this project with the right fields filled in.</div></div>
+            <button onClick={openNewForm} style={ftBtn(T.accent, "#fff")}>＋ New Form</button>
+          </div>
+          {projectForms.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "50px 0", color: T.text3 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>📨</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.text2 }}>No forms yet</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Build an intake form to collect requests as tasks.</div>
+            </div>
+          ) : projectForms.map(f => (
+            <div key={f.id} style={ftCard}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{f.name}</span>
+                    <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: f.is_active ? "#22c55e20" : T.surface3, color: f.is_active ? "#22c55e" : T.text3, fontWeight: 700 }}>{f.is_active ? "ACTIVE" : "OFF"}</span>
+                  </div>
+                  {f.description && <div style={{ fontSize: 12, color: T.text3, marginTop: 3 }}>{f.description}</div>}
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 8 }}>{(f.fields || []).length} field{(f.fields || []).length !== 1 ? "s" : ""} · {f.submit_count || 0} submission{(f.submit_count || 0) !== 1 ? "s" : ""}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button onClick={() => openFillForm(f)} style={ftBtn(T.accentDim, T.accent, `1px solid ${T.accent}40`)}>Open</button>
+                  <button onClick={() => copyFormLink(f)} style={ftBtn(T.surface2, T.text2, `1px solid ${T.border}`)}>🔗 Link</button>
+                  <button onClick={() => toggleFormActive(f)} style={ftBtn(T.surface2, T.text2, `1px solid ${T.border}`)}>{f.is_active ? "Turn off" : "Turn on"}</button>
+                  <button onClick={() => openEditForm(f)} style={ftBtn(T.surface2, T.text2, `1px solid ${T.border}`)}>Edit</button>
+                  <button onClick={() => deleteForm(f.id)} style={{ ...S.iconBtn, color: T.red }} title="Delete">✕</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ))();
+
+  const ttEditorEl = (() => {
+    const ed = ttEditor; if (!ed) return null;
+    const setTd = (patch) => setTtEditor(p => ({ ...p, template_data: { ...p.template_data, ...patch } }));
+    const lbl = { fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 };
+    const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" };
+    const subs = ed.template_data.subtasks && ed.template_data.subtasks.length ? ed.template_data.subtasks : [""];
+    const setSub = (i, v) => { const arr = [...subs]; arr[i] = v; if (i === arr.length - 1 && v.trim()) arr.push(""); setTd({ subtasks: arr }); };
+    const rmSub = (i) => { const arr = subs.filter((_, j) => j !== i); setTd({ subtasks: arr.length ? arr : [""] }); };
+    return (
+      <div onClick={() => setTtEditor(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 120, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 560, maxWidth: "94vw", maxHeight: "88vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{ed.id ? "Edit Task Template" : "New Task Template"}</h3>
+            <button onClick={() => setTtEditor(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "16px 22px" }}>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Template name *</label><input value={ed.name} onChange={e => setTtEditor(p => ({ ...p, name: e.target.value }))} placeholder="e.g. New vendor onboarding" autoFocus style={inp} /></div>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Task title</label><input value={ed.template_data.title} onChange={e => setTd({ title: e.target.value })} placeholder="Defaults to template name" style={inp} /></div>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Description</label><textarea value={ed.template_data.description} onChange={e => setTd({ description: e.target.value })} rows={3} placeholder="Instructions or context…" style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Priority</label><SearchableMultiSelect multi={false} placeholder="Priority" options={priorityOpts()} selected={ed.template_data.priority || "none"} onChange={v => setTd({ priority: v })} /></div>
+              <div><label style={lbl}>Assignee</label><SearchableMultiSelect multi={false} placeholder="Unassigned" options={[{ value: "", label: "Unassigned", icon: "✕" }, ...memberOpts()]} selected={ed.template_data.assignee_id || ""} onChange={v => setTd({ assignee_id: v })} /></div>
+              <div><label style={lbl}>Section</label><SearchableMultiSelect multi={false} placeholder="First section" options={[{ value: "", label: "First section" }, ...sectionOpts()]} selected={ed.template_data.section_id || ""} onChange={v => setTd({ section_id: v })} /></div>
+              <div><label style={lbl}>Due in (days from use)</label><input type="number" value={ed.template_data.due_in_days} onChange={e => setTd({ due_in_days: e.target.value })} placeholder="e.g. 7" style={inp} /></div>
+            </div>
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+              <label style={lbl}>Subtasks</label>
+              {subs.map((s, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <span style={{ color: T.text3, fontSize: 12, width: 12 }}>·</span>
+                  <input value={s} onChange={e => setSub(i, e.target.value)} placeholder={i === subs.length - 1 ? "Add a subtask…" : "Subtask"} style={{ ...inp, padding: "5px 8px", fontSize: 12 }} />
+                  {s && <button onClick={() => rmSub(i)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={() => setTtEditor(null)} style={ftBtn(T.surface3, T.text2)}>Cancel</button>
+            <button onClick={saveTaskTemplate} style={ftBtn(T.accent, "#fff")}>{ed.id ? "Save Changes" : "Create Template"}</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+  const formEditorEl = (() => {
+    const ed = formEditor; if (!ed) return null;
+    const lbl = { fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 };
+    const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" };
+    const setF = (patch) => setFormEditor(p => ({ ...p, ...patch }));
+    const setField = (idx, patch) => setF({ fields: ed.fields.map((f, i) => i === idx ? { ...f, ...patch } : f) });
+    const addField = (ft) => setF({ fields: [...ed.fields, { id: "f_" + Math.random().toString(36).slice(2, 8), label: ft.label, maps_to: ft.maps_to, required: false }] });
+    const rmField = (idx) => setF({ fields: ed.fields.filter((_, i) => i !== idx) });
+    const moveField = (idx, dir) => { const j = idx + dir; if (j < 1 || j >= ed.fields.length) return; const arr = [...ed.fields]; [arr[idx], arr[j]] = [arr[j], arr[idx]]; setF({ fields: arr }); };
+    return (
+      <div onClick={() => setFormEditor(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 120, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 640, maxWidth: "94vw", maxHeight: "90vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{ed.id ? "Edit Form" : "New Form"}</h3>
+            <button onClick={() => setFormEditor(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "16px 22px" }}>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Form name *</label><input value={ed.name} onChange={e => setF({ name: e.target.value })} placeholder="e.g. Creative request" autoFocus style={inp} /></div>
+            <div style={{ marginBottom: 12 }}><label style={lbl}>Intro / description</label><textarea value={ed.description} onChange={e => setF({ description: e.target.value })} rows={2} placeholder="Shown at the top of the form" style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 8 }}>
+              <div><label style={lbl}>New tasks go to</label><SearchableMultiSelect multi={false} placeholder="First section" options={[{ value: "", label: "First section" }, ...sectionOpts()]} selected={ed.target_section_id || ""} onChange={v => setF({ target_section_id: v })} /></div>
+              <div><label style={lbl}>Default assignee</label><SearchableMultiSelect multi={false} placeholder="Unassigned" options={[{ value: "", label: "Unassigned", icon: "✕" }, ...memberOpts()]} selected={ed.default_assignee_id || ""} onChange={v => setF({ default_assignee_id: v })} /></div>
+              <div><label style={lbl}>Default priority</label><SearchableMultiSelect multi={false} placeholder="Priority" options={priorityOpts()} selected={ed.default_priority || "none"} onChange={v => setF({ default_priority: v })} /></div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0 14px" }}>
+              <div onClick={() => setF({ is_active: !ed.is_active })} style={{ width: 34, height: 19, borderRadius: 10, background: ed.is_active !== false ? T.green : T.surface3, position: "relative", cursor: "pointer", flexShrink: 0 }}><div style={{ width: 15, height: 15, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: ed.is_active !== false ? 17 : 2, transition: "left 0.15s" }} /></div>
+              <span style={{ fontSize: 12, color: T.text2 }}>Form is {ed.is_active !== false ? "active — accepting submissions" : "off"}</span>
+            </div>
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}><label style={{ ...lbl, marginBottom: 0 }}>Fields</label></div>
+              {ed.fields.map((f, i) => (
+                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "8px 10px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
+                  <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 6, background: T.surface3, color: T.text3, fontWeight: 700, flexShrink: 0, minWidth: 62, textAlign: "center" }}>{({ title: "TITLE", description: "DESC", assignee: "PERSON", due_date: "DATE", priority: "PRIORITY", section: "SECTION", note_short: "TEXT", note_long: "PARAGRAPH" })[f.maps_to] || f.maps_to}</span>
+                  <input value={f.label} onChange={e => setField(i, { label: e.target.value })} placeholder="Question label" style={{ flex: 1, padding: "5px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} />
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text3, cursor: f.maps_to === "title" ? "default" : "pointer", flexShrink: 0 }}>
+                    <input type="checkbox" checked={!!f.required} disabled={f.maps_to === "title"} onChange={e => setField(i, { required: e.target.checked })} /> req
+                  </label>
+                  {f.maps_to !== "title" ? (<>
+                    <button onClick={() => moveField(i, -1)} disabled={i <= 1} style={{ background: "none", border: "none", color: i <= 1 ? T.text3 : T.text2, cursor: i <= 1 ? "default" : "pointer", fontSize: 13 }}>↑</button>
+                    <button onClick={() => moveField(i, 1)} disabled={i === ed.fields.length - 1} style={{ background: "none", border: "none", color: i === ed.fields.length - 1 ? T.text3 : T.text2, cursor: "pointer", fontSize: 13 }}>↓</button>
+                    <button onClick={() => rmField(i)} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 13 }}>✕</button>
+                  </>) : <span style={{ width: 54 }} />}
+                </div>
+              ))}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {FORM_FIELD_TYPES.map(ft => (
+                  <button key={ft.maps_to} onClick={() => addField(ft)} style={{ padding: "5px 10px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "none", color: T.text2, fontSize: 11, cursor: "pointer" }}>+ {ft.label}</button>
+                ))}
+              </div>
+            </div>
+            {ed.id && ed.public_token && (
+              <div style={{ marginTop: 16, padding: "10px 12px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`, fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Share link: {`${(typeof window !== "undefined" ? window.location.origin : "")}/?form=${ed.public_token}`}</span>
+                <button onClick={() => copyFormLink(ed)} style={ftBtn(T.accentDim, T.accent, `1px solid ${T.accent}40`)}>Copy</button>
+              </div>
+            )}
+          </div>
+          <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={() => setFormEditor(null)} style={ftBtn(T.surface3, T.text2)}>Cancel</button>
+            <button onClick={saveForm} style={ftBtn(T.accent, "#fff")}>{ed.id ? "Save Changes" : "Create Form"}</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+  const fillFormEl = (() => {
+    const ff = fillingForm; if (!ff) return null;
+    const { form, values } = ff;
+    const setVal = (id, v) => setFillingForm(p => ({ ...p, values: { ...p.values, [id]: v } }));
+    const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" };
+    return (
+      <div onClick={() => setFillingForm(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 130, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 520, maxWidth: "94vw", maxHeight: "90vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+            <div><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{form.name}</h3>{form.description && <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>{form.description}</div>}</div>
+            <button onClick={() => setFillingForm(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "16px 22px" }}>
+            {(form.fields || []).map(f => (
+              <div key={f.id} style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 5 }}>{f.label}{f.required && <span style={{ color: T.red }}> *</span>}</label>
+                {f.maps_to === "description" || f.maps_to === "note_long" ? (
+                  <textarea value={values[f.id] || ""} onChange={e => setVal(f.id, e.target.value)} rows={3} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} />
+                ) : f.maps_to === "assignee" ? (
+                  <SearchableMultiSelect multi={false} placeholder="Select person" options={memberOpts()} selected={values[f.id] || ""} onChange={v => setVal(f.id, v)} />
+                ) : f.maps_to === "priority" ? (
+                  <SearchableMultiSelect multi={false} placeholder="Select priority" options={priorityOpts()} selected={values[f.id] || ""} onChange={v => setVal(f.id, v)} />
+                ) : f.maps_to === "section" ? (
+                  <SearchableMultiSelect multi={false} placeholder="Select section" options={sectionOpts()} selected={values[f.id] || ""} onChange={v => setVal(f.id, v)} />
+                ) : f.maps_to === "due_date" ? (
+                  <input type="date" value={values[f.id] || ""} onChange={e => setVal(f.id, e.target.value)} style={{ ...inp, cursor: "pointer" }} />
+                ) : (
+                  <input value={values[f.id] || ""} onChange={e => setVal(f.id, e.target.value)} style={inp} />
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={() => setFillingForm(null)} style={ftBtn(T.surface3, T.text2)}>Cancel</button>
+            <button onClick={submitForm} style={ftBtn(T.accent, "#fff")}>Submit → Create Task</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+
   // MAIN RENDER
   return (
     <div onClick={() => ctxProject && setCtxProject(null)} style={{ display: "flex", height: "100%", background: T.bg, overflow: "hidden" }}>
@@ -3970,6 +4342,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
               {viewMode === "Timeline" && timelineViewEl}
               {viewMode === "Calendar" && calendarViewEl}
               {viewMode === "Updates" && updatesViewEl}
+              {viewMode === "Forms & Templates" && formsTemplatesViewEl}
               {viewMode === "Docs" && (!myAccessScope || myAccessScope.documents === true) && <DocsView key="docs" />}
               {viewMode === "Rules" && (
                 <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
@@ -4224,6 +4597,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       {saveAsTemplateModalEl}
       {copyModalEl}
       {statusFormModalEl}
+      {ttEditorEl}
+      {formEditorEl}
+      {fillFormEl}
       {showAddMember && activeProject && (() => {
         const currentMembers = projMembersList.filter(pm => pm.project_id === activeProject);
         const currentMemberIds = new Set(currentMembers.map(m => m.user_id));
