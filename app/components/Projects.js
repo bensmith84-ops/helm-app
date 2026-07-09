@@ -3777,7 +3777,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   };
   const deleteForm = async (id) => { if (!window.confirm("Delete this form?")) return; await supabase.from("project_forms").delete().eq("id", id); setProjectForms(p => p.filter(f => f.id !== id)); };
   const toggleFormActive = async (form) => { const { data } = await supabase.from("project_forms").update({ is_active: !form.is_active }).eq("id", form.id).select().single(); if (data) setProjectForms(p => p.map(f => f.id === form.id ? data : f)); };
-  const copyFormLink = (form) => { try { const url = `${window.location.origin}/?form=${form.public_token}`; navigator.clipboard.writeText(url); showToast("Form link copied", "success"); } catch (e) { showToast("Copy failed"); } };
+  const copyFormLink = (form) => { try { const url = `${window.location.origin}/form/${form.public_token}`; navigator.clipboard.writeText(url); showToast("Form link copied", "success"); } catch (e) { showToast("Copy failed"); } };
   const openFillForm = (form) => { const init = {}; (form.fields || []).forEach(f => { init[f.id] = ""; }); setFillingForm({ form, values: init }); };
   const submitForm = async () => {
     const { form, values } = fillingForm || {};
