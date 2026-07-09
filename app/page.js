@@ -28,6 +28,7 @@ const FinanceView = lazy(() => import("./components/Finance"));
 const ScoreboardView2 = lazy(() => import("./components/Scoreboard"));
 const AutomationView = lazy(() => import("./components/Automation"));
 const ReportsView = lazy(() => import("./components/Reports"));
+const InboxView = lazy(() => import("./components/Inbox"));
 const SettingsView = lazy(() => import("./components/Settings"));
 const LearningView = lazy(() => import("./components/Learning"));
 const SupportView = lazy(() => import("./components/Support"));
@@ -314,6 +315,7 @@ export default function HelmApp() {
           projects: active === "projects" ? null : overdue > 0 ? overdue : null,
           messages: active === "messages" ? null : unreadMsgs > 0 ? unreadMsgs : null,
           okrs: active === "okrs" ? null : staleKRs > 0 ? staleKRs : null,
+          inbox: active === "inbox" ? null : pendingNotifs > 0 ? pendingNotifs : null,
           activity: active === "activity" ? null : pendingNotifs > 0 ? pendingNotifs : null,
         });
       } catch (e) { console.warn("Badge count fetch failed:", e); }
@@ -338,7 +340,7 @@ export default function HelmApp() {
 
   const renderView = () => {
     // Check module permissions (settings and dashboard always allowed)
-    const isBlocked = allowedModules && !isAdmin && active !== "dashboard" && active !== "settings" && active !== "spend_request" && (
+    const isBlocked = allowedModules && !isAdmin && active !== "dashboard" && active !== "settings" && active !== "spend_request" && active !== "inbox" && (
       allowedModules?.mode === "allow" ? !allowedModules.allowed.includes(active) :
       allowedModules?.mode === "block" ? allowedModules.perms[active] === false :
       Array.isArray(allowedModules) ? !allowedModules.includes(active) : false
@@ -372,6 +374,7 @@ export default function HelmApp() {
       case "automation": return <AutomationView />;
       case "reports": return <ReportsView />;
       case "people": return <PeopleView />;
+      case "inbox": return <InboxView setActive={navigateTo} />;
       case "activity": return <ActivityView setActive={setActive} />;
       case "settings": return <SettingsView isAdmin={isAdmin} allowedModules={allowedModules} />;
       case "ai-builder": return <AIBuilderView />;
