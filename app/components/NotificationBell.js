@@ -254,9 +254,9 @@ export default function NotificationBell({ setActive }) {
 
           {/* Footer */}
           <div style={{ padding:"10px 16px", borderTop:`1px solid ${T.border}`, flexShrink:0, display:"flex", justifyContent:"center" }}>
-            <button onClick={() => { setActive("activity"); setOpen(false); }}
+            <button onClick={() => { setActive("inbox"); setOpen(false); }}
               style={{ fontSize:12, color:T.accent, background:"none", border:"none", cursor:"pointer", fontWeight:500 }}>
-              View all activity →
+              Open Inbox →
             </button>
           </div>
         </div>
