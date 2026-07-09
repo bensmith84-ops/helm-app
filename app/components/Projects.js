@@ -3718,12 +3718,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     { maps_to: "attachments", label: "Attachments" },
   ];
 
-  const openNewTaskTemplate = () => setTtEditor({ id: null, name: "", template_data: { title: "", description: "", priority: "none", assignee_id: "", section_id: "", due_in_days: "", subtasks: [""] } });
-  const openEditTaskTemplate = (t) => setTtEditor({ id: t.id, name: t.name, template_data: { title: "", description: "", priority: "none", assignee_id: "", section_id: "", due_in_days: "", subtasks: [""], ...(t.template_data || {}), subtasks: [...((t.template_data || {}).subtasks || []), ""] } });
+  const _ttRid = () => "st_" + Math.random().toString(36).slice(2, 9);
+  const _ttItem = (o) => { const b = typeof o === "string" ? { title: o } : (o || {}); return { id: b.id || _ttRid(), title: b.title || "", description: b.description || "", priority: b.priority || "none", assignee_id: b.assignee_id || "", collaborator_ids: Array.isArray(b.collaborator_ids) ? b.collaborator_ids : [], start_in_days: b.start_in_days ?? "", due_in_days: b.due_in_days ?? "", depends_on: Array.isArray(b.depends_on) ? b.depends_on : [] }; };
+  const openNewTaskTemplate = () => setTtEditor({ id: null, name: "", selected: "__main", template_data: { title: "", description: "", priority: "none", assignee_id: "", section_id: "", start_in_days: "", due_in_days: "", collaborator_ids: [], depends_on: [], subtasks: [] } });
+  const openEditTaskTemplate = (t) => { const td = t.template_data || {}; setTtEditor({ id: t.id, name: t.name, selected: "__main", template_data: { title: td.title || "", description: td.description || "", priority: td.priority || "none", assignee_id: td.assignee_id || "", section_id: td.section_id || "", start_in_days: td.start_in_days ?? "", due_in_days: td.due_in_days ?? "", collaborator_ids: Array.isArray(td.collaborator_ids) ? td.collaborator_ids : [], depends_on: Array.isArray(td.depends_on) ? td.depends_on : [], subtasks: (td.subtasks || []).map(_ttItem) } }); };
   const saveTaskTemplate = async () => {
     const ed = ttEditor; if (!ed) return;
     if (!ed.name.trim()) return showToast("Template name required");
-    const td = { ...ed.template_data, subtasks: (ed.template_data.subtasks || []).map(s => (s || "").trim()).filter(Boolean) };
+    const items = (ed.template_data.subtasks || []).filter(s => (s.title || "").trim()).map(s => ({ ...s, title: s.title.trim() }));
+    const validIds = new Set(["__main", ...items.map(s => s.id)]);
+    const cleanDeps = (arr) => (arr || []).filter(id => validIds.has(id));
+    const td = { ...ed.template_data, subtasks: items.map(s => ({ ...s, depends_on: cleanDeps(s.depends_on) })), depends_on: cleanDeps(ed.template_data.depends_on) };
     const payload = { name: ed.name.trim(), template_data: td, project_id: activeProject };
     if (ed.id) {
       const { data, error } = await supabase.from("task_templates").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", ed.id).select().single();
@@ -3745,17 +3750,34 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     const sid = td.section_id && projSections.some(s => s.id === td.section_id) ? td.section_id : (projSections[0]?.id || null);
     const st = tasks.filter(t => t.section_id === sid && !t.parent_task_id);
     const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
-    let due = null;
-    if (td.due_in_days !== "" && td.due_in_days != null) { const d = new Date(); d.setDate(d.getDate() + Number(td.due_in_days)); due = d.toISOString().split("T")[0]; }
-    const { data, error } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: sid, title: td.title || tmpl.name, description: td.description || "", status: "todo", priority: td.priority || "none", assignee_id: td.assignee_id || null, due_date: due, sort_order: mx + 1, created_by: user?.id }).select().single();
+    const relDate = (v) => { if (v === "" || v == null) return null; const d = new Date(); d.setDate(d.getDate() + Number(v)); return d.toISOString().split("T")[0]; };
+    const items = (td.subtasks || []).map(s => (typeof s === "string" ? { id: s, title: s } : s)).filter(s => (s.title || "").trim());
+    const { data: main, error } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: sid, title: td.title || tmpl.name, description: td.description || "", status: "todo", priority: td.priority || "none", assignee_id: td.assignee_id || null, start_date: relDate(td.start_in_days), due_date: relDate(td.due_in_days), sort_order: mx + 1, created_by: user?.id }).select().single();
     if (error) return showToast("Failed to create task: " + error.message);
-    setTasks(p => [...p, data]);
-    const subs = (td.subtasks || []).filter(s => (s || "").trim());
-    for (let i = 0; i < subs.length; i++) {
-      const { data: sub } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: sid, parent_task_id: data.id, title: subs[i].trim(), status: "todo", priority: "none", sort_order: i + 1, created_by: user?.id }).select().single();
-      if (sub) setTasks(p => [...p, sub]);
+    const created = [main];
+    const idMap = { "__main": main.id };
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const { data: sub } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: activeProject, section_id: sid, parent_task_id: main.id, title: it.title.trim(), description: it.description || "", status: "todo", priority: it.priority || "none", assignee_id: it.assignee_id || null, start_date: relDate(it.start_in_days), due_date: relDate(it.due_in_days), sort_order: i + 1, created_by: user?.id }).select().single();
+      if (sub) { created.push(sub); idMap[it.id] = sub.id; }
     }
-    executeRules(data.id, "__created", true, null, data);
+    setTasks(p => [...p, ...created]);
+    const addCollabs = async (taskId, ids, taskTitle) => {
+      for (const uid of (ids || [])) {
+        if (!uid) continue;
+        await supabase.from("task_assignees").insert({ task_id: taskId, user_id: uid, role: "collaborator", org_id: orgIdForInsert });
+        if (uid !== user?.id) { await supabase.from("notifications").insert({ org_id: orgIdForInsert, user_id: uid, type: "assignment", title: `${uname(user?.id)} added you as a collaborator`, body: taskTitle || "Task", entity_type: "task", entity_id: taskId, actor_id: user?.id, is_read: false, category: "assignment", metadata: { task_title: taskTitle } }); }
+      }
+    };
+    await addCollabs(main.id, td.collaborator_ids, main.title);
+    for (const it of items) { if (idMap[it.id]) await addCollabs(idMap[it.id], it.collaborator_ids, it.title); }
+    const addDeps = async (localId, depList) => {
+      const succId = idMap[localId]; if (!succId) return;
+      for (const depLocal of (depList || [])) { const preId = idMap[depLocal]; if (preId && preId !== succId) { await supabase.from("task_dependencies").insert({ predecessor_id: preId, successor_id: succId, dependency_type: "finish_to_start", org_id: orgIdForInsert }); } }
+    };
+    await addDeps("__main", td.depends_on);
+    for (const it of items) await addDeps(it.id, it.depends_on);
+    executeRules(main.id, "__created", true, null, main);
     showToast(`Task created from "${tmpl.name}"`, "success");
     setViewMode("List");
   };
@@ -3918,43 +3940,76 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
 
   const ttEditorEl = (() => {
     const ed = ttEditor; if (!ed) return null;
-    const setTd = (patch) => setTtEditor(p => ({ ...p, template_data: { ...p.template_data, ...patch } }));
+    const td = ed.template_data;
+    const items = td.subtasks || [];
+    const sel = ed.selected || "__main";
+    const isMain = sel === "__main";
     const lbl = { fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 };
     const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" };
-    const subs = ed.template_data.subtasks && ed.template_data.subtasks.length ? ed.template_data.subtasks : [""];
-    const setSub = (i, v) => { const arr = [...subs]; arr[i] = v; if (i === arr.length - 1 && v.trim()) arr.push(""); setTd({ subtasks: arr }); };
-    const rmSub = (i) => { const arr = subs.filter((_, j) => j !== i); setTd({ subtasks: arr.length ? arr : [""] }); };
+    const setTd = (patch) => setTtEditor(p => ({ ...p, template_data: { ...p.template_data, ...patch } }));
+    const setItem = (id, patch) => setTtEditor(p => ({ ...p, template_data: { ...p.template_data, subtasks: (p.template_data.subtasks || []).map(x => x.id === id ? { ...x, ...patch } : x) } }));
+    const cur = isMain ? td : (items.find(x => x.id === sel) || td);
+    const setCur = (patch) => isMain ? setTd(patch) : setItem(sel, patch);
+    const addItem = () => { const it = _ttItem({}); setTtEditor(p => ({ ...p, template_data: { ...p.template_data, subtasks: [...(p.template_data.subtasks || []), it] }, selected: it.id })); };
+    const rmItem = (id) => setTtEditor(p => ({ ...p, template_data: { ...p.template_data, subtasks: (p.template_data.subtasks || []).filter(x => x.id !== id).map(x => ({ ...x, depends_on: (x.depends_on || []).filter(d => d !== id) })), depends_on: (p.template_data.depends_on || []).filter(d => d !== id) }, selected: p.selected === id ? "__main" : p.selected }));
+    const selItem = (id) => setTtEditor(p => ({ ...p, selected: id }));
+    const depOptions = [{ value: "__main", label: (td.title || ed.name || "Main task") }, ...items.map(x => ({ value: x.id, label: x.title || "Untitled subtask" }))].filter(o => o.value !== sel);
+    const rowStyle = (active) => ({ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 7, cursor: "pointer", background: active ? T.accentDim : "transparent", marginBottom: 2 });
     return (
       <div onClick={() => setTtEditor(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 120, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div onClick={e => e.stopPropagation()} style={{ width: 560, maxWidth: "94vw", maxHeight: "88vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 880, maxWidth: "96vw", height: "86vh", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{ed.id ? "Edit Task Template" : "New Task Template"}</h3>
             <button onClick={() => setTtEditor(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 20 }}>×</button>
           </div>
-          <div style={{ flex: 1, overflow: "auto", padding: "16px 22px" }}>
-            <div style={{ marginBottom: 12 }}><label style={lbl}>Template name *</label><input value={ed.name} onChange={e => setTtEditor(p => ({ ...p, name: e.target.value }))} placeholder="e.g. New vendor onboarding" autoFocus style={inp} /></div>
-            <div style={{ marginBottom: 12 }}><label style={lbl}>Task title</label><input value={ed.template_data.title} onChange={e => setTd({ title: e.target.value })} placeholder="Defaults to template name" style={inp} /></div>
-            <div style={{ marginBottom: 12 }}><label style={lbl}>Description</label><textarea value={ed.template_data.description} onChange={e => setTd({ description: e.target.value })} rows={3} placeholder="Instructions or context…" style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div><label style={lbl}>Priority</label><SearchableMultiSelect multi={false} placeholder="Priority" options={priorityOpts()} selected={ed.template_data.priority || "none"} onChange={v => setTd({ priority: v })} /></div>
-              <div><label style={lbl}>Assignee</label><SearchableMultiSelect multi={false} placeholder="Unassigned" options={[{ value: "", label: "Unassigned", icon: "✕" }, ...memberOpts()]} selected={ed.template_data.assignee_id || ""} onChange={v => setTd({ assignee_id: v })} /></div>
-              <div><label style={lbl}>Section</label><SearchableMultiSelect multi={false} placeholder="First section" options={[{ value: "", label: "First section" }, ...sectionOpts()]} selected={ed.template_data.section_id || ""} onChange={v => setTd({ section_id: v })} /></div>
-              <div><label style={lbl}>Due in (days from use)</label><input type="number" value={ed.template_data.due_in_days} onChange={e => setTd({ due_in_days: e.target.value })} placeholder="e.g. 7" style={inp} /></div>
-            </div>
-            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
-              <label style={lbl}>Subtasks</label>
-              {subs.map((s, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                  <span style={{ color: T.text3, fontSize: 12, width: 12 }}>·</span>
-                  <input value={s} onChange={e => setSub(i, e.target.value)} placeholder={i === subs.length - 1 ? "Add a subtask…" : "Subtask"} style={{ ...inp, padding: "5px 8px", fontSize: 12 }} />
-                  {s && <button onClick={() => rmSub(i)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>}
+          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+            <div style={{ width: 280, flexShrink: 0, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ padding: "14px 14px 10px" }}>
+                <label style={lbl}>Template name *</label>
+                <input value={ed.name} onChange={e => setTtEditor(p => ({ ...p, name: e.target.value }))} placeholder="e.g. New vendor onboarding" autoFocus style={inp} />
+              </div>
+              <div style={{ padding: "0 14px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Tasks</div>
+              <div style={{ flex: 1, overflow: "auto", padding: "0 8px 10px" }}>
+                <div onClick={() => selItem("__main")} style={rowStyle(isMain)}>
+                  <span style={{ fontSize: 13 }}>◆</span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: isMain ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{td.title || ed.name || "Main task"}</span>
                 </div>
-              ))}
+                {items.map(x => (
+                  <div key={x.id} onClick={() => selItem(x.id)} style={{ ...rowStyle(sel === x.id), paddingLeft: 22 }}
+                    onMouseEnter={e => e.currentTarget.querySelector(".rm")?.style.setProperty("opacity", "1")}
+                    onMouseLeave={e => e.currentTarget.querySelector(".rm")?.style.setProperty("opacity", "0")}>
+                    <span style={{ fontSize: 11, color: T.text3 }}>↳</span>
+                    <span style={{ flex: 1, fontSize: 12, color: sel === x.id ? T.accent : T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.title || "Untitled subtask"}</span>
+                    {(x.assignee_id && profiles[x.assignee_id]) && <span style={{ width: 18, height: 18, borderRadius: 9, background: acol(x.assignee_id) + "30", color: acol(x.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{ini(x.assignee_id)}</span>}
+                    <button className="rm" onClick={e => { e.stopPropagation(); rmItem(x.id); }} style={{ opacity: 0, background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 12, flexShrink: 0 }}>✕</button>
+                  </div>
+                ))}
+                <button onClick={addItem} style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "8px 10px", marginTop: 4, borderRadius: 7, border: `1px dashed ${T.border}`, background: "none", color: T.text3, fontSize: 12, cursor: "pointer" }}>+ Add subtask</button>
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: "16px 20px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>{isMain ? "Main task" : "Subtask"}</div>
+              <div style={{ marginBottom: 12 }}><label style={lbl}>{isMain ? "Task title" : "Subtask title"}</label><input value={cur.title || ""} onChange={e => setCur({ title: e.target.value })} placeholder={isMain ? "Defaults to template name" : "Subtask title"} style={inp} /></div>
+              <div style={{ marginBottom: 12 }}><label style={lbl}>Description</label><textarea value={cur.description || ""} onChange={e => setCur({ description: e.target.value })} rows={3} placeholder="Instructions or context…" style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div><label style={lbl}>Priority</label><SearchableMultiSelect multi={false} placeholder="Priority" options={priorityOpts()} selected={cur.priority || "none"} onChange={v => setCur({ priority: v })} /></div>
+                <div><label style={lbl}>Assignee</label><SearchableMultiSelect multi={false} placeholder="Unassigned" options={[{ value: "", label: "Unassigned", icon: "✕" }, ...memberOpts()]} selected={cur.assignee_id || ""} onChange={v => setCur({ assignee_id: v })} /></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div><label style={lbl}>Starts (days from use)</label><input type="number" value={cur.start_in_days ?? ""} onChange={e => setCur({ start_in_days: e.target.value })} placeholder="e.g. 0" style={inp} /></div>
+                <div><label style={lbl}>Due (days from use)</label><input type="number" value={cur.due_in_days ?? ""} onChange={e => setCur({ due_in_days: e.target.value })} placeholder="e.g. 7" style={inp} /></div>
+              </div>
+              <div style={{ marginBottom: 12 }}><label style={lbl}>Collaborators</label><SearchableMultiSelect multi={true} placeholder="Add collaborators…" options={memberOpts()} selected={Array.isArray(cur.collaborator_ids) ? cur.collaborator_ids : []} onChange={v => setCur({ collaborator_ids: v })} /></div>
+              {isMain && <div style={{ marginBottom: 12 }}><label style={lbl}>Section</label><SearchableMultiSelect multi={false} placeholder="First section" options={[{ value: "", label: "First section" }, ...sectionOpts()]} selected={cur.section_id || ""} onChange={v => setCur({ section_id: v })} /></div>}
+              <div style={{ marginBottom: 12 }}><label style={lbl}>Blocked by (dependencies)</label>{depOptions.length ? <SearchableMultiSelect multi={true} placeholder="Tasks that must finish first…" options={depOptions} selected={(cur.depends_on || []).filter(d => depOptions.some(o => o.value === d))} onChange={v => setCur({ depends_on: v })} /> : <div style={{ fontSize: 12, color: T.text3 }}>Add other subtasks to set dependencies.</div>}</div>
             </div>
           </div>
-          <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button onClick={() => setTtEditor(null)} style={ftBtn(T.surface3, T.text2)}>Cancel</button>
-            <button onClick={saveTaskTemplate} style={ftBtn(T.accent, "#fff")}>{ed.id ? "Save Changes" : "Create Template"}</button>
+          <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 11, color: T.text3 }}>{items.length} subtask{items.length === 1 ? "" : "s"} · dates & dependencies are relative to when the template is used</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setTtEditor(null)} style={ftBtn(T.surface3, T.text2)}>Cancel</button>
+              <button onClick={saveTaskTemplate} style={ftBtn(T.accent, "#fff")}>{ed.id ? "Save Changes" : "Create Template"}</button>
+            </div>
           </div>
         </div>
       </div>
