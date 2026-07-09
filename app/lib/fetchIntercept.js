@@ -44,6 +44,7 @@ const FUNCTIONS_DENYLIST = new Set([
   "sheets-daily-sync",
   "sheets-preview",
   "sheets-explore",
+  "public-form",
 ]);
 const POSTGREST_RE = /^https?:\/\/[^/]+\.supabase\.co\/rest\/v1\/([^?/]+)(\?.*)?$/;
 
