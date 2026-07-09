@@ -3713,6 +3713,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     { maps_to: "section", label: "Section" },
     { maps_to: "note_short", label: "Short answer" },
     { maps_to: "note_long", label: "Paragraph" },
+    { maps_to: "single_select", label: "Single select" },
+    { maps_to: "multi_select", label: "Multi select" },
+    { maps_to: "attachments", label: "Attachments" },
   ];
 
   const openNewTaskTemplate = () => setTtEditor({ id: null, name: "", template_data: { title: "", description: "", priority: "none", assignee_id: "", section_id: "", due_in_days: "", subtasks: [""] } });
@@ -3782,7 +3785,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const submitForm = async () => {
     const { form, values } = fillingForm || {};
     if (!form) return;
-    for (const fld of (form.fields || [])) { if (fld.required && !String(values[fld.id] ?? "").trim()) return showToast(`"${fld.label}" is required`); }
+    for (const fld of (form.fields || [])) { if (!fld.required) continue; const rv = values[fld.id]; const empty = (fld.maps_to === "multi_select" || fld.maps_to === "attachments") ? !(Array.isArray(rv) && rv.length) : !String(rv ?? "").trim(); if (empty) return showToast(`"${fld.label}" is required`); }
     const orgIdForInsert = resolveOrgId(form.project_id || activeProject);
     if (!orgIdForInsert) return showToast("No org context");
     let title = ""; let description = ""; let assignee = form.default_assignee_id || null; let priority = form.default_priority || "none"; let due = null; let secOverride = null; const extra = [];
@@ -3795,6 +3798,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       else if (fld.maps_to === "priority") priority = v;
       else if (fld.maps_to === "due_date") due = v;
       else if (fld.maps_to === "section") secOverride = v;
+      else if (fld.maps_to === "attachments") { /* files handled after task insert */ }
+      else if (fld.maps_to === "single_select") { if (v) extra.push(`${fld.label}: ${v}`); }
+      else if (fld.maps_to === "multi_select") { if (Array.isArray(v) && v.length) extra.push(`${fld.label}: ${v.join(", ")}`); }
       else extra.push(`${fld.label}: ${v}`);
     }
     const sid = secOverride || (form.target_section_id && projSections.some(s => s.id === form.target_section_id) ? form.target_section_id : (projSections[0]?.id || null));
@@ -3804,6 +3810,19 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     const { data, error } = await supabase.from("tasks").insert({ org_id: orgIdForInsert, project_id: form.project_id || activeProject, section_id: sid, title: title || form.name, description: fullDesc, status: "todo", priority: priority || "none", assignee_id: assignee || null, due_date: due || null, sort_order: mx + 1, created_by: user?.id }).select().single();
     if (error) return showToast("Failed to submit: " + error.message);
     setTasks(p => [...p, data]);
+    for (const fld of (form.fields || [])) {
+      if (fld.maps_to !== "attachments") continue;
+      const files = values[fld.id];
+      if (!Array.isArray(files)) continue;
+      for (const file of files) {
+        try {
+          const path = `${orgIdForInsert}/${data.id}/${Date.now()}_${file.name}`;
+          const { error: ue } = await supabase.storage.from("attachments").upload(path, file);
+          if (ue) continue;
+          await supabase.from("attachments").insert({ org_id: orgIdForInsert, entity_type: "task", entity_id: data.id, filename: file.name, file_path: path, file_size: file.size, mime_type: file.type, uploaded_by: user?.id });
+        } catch (e) {}
+      }
+    }
     supabase.from("project_forms").update({ submit_count: (form.submit_count || 0) + 1 }).eq("id", form.id);
     setProjectForms(p => p.map(f => f.id === form.id ? { ...f, submit_count: (f.submit_count || 0) + 1 } : f));
     executeRules(data.id, "__created", true, null, data);
@@ -3948,7 +3967,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box" };
     const setF = (patch) => setFormEditor(p => ({ ...p, ...patch }));
     const setField = (idx, patch) => setF({ fields: ed.fields.map((f, i) => i === idx ? { ...f, ...patch } : f) });
-    const addField = (ft) => setF({ fields: [...ed.fields, { id: "f_" + Math.random().toString(36).slice(2, 8), label: ft.label, maps_to: ft.maps_to, required: false }] });
+    const addField = (ft) => setF({ fields: [...ed.fields, { id: "f_" + Math.random().toString(36).slice(2, 8), label: ft.label, maps_to: ft.maps_to, required: false, help: "", ...((ft.maps_to === "single_select" || ft.maps_to === "multi_select") ? { options: ["Option 1", "Option 2"] } : {}) }] });
     const rmField = (idx) => setF({ fields: ed.fields.filter((_, i) => i !== idx) });
     const moveField = (idx, dir) => { const j = idx + dir; if (j < 1 || j >= ed.fields.length) return; const arr = [...ed.fields]; [arr[idx], arr[j]] = [arr[j], arr[idx]]; setF({ fields: arr }); };
     return (
@@ -3972,20 +3991,24 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
             </div>
             <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}><label style={{ ...lbl, marginBottom: 0 }}>Fields</label></div>
-              {ed.fields.map((f, i) => (
-                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "8px 10px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
-                  <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 6, background: T.surface3, color: T.text3, fontWeight: 700, flexShrink: 0, minWidth: 62, textAlign: "center" }}>{({ title: "TITLE", description: "DESC", assignee: "PERSON", due_date: "DATE", priority: "PRIORITY", section: "SECTION", note_short: "TEXT", note_long: "PARAGRAPH" })[f.maps_to] || f.maps_to}</span>
-                  <input value={f.label} onChange={e => setField(i, { label: e.target.value })} placeholder="Question label" style={{ flex: 1, padding: "5px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} />
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text3, cursor: f.maps_to === "title" ? "default" : "pointer", flexShrink: 0 }}>
-                    <input type="checkbox" checked={!!f.required} disabled={f.maps_to === "title"} onChange={e => setField(i, { required: e.target.checked })} /> req
-                  </label>
-                  {f.maps_to !== "title" ? (<>
-                    <button onClick={() => moveField(i, -1)} disabled={i <= 1} style={{ background: "none", border: "none", color: i <= 1 ? T.text3 : T.text2, cursor: i <= 1 ? "default" : "pointer", fontSize: 13 }}>↑</button>
-                    <button onClick={() => moveField(i, 1)} disabled={i === ed.fields.length - 1} style={{ background: "none", border: "none", color: i === ed.fields.length - 1 ? T.text3 : T.text2, cursor: "pointer", fontSize: 13 }}>↓</button>
-                    <button onClick={() => rmField(i)} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 13 }}>✕</button>
-                  </>) : <span style={{ width: 54 }} />}
+              {ed.fields.map((f, i) => { const isSelect = f.maps_to === "single_select" || f.maps_to === "multi_select"; return (
+                <div key={f.id} style={{ marginBottom: 8, padding: "8px 10px", borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 6, background: T.surface3, color: T.text3, fontWeight: 700, flexShrink: 0, minWidth: 62, textAlign: "center" }}>{({ title: "TITLE", description: "DESC", assignee: "PERSON", due_date: "DATE", priority: "PRIORITY", section: "SECTION", note_short: "TEXT", note_long: "PARAGRAPH", single_select: "SELECT", multi_select: "MULTI", attachments: "FILES" })[f.maps_to] || f.maps_to}</span>
+                    <input value={f.label} onChange={e => setField(i, { label: e.target.value })} placeholder="Question label" style={{ flex: 1, padding: "5px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} />
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text3, cursor: f.maps_to === "title" ? "default" : "pointer", flexShrink: 0 }}>
+                      <input type="checkbox" checked={!!f.required} disabled={f.maps_to === "title"} onChange={e => setField(i, { required: e.target.checked })} /> req
+                    </label>
+                    {f.maps_to !== "title" ? (<>
+                      <button onClick={() => moveField(i, -1)} disabled={i <= 1} style={{ background: "none", border: "none", color: i <= 1 ? T.text3 : T.text2, cursor: i <= 1 ? "default" : "pointer", fontSize: 13 }}>↑</button>
+                      <button onClick={() => moveField(i, 1)} disabled={i === ed.fields.length - 1} style={{ background: "none", border: "none", color: i === ed.fields.length - 1 ? T.text3 : T.text2, cursor: "pointer", fontSize: 13 }}>↓</button>
+                      <button onClick={() => rmField(i)} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 13 }}>✕</button>
+                    </>) : <span style={{ width: 54 }} />}
+                  </div>
+                  <input value={f.help || ""} onChange={e => setField(i, { help: e.target.value })} placeholder="Description / instructions (optional)" style={{ width: "100%", marginTop: 6, padding: "5px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface, color: T.text2, fontSize: 11, outline: "none", boxSizing: "border-box" }} />
+                  {isSelect && <input value={(f.options || []).join(", ")} onChange={e => setField(i, { options: e.target.value.split(",").map(x => x.trim()).filter(Boolean) })} placeholder="Options (comma-separated)" style={{ width: "100%", marginTop: 6, padding: "5px 8px", borderRadius: 5, border: `1px solid ${T.accent}40`, background: T.surface, color: T.text, fontSize: 11, outline: "none", boxSizing: "border-box" }} />}
                 </div>
-              ))}
+              ); })}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
                 {FORM_FIELD_TYPES.map(ft => (
                   <button key={ft.maps_to} onClick={() => addField(ft)} style={{ padding: "5px 10px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "none", color: T.text2, fontSize: 11, cursor: "pointer" }}>+ {ft.label}</button>
@@ -4023,7 +4046,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
           <div style={{ flex: 1, overflow: "auto", padding: "16px 22px" }}>
             {(form.fields || []).map(f => (
               <div key={f.id} style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: 5 }}>{f.label}{f.required && <span style={{ color: T.red }}> *</span>}</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: T.text2, display: "block", marginBottom: f.help ? 2 : 5 }}>{f.label}{f.required && <span style={{ color: T.red }}> *</span>}</label>
+                {f.help && <div style={{ fontSize: 11, color: T.text3, marginBottom: 6, whiteSpace: "pre-wrap", lineHeight: 1.4 }}>{f.help}</div>}
                 {f.maps_to === "description" || f.maps_to === "note_long" ? (
                   <textarea value={values[f.id] || ""} onChange={e => setVal(f.id, e.target.value)} rows={3} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} />
                 ) : f.maps_to === "assignee" ? (
@@ -4032,6 +4056,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                   <SearchableMultiSelect multi={false} placeholder="Select priority" options={priorityOpts()} selected={values[f.id] || ""} onChange={v => setVal(f.id, v)} />
                 ) : f.maps_to === "section" ? (
                   <SearchableMultiSelect multi={false} placeholder="Select section" options={sectionOpts()} selected={values[f.id] || ""} onChange={v => setVal(f.id, v)} />
+                ) : f.maps_to === "single_select" ? (
+                  <SearchableMultiSelect multi={false} placeholder="Select…" options={(f.options || []).map(o => ({ value: o, label: o }))} selected={values[f.id] || ""} onChange={v => setVal(f.id, v)} />
+                ) : f.maps_to === "multi_select" ? (
+                  <SearchableMultiSelect multi={true} placeholder="Select…" options={(f.options || []).map(o => ({ value: o, label: o }))} selected={Array.isArray(values[f.id]) ? values[f.id] : []} onChange={v => setVal(f.id, v)} />
+                ) : f.maps_to === "attachments" ? (
+                  <div><input type="file" multiple onChange={e => setVal(f.id, Array.from(e.target.files || []))} style={{ fontSize: 12, color: T.text2 }} />{Array.isArray(values[f.id]) && values[f.id].length > 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>{values[f.id].map(x => x.name).join(", ")}</div>}</div>
                 ) : f.maps_to === "due_date" ? (
                   <input type="date" value={values[f.id] || ""} onChange={e => setVal(f.id, e.target.value)} style={{ ...inp, cursor: "pointer" }} />
                 ) : (
