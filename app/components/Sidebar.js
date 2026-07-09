@@ -5,6 +5,7 @@ import { T } from "../tokens";
 export const NAV_GROUPS = [
   { label: "Work", items: [
     { key: "dashboard", icon: "⬡", label: "Home" },
+    { key: "inbox", icon: "📥", label: "Inbox" },
     { key: "okrs", icon: "◎", label: "OKRs" },
     { key: "projects", icon: "◫", label: "Projects" },
     { key: "launches", icon: "🚀", label: "Launches" },
