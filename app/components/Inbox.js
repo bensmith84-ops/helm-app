@@ -34,6 +34,7 @@ const FILTERS = [
   { key: "mentions", label: "Mentions" },
   { key: "assigned_to_me", label: "Assigned to Me" },
   { key: "assigned_by_me", label: "Assigned by Me" },
+  { key: "archived", label: "Archived" },
 ];
 const SORTS = [
   { key: "activity", label: "Activity Date" },
@@ -52,6 +53,7 @@ export default function InboxView({ setActive }) {
   const [profilesById, setProfilesById] = useState({});
   const [assignedToMe, setAssignedToMe] = useState([]);
   const [assignedByMe, setAssignedByMe] = useState([]);
+  const [selected, setSelected] = useState(() => new Set());
 
   useEffect(() => { if (user) loadAll(); /* eslint-disable-next-line */ }, [user?.id]);
 
@@ -102,6 +104,36 @@ export default function InboxView({ setActive }) {
     await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("org_id", orgId).eq("user_id", user.id).eq("is_read", false);
   };
 
+  const toggleSelect = (id) => setSelected(prev => { const x = new Set(prev); x.has(id) ? x.delete(id) : x.add(id); return x; });
+  const clearSel = () => setSelected(new Set());
+  const archiveOne = async (id) => {
+    const now = new Date().toISOString();
+    setNotifs(p => p.map(n => n.id === id ? { ...n, archived_at: now, is_read: true } : n));
+    setSelected(prev => { const x = new Set(prev); x.delete(id); return x; });
+    await supabase.from("notifications").update({ archived_at: now, is_read: true }).eq("org_id", orgId).eq("id", id);
+  };
+  const unarchiveOne = async (id) => {
+    setNotifs(p => p.map(n => n.id === id ? { ...n, archived_at: null } : n));
+    setSelected(prev => { const x = new Set(prev); x.delete(id); return x; });
+    await supabase.from("notifications").update({ archived_at: null }).eq("org_id", orgId).eq("id", id);
+  };
+  const bulkMarkRead = async () => {
+    const ids = [...selected]; if (!ids.length) return;
+    setNotifs(p => p.map(n => ids.includes(n.id) ? { ...n, is_read: true } : n)); clearSel();
+    await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("org_id", orgId).in("id", ids);
+  };
+  const bulkArchive = async () => {
+    const ids = [...selected]; if (!ids.length) return; const now = new Date().toISOString();
+    setNotifs(p => p.map(n => ids.includes(n.id) ? { ...n, archived_at: now, is_read: true } : n)); clearSel();
+    await supabase.from("notifications").update({ archived_at: now, is_read: true }).eq("org_id", orgId).in("id", ids);
+  };
+  const bulkUnarchive = async () => {
+    const ids = [...selected]; if (!ids.length) return;
+    setNotifs(p => p.map(n => ids.includes(n.id) ? { ...n, archived_at: null } : n)); clearSel();
+    await supabase.from("notifications").update({ archived_at: null }).eq("org_id", orgId).in("id", ids);
+  };
+  useEffect(() => { setSelected(new Set()); }, [filter]);
+
   const items = useMemo(() => {
     const taskItem = (t, mode) => {
       const p = projectById[t.project_id];
@@ -123,14 +155,15 @@ export default function InboxView({ setActive }) {
         icon: cfg.icon, color: cfg.color, iconLabel: cfg.label,
         title: n.title, sub: n.body, actorId: n.actor_id,
         due: t?.due_date ? new Date(t.due_date).getTime() : null, dueStr: t?.due_date,
-        ts: new Date(n.created_at).getTime(), read: n.is_read,
+        ts: new Date(n.created_at).getTime(), read: n.is_read, archived: !!n.archived_at,
       };
     };
     let list;
     if (filter === "assigned_to_me") list = assignedToMe.map(t => taskItem(t, "to_me"));
     else if (filter === "assigned_by_me") list = assignedByMe.map(t => taskItem(t, "by_me"));
+    else if (filter === "archived") list = notifs.filter(n => n.archived_at).map(notifItem);
     else {
-      let ns = notifs;
+      let ns = notifs.filter(n => !n.archived_at);
       if (filter === "unread") ns = ns.filter(n => !n.is_read);
       if (filter === "mentions") ns = ns.filter(n => n.type === "mention" || n.category === "mention");
       list = ns.map(notifItem);
@@ -141,11 +174,17 @@ export default function InboxView({ setActive }) {
     return list;
   }, [filter, sort, notifs, assignedToMe, assignedByMe, taskById, projectById, profilesById]);
 
+  const notifFilter = !["assigned_to_me", "assigned_by_me"].includes(filter);
+  const actBtn = { background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" };
+  const barBtn = { fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text2, cursor: "pointer" };
+  const barBtnPrimary = { fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", cursor: "pointer" };
+
   const openItem = (it) => {
     if (it.kind === "notif" && it.notifId && !it.read) markRead(it.notifId);
     if (it.taskId) setActive("projects", it.taskId);
     else if (it.link) setActive(it.link);
   };
+  const selectAllVisible = () => setSelected(new Set(items.filter(i => i.notifId).map(i => i.notifId)));
 
   const grouped = useMemo(() => {
     if (sort !== "project") return null;
@@ -159,10 +198,15 @@ export default function InboxView({ setActive }) {
     background: active ? T.accent : T.surface2, color: active ? "#fff" : T.text2, border: `1px solid ${active ? T.accent : T.border}`, whiteSpace: "nowrap",
   });
 
-  const Row = ({ it }) => (
-    <div onClick={() => openItem(it)} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: it.read ? "transparent" : T.accentDim + "26", transition: "background 0.1s" }}
-      onMouseEnter={e => e.currentTarget.style.background = T.surface2}
-      onMouseLeave={e => e.currentTarget.style.background = it.read ? "transparent" : T.accentDim + "26"}>
+  const Row = ({ it }) => {
+    const isSel = it.notifId && selected.has(it.notifId);
+    return (
+    <div onClick={() => openItem(it)} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: isSel ? T.accentDim + "40" : it.read ? "transparent" : T.accentDim + "26", transition: "background 0.1s" }}
+      onMouseEnter={e => { e.currentTarget.style.background = isSel ? T.accentDim + "40" : T.surface2; const a = e.currentTarget.querySelector(".inbox-acts"); if (a) a.style.opacity = "1"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = isSel ? T.accentDim + "40" : it.read ? "transparent" : T.accentDim + "26"; const a = e.currentTarget.querySelector(".inbox-acts"); if (a) a.style.opacity = "0.4"; }}>
+      {notifFilter && it.notifId && (
+        <input type="checkbox" checked={!!isSel} onClick={e => e.stopPropagation()} onChange={() => toggleSelect(it.notifId)} style={{ marginTop: 11, cursor: "pointer", flexShrink: 0, width: 15, height: 15 }} />
+      )}
       <div style={{ width: 34, height: 34, borderRadius: 9, background: it.color + "20", border: `1px solid ${it.color}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{it.icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: it.read ? 500 : 700, color: T.text, lineHeight: 1.4 }}>{it.title}</div>
@@ -175,11 +219,24 @@ export default function InboxView({ setActive }) {
           <span style={{ fontSize: 10, color: T.text3 }}>{relTime(it.ts)}</span>
         </div>
       </div>
-      {!it.read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, flexShrink: 0, marginTop: 6 }} />}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, marginTop: 2 }}>
+        {!it.read && it.notifId && !it.archived && <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />}
+        {it.notifId && (
+          <div className="inbox-acts" style={{ display: "flex", gap: 2, opacity: 0.4, transition: "opacity 0.1s" }}>
+            {it.archived ? (
+              <button title="Unarchive" onClick={e => { e.stopPropagation(); unarchiveOne(it.notifId); }} style={actBtn}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 3h18v4H3z"/><path d="M5 7v13a1 1 0 001 1h12a1 1 0 001-1V7"/><path d="M12 18V11M9 14l3-3 3 3"/></svg></button>
+            ) : (<>
+              {!it.read && <button title="Mark as read" onClick={e => { e.stopPropagation(); markRead(it.notifId); }} style={actBtn}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg></button>}
+              <button title="Archive" onClick={e => { e.stopPropagation(); archiveOne(it.notifId); }} style={actBtn}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="2" y="4" width="20" height="4" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><path d="M10 12h4"/></svg></button>
+            </>)}
+          </div>
+        )}
+      </div>
     </div>
-  );
+    );
+  };
 
-  return (
+    return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: T.bg }}>
       {/* Header */}
       <div style={{ padding: "18px 24px 0", flexShrink: 0 }}>
@@ -203,6 +260,22 @@ export default function InboxView({ setActive }) {
           </div>
         </div>
       </div>
+
+      {/* Bulk action bar */}
+      {notifFilter && selected.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 24px", background: T.accentDim + "30", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{selected.size} selected</span>
+          <button onClick={selectAllVisible} style={barBtn}>Select all</button>
+          <button onClick={clearSel} style={barBtn}>Clear</button>
+          <div style={{ flex: 1 }} />
+          {filter === "archived" ? (
+            <button onClick={bulkUnarchive} style={barBtnPrimary}>Unarchive</button>
+          ) : (<>
+            <button onClick={bulkMarkRead} style={barBtn}>✓ Mark as read</button>
+            <button onClick={bulkArchive} style={barBtnPrimary}>Archive</button>
+          </>)}
+        </div>
+      )}
 
       {/* List */}
       <div style={{ flex: 1, overflow: "auto", borderTop: `1px solid ${T.border}`, background: T.surface }}>
