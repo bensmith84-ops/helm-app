@@ -1565,8 +1565,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const colMenuItem = { padding: "6px 10px", borderRadius: 5, cursor: "pointer", fontSize: 12, color: T.text2, whiteSpace: "nowrap" };
   const resolveCol = (c) => {
     if (!c) return null;
-    if (c.t === "cf") { const fld = customFields.find(x => x.id === c.id); return fld ? { id: "cf:" + fld.id, label: fld.name, width: 150, cf: fld } : null; }
-    const b = BUILTIN_COLS.find(x => x.key === c.key); return b ? { id: "b:" + b.key, label: b.label, width: b.width, builtin: b.key } : null;
+    if (c.t === "cf") { const fld = customFields.find(x => x.id === c.id); return fld ? { id: "cf:" + fld.id, label: fld.name, width: c.w || 150, cf: fld } : null; }
+    const b = BUILTIN_COLS.find(x => x.key === c.key); return b ? { id: "b:" + b.key, label: b.label, width: c.w || b.width, builtin: b.key } : null;
   };
   const resolvedCols = (listColumns || []).map(resolveCol).filter(Boolean);
   const extraGrid = resolvedCols.map(c => `${c.width}px`).join(" ");
@@ -1584,13 +1584,21 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     await supabase.from("projects").update({ settings: newSettings }).eq("org_id", orgId).eq("id", activeProject);
   };
   const colMatches = (c, col) => col.cf ? (c.t === "cf" && c.id === col.cf.id) : (c.t === "builtin" && c.key === col.builtin);
+  const onExtraResizeStart = (col, e) => {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX; const startW = col.width; let latest = listColumns;
+    const onMove = (ev) => { const nw = Math.max(60, startW + (ev.clientX - startX)); latest = (listColumns || []).map(c => colMatches(c, col) ? { ...c, w: nw } : c); setListColumns(latest); };
+    const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); document.body.style.cursor = ""; document.body.style.userSelect = ""; saveListColumns(latest); };
+    document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove); document.addEventListener("mouseup", onUp);
+  };
   const addColumn = (desc) => { saveListColumns([...(listColumns || []), desc]); setShowAddColMenu(false); };
   const removeColumn = (col) => { saveListColumns((listColumns || []).filter(c => !colMatches(c, col))); setColMenu(null); };
   const moveColumn = (col, dir) => { const idx = (listColumns || []).findIndex(c => colMatches(c, col)); const j = idx + dir; if (idx < 0 || j < 0 || j >= listColumns.length) return; const arr = [...listColumns]; [arr[idx], arr[j]] = [arr[j], arr[idx]]; saveListColumns(arr); setColMenu(null); };
   const renameColumnField = async (cf) => { const name = prompt("Rename field:", cf.name); if (!name || !name.trim()) return; await supabase.from("custom_fields").update({ name: name.trim() }).eq("id", cf.id); setCustomFields(p => p.map(x => x.id === cf.id ? { ...x, name: name.trim() } : x)); setColMenu(null); };
   const createColumnField = async () => { if (!newColName.trim()) return; const mx = customFields.reduce((m, fx) => Math.max(m, fx.sort_order || 0), 0); const { data, error } = await supabase.from("custom_fields").insert({ project_id: activeProject, name: newColName.trim(), field_type: newColType, options: null, sort_order: mx + 1 }).select().single(); if (!error && data) { setCustomFields(p => [...p, data]); saveListColumns([...(listColumns || []), { t: "cf", id: data.id }]); } setNewColName(""); setNewColType("text"); setShowAddColMenu(false); };
   const _fmtColDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-  const ResizeHandle = ({ index, onStart }) => isMobile ? null : (<div onMouseDown={(e) => onStart(index, e)} style={{ position: "absolute", right: -1, top: 4, bottom: 4, width: 3, cursor: "col-resize", zIndex: 2, borderRadius: 2, background: T.border + "60", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent} onMouseLeave={e => e.currentTarget.style.background = T.border + "60"} />);
+  const ResizeHandle = ({ onDown }) => isMobile ? null : (<div onMouseDown={onDown} title="Drag to resize" style={{ position: "absolute", right: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 3, display: "flex", justifyContent: "center" }} onMouseEnter={e => { if (e.currentTarget.firstChild) e.currentTarget.firstChild.style.background = T.accent; }} onMouseLeave={e => { if (e.currentTarget.firstChild) e.currentTarget.firstChild.style.background = "transparent"; }}><div style={{ width: 2, height: "100%", background: "transparent", transition: "background 0.12s" }} /></div>);
 
   const S = {
     pill: { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer" },
@@ -2016,11 +2024,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const listViewEl = (() => { const TaskRow = _taskRowRef.current; const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
       <div style={{ display: "grid", gridTemplateColumns: listGrid, padding: isMobile ? "0 8px" : "0 12px", borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.bg }}>
-        <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("title")}>Task name{arrow("title")}<ResizeHandle index={0} onStart={projResize} /></div>
-        <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("status")}>Status{arrow("status")}<ResizeHandle index={1} onStart={projResize} /></div>
-        {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("priority")}>Priority{arrow("priority")}<ResizeHandle index={2} onStart={projResize} /></div>}
-        {!isMobile && <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle index={3} onStart={projResize} /></div>}
-        {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("due_date")} title="Sort by due date">Dates{arrow("due_date")}<ResizeHandle index={4} onStart={projResize} /></div>}
+        <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("title")}>Task name{arrow("title")}</div>
+        <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("status")}>Status{arrow("status")}<ResizeHandle onDown={(e) => projResize(1, e)} /></div>
+        {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("priority")}>Priority{arrow("priority")}<ResizeHandle onDown={(e) => projResize(2, e)} /></div>}
+        {!isMobile && <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle onDown={(e) => projResize(3, e)} /></div>}
+        {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("due_date")} title="Sort by due date">Dates{arrow("due_date")}<ResizeHandle onDown={(e) => projResize(4, e)} /></div>}
         {!isMobile && resolvedCols.map(col => (
           <div key={col.id} style={{ ...S.colHdr, position: "relative", justifyContent: "space-between", cursor: "default" }}>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.label}</span>
@@ -2035,6 +2043,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 {col.cf && <div onClick={() => { if (window.confirm("Delete this field and its values from every task?")) { deleteCustomField(col.cf.id); removeColumn(col); } }} style={{ ...colMenuItem, color: T.red }}>🗑 Delete field</div>}
               </div>
             </>)}
+            <ResizeHandle onDown={(e) => onExtraResizeStart(col, e)} />
           </div>
         ))}
         {!isMobile && (
