@@ -405,6 +405,11 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [customFields, setCustomFields] = useState([]);
   const [projectLabels, setProjectLabels] = useState([]);
   const [customFieldValues, setCustomFieldValues] = useState({});
+  const [listColumns, setListColumns] = useState([]); // extra List-view columns for active project
+  const [colMenu, setColMenu] = useState(null);
+  const [showAddColMenu, setShowAddColMenu] = useState(false);
+  const [newColName, setNewColName] = useState("");
+  const [newColType, setNewColType] = useState("text");
   const [milestones, setMilestones] = useState([]);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [showMyTasks, setShowMyTasks] = useState(true);
@@ -1549,6 +1554,42 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const { gridTemplate: projGrid, onResizeStart: projResize } = useResizableColumns([280, 110, 90, 110, 100], "projects");
   const mobileGrid = "1fr 70px"; // title + status only
   const activeGrid = isMobile ? mobileGrid : projGrid;
+  // ── List-view extra columns ──
+  const BUILTIN_COLS = [
+    { key: "blocked_by", label: "Blocked By", width: 160 },
+    { key: "blocking", label: "Blocking", width: 160 },
+    { key: "start_date", label: "Start date", width: 110 },
+    { key: "created_at", label: "Created", width: 110 },
+    { key: "tags", label: "Tags", width: 160 },
+  ];
+  const colMenuItem = { padding: "6px 10px", borderRadius: 5, cursor: "pointer", fontSize: 12, color: T.text2, whiteSpace: "nowrap" };
+  const resolveCol = (c) => {
+    if (!c) return null;
+    if (c.t === "cf") { const fld = customFields.find(x => x.id === c.id); return fld ? { id: "cf:" + fld.id, label: fld.name, width: 150, cf: fld } : null; }
+    const b = BUILTIN_COLS.find(x => x.key === c.key); return b ? { id: "b:" + b.key, label: b.label, width: b.width, builtin: b.key } : null;
+  };
+  const resolvedCols = (listColumns || []).map(resolveCol).filter(Boolean);
+  const extraGrid = resolvedCols.map(c => `${c.width}px`).join(" ");
+  const listGrid = isMobile ? activeGrid : `${activeGrid} ${extraGrid}${extraGrid ? " " : ""}44px`;
+  useEffect(() => {
+    const proj = projects.find(p => p.id === activeProject);
+    const cols = proj?.settings?.list_columns;
+    setListColumns(Array.isArray(cols) ? cols : []);
+  }, [activeProject, projects]);
+  const saveListColumns = async (next) => {
+    setListColumns(next);
+    const proj = projects.find(p => p.id === activeProject);
+    const newSettings = { ...(proj?.settings || {}), list_columns: next };
+    setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, settings: newSettings } : pr));
+    await supabase.from("projects").update({ settings: newSettings }).eq("org_id", orgId).eq("id", activeProject);
+  };
+  const colMatches = (c, col) => col.cf ? (c.t === "cf" && c.id === col.cf.id) : (c.t === "builtin" && c.key === col.builtin);
+  const addColumn = (desc) => { saveListColumns([...(listColumns || []), desc]); setShowAddColMenu(false); };
+  const removeColumn = (col) => { saveListColumns((listColumns || []).filter(c => !colMatches(c, col))); setColMenu(null); };
+  const moveColumn = (col, dir) => { const idx = (listColumns || []).findIndex(c => colMatches(c, col)); const j = idx + dir; if (idx < 0 || j < 0 || j >= listColumns.length) return; const arr = [...listColumns]; [arr[idx], arr[j]] = [arr[j], arr[idx]]; saveListColumns(arr); setColMenu(null); };
+  const renameColumnField = async (cf) => { const name = prompt("Rename field:", cf.name); if (!name || !name.trim()) return; await supabase.from("custom_fields").update({ name: name.trim() }).eq("id", cf.id); setCustomFields(p => p.map(x => x.id === cf.id ? { ...x, name: name.trim() } : x)); setColMenu(null); };
+  const createColumnField = async () => { if (!newColName.trim()) return; const mx = customFields.reduce((m, fx) => Math.max(m, fx.sort_order || 0), 0); const { data, error } = await supabase.from("custom_fields").insert({ project_id: activeProject, name: newColName.trim(), field_type: newColType, options: null, sort_order: mx + 1 }).select().single(); if (!error && data) { setCustomFields(p => [...p, data]); saveListColumns([...(listColumns || []), { t: "cf", id: data.id }]); } setNewColName(""); setNewColType("text"); setShowAddColMenu(false); };
+  const _fmtColDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
   const ResizeHandle = ({ index, onStart }) => isMobile ? null : (<div onMouseDown={(e) => onStart(index, e)} style={{ position: "absolute", right: -1, top: 4, bottom: 4, width: 3, cursor: "col-resize", zIndex: 2, borderRadius: 2, background: T.border + "60", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent} onMouseLeave={e => e.currentTarget.style.background = T.border + "60"} />);
 
   const S = {
@@ -1881,6 +1922,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   _isMobileRef.current = isMobile;
   const _labelsRef = useRef([]); _labelsRef.current = labels;
   const _labelAssignmentsRef = useRef([]); _labelAssignmentsRef.current = labelAssignments;
+  const _gridRef = useRef(""); _gridRef.current = listGrid;
+  const _resolvedColsRef = useRef([]); _resolvedColsRef.current = resolvedCols;
+  const _dependenciesRef = useRef([]); _dependenciesRef.current = dependencies;
+  const _customFieldValuesRef = useRef({}); _customFieldValuesRef.current = customFieldValues;
   const _dragTaskRef = useRef(null); _dragTaskRef.current = dragTask;
   const _dragOverRowRef = useRef(null); _dragOverRowRef.current = dragOverRow;
   const _sortColRef = useRef("sort_order"); _sortColRef.current = sortCol;
@@ -1915,6 +1960,37 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     } catch (e) { showToast("Failed to save new order"); }
   };
 
+  const renderExtraCell = (col, task) => {
+    if (col.builtin === "blocked_by" || col.builtin === "blocking") {
+      const deps = _dependenciesRef.current;
+      const rel = col.builtin === "blocked_by" ? deps.filter(d => d.successor_id === task.id).map(d => d.predecessor_id) : deps.filter(d => d.predecessor_id === task.id).map(d => d.successor_id);
+      if (!rel.length) return <span style={{ color: T.text3 }}>—</span>;
+      const arr = _tasksRef.current;
+      const c = col.builtin === "blocked_by" ? T.red : T.text3;
+      const bg = col.builtin === "blocked_by" ? (T.redDim || T.surface3) : T.surface3;
+      return <span style={{ display: "inline-flex", gap: 3, overflow: "hidden" }}>{rel.slice(0, 2).map(id => { const rt = arr.find(t => t.id === id); return <span key={id} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 7, background: bg, color: c, fontWeight: 600, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rt ? rt.title : "task"}</span>; })}{rel.length > 2 && <span style={{ fontSize: 10, color: T.text3 }}>+{rel.length - 2}</span>}</span>;
+    }
+    if (col.builtin === "start_date") return task.start_date ? <span>{_fmtColDate(task.start_date)}</span> : <span style={{ color: T.text3 }}>—</span>;
+    if (col.builtin === "created_at") return task.created_at ? <span>{_fmtColDate(task.created_at)}</span> : <span style={{ color: T.text3 }}>—</span>;
+    if (col.builtin === "tags") {
+      const asg = _labelAssignmentsRef.current.filter(a => a.task_id === task.id).map(a => a.label_id);
+      const tgs = _labelsRef.current.filter(l => asg.includes(l.id));
+      if (!tgs.length) return <span style={{ color: T.text3 }}>—</span>;
+      return <span style={{ display: "inline-flex", gap: 3 }}>{tgs.slice(0, 2).map(t => <span key={t.id} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 7, background: (t.color || T.accent) + "22", color: t.color || T.accent, fontWeight: 700 }}>{t.name}</span>)}{tgs.length > 2 && <span style={{ fontSize: 10, color: T.text3 }}>+{tgs.length - 2}</span>}</span>;
+    }
+    if (col.cf) {
+      const fld = col.cf; const val = (_customFieldValuesRef.current[task.id] || {})[fld.id];
+      if (fld.field_type === "checkbox") { const on = val === true || val === "true"; return <span onClick={e => { e.stopPropagation(); updateCustomFieldValue(task.id, fld.id, !on); }} style={{ cursor: "pointer", fontSize: 14, color: on ? T.accent : T.text3 }}>{on ? "☑" : "☐"}</span>; }
+      if (val == null || val === "") return <span style={{ color: T.text3 }}>—</span>;
+      if (fld.field_type === "currency") return <span>{(fld.options?.currency_prefix || "$") + val}</span>;
+      if (fld.field_type === "percent") return <span>{val}%</span>;
+      if (fld.field_type === "rating") return <span>{"⭐".repeat(Math.min(5, Number(val) || 0))}</span>;
+      if (fld.field_type === "date") return <span>{_fmtColDate(val)}</span>;
+      if (fld.field_type === "url") return <a href={val} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: T.accent, textDecoration: "none" }}>{val}</a>;
+      return <span>{String(val)}</span>;
+    }
+    return null;
+  };
   const _taskRowRef = useRef(null);
   if (!_taskRowRef.current) _taskRowRef.current = ({ task, depth = 0 }) => {
     // Read current values from refs (not stale closure)
@@ -1935,16 +2011,58 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     const saveTitle = async () => { if (_editTitleRef.current.trim() && _editTitleRef.current !== task.title) { await updateField(task.id, "title", _editTitleRef.current.trim()); } setEditingTaskId(null); };
     const rowRef = useRef(null);
     const TaskRow = _taskRowRef.current;
-    return (<>{/* row */}<div ref={rowRef} className="task-row" draggable={depth === 0 && _sortColRef.current === "sort_order" && !isEditingTitle} onDragStart={e => { if (depth !== 0 || _sortColRef.current !== "sort_order") { e.preventDefault(); return; } e.stopPropagation(); setDragTask(task.id); try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", task.id); } catch (err) {} }} onDragOver={e => { const dt = _dragTaskRef.current; if (depth !== 0 || !dt || dt === task.id) return; e.preventDefault(); if (_dragOverRowRef.current !== task.id) setDragOverRow(task.id); }} onDragLeave={() => { if (_dragOverRowRef.current === task.id) setDragOverRow(null); }} onDrop={e => { const dt = _dragTaskRef.current; if (depth !== 0 || !dt) return; e.preventDefault(); e.stopPropagation(); if (_reorderRef.current) _reorderRef.current(dt, task); }} onDragEnd={() => { setDragTask(null); setDragOverRow(null); }} style={{ ...S.row(false, sel), paddingLeft: 12 + depth * 24, background: selTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent", boxShadow: _dragOverRowRef.current === task.id ? `inset 0 2px 0 ${T.accent}` : undefined, opacity: _dragTaskRef.current === task.id ? 0.5 : 1 }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); if (!exp && _loadSubtasksRef.current) _loadSubtasksRef.current(task.id); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input value={editTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{!isEditingTitle && (() => { const asg = _labelAssignmentsRef.current.filter(a => a.task_id === task.id).map(a => a.label_id); const tgs = _labelsRef.current.filter(l => asg.includes(l.id)); return tgs.length ? <span style={{ display: "inline-flex", gap: 3, flexShrink: 0 }}>{tgs.slice(0, 3).map(t => <span key={t.id} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: (t.color || T.accent) + "22", color: t.color || T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{t.name}</span>)}{tgs.length > 3 && <span style={{ fontSize: 9, color: T.text3, alignSelf: "center" }}>+{tgs.length - 3}</span>}</span> : null; })()}{((subs.length > 0) || (task.subtask_count || 0) > 0) && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length || task.subtask_count}</span>}{task.recurrence && task.recurrence !== "none" && !isEditingTitle && <span title={`Repeats ${task.recurrence}`} style={{ fontSize: 10, color: T.text3, opacity: 0.6 }}>🔄</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); if (task.__sharedLink) { removeTaskFromProject(task.id, activeProject); } else { deleteTask(task.id); } }} style={S.iconBtn} title={task.__sharedLink ? "Remove from this project" : "Delete"}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div>{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div>}{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={_profilesRef.current} profile={_profileRef.current} ini={ini} acol={acol} uname={uname} projectMembers={_projMembersRef.current} activeProject={activeProject} /></div>}{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div>}</div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSub === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newSubTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (_newSubTitleRef.current.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} autoFocus placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div>{!_isMobileRef.current && <><div /><div /><div /></>}</div>}</>); };
+    return (<>{/* row */}<div ref={rowRef} className="task-row" draggable={depth === 0 && _sortColRef.current === "sort_order" && !isEditingTitle} onDragStart={e => { if (depth !== 0 || _sortColRef.current !== "sort_order") { e.preventDefault(); return; } e.stopPropagation(); setDragTask(task.id); try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", task.id); } catch (err) {} }} onDragOver={e => { const dt = _dragTaskRef.current; if (depth !== 0 || !dt || dt === task.id) return; e.preventDefault(); if (_dragOverRowRef.current !== task.id) setDragOverRow(task.id); }} onDragLeave={() => { if (_dragOverRowRef.current === task.id) setDragOverRow(null); }} onDrop={e => { const dt = _dragTaskRef.current; if (depth !== 0 || !dt) return; e.preventDefault(); e.stopPropagation(); if (_reorderRef.current) _reorderRef.current(dt, task); }} onDragEnd={() => { setDragTask(null); setDragOverRow(null); }} style={{ ...S.row(false, sel), gridTemplateColumns: _gridRef.current, paddingLeft: 12 + depth * 24, background: selTasks.has(task.id) ? T.accentDim : sel ? T.accentDim : "transparent", boxShadow: _dragOverRowRef.current === task.id ? `inset 0 2px 0 ${T.accent}` : undefined, opacity: _dragTaskRef.current === task.id ? 0.5 : 1 }} onMouseEnter={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','flex'); e.currentTarget.style.background = sel ? T.accentDim : T.surface2; }} onMouseLeave={e => { e.currentTarget.querySelector('.row-actions')?.style.setProperty('display','none'); e.currentTarget.style.background = sel ? T.accentDim : selTasks.has(task.id) ? T.accentDim : 'transparent'; }}><div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>{hasSubs ? <svg onClick={(e) => { e.stopPropagation(); if (!exp && _loadSubtasksRef.current) _loadSubtasksRef.current(task.id); setExpandedTasks(p => ({ ...p, [task.id]: !exp })); }} width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ cursor: "pointer", transform: exp ? "rotate(0)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}><path d="M3 4.5l3 3 3-3" stroke={T.text3} strokeWidth="1.5" strokeLinecap="round" /></svg> : <div style={{ width: 12 }} />}<Checkbox task={task} />{isEditingTitle ? <input value={editTitle} onChange={e => setEditingTaskTitle(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTaskId(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 13, background: T.surface2, border: `1px solid ${T.accent}`, borderRadius: 4, padding: "1px 6px", color: T.text, outline: "none", fontFamily: "inherit" }} /> : <span onClick={() => setSelectedTask(task)} onDoubleClick={e => { e.stopPropagation(); setEditingTaskId(task.id); setEditingTaskTitle(task.title); }} style={{ fontSize: 13, color: task.status === "done" ? T.text3 : T.text, textDecoration: task.status === "done" ? "line-through" : "none", fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, cursor: "pointer" }}>{task.title}</span>}{!isEditingTitle && (() => { const asg = _labelAssignmentsRef.current.filter(a => a.task_id === task.id).map(a => a.label_id); const tgs = _labelsRef.current.filter(l => asg.includes(l.id)); return tgs.length ? <span style={{ display: "inline-flex", gap: 3, flexShrink: 0 }}>{tgs.slice(0, 3).map(t => <span key={t.id} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: (t.color || T.accent) + "22", color: t.color || T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{t.name}</span>)}{tgs.length > 3 && <span style={{ fontSize: 9, color: T.text3, alignSelf: "center" }}>+{tgs.length - 3}</span>}</span> : null; })()}{((subs.length > 0) || (task.subtask_count || 0) > 0) && !isEditingTitle && <span style={{ fontSize: 10, color: T.text3, background: T.surface3, padding: "1px 5px", borderRadius: 8, fontWeight: 600 }}>{subs.filter(s => s.status === "done").length}/{subs.length || task.subtask_count}</span>}{task.recurrence && task.recurrence !== "none" && !isEditingTitle && <span title={`Repeats ${task.recurrence}`} style={{ fontSize: 10, color: T.text3, opacity: 0.6 }}>🔄</span>}<div className="row-actions" style={{ display: "none", gap: 2 }}><button onClick={(e) => startAddSubtask(task, e)} style={S.iconBtn} title="Add subtask"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg></button><button onClick={(e) => { e.stopPropagation(); duplicateTask(task); }} style={S.iconBtn} title="Duplicate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button onClick={(e) => { e.stopPropagation(); if (task.__sharedLink) { removeTaskFromProject(task.id, activeProject); } else { deleteTask(task.id); } }} style={S.iconBtn} title={task.__sharedLink ? "Remove from this project" : "Delete"}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button></div></div><div onClick={e => e.stopPropagation()}><StatusPill task={task} onUpdate={updateField} S={S} /></div>{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><PriorityPill task={task} onUpdate={updateField} S={S} /></div>}{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><AssigneeCell task={task} onUpdate={updateField} profiles={_profilesRef.current} profile={_profileRef.current} ini={ini} acol={acol} uname={uname} projectMembers={_projMembersRef.current} activeProject={activeProject} /></div>}{!_isMobileRef.current && <div onClick={e => e.stopPropagation()}><DateCell task={task} onUpdate={updateField} /></div>}{!_isMobileRef.current && _resolvedColsRef.current.map(col => (<div key={col.id} onClick={e => e.stopPropagation()} style={{ padding: "0 8px", overflow: "hidden", fontSize: 12, color: T.text2, whiteSpace: "nowrap", textOverflow: "ellipsis", display: "flex", alignItems: "center" }}>{renderExtraCell(col, task)}</div>))}{!_isMobileRef.current && <div />}</div>{exp && subs.map(sub => <TaskRow key={sub.id} task={sub} depth={depth + 1} />)}{exp && addingSub === task.id && <div style={{ ...S.row(false, false), paddingLeft: 36 + depth * 24, background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newSubTitle} onChange={e => setNewSubtaskTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSubtask(task); if (e.key === "Escape") { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} onBlur={() => { if (_newSubTitleRef.current.trim()) createSubtask(task); else { setAddingSubtaskTo(null); setNewSubtaskTitle(""); } }} autoFocus placeholder="Subtask name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 12, outline: "none" }} /></div>{!_isMobileRef.current && <><div /><div /><div /></>}</div>}</>); };
 
   const listViewEl = (() => { const TaskRow = _taskRowRef.current; const toggleSort = (col) => { setSortCol(col); setSortDir(p => sortCol === col && p === "asc" ? "desc" : "asc"); }; const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""; return (
     <div style={{ flex: 1, overflow: "auto", padding: "0 0 80px" }}>
-      <div style={{ display: "grid", gridTemplateColumns: activeGrid, padding: isMobile ? "0 8px" : "0 12px", borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.bg }}>
+      <div style={{ display: "grid", gridTemplateColumns: listGrid, padding: isMobile ? "0 8px" : "0 12px", borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.bg }}>
         <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("title")}>Task name{arrow("title")}<ResizeHandle index={0} onStart={projResize} /></div>
         <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("status")}>Status{arrow("status")}<ResizeHandle index={1} onStart={projResize} /></div>
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("priority")}>Priority{arrow("priority")}<ResizeHandle index={2} onStart={projResize} /></div>}
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle index={3} onStart={projResize} /></div>}
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("due_date")} title="Sort by due date">Dates{arrow("due_date")}<ResizeHandle index={4} onStart={projResize} /></div>}
+        {!isMobile && resolvedCols.map(col => (
+          <div key={col.id} style={{ ...S.colHdr, position: "relative", justifyContent: "space-between", cursor: "default" }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.label}</span>
+            <button onClick={e => { e.stopPropagation(); setColMenu(colMenu === col.id ? null : col.id); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: "0 2px", flexShrink: 0 }}>⋯</button>
+            {colMenu === col.id && (<>
+              <div onClick={() => setColMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 41, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", padding: 4, minWidth: 150 }}>
+                <div onClick={() => moveColumn(col, -1)} style={colMenuItem}>← Move left</div>
+                <div onClick={() => moveColumn(col, 1)} style={colMenuItem}>→ Move right</div>
+                {col.cf && <div onClick={() => renameColumnField(col.cf)} style={colMenuItem}>✎ Rename field</div>}
+                <div onClick={() => removeColumn(col)} style={{ ...colMenuItem, color: T.red }}>✕ Remove column</div>
+                {col.cf && <div onClick={() => { if (window.confirm("Delete this field and its values from every task?")) { deleteCustomField(col.cf.id); removeColumn(col); } }} style={{ ...colMenuItem, color: T.red }}>🗑 Delete field</div>}
+              </div>
+            </>)}
+          </div>
+        ))}
+        {!isMobile && (
+          <div style={{ ...S.colHdr, position: "relative", justifyContent: "center", cursor: "pointer" }} onClick={() => setShowAddColMenu(v => !v)} title="Add column">＋
+            {showAddColMenu && (<>
+              <div onClick={() => setShowAddColMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "100%", right: 0, zIndex: 41, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", padding: 6, width: 230, maxHeight: 360, overflow: "auto" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", padding: "4px 6px" }}>Add column</div>
+                {BUILTIN_COLS.filter(b => !(listColumns || []).some(c => c.t === "builtin" && c.key === b.key)).map(b => (
+                  <div key={b.key} onClick={() => addColumn({ t: "builtin", key: b.key })} style={colMenuItem}>{b.label}</div>
+                ))}
+                {customFields.filter(fld => !(listColumns || []).some(c => c.t === "cf" && c.id === fld.id)).map(fld => (
+                  <div key={fld.id} onClick={() => addColumn({ t: "cf", id: fld.id })} style={colMenuItem}>▦ {fld.name}</div>
+                ))}
+                <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 6, paddingTop: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", padding: "2px 6px 4px" }}>New field</div>
+                  <input value={newColName} onChange={e => setNewColName(e.target.value)} placeholder="Field name" onClick={e => e.stopPropagation()} style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <select value={newColType} onChange={e => setNewColType(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }}>
+                      {["text", "number", "currency", "date", "select", "checkbox", "url", "email", "percent", "rating"].map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <button onClick={createColumnField} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Add</button>
+                  </div>
+                </div>
+              </div>
+            </>)}
+          </div>
+        )}
       </div>
       {sharedRoots.length > 0 && (() => { const coll = collapsed["__shared__"]; return (
         <div key="__shared__">
