@@ -37,15 +37,18 @@ const FILTERS = [
   { key: "archived", label: "Archived" },
 ];
 const SORTS = [
-  { key: "activity", label: "Activity Date" },
+  { key: "activity", label: "Activity date" },
+  { key: "unread_first", label: "Unread first" },
   { key: "project", label: "Project" },
-  { key: "due", label: "Due Date" },
+  { key: "due", label: "Due date" },
+  { key: "type", label: "Type" },
 ];
 
 export default function InboxView({ setActive }) {
   const { user, orgId } = useAuth();
   const [filter, setFilter] = useState("all");
-  const [sort, setSort] = useState("activity");
+  const [sort, setSort] = useState(() => { try { return localStorage.getItem("inbox_sort") || "activity"; } catch (e) { return "activity"; } });
+  const [sortDir, setSortDir] = useState(() => { try { return localStorage.getItem("inbox_sortdir") || "desc"; } catch (e) { return "desc"; } });
   const [loading, setLoading] = useState(true);
   const [notifs, setNotifs] = useState([]);
   const [taskById, setTaskById] = useState({});
@@ -133,6 +136,7 @@ export default function InboxView({ setActive }) {
     await supabase.from("notifications").update({ archived_at: null }).eq("org_id", orgId).in("id", ids);
   };
   useEffect(() => { setSelected(new Set()); }, [filter]);
+  useEffect(() => { try { localStorage.setItem("inbox_sort", sort); localStorage.setItem("inbox_sortdir", sortDir); } catch (e) {} }, [sort, sortDir]);
 
   const items = useMemo(() => {
     const taskItem = (t, mode) => {
@@ -168,11 +172,16 @@ export default function InboxView({ setActive }) {
       if (filter === "mentions") ns = ns.filter(n => n.type === "mention" || n.category === "mention");
       list = ns.map(notifItem);
     }
-    if (sort === "activity") list = [...list].sort((a, b) => b.ts - a.ts);
-    else if (sort === "due") list = [...list].sort((a, b) => (a.due || 8.64e15) - (b.due || 8.64e15));
-    else if (sort === "project") list = [...list].sort((a, b) => (a.projectName || "~~~").localeCompare(b.projectName || "~~~") || b.ts - a.ts);
+    const base = {
+      activity: (a, b) => b.ts - a.ts,
+      unread_first: (a, b) => (Number(!!a.read) - Number(!!b.read)) || (b.ts - a.ts),
+      project: (a, b) => (a.projectName || "~~~").localeCompare(b.projectName || "~~~") || (b.ts - a.ts),
+      due: (a, b) => ((a.due || 8.64e15) - (b.due || 8.64e15)) || (b.ts - a.ts),
+      type: (a, b) => (a.iconLabel || "").localeCompare(b.iconLabel || "") || (b.ts - a.ts),
+    }[sort] || ((a, b) => b.ts - a.ts);
+    list = [...list].sort((a, b) => { let c = base(a, b); if (!c) c = String(a.key).localeCompare(String(b.key)); return sortDir === "asc" ? -c : c; });
     return list;
-  }, [filter, sort, notifs, assignedToMe, assignedByMe, taskById, projectById, profilesById]);
+  }, [filter, sort, sortDir, notifs, assignedToMe, assignedByMe, taskById, projectById, profilesById]);
 
   const notifFilter = !["assigned_to_me", "assigned_by_me"].includes(filter);
   const actBtn = { background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" };
@@ -257,6 +266,7 @@ export default function InboxView({ setActive }) {
             <select value={sort} onChange={e => setSort(e.target.value)} style={{ fontSize: 12, padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer", outline: "none", fontWeight: 600 }}>
               {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
+            <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")} title={sortDir === "asc" ? "Ascending — click to reverse" : "Descending — click to reverse"} style={{ fontSize: 13, padding: "5px 9px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, cursor: "pointer", fontWeight: 700, lineHeight: 1 }}>{sortDir === "asc" ? "↑" : "↓"}</button>
           </div>
         </div>
       </div>
