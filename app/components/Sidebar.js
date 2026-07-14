@@ -62,11 +62,23 @@ export default function Sidebar({ active, setActive, expanded, setExpanded, badg
     ? profile.sidebar_config.groups.map((g, gi) => {
         const savedKeys = new Set(g.items.map(i => i.key));
         const defaultGroup = NAV_GROUPS[gi];
-        // Find new items that exist in default but not in saved config
-        const newItems = defaultGroup ? defaultGroup.items.filter(d => !savedKeys.has(d.key)).map(d => ({ ...d, visible: true })) : [];
+        // Merge in any default items missing from the saved config, inserting each
+        // at its default position (e.g. Inbox right after Home) rather than at the end.
+        const merged = [...g.items];
+        if (defaultGroup) {
+          defaultGroup.items.forEach((d, di) => {
+            if (savedKeys.has(d.key)) return;
+            let insertAt = di === 0 ? 0 : merged.length;
+            for (let k = di - 1; k >= 0; k--) {
+              const idx = merged.findIndex(m => m.key === defaultGroup.items[k].key);
+              if (idx !== -1) { insertAt = idx + 1; break; }
+            }
+            merged.splice(insertAt, 0, { ...d, visible: true });
+          });
+        }
         return {
           label: g.label,
-          items: [...g.items, ...newItems]
+          items: merged
             .filter(i => i.visible !== false)
             .map(i => {
               const def = NAV_ITEMS.find(n => n.key === i.key);
