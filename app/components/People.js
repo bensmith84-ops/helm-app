@@ -473,7 +473,22 @@ export default function PeopleView() {
     setTeams(p => [...p, data]); setShowTeamForm(false); setTeamForm({ name: "", description: "", color: TEAM_COLORS[0], parent_team_id: null }); showToast("Team created", "success");
   };
   const deleteTeam = async (tid) => { if (!confirm("Delete this team?")) return; await supabase.from("team_members").delete().eq("team_id", tid); await supabase.from("teams").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", tid); setTeams(p => p.filter(t => t.id !== tid)); setTeamMembers(p => p.filter(tm => tm.team_id !== tid)); if (selectedTeam === tid) setSelectedTeam(null); showToast("Team deleted", "success"); };
-  const addTeamMember = async (teamId, userId) => { const exists = teamMembers.find(tm => tm.team_id === teamId && tm.user_id === userId); if (exists) return; const { data, error } = await supabase.from("team_members").insert({ team_id: teamId, user_id: userId, org_id: profile.org_id }).select().single(); if (!error && data) { setTeamMembers(p => [...p, data]); showToast("Member added", "success"); } else if (error) { showToast("Failed to add member: " + (error.message || "unknown")); } };
+  const addTeamMember = async (teamId, userId) => { const exists = teamMembers.find(tm => tm.team_id === teamId && tm.user_id === userId); if (exists) return; const { data, error } = await supabase.from("team_members").insert({ team_id: teamId, user_id: userId, org_id: profile.org_id }).select().single(); if (!error && data) { setTeamMembers(p => [...p, data]); showToast("Member added", "success"); await enrollInTeamProjects(teamId, userId); } else if (error) { showToast("Failed to add member: " + (error.message || "unknown")); } };
+  // When someone joins a team, add them to that team's projects and notify them.
+  const enrollInTeamProjects = async (teamId, userId) => {
+    try {
+      const { data: teamProjects } = await supabase.from("projects").select("id,name,description").eq("org_id", profile.org_id).eq("team_id", teamId).is("deleted_at", null);
+      for (const proj of (teamProjects || [])) {
+        const { data: existingPm } = await supabase.from("project_members").select("id").eq("project_id", proj.id).eq("user_id", userId).maybeSingle();
+        if (!existingPm) {
+          await supabase.from("project_members").insert({ project_id: proj.id, user_id: userId, role: "member", org_id: profile.org_id });
+        }
+        if (userId !== profile.id) {
+          await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: userId, type: "project_added", title: `You were added to ${proj.name} via your team`, body: proj.description || "You've been added to a project", entity_type: "project", entity_id: proj.id, actor_id: profile.id, is_read: false, category: "assignment", metadata: { project_name: proj.name } });
+        }
+      }
+    } catch (e) {}
+  };
   const removeTeamMember = async (tmId) => { await supabase.from("team_members").delete().eq("org_id", orgId).eq("id", tmId); setTeamMembers(p => p.filter(tm => tm.id !== tmId)); };
 
   // === Searchable Person Picker (reusable) ===
