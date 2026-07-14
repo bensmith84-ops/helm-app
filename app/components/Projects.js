@@ -1229,8 +1229,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       .map((s, i) => ({
         name: (s.name || "").trim(),
         sort_order: i + 1,
-        is_complete_column: false,
-        tasks: (s.tasks || []).map(t => (t || "").trim()).filter(Boolean),
+        is_complete_column: !!s.is_complete_column,
+        wip_limit: s.wip_limit || null,
+        tasks: (s.tasks || []).map(serEditorTask).filter(t => t.title),
       }))
       .filter(s => s.name);
     if (cleanSections.length === 0) return showToast("Add at least one section");
@@ -1270,14 +1271,27 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     showToast(`Template "${tmpl.name}" deleted`, "success");
   };
 
+  const _teRid = () => "tt_" + Math.random().toString(36).slice(2, 9);
+  const normEditorTask = (t) => {
+    if (typeof t === "string") return { id: _teRid(), title: t, assignee_id: "", subtasks: [], _rest: {} };
+    const { title, assignee_id, subtasks, ...rest } = (t || {});
+    return { id: _teRid(), title: title || "", assignee_id: assignee_id || "", subtasks: (subtasks || []).map(normEditorTask), _rest: rest };
+  };
+  const serEditorTask = (t) => {
+    const o = { ...(t._rest || {}), title: (t.title || "").trim() };
+    if (t.assignee_id) o.assignee_id = t.assignee_id; else delete o.assignee_id;
+    const subs = (t.subtasks || []).map(serEditorTask).filter(x => x.title);
+    if (subs.length) o.subtasks = subs; else delete o.subtasks;
+    return o;
+  };
   const openNewTemplateEditor = () => {
     setTemplateEditor({
       mode: "new",
       name: "", description: "", icon: "📋", color: "#3b82f6",
       sections: [
-        { name: "To Do", tasks: [""] },
-        { name: "In Progress", tasks: [""] },
-        { name: "Done", tasks: [""] },
+        { name: "To Do", tasks: [] },
+        { name: "In Progress", tasks: [] },
+        { name: "Done", tasks: [] },
       ],
     });
     setShowTemplates(false);
@@ -1293,7 +1307,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       icon: tmpl.icon || "📋", color: tmpl.color || "#3b82f6",
       sections: (tmpl.sections || []).map(s => ({
         name: s.name,
-        tasks: [...(s.tasks || []).map(t => typeof t === "string" ? t : (t.title || "")), ""],
+        is_complete_column: s.is_complete_column,
+        wip_limit: s.wip_limit,
+        tasks: (s.tasks || []).map(normEditorTask),
       })),
       template_data: tmpl.template_data,
     });
@@ -3601,16 +3617,14 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       [next[idx], next[j]] = [next[j], next[idx]];
       setEd({ sections: next });
     };
-    const setTaskAt = (sIdx, tIdx, val) => {
-      const tasks = [...(ed.sections[sIdx].tasks || [])];
-      tasks[tIdx] = val;
-      if (tIdx === tasks.length - 1 && val.trim() !== "") tasks.push("");
-      setSection(sIdx, { tasks });
-    };
-    const removeTask = (sIdx, tIdx) => {
-      const tasks = (ed.sections[sIdx].tasks || []).filter((_, i) => i !== tIdx);
-      setSection(sIdx, { tasks: tasks.length ? tasks : [""] });
-    };
+    const setTasksAt = (sIdx, tasks) => setSection(sIdx, { tasks });
+    const addTask = (sIdx) => setTasksAt(sIdx, [...(ed.sections[sIdx].tasks || []), { id: _teRid(), title: "", assignee_id: "", subtasks: [], _rest: {} }]);
+    const setTask = (sIdx, tIdx, patch) => setTasksAt(sIdx, (ed.sections[sIdx].tasks || []).map((t, i) => i === tIdx ? { ...t, ...patch } : t));
+    const removeTask = (sIdx, tIdx) => setTasksAt(sIdx, (ed.sections[sIdx].tasks || []).filter((_, i) => i !== tIdx));
+    const addSubtask = (sIdx, tIdx) => setTask(sIdx, tIdx, { subtasks: [...((ed.sections[sIdx].tasks[tIdx] || {}).subtasks || []), { id: _teRid(), title: "", assignee_id: "" }] });
+    const setSubtask = (sIdx, tIdx, stIdx, patch) => setTask(sIdx, tIdx, { subtasks: ((ed.sections[sIdx].tasks[tIdx] || {}).subtasks || []).map((st, i) => i === stIdx ? { ...st, ...patch } : st) });
+    const removeSubtask = (sIdx, tIdx, stIdx) => setTask(sIdx, tIdx, { subtasks: ((ed.sections[sIdx].tasks[tIdx] || {}).subtasks || []).filter((_, i) => i !== stIdx) });
+    const asgOpts = [{ value: "", label: "Unassigned", icon: "✕" }, ...Object.values(profiles).map(u => ({ value: u.id, label: u.display_name || u.email || "Unknown", icon: "👤" }))];
     const iconChoices = ["📋", "🚀", "🎯", "💼", "📊", "🛠️", "🔬", "📦", "🎨", "🧪", "📈", "✨"];
     const colorChoices = ["#3b82f6", "#22c55e", "#ef4444", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#eab308", "#6366f1", "#6b7280"];
     const lbl = { fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 };
@@ -3663,15 +3677,27 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                     <button onClick={() => removeSection(sIdx)} style={{ padding: "4px 8px", background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 14 }}>✕</button>
                   </div>
                   {(sec.tasks || []).map((task, tIdx) => (
-                    <div key={tIdx} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                      <span style={{ color: T.text3, fontSize: 11, width: 12 }}>·</span>
-                      <input value={task} onChange={e => setTaskAt(sIdx, tIdx, e.target.value)} placeholder={tIdx === sec.tasks.length - 1 ? "Add a task..." : "Task title"}
-                        style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: `1px solid transparent`, background: "transparent", color: T.text, fontSize: 12, outline: "none" }}
-                        onFocus={e => e.currentTarget.style.background = T.surface3}
-                        onBlur={e => e.currentTarget.style.background = "transparent"} />
-                      {task && <button onClick={() => removeTask(sIdx, tIdx)} style={{ padding: "2px 6px", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>}
+                    <div key={task.id || tIdx} style={{ marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ color: T.text3, fontSize: 11, width: 12 }}>·</span>
+                        <input value={task.title} onChange={e => setTask(sIdx, tIdx, { title: e.target.value })} placeholder="Task title"
+                          style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} />
+                        <div style={{ width: 150, flexShrink: 0 }}><SearchableMultiSelect multi={false} placeholder="Unassigned" options={asgOpts} selected={task.assignee_id || ""} onChange={v => setTask(sIdx, tIdx, { assignee_id: v })} /></div>
+                        <button onClick={() => addSubtask(sIdx, tIdx)} title="Add subtask" style={{ padding: "2px 6px", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13 }}>↳＋</button>
+                        <button onClick={() => removeTask(sIdx, tIdx)} title="Remove task" style={{ padding: "2px 6px", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>
+                      </div>
+                      {(task.subtasks || []).map((st, stIdx) => (
+                        <div key={st.id || stIdx} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, paddingLeft: 24 }}>
+                          <span style={{ color: T.text3, fontSize: 11 }}>↳</span>
+                          <input value={st.title} onChange={e => setSubtask(sIdx, tIdx, stIdx, { title: e.target.value })} placeholder="Subtask title"
+                            style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none" }} />
+                          <div style={{ width: 150, flexShrink: 0 }}><SearchableMultiSelect multi={false} placeholder="Unassigned" options={asgOpts} selected={st.assignee_id || ""} onChange={v => setSubtask(sIdx, tIdx, stIdx, { assignee_id: v })} /></div>
+                          <button onClick={() => removeSubtask(sIdx, tIdx, stIdx)} title="Remove subtask" style={{ padding: "2px 6px", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>
+                        </div>
+                      ))}
                     </div>
                   ))}
+                  <button onClick={() => addTask(sIdx)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 4, padding: "5px 8px", borderRadius: 5, border: `1px dashed ${T.border}`, background: "none", color: T.text3, fontSize: 12, cursor: "pointer", width: "100%" }}>＋ Add task</button>
                 </div>
               ))}
               {ed.sections.length === 0 && (
