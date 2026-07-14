@@ -139,6 +139,14 @@ export default function HelmApp() {
     }
   }, [isExternal, active]);
 
+  // Persist the current module across refreshes so you land back where you were.
+  useEffect(() => {
+    try { const saved = localStorage.getItem("helm_active"); if (saved) setActive(saved); } catch (e) {}
+  }, []);
+  useEffect(() => {
+    try { if (active && active !== "spend_request") localStorage.setItem("helm_active", active); } catch (e) {}
+  }, [active]);
+
   // Load user module permissions from org_memberships
   useEffect(() => {
     if (!user) return;
