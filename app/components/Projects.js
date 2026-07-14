@@ -1054,25 +1054,39 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       org_id: profile.org_id, created_by: profile.id,
       name: template.name, description: template.description || "",
       color, status: "active", visibility: "private",
+      default_view: template.template_data?.default_view || "List",
     }).select().single();
     if (error) return showToast("Failed to create: " + error.message);
     setProjects(p => [...p, data]);
     setActiveProject(data.id);
     setShowTemplates(false);
-    // Create sections and tasks from template
+    const validAssignee = (uid) => (uid && profiles[uid]) ? uid : null;
+    const insertNode = async (node, sectionId, sortOrder, parentId) => {
+      const isStr = typeof node === "string";
+      const title = (isStr ? node : (node.title || "")) || "Untitled";
+      const { data: t } = await supabase.from("tasks").insert({
+        org_id: profile.org_id, project_id: data.id, section_id: sectionId, parent_task_id: parentId || null,
+        title, description: isStr ? "" : (node.description || ""), status: "todo",
+        priority: isStr ? "none" : (node.priority || "none"),
+        assignee_id: isStr ? null : validAssignee(node.assignee_id),
+        sort_order: sortOrder, created_by: profile.id,
+      }).select().single();
+      if (!t) return;
+      if (!isStr) {
+        if (Array.isArray(node.labels)) { for (const lid of node.labels) { try { await supabase.from("task_label_assignments").insert({ task_id: t.id, label_id: lid, org_id: profile.org_id }); } catch (e) {} } }
+        if (Array.isArray(node.attachments)) { for (const att of node.attachments) { try { const safe = String(att.filename || "file").replace(/[^\w.\-]+/g, "_"); const toPath = `${profile.org_id}/${t.id}/${Date.now()}_${safe}`; const { error: ce } = await supabase.storage.from("attachments").copy(att.file_path, toPath); if (!ce) { await supabase.from("attachments").insert({ org_id: profile.org_id, entity_type: "task", entity_id: t.id, filename: att.filename, file_path: toPath, file_size: att.file_size, mime_type: att.mime_type, uploaded_by: profile.id }); } } catch (e) {} } }
+        if (Array.isArray(node.subtasks)) { for (let k = 0; k < node.subtasks.length; k++) { await insertNode(node.subtasks[k], sectionId, k + 1, t.id); } }
+      }
+    };
     for (let i = 0; i < secs.length; i++) {
       const sec = secs[i];
       const { data: secData } = await supabase.from("sections").insert({ project_id: data.id, org_id: profile.org_id, name: sec.name, sort_order: i + 1, is_complete_column: !!sec.is_complete_column, wip_limit: sec.wip_limit || null }).select().single();
-      if (secData && sec.tasks?.length) {
-        for (let j = 0; j < sec.tasks.length; j++) {
-          await supabase.from("tasks").insert({ org_id: profile.org_id, project_id: data.id, section_id: secData.id, title: sec.tasks[j], status: "todo", priority: "none", sort_order: j + 1, created_by: profile.id });
-        }
-      }
-      if (secData) setSections(p => [...p, secData]);
+      if (secData) { setSections(p => [...p, secData]); const tks = sec.tasks || []; for (let j = 0; j < tks.length; j++) { await insertNode(tks[j], secData.id, j + 1, null); } }
     }
-    // Reload tasks
     const { data: newTasks } = await supabase.from("tasks").select("*").eq("org_id", orgId).eq("project_id", data.id).is("deleted_at", null);
     setTasks(p => [...p.filter(t => t.project_id !== data.id), ...(newTasks || [])]);
+    const newIds = (newTasks || []).map(t => t.id);
+    if (newIds.length) { const { data: la } = await supabase.from("task_label_assignments").select("*").in("task_id", newIds); if (la && la.length) setLabelAssignments(p => [...p, ...la]); }
     showToast(`Project created from ${template.name} template`, "success");
   };
 
@@ -1144,7 +1158,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   };
 
   const [savingAsTemplate, setSavingAsTemplate] = useState(null); // project being saved as template
-  const [savingAsTemplateForm, setSavingAsTemplateForm] = useState({ name: "", description: "", icon: "📋", color: "#3b82f6" });
+  const [savingAsTemplateForm, setSavingAsTemplateForm] = useState({ name: "", description: "", icon: "📋", color: "#3b82f6", include: { subtasks: true, descriptions: true, assignees: false, tags: false, files: false } });
   const [templateEditor, setTemplateEditor] = useState(null); // { mode: "new"|"edit", id?, name, description, icon, color, sections: [{name, tasks: [string]}] }
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   // Forms & Templates
@@ -1158,15 +1172,35 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const saveAsTemplate = async (srcProject) => {
     if (!profile?.org_id) return;
     const form = savingAsTemplateForm;
+    const inc = form.include || {};
     const name = (form.name || srcProject.name || "Untitled Template").trim();
     if (!name) return showToast("Template name is required");
-    const srcSections = sections.filter(s => s.project_id === srcProject.id);
-    const sectionData = srcSections.map(s => ({
+    const srcSections = sections.filter(s => s.project_id === srcProject.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    // Pull the full task tree fresh so subtasks are complete even if not loaded in state
+    const { data: allTasks } = await supabase.from("tasks").select("id,title,description,priority,assignee_id,section_id,parent_task_id,sort_order").eq("org_id", orgId).eq("project_id", srcProject.id).is("deleted_at", null);
+    const taskList = allTasks || [];
+    const childrenOf = (pid) => taskList.filter(t => t.parent_task_id === pid).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    let attByTask = {};
+    if (inc.files) {
+      const ids = taskList.map(t => t.id);
+      if (ids.length) { const { data: atts } = await supabase.from("attachments").select("entity_id,filename,file_path,mime_type,file_size").eq("org_id", orgId).eq("entity_type", "task").in("entity_id", ids); (atts || []).forEach(a => { (attByTask[a.entity_id] = attByTask[a.entity_id] || []).push({ filename: a.filename, file_path: a.file_path, mime_type: a.mime_type, file_size: a.file_size }); }); }
+    }
+    const buildTask = (t) => {
+      const o = { title: t.title };
+      if (inc.descriptions && t.description) o.description = t.description;
+      if (t.priority && t.priority !== "none") o.priority = t.priority;
+      if (inc.assignees && t.assignee_id) o.assignee_id = t.assignee_id;
+      if (inc.tags) { const lids = labelAssignments.filter(a => a.task_id === t.id).map(a => a.label_id); if (lids.length) o.labels = lids; }
+      if (inc.files && attByTask[t.id]) o.attachments = attByTask[t.id];
+      if (inc.subtasks) { const subs = childrenOf(t.id).map(buildTask); if (subs.length) o.subtasks = subs; }
+      return o;
+    };
+    const sectionData = srcSections.map((s, i) => ({
       name: s.name,
-      sort_order: s.sort_order,
+      sort_order: s.sort_order ?? (i + 1),
       is_complete_column: s.is_complete_column || false,
-      tasks: tasks.filter(t => t.section_id === s.id && !t.parent_task_id && !t.deleted_at)
-        .map(t => t.title),
+      wip_limit: s.wip_limit || null,
+      tasks: taskList.filter(t => t.section_id === s.id && !t.parent_task_id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(buildTask),
     }));
     const { data, error } = await supabase.from("project_templates").insert({
       org_id: profile.org_id,
@@ -1176,13 +1210,13 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       color: form.color || srcProject.color || "#3b82f6",
       is_builtin: false,
       created_by: profile.id,
-      template_data: { default_view: srcProject.default_view || "List" },
+      template_data: { default_view: srcProject.default_view || "List", include: inc },
       sections: sectionData,
     }).select().single();
     if (error) return showToast("Failed to save as template: " + error.message);
     setTemplates(p => [...p, data]);
     setSavingAsTemplate(null);
-    setSavingAsTemplateForm({ name: "", description: "", icon: "📋", color: "#3b82f6" });
+    setSavingAsTemplateForm({ name: "", description: "", icon: "📋", color: "#3b82f6", include: { subtasks: true, descriptions: true, assignees: false, tags: false, files: false } });
     showToast(`"${name}" saved as template`, "success");
   };
 
@@ -1259,7 +1293,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       icon: tmpl.icon || "📋", color: tmpl.color || "#3b82f6",
       sections: (tmpl.sections || []).map(s => ({
         name: s.name,
-        tasks: [...(s.tasks || []), ""],
+        tasks: [...(s.tasks || []).map(t => typeof t === "string" ? t : (t.title || "")), ""],
       })),
       template_data: tmpl.template_data,
     });
@@ -1705,7 +1739,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
               <div onClick={() => { setCopyingProject(p); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Copy
               </div>
-              <div onClick={() => { setSavingAsTemplate(p); setSavingAsTemplateForm({ name: p.name, description: p.description || "", icon: p.emoji || "📋", color: p.color || "#3b82f6" }); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div onClick={() => { setSavingAsTemplate(p); setSavingAsTemplateForm({ name: p.name, description: p.description || "", icon: p.emoji || "📋", color: p.color || "#3b82f6", include: { subtasks: true, descriptions: true, assignees: false, tags: false, files: false } }); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>Save as Template
               </div>
               <div onClick={() => { archiveProject(p.id); setCtxProject(null); }} style={{ padding: "7px 10px", fontSize: 12, color: T.text2, borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -3674,8 +3708,19 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
               <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{savingAsTemplate.name}</div>
             </div>
           </div>
-          <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: 10, marginBottom: 18, fontSize: 13, color: T.text2, lineHeight: 1.5 }}>
-            This will save <strong style={{ color: T.text }}>{secCount} section{secCount !== 1 ? "s" : ""}</strong> and <strong style={{ color: T.text }}>{taskCount} task{taskCount !== 1 ? "s" : ""}</strong> as a reusable template. Task titles will be kept but assignees, due dates, and progress will be cleared.
+          <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: 10, marginBottom: 14, fontSize: 13, color: T.text2, lineHeight: 1.5 }}>
+            Saving <strong style={{ color: T.text }}>{secCount} section{secCount !== 1 ? "s" : ""}</strong> and <strong style={{ color: T.text }}>{taskCount} task{taskCount !== 1 ? "s" : ""}</strong> as a reusable template. Sections and task names are always included — pick what else to carry over.
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Include in template</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+              {[["subtasks", "Subtasks"], ["descriptions", "Descriptions"], ["assignees", "Assignees"], ["tags", "Tags"], ["files", "Files & attachments"]].map(([k, label]) => (
+                <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontSize: 13, color: T.text2, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!(f.include || {})[k]} onChange={e => setF("include", { ...(f.include || {}), [k]: e.target.checked })} style={{ cursor: "pointer" }} />
+                  {label}
+                </label>
+              ))}
+            </div>
           </div>
           <div style={{ padding: "0 24px 16px" }}>
             <div style={{ marginBottom: 12 }}>
@@ -3708,7 +3753,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => { setSavingAsTemplate(null); setSavingAsTemplateForm({ name: "", description: "", icon: "📋", color: "#3b82f6" }); }} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => { setSavingAsTemplate(null); setSavingAsTemplateForm({ name: "", description: "", icon: "📋", color: "#3b82f6", include: { subtasks: true, descriptions: true, assignees: false, tags: false, files: false } }); }} style={{ padding: "9px 18px", borderRadius: 8, background: T.surface3, color: T.text2, border: "none", fontSize: 13, cursor: "pointer" }}>Cancel</button>
             <button onClick={() => saveAsTemplate(savingAsTemplate)} style={{ padding: "9px 18px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Save Template</button>
           </div>
         </div>
