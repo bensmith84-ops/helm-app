@@ -357,6 +357,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [editingTaskTitle, setEditingTaskTitle] = useState("");
   const [addingSection, setAddingSection] = useState(false);
   const [newSectionName, setNewSectionName] = useState("");
+  const _lastTabRef = useRef(0);
   const [expandedTasks, setExpandedTasks] = useState({});
   const [toast, setToast] = useState(null);
   const [dragTask, setDragTask] = useState(null);
@@ -786,6 +787,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
 
       if (isInput) return; // Don't trigger shortcuts when typing
 
+      if (e.key === "Tab") { _lastTabRef.current = Date.now(); return; }
+
       const allRootTasks = filteredTasks.filter(t => !t.parent_task_id);
       const curIdx = selectedTask ? allRootTasks.findIndex(t => t.id === selectedTask.id) : -1;
 
@@ -816,11 +819,18 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
             setSelectedTask(selectedTask); // opens detail panel
           }
           break;
-        case "n":
-          if (!e.metaKey && projSections.length > 0) {
-            e.preventDefault();
-            setAddingTo(projSections[0].id);
-            setNewTitle("");
+        case "n": case "N":
+          if (!e.metaKey && !e.ctrlKey) {
+            if (Date.now() - (_lastTabRef.current || 0) < 1200) {
+              e.preventDefault();
+              _lastTabRef.current = 0;
+              setAddingSection(true);
+              setNewSectionName("");
+            } else if (projSections.length > 0) {
+              e.preventDefault();
+              setAddingTo(projSections[0].id);
+              setNewTitle("");
+            }
           }
           break;
         case "f":
@@ -2143,7 +2153,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
           </div>
           {!isColl && <>{roots.map(task => <TaskRow key={task.id} task={task} depth={0} />)}{addingTo === sec.id ? <div style={{ ...S.row(false, false), background: T.surface2 }}><div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 20 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg><input value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createTask(sec.id); if (e.key === "Escape") { setAddingTo(null); setNewTitle(""); } }} onBlur={() => { if (newTitle.trim()) createTask(sec.id); else { setAddingTo(null); setNewTitle(""); } }} autoFocus placeholder="Task name…" style={{ flex: 1, background: "none", border: "none", color: T.text, fontSize: 13, outline: "none" }} /></div><div /><div /><div /><div /></div> : <div onClick={() => { setAddingTo(sec.id); setNewTitle(""); }} style={{ ...S.addRow, opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add task…</div>}</>}
         </div>); })}
-      {addingSection ? <div style={{ padding: "8px 12px", display: "flex", gap: 8 }}><input value={newSectionName} onChange={e => setNewSectionName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") setAddingSection(false); }} placeholder="Section name…" style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none" }} /><button onClick={createSection} style={{ padding: "4px 12px", borderRadius: 4, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer" }}>Add</button></div> : <div onClick={() => setAddingSection(true)} style={{ ...S.addRow, opacity: 0.5, paddingLeft: 12 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add section…</div>}
+      {addingSection ? <div style={{ padding: "8px 12px", display: "flex", gap: 8 }}><input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") createSection(); if (e.key === "Escape") setAddingSection(false); }} placeholder="Section name…" style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, outline: "none" }} /><button onClick={createSection} style={{ padding: "4px 12px", borderRadius: 4, background: T.accent, color: "#fff", border: "none", fontSize: 12, cursor: "pointer" }}>Add</button></div> : <div onClick={() => setAddingSection(true)} style={{ ...S.addRow, opacity: 0.5, paddingLeft: 12 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>Add section…</div>}
     </div>); })();
   const boardViewEl = (
     <div style={{ flex: 1, display: "flex", gap: 16, padding: "16px 20px", overflow: "auto" }}>
@@ -2261,7 +2271,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       {/* Add Section column */}
       {addingSection ? (
         <div style={{ width: isMobile ? 260 : 280, flexShrink: 0, display: "flex", flexDirection: "column", borderRadius: 10, background: T.surface, border: `1px dashed ${T.accent}40`, padding: 12 }}>
-          <input value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
+          <input autoFocus value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter" && newSectionName.trim()) createSection(); if (e.key === "Escape") { setAddingSection(false); setNewSectionName(""); } }}
             onBlur={() => { if (newSectionName.trim()) createSection(); else { setAddingSection(false); setNewSectionName(""); } }}
             placeholder="Section name…"
@@ -4248,6 +4258,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 ["Space", "Toggle done"],
                 ["Enter", "Open task detail"],
                 ["N", "New task"],
+                ["Tab → N", "New section"],
                 ["F", "Focus search"],
                 ["1", "List view"],
                 ["2", "Board view"],
