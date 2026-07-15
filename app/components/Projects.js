@@ -454,6 +454,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState(""); // legacy — kept for compat
   const [editingDesc, setEditingDesc] = useState(false);
+  const [taskCollabs, setTaskCollabs] = useState([]);
+  const [detailWidth, setDetailWidth] = useState(() => { try { const w = Number(localStorage.getItem("helm_detail_width")); return w >= 340 ? w : 460; } catch (e) { return 460; } });
+  const [detailFull, setDetailFull] = useState(false);
+  useEffect(() => { try { localStorage.setItem("helm_detail_width", String(detailWidth)); } catch (e) {} }, [detailWidth]);
   const commentRef = useRef(null);
   const [editingCommentId, setEditingCommentId] = useState(null);
   const editCommentRef = useRef(null);
@@ -471,6 +475,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [showAddColMenu, setShowAddColMenu] = useState(false);
   const [newColName, setNewColName] = useState("");
   const [newColType, setNewColType] = useState("text");
+  const [newColOptions, setNewColOptions] = useState("");
   const [milestones, setMilestones] = useState([]);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [showMyTasks, setShowMyTasks] = useState(true);
@@ -1671,7 +1676,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     }
     await updateField(taskId, "section_id", newSec); setDragTask(null); setDragOverTarget(null);
   };
-  const { widths: projWidths, onResizeStart: projResize } = useResizableColumns([320, 110, 90, 110, 100], "projects");
+  const { widths: projWidths, onResizeStart: projResize } = useResizableColumns([320, 115, 95, 120, 200], "projects_v2");
   const mobileGrid = "1fr 70px"; // title + status only
   const baseGrid = projWidths.map(w => `${w}px`).join(" ");
   const activeGrid = isMobile ? mobileGrid : baseGrid;
@@ -1715,9 +1720,27 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   };
   const addColumn = (desc) => { saveListColumns([...(listColumns || []), desc]); setShowAddColMenu(false); };
   const removeColumn = (col) => { saveListColumns((listColumns || []).filter(c => !colMatches(c, col))); setColMenu(null); };
+  const reorderColumnTo = (srcId, targetCol) => {
+    const arr = [...(listColumns || [])];
+    const srcDesc = srcId.startsWith("cf:") ? { t: "cf", id: srcId.slice(3) } : { t: "builtin", key: srcId.slice(2) };
+    const from = arr.findIndex(c => (srcDesc.t === "cf" ? (c.t === "cf" && c.id === srcDesc.id) : (c.t === "builtin" && c.key === srcDesc.key)));
+    const to = arr.findIndex(c => colMatches(c, targetCol));
+    if (from < 0 || to < 0 || from === to) return;
+    const [m] = arr.splice(from, 1); arr.splice(to, 0, m); saveListColumns(arr);
+  };
+  const editFieldOptions = async (cf) => {
+    const cur = (cf.options?.choices || []).join(", ");
+    const val = prompt("Options (comma-separated):", cur);
+    if (val == null) return;
+    const choices = val.split(",").map(x => x.trim()).filter(Boolean);
+    const newOpts = { ...(cf.options || {}), choices };
+    await supabase.from("custom_fields").update({ options: newOpts }).eq("id", cf.id);
+    setCustomFields(p => p.map(x => x.id === cf.id ? { ...x, options: newOpts } : x));
+    setColMenu(null);
+  };
   const moveColumn = (col, dir) => { const idx = (listColumns || []).findIndex(c => colMatches(c, col)); const j = idx + dir; if (idx < 0 || j < 0 || j >= listColumns.length) return; const arr = [...listColumns]; [arr[idx], arr[j]] = [arr[j], arr[idx]]; saveListColumns(arr); setColMenu(null); };
   const renameColumnField = async (cf) => { const name = prompt("Rename field:", cf.name); if (!name || !name.trim()) return; await supabase.from("custom_fields").update({ name: name.trim() }).eq("id", cf.id); setCustomFields(p => p.map(x => x.id === cf.id ? { ...x, name: name.trim() } : x)); setColMenu(null); };
-  const createColumnField = async () => { if (!newColName.trim()) return; const mx = customFields.reduce((m, fx) => Math.max(m, fx.sort_order || 0), 0); const { data, error } = await supabase.from("custom_fields").insert({ project_id: activeProject, name: newColName.trim(), field_type: newColType, options: null, sort_order: mx + 1 }).select().single(); if (!error && data) { setCustomFields(p => [...p, data]); saveListColumns([...(listColumns || []), { t: "cf", id: data.id }]); } setNewColName(""); setNewColType("text"); setShowAddColMenu(false); };
+  const createColumnField = async () => { if (!newColName.trim()) return; const mx = customFields.reduce((m, fx) => Math.max(m, fx.sort_order || 0), 0); const opts = newColType === "select" ? { choices: newColOptions.split(",").map(x => x.trim()).filter(Boolean) } : null; const { data, error } = await supabase.from("custom_fields").insert({ project_id: activeProject, name: newColName.trim(), field_type: newColType, options: opts, sort_order: mx + 1 }).select().single(); if (!error && data) { setCustomFields(p => [...p, data]); saveListColumns([...(listColumns || []), { t: "cf", id: data.id }]); } setNewColName(""); setNewColType("text"); setNewColOptions(""); setShowAddColMenu(false); };
   const _fmtColDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
   const ResizeHandle = ({ onDown }) => isMobile ? null : (<div onMouseDown={onDown} title="Drag to resize" style={{ position: "absolute", right: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 3, display: "flex", justifyContent: "center" }} onMouseEnter={e => { if (e.currentTarget.firstChild) e.currentTarget.firstChild.style.background = T.accent; }} onMouseLeave={e => { if (e.currentTarget.firstChild) e.currentTarget.firstChild.style.background = "transparent"; }}><div style={{ width: 2, height: "100%", background: "transparent", transition: "background 0.12s" }} /></div>);
 
@@ -2128,6 +2151,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     if (col.cf) {
       const fld = col.cf; const val = (_customFieldValuesRef.current[task.id] || {})[fld.id];
       if (fld.field_type === "checkbox") { const on = val === true || val === "true"; return <span onClick={e => { e.stopPropagation(); updateCustomFieldValue(task.id, fld.id, !on); }} style={{ cursor: "pointer", fontSize: 14, color: on ? T.accent : T.text3 }}>{on ? "☑" : "☐"}</span>; }
+      if (fld.field_type === "select") { const choices = fld.options?.choices || []; return <select value={val || ""} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); updateCustomFieldValue(task.id, fld.id, e.target.value || null); }} style={{ background: "none", border: "none", color: val ? T.text2 : T.text3, fontSize: 12, outline: "none", cursor: "pointer", maxWidth: "100%", fontFamily: "inherit" }}><option value="">—</option>{choices.map(c => <option key={c} value={c}>{c}</option>)}</select>; }
       if (val == null || val === "") return <span style={{ color: T.text3 }}>—</span>;
       if (fld.field_type === "currency") return <span>{(fld.options?.currency_prefix || "$") + val}</span>;
       if (fld.field_type === "percent") return <span>{val}%</span>;
@@ -2169,7 +2193,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }}>Assignee<ResizeHandle onDown={(e) => projResize(3, e)} /></div>}
         {!isMobile && <div style={{ ...S.colHdr, position: "relative" }} onClick={() => toggleSort("due_date")} title="Sort by due date">Dates{arrow("due_date")}<ResizeHandle onDown={(e) => projResize(4, e)} /></div>}
         {!isMobile && resolvedCols.map(col => (
-          <div key={col.id} style={{ ...S.colHdr, position: "relative", justifyContent: "space-between", cursor: "default" }}>
+          <div key={col.id} draggable onDragStart={e => { e.dataTransfer.setData("hcol-id", col.id); e.dataTransfer.effectAllowed = "move"; }} onDragOver={e => { e.preventDefault(); }} onDrop={e => { e.preventDefault(); const src = e.dataTransfer.getData("hcol-id"); if (src && src !== col.id) reorderColumnTo(src, col); }} style={{ ...S.colHdr, position: "relative", justifyContent: "space-between", cursor: "grab" }}>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.label}</span>
             <button onClick={e => { e.stopPropagation(); setColMenu(colMenu === col.id ? null : col.id); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: "0 2px", flexShrink: 0 }}>⋯</button>
             {colMenu === col.id && (<>
@@ -2178,6 +2202,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 <div onClick={() => moveColumn(col, -1)} style={colMenuItem}>← Move left</div>
                 <div onClick={() => moveColumn(col, 1)} style={colMenuItem}>→ Move right</div>
                 {col.cf && <div onClick={() => renameColumnField(col.cf)} style={colMenuItem}>✎ Rename field</div>}
+                {col.cf && col.cf.field_type === "select" && <div onClick={() => editFieldOptions(col.cf)} style={colMenuItem}>☰ Edit options</div>}
                 <div onClick={() => removeColumn(col)} style={{ ...colMenuItem, color: T.red }}>✕ Remove column</div>
                 {col.cf && <div onClick={() => { if (window.confirm("Delete this field and its values from every task?")) { deleteCustomField(col.cf.id); removeColumn(col); } }} style={{ ...colMenuItem, color: T.red }}>🗑 Delete field</div>}
               </div>
@@ -2201,6 +2226,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 6, paddingTop: 6 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", padding: "2px 6px 4px" }}>New field</div>
                   <input value={newColName} onChange={e => setNewColName(e.target.value)} placeholder="Field name" onClick={e => e.stopPropagation()} style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+                  {newColType === "select" && <input value={newColOptions} onChange={e => setNewColOptions(e.target.value)} placeholder="Options (comma-separated)" onClick={e => e.stopPropagation()} style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.accent}40`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />}
                   <div style={{ display: "flex", gap: 6 }}>
                     <select value={newColType} onChange={e => setNewColType(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none" }}>
                       {["text", "number", "currency", "date", "select", "checkbox", "url", "email", "percent", "rating"].map(t => <option key={t} value={t}>{t}</option>)}
@@ -2677,6 +2703,31 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     }
     if (!selectedTask) prevSelectedTaskId.current = null;
   }, [selectedTask?.id]);
+  useEffect(() => {
+    if (!selectedTask) { setTaskCollabs([]); return; }
+    supabase.from("task_assignees").select("user_id").eq("task_id", selectedTask.id).eq("role", "collaborator").then(({ data }) => setTaskCollabs((data || []).map(r => r.user_id)));
+  }, [selectedTask?.id]);
+  const syncCollabs = async (next) => {
+    if (!selectedTask) return;
+    const prev = taskCollabs;
+    const added = next.filter(id => !prev.includes(id));
+    const removed = prev.filter(id => !next.includes(id));
+    setTaskCollabs(next);
+    const oid = resolveOrgId(activeProject) || orgId;
+    for (const uid of added) {
+      await supabase.from("task_assignees").insert({ task_id: selectedTask.id, user_id: uid, role: "collaborator", org_id: oid });
+      if (uid !== user?.id) await supabase.from("notifications").insert({ org_id: oid, user_id: uid, type: "assignment", title: `${uname(user?.id)} added you as a collaborator`, body: selectedTask.title, entity_type: "task", entity_id: selectedTask.id, actor_id: user?.id, is_read: false, category: "assignment", metadata: { task_title: selectedTask.title } });
+    }
+    for (const uid of removed) { await supabase.from("task_assignees").delete().eq("task_id", selectedTask.id).eq("user_id", uid).eq("role", "collaborator"); }
+  };
+  const startDetailResize = (e) => {
+    e.preventDefault();
+    const startX = e.clientX; const startW = detailWidth;
+    const move = (ev) => { setDetailWidth(Math.max(340, Math.min(1000, startW + (startX - ev.clientX)))); };
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); document.body.style.userSelect = ""; };
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  };
   const detailPane = (() => {
     if (!selectedTask) return null;
     const task = selectedTask;
@@ -2703,7 +2754,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     const FIELD_LABEL = { fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 };
 
     return (
-      <div ref={detailPaneRef} style={{ width: isMobile ? "100%" : 420, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden", ...(isMobile ? { position: "fixed", inset: 0, zIndex: 100 } : {}) }}>
+      <div ref={detailPaneRef} style={{ width: isMobile ? "100%" : (detailFull ? "min(1000px, 92vw)" : detailWidth), flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative", ...(isMobile ? { position: "fixed", inset: 0, zIndex: 100 } : {}), ...(detailFull && !isMobile ? { position: "fixed", top: 20, right: 20, bottom: 20, left: "auto", zIndex: 200, borderRadius: 12, border: `1px solid ${T.border}`, boxShadow: "0 24px 70px rgba(0,0,0,0.45)" } : {}) }}>
+        {!isMobile && !detailFull && <div onMouseDown={startDetailResize} style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 10 }} title="Drag to resize" />}
         {/* Header */}
         <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
@@ -2715,6 +2767,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
                 style={{ fontSize: 15, fontWeight: 700, color: T.text, background: "none", border: "none", outline: "none", width: "100%", padding: 0, lineHeight: 1.3 }} />
             </div>
+            <button onClick={() => setDetailFull(v => !v)} style={S.iconBtn} title={detailFull ? "Exit full view" : "Full view"}>{detailFull ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3v6H3M21 9h-6V3M3 15h6v6M15 21v-6h6"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>}</button>
             <button onClick={() => setSelectedTask(null)} style={S.iconBtn}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
             </button>
@@ -2848,6 +2901,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                     {task.description ? renderRich(task.description, T) : "Add context, requirements, or notes…"}
                   </div>
                 )}
+              </div>
+
+              {/* Collaborators */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Collaborators</label>
+                <SearchableMultiSelect multi={true} placeholder="Add collaborators…" options={memberOpts()} selected={taskCollabs} onChange={syncCollabs} />
               </div>
 
               {/* Recurrence */}
