@@ -491,6 +491,8 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
   const { user, profile, orgId } = useAuth();
   const { isMobile } = useResponsive();
   const [view, setView] = useState(pendingSubView || "dashboard");
+  useEffect(() => { if (pendingSubView) return; try { const v = localStorage.getItem("helm_erp_view"); if (v) setView(v); } catch (e) {} }, []);
+  useEffect(() => { try { if (view) localStorage.setItem("helm_erp_view", view); } catch (e) {} }, [view]);
   const isFinanceView = FINANCE_EMBED_VIEWS.has(view);
   // Handle pending sub-view navigation from other modules (e.g. Dashboard approval badge)
   useEffect(() => {
