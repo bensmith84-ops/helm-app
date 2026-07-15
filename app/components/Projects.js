@@ -342,6 +342,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   useEffect(() => { try { if (activeProject) localStorage.setItem("helm_active_project", activeProject); } catch (e) {} }, [activeProject]);
   const [selectedTask, setSelectedTask] = useState(null);
   const [viewMode, setViewMode] = useState("List");
+  useEffect(() => { try { const v = localStorage.getItem("helm_project_view"); if (v) setViewMode(v); } catch (e) {} }, []);
+  useEffect(() => { try { if (viewMode) localStorage.setItem("helm_project_view", viewMode); } catch (e) {} }, [viewMode]);
   const [loading, setLoading] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
   const [addingTo, setAddingTo] = useState(null);
