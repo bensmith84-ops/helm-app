@@ -194,7 +194,7 @@ export default function HelmApp() {
           const isOwner = profile?.email?.includes("ben.smith@earthbreeze");
           setIsExternal(false);
           setIsAdmin(isOwner);
-          setAllowedModules(isOwner ? null : { mode: "block", blocked: [], perms: {} });
+          setAllowedModules(isOwner ? null : { mode: "allow", allowed: [], perms: { _default_deny: true } });
         }
       }
     })();
