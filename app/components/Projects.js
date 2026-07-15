@@ -17,6 +17,45 @@ const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "s
 const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
 
 // @Mention Input Component
+function renderRich(text, T) {
+  if (!text) return null;
+  const inline = (str, kp) => {
+    const out = []; const rx = /(@\[[^\]]+\]\([^)]+\)|@[A-Za-z\u00C0-\u024F' ]+|https?:\/\/[^\s<]+|www\.[^\s<]+)/g;
+    let last = 0, m, idx = 0;
+    while ((m = rx.exec(str)) !== null) {
+      if (m.index > last) out.push(str.slice(last, m.index));
+      const tok = m[0];
+      if (tok[0] === "@") {
+        const disp = tok.startsWith("@[") ? tok.slice(2, tok.indexOf("]")) : tok.slice(1);
+        out.push(<span key={kp + "m" + idx} style={{ color: T.accent, fontWeight: 600, background: T.accent + "12", padding: "0 3px", borderRadius: 3 }}>@{disp}</span>);
+      } else {
+        const href = tok.startsWith("http") ? tok : "https://" + tok;
+        out.push(<a key={kp + "l" + idx} href={href} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: T.accent, textDecoration: "underline", wordBreak: "break-all" }}>{tok}</a>);
+      }
+      last = m.index + tok.length; idx++;
+    }
+    if (last < str.length) out.push(str.slice(last));
+    return out;
+  };
+  const lines = String(text).split("\n");
+  const blocks = []; let i = 0;
+  while (i < lines.length) {
+    if (/^\s*[-*]\s+/.test(lines[i])) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*[-*]\s+/, "")); i++; }
+      blocks.push(<ul key={"ul" + i} style={{ margin: "3px 0", paddingLeft: 20 }}>{items.map((it, j) => <li key={j} style={{ marginBottom: 2 }}>{inline(it, "ul" + i + "_" + j)}</li>)}</ul>);
+    } else if (/^\s*\d+[.)]\s+/.test(lines[i])) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*\d+[.)]\s+/, "")); i++; }
+      blocks.push(<ol key={"ol" + i} style={{ margin: "3px 0", paddingLeft: 20 }}>{items.map((it, j) => <li key={j} style={{ marginBottom: 2 }}>{inline(it, "ol" + i + "_" + j)}</li>)}</ol>);
+    } else {
+      blocks.push(<div key={"p" + i} style={lines[i] ? undefined : { height: "0.5em" }}>{inline(lines[i], "p" + i)}</div>);
+      i++;
+    }
+  }
+  return blocks;
+}
+
 function MentionInput({ members, profiles, onSubmit, placeholder, T, ini, acol }) {
   const [text, setText] = useState("");
   const [showMentions, setShowMentions] = useState(false);
@@ -68,26 +107,41 @@ function MentionInput({ members, profiles, onSubmit, placeholder, T, ini, acol }
       if (e.key === "Tab" || e.key === "Enter") { e.preventDefault(); insertMention(filtered[mentionIdx]); return; }
       if (e.key === "Escape") { setShowMentions(false); return; }
     }
-    if (e.key === "Enter" && !showMentions) {
+    if (e.key === "Enter" && !e.shiftKey && !showMentions) {
       e.preventDefault();
       if (text.trim()) { onSubmit(text.trim()); setText(""); }
     }
   };
 
+  useEffect(() => { const el = inputRef.current; if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 200) + "px"; } }, [text]);
+  const insertPrefix = (prefix) => {
+    const el = inputRef.current; if (!el) return;
+    const pos = el.selectionStart == null ? text.length : el.selectionStart;
+    const lineStart = text.lastIndexOf("\n", pos - 1) + 1;
+    setText(text.slice(0, lineStart) + prefix + text.slice(lineStart));
+    setTimeout(() => { el.focus(); const np = pos + prefix.length; try { el.setSelectionRange(np, np); } catch (e) {} }, 10);
+  };
+  const toolBtn = { padding: "2px 8px", fontSize: 11, fontWeight: 700, borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, cursor: "pointer", lineHeight: 1.4 };
   // Display text with mentions rendered nicely
   const displayValue = text.replace(/@\[([^\]]+)\]\([^)]+\)/g, "@$1");
 
   return (
     <div style={{ flex: 1, position: "relative" }}>
-      <input
+      <textarea
         ref={inputRef}
         value={displayValue}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={() => setTimeout(() => setShowMentions(false), 200)}
         placeholder={placeholder}
-        style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box" }}
+        rows={1}
+        style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit", lineHeight: 1.5, minHeight: 34, maxHeight: 200, overflow: "auto" }}
       />
+      <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center" }}>
+        <button type="button" onMouseDown={e => { e.preventDefault(); insertPrefix("- "); }} title="Bullet list" style={toolBtn}>• List</button>
+        <button type="button" onMouseDown={e => { e.preventDefault(); insertPrefix("1. "); }} title="Numbered list" style={toolBtn}>1. List</button>
+        <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>Enter to send · Shift+Enter for new line</span>
+      </div>
       {showMentions && filtered.length > 0 && (
         <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", maxHeight: 220, overflow: "auto", zIndex: 100 }}>
           <div style={{ padding: "6px 10px", fontSize: 10, color: T.text3, fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>People</div>
@@ -366,6 +420,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [dragTask, setDragTask] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [dragOverRow, setDragOverRow] = useState(null);
+  const [dragOverSection, setDragOverSection] = useState(null);
+  useEffect(() => { if (!dragTask) setDragOverSection(null); }, [dragTask]);
   const [addingSubtaskTo, setAddingSubtaskTo] = useState(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [showProjectForm, setShowProjectForm] = useState(false);
@@ -397,6 +453,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [sortDir, setSortDir] = useState("asc");
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState(""); // legacy — kept for compat
+  const [editingDesc, setEditingDesc] = useState(false);
   const commentRef = useRef(null);
   const [editingCommentId, setEditingCommentId] = useState(null);
   const editCommentRef = useRef(null);
@@ -2032,6 +2089,24 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     } catch (e) { showToast("Failed to save new order"); }
   };
 
+  const _dragOverSectionRef = useRef(null); _dragOverSectionRef.current = dragOverSection;
+  const _moveToSectionRef = useRef(null);
+  _moveToSectionRef.current = async (draggedId, targetSec) => {
+    if (!draggedId || !targetSec) { setDragTask(null); setDragOverRow(null); setDragOverSection(null); return; }
+    const link = taskProjects.find(l => l.task_id === draggedId && l.project_id === activeProject);
+    const real = tasks.find(t => t.id === draggedId);
+    if (link && real && real.project_id !== activeProject) {
+      if (link.section_id !== targetSec) { setTaskProjects(p => p.map(l => l.id === link.id ? { ...l, section_id: targetSec } : l)); await supabase.from("task_projects").update({ section_id: targetSec }).eq("id", link.id); }
+      setDragTask(null); setDragOverRow(null); setDragOverSection(null); return;
+    }
+    if (!real) { setDragTask(null); setDragOverRow(null); setDragOverSection(null); return; }
+    const st = tasks.filter(t => t.section_id === targetSec && !t.parent_task_id && t.id !== draggedId);
+    const mx = st.reduce((m, t) => Math.max(m, t.sort_order || 0), 0);
+    const newOrder = mx + 1;
+    setTasks(prev => prev.map(t => t.id === draggedId ? { ...t, section_id: targetSec, sort_order: newOrder } : t));
+    setDragTask(null); setDragOverRow(null); setDragOverSection(null);
+    try { await supabase.from("tasks").update({ section_id: targetSec, sort_order: newOrder }).eq("id", draggedId); } catch (e) { showToast("Failed to move task"); }
+  };
   const renderExtraCell = (col, task) => {
     if (col.builtin === "blocked_by" || col.builtin === "blocking") {
       const deps = _dependenciesRef.current;
@@ -2165,7 +2240,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       {projSections.map((sec, si) => { const st = filteredTasks.filter(t => t.section_id === sec.id); const roots = sortedTasks(rootTasks(st)); const isColl = collapsed[sec.id]; const sd = st.filter(t => t.status === "done").length; const color = secColor(si);
         const wipBreached = sec.wip_limit && st.filter(t => t.status !== "done").length > sec.wip_limit;
         return (
-        <div key={sec.id}>
+        <div key={sec.id} style={{ background: dragOverSection === sec.id ? T.accentDim + "22" : "transparent", outline: dragOverSection === sec.id ? `2px dashed ${T.accent}66` : "none", outlineOffset: -2, borderRadius: 8, transition: "background 0.1s" }}
+          onDragOver={e => { if (_dragTaskRef.current) { e.preventDefault(); if (_dragOverSectionRef.current !== sec.id) setDragOverSection(sec.id); } }}
+          onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) { if (_dragOverSectionRef.current === sec.id) setDragOverSection(null); } }}
+          onDrop={e => { const dt = _dragTaskRef.current; if (!dt) return; e.preventDefault(); if (_moveToSectionRef.current) _moveToSectionRef.current(dt, sec.id); }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer", userSelect: "none", position: "relative" }}
             onContextMenu={e => { e.preventDefault(); setSectionCtxMenu({ secId: sec.id, x: e.clientX, y: e.clientY }); }}
             draggable onDragStart={e => { e.dataTransfer.setData("section-id", sec.id); e.currentTarget.style.opacity = "0.4"; }}
@@ -2589,6 +2667,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
       prevSelectedTaskId.current = selectedTask.id;
       setActiveDetailTab("details");
       setActivity([]);
+      setEditingDesc(false);
       // Trigger slide animation
       if (detailPaneRef.current) {
         detailPaneRef.current.style.animation = "none";
@@ -2760,9 +2839,15 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
               {/* Description */}
               <div style={{ marginBottom: 16 }}>
                 <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Description</label>
-                <textarea defaultValue={task.description || ""} key={task.id + "-desc"} rows={3} placeholder="Add context, requirements, or notes…"
-                  onBlur={e => updateField(task.id, "description", e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box", minHeight: 80 }} />
+                {editingDesc ? (
+                  <textarea defaultValue={task.description || ""} key={task.id + "-desc"} rows={3} placeholder="Add context, requirements, or notes…" autoFocus
+                    onBlur={e => { updateField(task.id, "description", e.target.value); setEditingDesc(false); }}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box", minHeight: 80 }} />
+                ) : (
+                  <div onClick={() => setEditingDesc(true)} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: task.description ? T.text : T.text3, fontSize: 13, lineHeight: 1.5, boxSizing: "border-box", minHeight: 80, cursor: "text" }}>
+                    {task.description ? renderRich(task.description, T) : "Add context, requirements, or notes…"}
+                  </div>
+                )}
               </div>
 
               {/* Recurrence */}
@@ -2955,11 +3040,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                         </div>
                       ) : (
                         <div style={{ position: "relative" }}>
-                          <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.4 }}>{
-                            c.content.split(/(@[A-Za-z\u00C0-\u024F' ]+)/g).map((part, i) =>
-                              part.startsWith("@") ? <span key={i} style={{ color: T.accent, fontWeight: 600, background: T.accent + "12", padding: "0 3px", borderRadius: 3 }}>{part}</span> : part
-                            )
-                          }</div>
+                          <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.5, wordBreak: "break-word" }}>{renderRich(c.content, T)}</div>
                           {c.author_id === user?.id && (
                             <div style={{ display: "flex", gap: 4, marginTop: 3, opacity: 0.5, transition: "opacity 0.15s" }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
                               <button onClick={() => setEditingCommentId(c.id)} style={{ padding: "1px 6px", fontSize: 9, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer" }}>Edit</button>
