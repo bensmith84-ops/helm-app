@@ -71,7 +71,7 @@ function Chart({ spec, rows, T }) {
 }
 
 export default function ThreePLCostExplorer({ goBack }) {
-  const { T } = useTheme();
+  const { tokens: T } = useTheme();
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState(null);
