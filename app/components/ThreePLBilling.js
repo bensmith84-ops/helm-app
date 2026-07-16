@@ -159,6 +159,22 @@ const toDate = (v) => {
   }
   return null;
 };
+// Australian invoices format dates dd/mm/yyyy; with raw:false SheetJS returns them
+// as day-first formatted strings, so parse day-first (fall back to toDate for ISO / Date objects).
+const toDateDMY = (v) => {
+  if (v == null || v === "") return null;
+  if (v instanceof Date) return toDate(v);
+  const s = String(v).trim();
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let d = +m[1], mo = +m[2], y = +m[3];
+    if (y < 100) y += 2000;
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 1970 && y <= 2100)
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  return toDate(v);
+};
+
 
 // Final-line-of-defense sanitizer applied to every shipment_date right before
 // we push the row. If the parser slipped a non-YYYY-MM-DD string through for
@@ -407,8 +423,8 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
         for (let ci = 0; ci < cells.length - 1; ci++) {
           const label = cells[ci].toLowerCase();
           if (/invoice\s*no/.test(label) && !result.header.invoice_number && cells[ci + 1]) result.header.invoice_number = String(cells[ci + 1]).trim();
-          if (label === "date" && !result.header.invoice_date) { const d = toDate((frows[r] || [])[ci + 1]); if (d) result.header.invoice_date = d; }
-          if (/due date/.test(label) && !result.header.due_date) { const d = toDate((frows[r] || [])[ci + 1]); if (d) result.header.due_date = d; }
+          if (label === "date" && !result.header.invoice_date) { const d = toDateDMY((frows[r] || [])[ci + 1]); if (d) result.header.invoice_date = d; }
+          if (/due date/.test(label) && !result.header.due_date) { const d = toDateDMY((frows[r] || [])[ci + 1]); if (d) result.header.due_date = d; }
         }
       }
     }
@@ -647,7 +663,7 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
       const fuelVal = idxFuel >= 0 ? num(row[idxFuel]) : null;
       const handlingVal = idxHandling >= 0 ? num(row[idxHandling]) : null;
       result.shipments.push({
-        shipment_date: idxDate >= 0 ? toDate(row[idxDate]) : null,
+        shipment_date: idxDate >= 0 ? (/(eparcel|auspost)/i.test(_psName) ? toDateDMY(row[idxDate]) : toDate(row[idxDate])) : null,
         shopify_order_id: shopify ? String(shopify).trim() : null,
         external_order_no: order ? String(order).trim() : (shopify ? String(shopify).trim() : null),
         carrier: idxCarr >= 0 && row[idxCarr] ? String(row[idxCarr]).trim() : null,
