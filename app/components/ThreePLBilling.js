@@ -397,6 +397,25 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
     if (total > 0) { result.header.total = total; result.header.subtotal = total; }
   }
 
+  // ── Header fallback from "Freight" sheet (AU transport invoices: labels in one col, values in the next) ──
+  {
+    const wsFreight = workbook.Sheets[workbook.SheetNames.find(s => /^freight$/i.test(s))];
+    if (wsFreight) {
+      const frows = sheetToRows(wsFreight, xlsx);
+      for (let r = 0; r < Math.min(frows.length, 30); r++) {
+        const cells = (frows[r] || []).map(c => c == null ? "" : String(c).trim());
+        for (let ci = 0; ci < cells.length - 1; ci++) {
+          const label = cells[ci].toLowerCase();
+          if (/invoice\s*no/.test(label) && !result.header.invoice_number && cells[ci + 1]) result.header.invoice_number = String(cells[ci + 1]).trim();
+          if (label === "date" && !result.header.invoice_date) { const d = toDate((frows[r] || [])[ci + 1]); if (d) result.header.invoice_date = d; }
+          if (/due date/.test(label) && !result.header.due_date) { const d = toDate((frows[r] || [])[ci + 1]); if (d) result.header.due_date = d; }
+        }
+      }
+    }
+    // Last-resort invoice number from an F-number in the filename
+    if (!result.header.invoice_number && hint._filename) { const fm = String(hint._filename).match(/\b([FLN]\d{4,})\b/); if (fm) result.header.invoice_number = fm[1]; }
+  }
+
   // ── Line items from "Warehouse Rates" ────────────────
   const wsRates = workbook.Sheets[workbook.SheetNames.find(s => /warehouse rates/i.test(s))];
   if (wsRates) {
@@ -593,51 +612,70 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
   }
 
   // ── Per-shipment freight detail (AU eParcel sheet OR CA Freight Detail) ─────────
-  const wsParcel = workbook.Sheets[workbook.SheetNames.find(s => /^eparcel$/i.test(s) || /^freight detail$/i.test(s))];
-  if (wsParcel) {
+  // ── Per-shipment freight detail (AU eParcel + Auspost sheets, OR CA Freight Detail) ─────────
+  const _parcelSheets = workbook.SheetNames.filter(s => /^eparcel$/i.test(s) || /^auspost$/i.test(s) || /^freight detail$/i.test(s));
+  for (const _psName of _parcelSheets) {
+    const wsParcel = workbook.Sheets[_psName];
+    if (!wsParcel) continue;
     const rows = sheetToRows(wsParcel, xlsx);
-    if (rows.length > 1) {
-      const header = (rows[0] || []).map(c => String(c || "").toLowerCase());
-      const idxOrder = header.findIndex(c => /reference|order|req/i.test(c) && !c.includes("customer"));
-      const idxDate  = header.findIndex(c => /ship date|date/i.test(c));
-      const idxCarr  = header.findIndex(c => /carrier|service/i.test(c));
-      const idxZone  = header.findIndex(c => /zone/i.test(c));
-      const idxWt    = header.findIndex(c => /weight/i.test(c));
-      const idxCost  = header.findIndex(c => /subtotal|cost|total/i.test(c) && !c.includes("fuel"));
-      const idxCountry = header.findIndex(c => /country|destination/i.test(c));
-      const idxRegion = header.findIndex(c => /state|province/i.test(c));
-      const idxCity = header.findIndex(c => /city|suburb/i.test(c));
-      const idxPostal = header.findIndex(c => /postal|postcode|zip/i.test(c));
-      for (let i = 1; i < rows.length; i++) {
-        const row = rows[i] || [];
-        const order = idxOrder >= 0 ? row[idxOrder] : null;
-        if (!order) continue;
-        result.shipments.push({
-          shipment_date: idxDate >= 0 ? toDate(row[idxDate]) : null,
-          external_order_no: String(order).trim(),
-          carrier: idxCarr >= 0 && row[idxCarr] ? String(row[idxCarr]).trim() : null,
-          service_level: idxCarr >= 0 && row[idxCarr] ? String(row[idxCarr]).trim() : null,
-          zone: idxZone >= 0 && row[idxZone] ? String(row[idxZone]).trim() : null,
-          weight_kg: idxWt >= 0 ? num(row[idxWt]) : null,
-          freight_cost: idxCost >= 0 ? num(row[idxCost]) : null,
-          total_cost: idxCost >= 0 ? num(row[idxCost]) : null,
-          recipient_country: idxCountry >= 0 && row[idxCountry] ? String(row[idxCountry]).trim() : null,
-          recipient_region: idxRegion >= 0 && row[idxRegion] ? String(row[idxRegion]).trim() : null,
-          recipient_city: idxCity >= 0 && row[idxCity] ? String(row[idxCity]).trim() : null,
-          recipient_postal: idxPostal >= 0 && row[idxPostal] ? String(row[idxPostal]).trim() : null,
-          warehouse_code: hint.warehouse || null,
-        });
-      }
+    if (rows.length <= 1) continue;
+    const header = (rows[0] || []).map(c => String(c || "").toLowerCase().trim());
+    const idxShopify = header.findIndex(c => /customer\s*reference/.test(c));
+    let idxOrder = header.findIndex(c => c === "reference");
+    if (idxOrder < 0) idxOrder = header.findIndex(c => /order/.test(c) && !c.includes("customer"));
+    if (idxOrder < 0) idxOrder = header.findIndex(c => /^req$/.test(c));
+    const idxDate  = header.findIndex(c => /ship date|date/.test(c));
+    const idxCarr  = header.findIndex(c => /carrier|service/.test(c));
+    const idxZone  = header.findIndex(c => /zone/.test(c));
+    const idxWt    = header.findIndex(c => /weight/.test(c));
+    const idxFreight = header.findIndex(c => /^freight$/.test(c));
+    const idxFuel  = header.findIndex(c => /fuel/.test(c));
+    const idxHandling = header.findIndex(c => /handling|security/.test(c));
+    let idxTotal = header.findIndex(c => /^total$/.test(c));
+    if (idxTotal < 0) idxTotal = header.findIndex(c => /subtotal|cost|total/.test(c) && !c.includes("fuel"));
+    const idxCountry = header.findIndex(c => /country|destination/.test(c));
+    const idxRegion = header.findIndex(c => /state|province/.test(c));
+    const idxCity = header.findIndex(c => /city|suburb/.test(c));
+    const idxPostal = header.findIndex(c => /postal|postcode|zip/.test(c));
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i] || [];
+      const shopify = idxShopify >= 0 ? row[idxShopify] : null;
+      const order = idxOrder >= 0 ? row[idxOrder] : null;
+      if (!order && !shopify) continue;
+      const totalVal = idxTotal >= 0 ? num(row[idxTotal]) : null;
+      const freightVal = idxFreight >= 0 ? num(row[idxFreight]) : null;
+      const fuelVal = idxFuel >= 0 ? num(row[idxFuel]) : null;
+      const handlingVal = idxHandling >= 0 ? num(row[idxHandling]) : null;
+      result.shipments.push({
+        shipment_date: idxDate >= 0 ? toDate(row[idxDate]) : null,
+        shopify_order_id: shopify ? String(shopify).trim() : null,
+        external_order_no: order ? String(order).trim() : (shopify ? String(shopify).trim() : null),
+        carrier: idxCarr >= 0 && row[idxCarr] ? String(row[idxCarr]).trim() : null,
+        service_level: idxCarr >= 0 && row[idxCarr] ? String(row[idxCarr]).trim() : null,
+        zone: idxZone >= 0 && row[idxZone] ? String(row[idxZone]).trim() : null,
+        weight_kg: idxWt >= 0 ? num(row[idxWt]) : null,
+        freight_cost: freightVal != null ? freightVal : totalVal,
+        fuel_surcharge: fuelVal,
+        other_surcharges: handlingVal,
+        total_cost: totalVal,
+        recipient_country: idxCountry >= 0 && row[idxCountry] ? String(row[idxCountry]).trim() : null,
+        recipient_region: idxRegion >= 0 && row[idxRegion] ? String(row[idxRegion]).trim() : null,
+        recipient_city: idxCity >= 0 && row[idxCity] ? String(row[idxCity]).trim() : null,
+        recipient_postal: idxPostal >= 0 && row[idxPostal] ? String(row[idxPostal]).trim() : null,
+        warehouse_code: hint.warehouse || null,
+      });
     }
   }
 
   // ── Compute units_shipped + orders_shipped (denominators for cost-per analyses) ─────
   result.header.units_shipped = result.orderLines.reduce((s, l) => s + (l.quantity_shipped || 0), 0) || null;
-  result.header.orders_shipped = new Set(result.orderLines.map(l => l.external_order_no).filter(Boolean)).size || null;
+  result.header.orders_shipped = new Set([...result.orderLines.map(l => l.external_order_no), ...result.shipments.map(sh => sh.shopify_order_id || sh.external_order_no)].filter(Boolean)).size || null;
 
-  // If we couldn't find an explicit total, sum the lines
+  // If we couldn't find an explicit total, sum the rate lines and any freight/parcel shipments
   if (!result.header.total || result.header.total === 0) {
-    result.header.total = result.lines.reduce((s, l) => s + (l.amount || 0), 0);
+    const _linesTotal = result.lines.reduce((s, l) => s + (l.amount || 0), 0);
+    const _shipTotal = result.shipments.reduce((s, sh) => s + (sh.total_cost || 0), 0);
+    result.header.total = _linesTotal + _shipTotal;
     result.header.subtotal = result.header.total;
   }
   return result;
