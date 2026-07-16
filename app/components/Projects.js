@@ -4021,7 +4021,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     } catch (e) {}
   }, []);
 
-  const memberOpts = () => Object.values(profiles).map(u => ({ value: u.id, label: u.display_name || u.email || "Unknown", icon: "👤" }));
+  function memberOpts() { return Object.values(profiles).map(u => ({ value: u.id, label: u.display_name || u.email || "Unknown", icon: "👤" })); }
   const sectionOpts = () => projSections.map(s => ({ value: s.id, label: s.name }));
   const priorityOpts = () => Object.entries(PRIORITY).map(([k, v]) => ({ value: k, label: v.label, color: v.dot }));
   const FORM_FIELD_TYPES = [
