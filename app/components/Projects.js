@@ -2450,7 +2450,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     </div>
   );
   const timelineViewEl = (() => {
-    const tw = filteredTasks.filter(t => !t.parent_task_id && (t.start_date || t.due_date));
+    const topTasks = filteredTasks.filter(t => !t.parent_task_id && (t.start_date || t.due_date));
+    const topIds = new Set(topTasks.map(t => t.id));
+    const subsByParent = {};
+    projTasks.forEach(t => { if (t.parent_task_id && topIds.has(t.parent_task_id) && (t.start_date || t.due_date)) { (subsByParent[t.parent_task_id] = subsByParent[t.parent_task_id] || []).push(t); } });
+    Object.values(subsByParent).forEach(arr => arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+    const tw = [...topTasks, ...Object.values(subsByParent).flat()];
     if (!tw.length) return (
       <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
@@ -2493,13 +2498,17 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     // Group tasks by section
     const bySection = projSections.map(sec => ({
       sec,
-      tasks: tw.filter(t => t.section_id === sec.id),
+      tasks: topTasks.filter(t => t.section_id === sec.id),
     })).filter(g => g.tasks.length > 0);
 
     let rowIndex = 0;
     const rows = bySection.flatMap(({ sec, tasks }) => {
       const secRow = { type: "section", sec, rowIndex: rowIndex++ };
-      const taskRows = tasks.map(task => ({ type: "task", task, rowIndex: rowIndex++ }));
+      const taskRows = tasks.flatMap(task => {
+        const trow = { type: "task", task, depth: 0, rowIndex: rowIndex++ };
+        const subRows = (subsByParent[task.id] || []).map(sub => ({ type: "task", task: sub, depth: 1, rowIndex: rowIndex++ }));
+        return [trow, ...subRows];
+      });
       return [secRow, ...taskRows];
     });
 
@@ -2517,7 +2526,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
             {/* Rows */}
             {rows.map(row => (
               <div key={row.type === "section" ? `sec-${row.sec.id}` : `task-${row.task.id}`}
-                style={{ height: ROW_H, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: row.type === "section" ? "0 12px" : "0 12px 0 24px", background: row.type === "section" ? T.surface2 : "transparent" }}>
+                style={{ height: ROW_H, borderBottom: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: row.type === "section" ? "0 12px" : `0 12px 0 ${24 + (row.depth || 0) * 20}px`, background: row.type === "section" ? T.surface2 : "transparent" }}>
                 {row.type === "section" ? (
                   <span style={{ fontSize: 11, fontWeight: 700, color: SECTION_COLORS[projSections.indexOf(row.sec) % SECTION_COLORS.length] || T.accent, textTransform: "uppercase", letterSpacing: 0.5 }}>{row.sec.name}</span>
                 ) : (
