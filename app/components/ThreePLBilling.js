@@ -327,8 +327,8 @@ function detectFormat(workbook, filename = "", _xlsxRef = null) {
     if (_ukHit === "freight_report") return { format: "next3pl_uk_freight_report", provider: "next3pl_uk" };
     if (_ukHit === "dispatch")       return { format: "next3pl_uk_dispatch",       provider: "next3pl_uk" };
   }
-  // Next3PL AU transport (Freight + eParcel only)
-  if (sheets.includes("freight") && sheets.includes("eparcel")) {
+  // Next3PL AU transport (Freight header + eParcel and/or Auspost parcel sheets)
+  if (sheets.includes("freight") && (sheets.includes("eparcel") || sheets.includes("auspost"))) {
     return { format: "next3pl_au_transport", provider: "next3pl_au" };
   }
   return { format: "unknown", provider: null };
