@@ -20,12 +20,13 @@ const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateStri
 function renderRich(text, T) {
   if (!text) return null;
   const inline = (str, kp) => {
-    const out = []; const rx = /(@\[[^\]]+\]\([^)]+\)|@[A-Za-z\u00C0-\u024F' ]+|https?:\/\/[^\s<]+|www\.[^\s<]+)/g;
+    const out = []; const rx = /(\*\*[^*]+\*\*|@\[[^\]]+\]\([^)]+\)|@[A-Za-z\u00C0-\u024F' ]+|https?:\/\/[^\s<]+|www\.[^\s<]+)/g;
     let last = 0, m, idx = 0;
     while ((m = rx.exec(str)) !== null) {
       if (m.index > last) out.push(str.slice(last, m.index));
       const tok = m[0];
-      if (tok[0] === "@") {
+      if (tok.startsWith("**")) { out.push(<strong key={kp + "b" + idx}>{tok.slice(2, -2)}</strong>); }
+      else if (tok[0] === "@") {
         const disp = tok.startsWith("@[") ? tok.slice(2, tok.indexOf("]")) : tok.slice(1);
         out.push(<span key={kp + "m" + idx} style={{ color: T.accent, fontWeight: 600, background: T.accent + "12", padding: "0 3px", borderRadius: 3 }}>@{disp}</span>);
       } else {
@@ -40,6 +41,8 @@ function renderRich(text, T) {
   const lines = String(text).split("\n");
   const blocks = []; let i = 0;
   while (i < lines.length) {
+    const _hm = lines[i].match(/^(#{1,3})\s+(.*)$/);
+    if (_hm) { const _lv = _hm[1].length; blocks.push(<div key={"h" + i} style={{ fontWeight: 700, fontSize: _lv === 1 ? 15 : _lv === 2 ? 13 : 12, margin: "6px 0 2px", color: T.text }}>{inline(_hm[2], "h" + i)}</div>); i++; continue; }
     if (/^\s*[-*]\s+/.test(lines[i])) {
       const items = [];
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*[-*]\s+/, "")); i++; }
@@ -54,6 +57,11 @@ function renderRich(text, T) {
     }
   }
   return blocks;
+}
+
+function Avatar({ url, initials, color, size = 20, faded }) {
+  if (url) return <img src={url} alt="" style={{ width: size, height: size, borderRadius: size / 2, objectFit: "cover", flexShrink: 0, opacity: faded ? 0.6 : 1 }} />;
+  return <div style={{ width: size, height: size, borderRadius: size / 2, background: (color || "#888") + (faded ? "20" : "30"), color: color || "#888", display: "flex", alignItems: "center", justifyContent: "center", fontSize: Math.max(7, Math.round(size * 0.42)), fontWeight: 700, flexShrink: 0, opacity: faded ? 0.6 : 1 }}>{initials}</div>;
 }
 
 function MentionInput({ members, profiles, onSubmit, placeholder, T, ini, acol }) {
@@ -2841,10 +2849,12 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 <span style={FIELD_LABEL}>Status</span><StatusPill task={task} onUpdate={updateField} S={S} />
                 <span style={FIELD_LABEL}>Priority</span><PriorityPill task={task} onUpdate={updateField} S={S} />
                 <span style={FIELD_LABEL}>Assignee</span><AssigneeCell task={task} onUpdate={updateField} profiles={profiles} profile={profile} ini={ini} acol={acol} uname={uname} projectMembers={projMembersList} activeProject={activeProject} />
-                <span style={FIELD_LABEL}>Due Date</span><DateCell task={task} onUpdate={updateField} />
                 <span style={FIELD_LABEL}>Start Date</span>
                 <input type="date" defaultValue={task.start_date || ""} key={task.id + "-start"} onChange={e => updateField(task.id, "start_date", e.target.value || null)}
                   style={{ background: "none", border: "none", color: task.start_date ? T.text2 : T.text3, fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }} />
+                <span style={FIELD_LABEL}>Due Date</span>
+                <input type="date" defaultValue={task.due_date || ""} key={task.id + "-due"} onChange={e => updateField(task.id, "due_date", e.target.value || null)}
+                  style={{ background: "none", border: "none", color: task.due_date ? (isOverdue(task.due_date) && task.status !== "done" ? T.red : T.text2) : T.text3, fontSize: 12, cursor: "pointer", outline: "none", fontFamily: "inherit" }} />
                 <span style={FIELD_LABEL}>Section</span>
                 <SearchableMultiSelect multi={false} placeholder="Select section"
                   options={projSections.map(s => ({ value: s.id, label: s.name }))}
@@ -3320,7 +3330,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
               <label style={{ ...lbl, marginBottom: 8 }}>Visibility</label>
               {[{ v: "private", l: "Private", d: "Only added members can see this project", icon: "🔒" }, { v: "team", l: "Team", d: "Visible to everyone on the assigned team", icon: "👥" }, { v: "public", l: "Public", d: "Anyone in the organization can search, view, and join", icon: "🌐" }].map(opt => (
                 <div key={opt.v} onClick={() => set("visibility", opt.v)} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px", borderRadius: 8, border: `1.5px solid ${f.visibility === opt.v ? T.accent : T.border}`, background: f.visibility === opt.v ? T.accentDim : "transparent", marginBottom: 8, cursor: "pointer", transition: "all 0.15s" }}>
-                  <span style={{ fontSize: 18, lineHeight: 1 }}>{opt.icon}</span>
+                  {opt.avatar ? <img src={opt.avatar} alt="" style={{ width: 18, height: 18, borderRadius: 9, objectFit: "cover", flexShrink: 0 }} /> : <span style={{ fontSize: 18, lineHeight: 1 }}>{opt.icon}</span>}
                   <div><div style={{ fontSize: 13, fontWeight: 600, color: f.visibility === opt.v ? T.accent : T.text }}>{opt.l}</div><div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{opt.d}</div></div>
                   <div style={{ marginLeft: "auto", width: 18, height: 18, borderRadius: 9, border: `2px solid ${f.visibility === opt.v ? T.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>{f.visibility === opt.v && <div style={{ width: 10, height: 10, borderRadius: 5, background: T.accent }} />}</div>
                 </div>))}
@@ -4030,7 +4040,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     } catch (e) {}
   }, []);
 
-  function memberOpts() { return Object.values(profiles).map(u => ({ value: u.id, label: u.display_name || u.email || "Unknown", icon: "👤" })); }
+  function memberOpts() { return Object.values(profiles).map(u => ({ value: u.id, label: u.display_name || u.email || "Unknown", icon: "👤", avatar: u.avatar_url })); }
   const sectionOpts = () => projSections.map(s => ({ value: s.id, label: s.name }));
   const priorityOpts = () => Object.entries(PRIORITY).map(([k, v]) => ({ value: k, label: v.label, color: v.dot }));
   const FORM_FIELD_TYPES = [
@@ -5382,7 +5392,7 @@ function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname, pro
         style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", padding: "2px 4px", borderRadius: 4 }}>
         {task.assignee_id ? (
           <>
-            <div style={{ width: 20, height: 20, borderRadius: 10, background: acol(task.assignee_id) + "30", color: acol(task.assignee_id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{ini(task.assignee_id)}</div>
+            <Avatar url={profiles[task.assignee_id]?.avatar_url} initials={ini(task.assignee_id)} color={acol(task.assignee_id)} size={20} />
             <span style={{ fontSize: 12, color: T.text2, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{uname(task.assignee_id).split(" ")[0]}</span>
           </>
         ) : (
@@ -5406,7 +5416,7 @@ function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname, pro
           {activeProject && <div style={{ padding: "2px 8px", fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 4 }}>Project Members</div>}
           {filtered.filter(u => memberIds.has(u.id)).map(u => (
             <DropdownItem key={u.id} onClick={() => { onUpdate(task.id, "assignee_id", u.id); setOpen(false); }}>
-              <div style={{ width: 18, height: 18, borderRadius: 9, background: acol(u.id) + "30", color: acol(u.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>{ini(u.id)}</div>
+              <Avatar url={u.avatar_url} initials={ini(u.id)} color={acol(u.id)} size={18} />
               <span style={{ flex: 1 }}>{u.display_name || u.email}</span>
             </DropdownItem>
           ))}
@@ -5415,7 +5425,7 @@ function AssigneeCell({ task, onUpdate, profiles, profile, ini, acol, uname, pro
           )}
           {filtered.filter(u => !memberIds.has(u.id) && u.id !== profile?.id).map(u => (
             <DropdownItem key={u.id} onClick={() => assignUser(u.id)}>
-              <div style={{ width: 18, height: 18, borderRadius: 9, background: acol(u.id) + "20", color: acol(u.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, opacity: 0.6 }}>{ini(u.id)}</div>
+              <Avatar url={u.avatar_url} initials={ini(u.id)} color={acol(u.id)} size={18} faded />
               <span style={{ flex: 1, color: T.text3 }}>{u.display_name || u.email}</span>
             </DropdownItem>
           ))}
