@@ -603,7 +603,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
           // Empty arrays for things external users don't need:
           setTeams([]); setObjectives([]); setKeyResultsForLink([]);
           setProjectLabels([]); setLabels([]); setPlmPrograms([]); setTemplates([]);
-          if (!activeProject && pR.data?.length) { let _sav = null; try { _sav = localStorage.getItem("helm_active_project"); } catch (e) {} setActiveProject((_sav && pR.data.some(p => p.id === _sav)) ? _sav : pR.data[0].id); }
+          if (!activeProject && !pendingTaskId && pR.data?.length) { let _sav = null; try { _sav = localStorage.getItem("helm_active_project"); } catch (e) {} setActiveProject((_sav && pR.data.some(p => p.id === _sav)) ? _sav : pR.data[0].id); }
         } catch (e) { showToast("Failed to load projects"); }
         setLoading(false);
       };
@@ -653,7 +653,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
             setAllProfiles(prev => [...prev, ...extR.filter(u => !prev.some(p => p.id === u.id))]);
           });
         }
-        if (!activeProject && pR.data?.length) { let _sav = null; try { _sav = localStorage.getItem("helm_active_project"); } catch (e) {} setActiveProject((_sav && pR.data.some(p => p.id === _sav)) ? _sav : pR.data[0].id); }
+        if (!activeProject && !pendingTaskId && pR.data?.length) { let _sav = null; try { _sav = localStorage.getItem("helm_active_project"); } catch (e) {} setActiveProject((_sav && pR.data.some(p => p.id === _sav)) ? _sav : pR.data[0].id); }
         // Load labels, assignments, custom fields
         const [lblR, lblAR] = await Promise.all([
           supabase.from("task_labels").select("*").eq("org_id", orgId).order("name"),
