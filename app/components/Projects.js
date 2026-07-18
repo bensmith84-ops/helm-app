@@ -9,6 +9,7 @@ import { useResponsive } from "../lib/responsive";
 import { T } from "../tokens";
 import { useResizableColumns } from "../lib/useResizableColumns";
 import SearchableMultiSelect from "./SearchableSelect";
+import RichTextEditor from "./RichTextEditor";
 import AsanaImportModal from "./AsanaImport";
 import { STATUS, PRIORITY, SECTION_COLORS, AVATAR_COLORS } from "./projectConfig";
 
@@ -2911,15 +2912,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
               {/* Description */}
               <div style={{ marginBottom: 16 }}>
                 <label style={{ ...FIELD_LABEL, display: "block", marginBottom: 6 }}>Description</label>
-                {editingDesc ? (
-                  <textarea defaultValue={task.description || ""} key={task.id + "-desc"} rows={3} placeholder="Add context, requirements, or notes…" autoFocus
-                    onBlur={e => { updateField(task.id, "description", e.target.value); setEditingDesc(false); }}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box", minHeight: 80 }} />
-                ) : (
-                  <div onClick={() => setEditingDesc(true)} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: task.description ? T.text : T.text3, fontSize: 13, lineHeight: 1.5, boxSizing: "border-box", minHeight: 80, cursor: "text" }}>
-                    {task.description ? renderRich(task.description, T) : "Add context, requirements, or notes…"}
-                  </div>
-                )}
+                <RichTextEditor key={task.id} value={task.description || ""} placeholder="Add context, requirements, or notes…" T={T}
+                  onChange={html => updateField(task.id, "description", html)} />
               </div>
 
               {/* Collaborators */}
