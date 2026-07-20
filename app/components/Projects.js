@@ -636,6 +636,15 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
           p.visibility === "public" || p.owner_id === user?.id || p.created_by === user?.id || myMemberProjects.has(p.id)
         );
         setProjects(visibleProjects); setSections(sR.data || []); setTasks(tR.data || []);
+        // The top-level RPC omits subtasks, so pull the ones assigned to me — otherwise
+        // "My Tasks" silently hides work that lives as a subtask.
+        if (user?.id) {
+          supabase.from("tasks").select("*").eq("org_id", orgId).eq("assignee_id", user.id)
+            .not("parent_task_id", "is", null).is("deleted_at", null)
+            .then(({ data: mySubs }) => {
+              if (mySubs?.length) setTasks(prev => { const seen = new Set(prev.map(t => t.id)); return [...prev, ...mySubs.filter(t => !seen.has(t.id))]; });
+            });
+        }
         setTeams(tmR.data || []); setObjectives(obR.data || []); setAllProfiles(prR.data || []);
         // Load key results for linking
         supabase.from("key_results").select("id,title,objective_id,progress,unit,target_value,current_value").eq("org_id", orgId).eq("org_id", profile.org_id).is("deleted_at", null).order("title").then(({ data }) => setKeyResultsForLink(data || []));
@@ -2639,7 +2648,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const myTasksViewEl = (() => {
     const today = new Date(); today.setHours(0,0,0,0);
     const weekOut = new Date(today); weekOut.setDate(weekOut.getDate() + 7);
-    const mt = tasks.filter(t => t.assignee_id === user?.id && t.status !== "done" && t.status !== "cancelled" && !t.parent_task_id);
+    const mt = tasks.filter(t => t.assignee_id === user?.id && t.status !== "done" && t.status !== "cancelled");
     const todayTasks = mt.filter(t => t.due_date && new Date(t.due_date) <= today);
     const upcomingTasks = mt.filter(t => t.due_date && new Date(t.due_date) > today && new Date(t.due_date) <= weekOut);
     const somedayTasks = mt.filter(t => !t.due_date || new Date(t.due_date) > weekOut);
