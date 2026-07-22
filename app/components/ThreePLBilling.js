@@ -650,6 +650,11 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
     const idxHandling = header.findIndex(c => /handling|security/.test(c));
     let idxTotal = header.findIndex(c => /^total$/.test(c));
     if (idxTotal < 0) idxTotal = header.findIndex(c => /subtotal|cost|total/.test(c) && !c.includes("fuel"));
+    const idxSub = header.findIndex(c => /^sub\s*total$/.test(c));
+    const idxGst = header.findIndex(c => /^gst$/.test(c));
+    const idxHst = header.findIndex(c => /^hst$/.test(c));
+    const idxPst = header.findIndex(c => /^pst$/.test(c));
+    const _isCA = idxGst >= 0 || idxHst >= 0 || idxPst >= 0;
     const idxCountry = header.findIndex(c => /country|destination/.test(c));
     const idxRegion = header.findIndex(c => /state|province/.test(c));
     const idxCity = header.findIndex(c => /city|suburb/.test(c));
@@ -660,9 +665,11 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
       const order = idxOrder >= 0 ? row[idxOrder] : null;
       if (!order && !shopify) continue;
       const totalVal = idxTotal >= 0 ? num(row[idxTotal]) : null;
-      const freightVal = idxFreight >= 0 ? num(row[idxFreight]) : null;
+      const subVal = idxSub >= 0 ? num(row[idxSub]) : null;
+      const freightVal = idxFreight >= 0 ? num(row[idxFreight]) : (subVal != null ? subVal : null);
       const fuelVal = idxFuel >= 0 ? num(row[idxFuel]) : null;
-      const handlingVal = idxHandling >= 0 ? num(row[idxHandling]) : null;
+      let handlingVal = idxHandling >= 0 ? num(row[idxHandling]) : null;
+      if (_isCA) { const tax = (idxGst >= 0 ? num(row[idxGst]) : 0) + (idxHst >= 0 ? num(row[idxHst]) : 0) + (idxPst >= 0 ? num(row[idxPst]) : 0); if (tax) handlingVal = (handlingVal || 0) + tax; }
       result.shipments.push({
         shipment_date: idxDate >= 0 ? (/(eparcel|auspost)/i.test(_psName) ? toDateDMY(row[idxDate]) : toDate(row[idxDate])) : null,
         shopify_order_id: shopify ? String(shopify).trim() : null,
@@ -675,7 +682,7 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
         fuel_surcharge: fuelVal,
         other_surcharges: handlingVal,
         total_cost: totalVal,
-        recipient_country: idxCountry >= 0 && row[idxCountry] ? String(row[idxCountry]).trim() : null,
+        recipient_country: idxCountry >= 0 && row[idxCountry] ? String(row[idxCountry]).trim() : (_isCA ? "Canada" : null),
         recipient_region: idxRegion >= 0 && row[idxRegion] ? String(row[idxRegion]).trim() : null,
         recipient_city: idxCity >= 0 && row[idxCity] ? String(row[idxCity]).trim() : null,
         recipient_postal: idxPostal >= 0 && row[idxPostal] ? String(row[idxPostal]).trim() : null,
