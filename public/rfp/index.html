@@ -130,6 +130,12 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
     <h1>Non-Disclosure Agreement</h1>
     <p>You're approved. Review and sign the NDA below to access the RFP, data packet, and downloads.</p>
     <div class="nda-box" id="nda-text">Loading…</div>
+    <div class="gate-note" id="nda-pdf-link" style="display:none;margin:0 0 6px"></div>
+    <div class="frow">
+      <div><label>Company legal name</label><input id="nda-company" placeholder="Full legal entity name"></div>
+      <div><label>Entity type &amp; state <span style="font-weight:400;color:var(--ink2)">(optional)</span></label><input id="nda-entity" placeholder="e.g. Delaware corporation"></div>
+    </div>
+    <label>Registered address <span style="font-weight:400;color:var(--ink2)">(optional)</span></label><input id="nda-address" placeholder="Street, city, state, ZIP">
     <div class="frow">
       <div><label>Full name (signature)</label><input id="nda-name" placeholder="Type your full legal name"></div>
       <div><label>Title</label><input id="nda-title" placeholder="e.g. Director, Pricing"></div>
@@ -209,17 +215,21 @@ async function showNDA(t, st){
   if (!res.ok) { show('scr-request'); return; }
   $('nda-text').innerHTML = res.nda_text || '';
   if (res.name) $('nda-name').value = res.name;
+  if (res.company) $('nda-company').value = res.company;
+  if (res.nda_pdf) { $('nda-pdf-link').innerHTML = '<a href="'+res.nda_pdf+'" target="_blank" rel="noreferrer">View the agreement as PDF ↗</a>'; $('nda-pdf-link').style.display='block'; }
   show('scr-nda');
 }
 
 async function signNDA(){
   const err = $('nda-err'); err.style.display='none';
   const name = $('nda-name').value.trim(), title = $('nda-title').value.trim();
+  const companyLegal = $('nda-company').value.trim(), entity = $('nda-entity').value.trim(), address = $('nda-address').value.trim();
+  if (companyLegal.length < 2) { err.textContent='Please enter your company legal name.'; err.style.display='block'; return; }
   if (name.length < 2) { err.textContent='Please type your full name.'; err.style.display='block'; return; }
   if (!$('nda-agree').checked) { err.textContent='Please tick the authorization checkbox.'; err.style.display='block'; return; }
   $('nda-btn').disabled = true; $('nda-btn').textContent = 'Signing…';
   try {
-    const res = await rpc('rfp_sign_nda', {p_token: localStorage.getItem('eb_rfp_token'), p_name: name, p_title: title});
+    const res = await rpc('rfp_sign_nda', {p_token: localStorage.getItem('eb_rfp_token'), p_name: name, p_title: title, p_company_legal: companyLegal, p_entity: entity, p_address: address});
     if (!res.ok) throw new Error(res.error||'failed');
     await enter(localStorage.getItem('eb_rfp_token'));
   } catch(e) { err.textContent='Could not record signature — please retry.'; err.style.display='block'; $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
