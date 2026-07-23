@@ -96,10 +96,10 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <header>
   <div class="wrap">
-    <div class="eyebrow">Request for Proposal · EB-2026-PARCEL-01 · Issued 27 July 2026</div>
-    <h1>US Domestic Parcel Transportation<br>Two-Origin Network</h1>
-    <p class="sub">Earth Breeze invites qualified carriers to bid residential parcel transportation from Harrodsburg, Kentucky 40330 and White City, Oregon 97503. Bid one origin or both.</p>
-    <div class="hero-facts">
+    <div class="eyebrow" id="c-eyebrow">Request for Proposal · EB-2026-PARCEL-01 · Issued 27 July 2026</div>
+    <h1 id="c-title">US Domestic Parcel Transportation<br>Two-Origin Network</h1>
+    <p class="sub" id="c-sub">Earth Breeze invites qualified carriers to bid residential parcel transportation from Harrodsburg, Kentucky 40330 and White City, Oregon 97503. Bid one origin or both.</p>
+    <div class="hero-facts" id="c-facts">
       <div><b>~2.9M</b><span>parcels / year (last 91 days annualized)</span></div>
       <div><b>2 origins</b><span>KY (East) · OR (West), each shipping nationally</span></div>
       <div><b>16,440</b><span>peak network day (7 May 2026)</span></div>
@@ -125,8 +125,8 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <section id="overview">
   <h2>1 · Overview</h2>
-  <p class="lead">Earth Breeze, Inc. is a rapidly growing direct-to-consumer eco-friendly laundry care brand. We ship approximately <b>2.9 million residential parcels per year</b> across a two-origin network — stable at 200–240k parcels/month — with a distinctive lightweight profile: <b>64% of parcels under one pound, 84% under two</b>. We seek a carrier partner, or a complementary multi-carrier mix, delivering reliable 2–5 day residential service at highly competitive lightweight rates.</p>
-  <ul>
+  <p class="lead" id="c-overview-lead">Earth Breeze, Inc. is a rapidly growing direct-to-consumer eco-friendly laundry care brand. We ship approximately <b>2.9 million residential parcels per year</b> across a two-origin network — stable at 200–240k parcels/month — with a distinctive lightweight profile: <b>64% of parcels under one pound, 84% under two</b>. We seek a carrier partner, or a complementary multi-carrier mix, delivering reliable 2–5 day residential service at highly competitive lightweight rates.</p>
+  <ul id="c-overview-bullets">
     <li><b>Origins:</b> Harrodsburg, KY 40330 (East) and White City, OR 97503 (West, Earth Breeze-operated). Carriers may bid either origin or both; separate rate cards per origin.</li>
     <li><b>Portability:</b> Kentucky volume migrated from presort mail (90% of January volume) to ground carriers within one quarter — network volume moves to whoever wins on cost and service. Earth Breeze retains routing flexibility between origins.</li>
     <li><b>Sustainability:</b> carbon-neutral or reduced-emission programs, methodology, and emissions reporting are weighted in evaluation.</li>
@@ -135,7 +135,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <section id="profile">
   <h2>2 · Shipment profile</h2>
-  <table>
+  <table id="c-profile">
     <tr><th>Metric</th><th>Value</th></tr>
     <tr><td>Annualized network volume (last 91 days)</td><td>~2.9M parcels/yr</td></tr>
     <tr><td>YTD volume (1 Jan – 21 Jul 2026)</td><td>1,526,716 parcels (KY 703,710 · OR 823,006)</td></tr>
@@ -153,20 +153,20 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 <section id="scope">
   <h2>3 · Scope &amp; requirements</h2>
   <h3>Core service</h3>
-  <ul>
+  <ul id="c-scope-core">
     <li>Economy residential ground, 2–5 day, 4 oz to 20 lb (e.g., USPS Ground Advantage, FedEx Ground Economy, UPS Ground Saver, DHL eCommerce, or equivalent).</li>
     <li>A lightweight product for the sub-1 lb envelope (64% of network volume; the Oregon origin ships a median 0.36 lb parcel) — quote mail-class, presort, or lightweight parcel products explicitly alongside ounce tiers.</li>
     <li>Sharp 1–3 lb pricing (27% of volume, concentrated at Kentucky, trending heavier).</li>
     <li>Standard ground and limited 2–3 day expedited as ancillary (&lt;1% of volume).</li>
   </ul>
   <h3>Operational</h3>
-  <ul>
+  <ul id="c-scope-op">
     <li>Daily scheduled pickup at each origin served (Mon–Fri minimum; state Saturday availability).</li>
     <li>Peak network capacity ≥ 20,000 parcels/day without embargo; state per-origin capacity, volume caps, GRI timing, and peak surcharge calendars.</li>
     <li>Label generation via API and/or major multi-carrier platforms; EDI 210/214 or API equivalents; full tracking to final delivery including postal handoff.</li>
   </ul>
   <h3>Service levels</h3>
-  <ul>
+  <ul id="c-scope-svc">
     <li>≥95% on-time vs published TNT (monthly, by zone) · damage/loss ≤0.3% · claims resolved ≤30 days · tracking latency ≤4h · invoice accuracy ≥98% · quarterly business reviews.</li>
     <li>Current KY baseline to meet or beat (median transit): Amazon Ground 3.6d · Veho 3.8d · USPS GA 3.8d · FedEx GE 4.6d · OSM 5.0d.</li>
   </ul>
@@ -174,7 +174,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <section id="pricing">
   <h2>4 · Pricing format</h2>
-  <ul>
+  <ul id="c-pricing">
     <li>Editable Excel rate cards, <b>separate per origin bid</b> (zones from 40330 and/or 97503), with ounce tiers at minimum 4 / 8 / 12 / 15.999 oz, then per-pound to 20 lb.</li>
     <li>All accessorials unbundled: residential, DAS/EDAS (with ZIP list), fuel basis + current %, peak/demand surcharges with 2026–27 calendar, additional handling, address correction, RTS.</li>
     <li>Dimensional divisor and dim treatment of flat polybag mailers; any minimum billable weight.</li>
@@ -185,7 +185,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <section id="timeline">
   <h2>5 · Timeline</h2>
-  <table>
+  <table id="c-timeline">
     <tr><th>Milestone</th><th>Date</th></tr>
     <tr><td>RFP issued</td><td>27 July 2026</td></tr>
     <tr><td>Intent to bid + NDA returned</td><td>5 August 2026</td></tr>
@@ -200,7 +200,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <section id="evaluation">
   <h2>6 · Evaluation</h2>
-  <table>
+  <table id="c-eval">
     <tr><th>Criterion</th><th>Weight</th></tr>
     <tr><td>Total landed cost (rates + accessorials + fuel, modeled on the data packet)</td><td>40%</td></tr>
     <tr><td>Lightweight (&lt;1 lb) economics</td><td>20%</td></tr>
@@ -296,6 +296,22 @@ async function submitRFP(e){
   }
   return false;
 }
+// ── Live content hydration from Helm (rfp_portal_content) ──
+(async function hydrate(){
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/rfp_portal_content?rfp_code=eq.EB-2026-PARCEL-01&select=content',{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}});
+    if(!r.ok)return; const rows=await r.json(); const c=rows[0]&&rows[0].content; if(!c)return;
+    const set=(id,html)=>{const el=document.getElementById(id); if(el&&html!=null)el.innerHTML=html};
+    set('c-eyebrow',c.eyebrow); set('c-title',c.title_html); set('c-sub',c.sub);
+    if(Array.isArray(c.facts))set('c-facts',c.facts.map(f=>'<div><b>'+f.v+'</b><span>'+f.l+'</span></div>').join(''));
+    set('c-overview-lead',c.overview_lead);
+    const list=(id,arr)=>{if(Array.isArray(arr))set(id,arr.map(x=>'<li>'+x+'</li>').join(''))};
+    list('c-overview-bullets',c.overview_bullets); list('c-scope-core',c.scope_core); list('c-scope-op',c.scope_operational); list('c-scope-svc',c.scope_service); list('c-pricing',c.pricing_bullets);
+    const tbl=(id,arr,h1,h2)=>{if(Array.isArray(arr))set(id,'<tr><th>'+h1+'</th><th>'+h2+'</th></tr>'+arr.map(x=>'<tr><td>'+x[0]+'</td><td>'+x[1]+'</td></tr>').join(''))};
+    tbl('c-profile',c.profile_rows,'Metric','Value'); tbl('c-timeline',c.timeline_rows,'Milestone','Date'); tbl('c-eval',c.eval_rows,'Criterion','Weight');
+  }catch(e){}
+})();
+
 </script>
 </body>
 </html>

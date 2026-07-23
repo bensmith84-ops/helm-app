@@ -4,6 +4,7 @@ const ThreePLBillingReports = lazy(() => import("./ThreePLBillingReports"));
 const ThreePLCostExplorer = lazy(() => import("./ThreePLCostExplorer"));
 const ThreePLOrderDetail   = lazy(() => import("./ThreePLOrderDetail"));
 const ThreePLBillingAudit   = lazy(() => import("./ThreePLBillingAudit"));
+const ThreePLParcelRFP      = lazy(() => import("./ThreePLParcelRFP"));
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
@@ -2202,6 +2203,7 @@ export default function ThreePLBilling() {
             <button onClick={() => setView("audit")} style={btnGhost}>🔍 Audit</button>
             <button onClick={() => setView("reports")} style={btnGhost}>📊 Reports</button>
             <button onClick={() => setView("explorer")} style={btnGhost}>✨ Ask AI</button>
+            <button onClick={() => setView("rfp")} style={btnGhost}>📮 Parcel RFP</button>
             <button onClick={() => { resetQueue(); setView("upload"); }} style={btnPrimary}>＋ Upload Invoices</button>
           </>
         )}
@@ -2228,6 +2230,14 @@ export default function ThreePLBilling() {
           <div>
             <Suspense fallback={<div style={{ padding: 30, color: T.text3 }}>Loading Cost Explorer…</div>}>
               <ThreePLCostExplorer />
+            </Suspense>
+          </div>
+        )}
+
+        {view === "rfp" && (
+          <div>
+            <Suspense fallback={<div style={{ padding: 30, color: T.text3 }}>Loading Parcel RFP…</div>}>
+              <ThreePLParcelRFP />
             </Suspense>
           </div>
         )}
