@@ -7,25 +7,34 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--spruce:#1F4E4A;--spruce-deep:#143733;--leaf:#7FB069;--paper:#FAF8F3;--ink:#20302E;--ink2:#5A6B68;--line:#E3DFD4;--card:#FFFFFF;--amber:#C77D2E}
+:root{--spruce:#1F4E4A;--spruce-deep:#143733;--leaf:#7FB069;--paper:#FAF8F3;--ink:#20302E;--ink2:#5A6B68;--line:#E3DFD4;--card:#FFFFFF}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(--ink);font-size:15px;line-height:1.6}
-h1,h2,h3,.serif{font-family:'Fraunces',Georgia,serif;font-weight:600;letter-spacing:-0.01em}
+h1,h2,h3{font-family:'Fraunces',Georgia,serif;font-weight:600;letter-spacing:-0.01em}
 a{color:var(--spruce)}
 .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
-/* Gate */
-#gate{position:fixed;inset:0;background:var(--spruce-deep);display:flex;align-items:center;justify-content:center;z-index:50;padding:24px}
-.gate-card{background:var(--paper);border-radius:14px;padding:44px 40px;max-width:430px;width:100%}
+/* Gate screens */
+#gate{position:fixed;inset:0;background:var(--spruce-deep);display:flex;align-items:center;justify-content:center;z-index:50;padding:24px;overflow-y:auto}
+.gate-card{background:var(--paper);border-radius:14px;padding:40px;max-width:470px;width:100%;margin:auto}
+.gate-card.wide{max-width:640px}
 .gate-card .mark{font-family:'Fraunces',serif;font-size:22px;color:var(--spruce);margin-bottom:4px}
-.gate-card h1{font-size:26px;margin-bottom:6px}
-.gate-card p{color:var(--ink2);font-size:13.5px;margin-bottom:22px}
-.gate-card input{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:8px;font-size:15px;font-family:inherit;background:#fff}
+.gate-card h1{font-size:25px;margin-bottom:6px}
+.gate-card p{color:var(--ink2);font-size:13.5px;margin-bottom:16px}
+.gate-card label{display:block;font-size:12.5px;font-weight:600;margin:12px 0 4px;color:var(--ink)}
+.gate-card input{width:100%;padding:11px 13px;border:1.5px solid var(--line);border-radius:8px;font-size:14.5px;font-family:inherit;background:#fff}
 .gate-card input:focus{outline:2px solid var(--spruce);outline-offset:1px;border-color:var(--spruce)}
-.gate-card button{width:100%;margin-top:12px;padding:12px;background:var(--spruce);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer}
+.gate-card button{width:100%;margin-top:18px;padding:12px;background:var(--spruce);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer}
 .gate-card button:hover{background:var(--spruce-deep)}
-#gate-err{color:#A33B2E;font-size:13px;margin-top:10px;display:none}
-.gate-note{margin-top:18px;font-size:12px;color:var(--ink2)}
-/* Header */
+.gate-card button:disabled{opacity:.6;cursor:default}
+.gate-err{color:#A33B2E;font-size:13px;margin-top:10px;display:none}
+.gate-note{margin-top:16px;font-size:12px;color:var(--ink2)}
+.status-icon{font-size:34px;margin-bottom:10px}
+.nda-box{border:1.5px solid var(--line);border-radius:10px;background:#fff;padding:18px 20px;max-height:320px;overflow-y:auto;font-size:13px;color:var(--ink);margin:14px 0}
+.nda-box h3{font-size:15px;margin-bottom:10px;color:var(--spruce)}
+.nda-box p{color:var(--ink);font-size:13px;margin-bottom:10px}
+.agree-row{display:flex;gap:9px;align-items:flex-start;margin-top:14px;font-size:13px}
+.agree-row input{width:auto;margin-top:3px}
+/* Site */
 header{background:var(--spruce);color:#fff;padding:52px 0 0}
 .eyebrow{font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#BFD8C2;font-weight:600}
 header h1{font-size:clamp(28px,4.4vw,44px);color:#fff;margin:10px 0 8px;line-height:1.15}
@@ -33,15 +42,13 @@ header .sub{color:#D8E6DA;max-width:640px;font-size:15.5px}
 .hero-facts{display:flex;gap:34px;flex-wrap:wrap;margin:30px 0 6px}
 .hero-facts div b{display:block;font-family:'Fraunces',serif;font-size:26px;font-weight:600;color:#fff}
 .hero-facts div span{font-size:12.5px;color:#BFD8C2}
-/* Weight strip signature */
 .strip{margin:28px 0 0;padding-bottom:40px}
 .strip .bar{display:flex;height:34px;border-radius:8px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.25)}
 .strip .seg{display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:600;color:#143733;white-space:nowrap;overflow:hidden}
 .strip .cap{display:flex;justify-content:space-between;font-size:12px;color:#BFD8C2;margin-top:8px}
-/* Nav */
 nav{position:sticky;top:0;background:var(--paper);border-bottom:1px solid var(--line);z-index:10}
-nav .wrap{display:flex;gap:4px;overflow-x:auto}
-nav a{padding:13px 14px;font-size:13.5px;font-weight:500;color:var(--ink2);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap}
+nav .wrap{display:flex;gap:2px;overflow-x:auto}
+nav a{padding:13px 12px;font-size:13px;font-weight:500;color:var(--ink2);text-decoration:none;white-space:nowrap}
 nav a:hover{color:var(--spruce)}
 main{padding:44px 0 80px}
 section{margin-bottom:52px;scroll-margin-top:64px}
@@ -50,25 +57,30 @@ section h3{font-size:16px;margin:20px 0 8px}
 p.lead{max-width:760px}
 ul{padding-left:20px;max-width:780px}
 li{margin-bottom:6px}
-table{border-collapse:collapse;width:100%;max-width:780px;margin:14px 0;background:var(--card);border-radius:10px;overflow:hidden;font-size:13.5px}
-th{background:var(--spruce);color:#fff;text-align:left;padding:9px 13px;font-weight:600;font-size:12.5px}
-td{padding:8px 13px;border-bottom:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;margin:14px 0;background:var(--card);border-radius:10px;overflow:hidden;font-size:13px}
+th{background:var(--spruce);color:#fff;text-align:left;padding:8px 12px;font-weight:600;font-size:12px;white-space:nowrap}
+td{padding:7px 12px;border-bottom:1px solid var(--line)}
 tr:last-child td{border-bottom:none}
+tr.total td{font-weight:700;border-top:2px solid var(--spruce)}
+.tbl-note{font-size:12.5px;color:var(--ink2);max-width:780px;margin-top:-4px}
+.tbl-scroll{overflow-x:auto}
+.tbl-max{max-width:780px}
+.two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;max-width:900px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;max-width:820px}
 .dl{display:flex;gap:14px;align-items:center;background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:18px;text-decoration:none;color:var(--ink);transition:border-color .15s}
 .dl:hover{border-color:var(--spruce)}
 .dl .ic{width:42px;height:42px;border-radius:9px;background:var(--spruce);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:13px;flex-shrink:0}
 .dl b{display:block;font-size:14.5px}
 .dl span{font-size:12.5px;color:var(--ink2)}
-/* Form */
-form{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:28px;max-width:780px}
+form.rfp{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:28px;max-width:780px}
 .frow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:640px){.frow{grid-template-columns:1fr}}
-label{display:block;font-size:13px;font-weight:600;margin:14px 0 5px}
-label .opt{color:var(--ink2);font-weight:400}
-input,select,textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff}
-input:focus,select:focus,textarea:focus{outline:2px solid var(--spruce);outline-offset:1px;border-color:var(--spruce)}
-textarea{min-height:110px;resize:vertical}
+form.rfp label{display:block;font-size:13px;font-weight:600;margin:14px 0 5px}
+form.rfp label .opt{color:var(--ink2);font-weight:400}
+form.rfp input,form.rfp select,form.rfp textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff}
+form.rfp input:focus,form.rfp select:focus,form.rfp textarea:focus{outline:2px solid var(--spruce);outline-offset:1px;border-color:var(--spruce)}
+form.rfp textarea{min-height:110px;resize:vertical}
 .submit-btn{margin-top:22px;padding:13px 26px;background:var(--spruce);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer}
 .submit-btn:hover{background:var(--spruce-deep)}
 .submit-btn:disabled{opacity:.6;cursor:default}
@@ -77,153 +89,235 @@ textarea{min-height:110px;resize:vertical}
 #form-err{display:none;color:#A33B2E;font-size:13.5px;margin-top:12px}
 .pill{display:inline-block;background:#EAF3E4;color:var(--spruce);border-radius:99px;padding:3px 11px;font-size:12px;font-weight:600;margin-left:8px;vertical-align:middle}
 footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:var(--ink2)}
+#site{display:none}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 
+<!-- ══ GATE ══ -->
 <div id="gate">
-  <div class="gate-card">
+  <!-- request access -->
+  <div class="gate-card" id="scr-request" style="display:none">
     <div class="mark">Earth Breeze</div>
     <h1>US Parcel Network RFP</h1>
-    <p>RFP No. EB-2026-PARCEL-01 · Confidential. Enter the access code provided in your invitation.</p>
-    <input type="password" id="pw" placeholder="Access code" autocomplete="off" aria-label="Access code">
-    <button onclick="tryUnlock()">Enter portal</button>
-    <div id="gate-err">That code isn't right. Check your invitation email or contact procurement.</div>
-    <div class="gate-note">Access issues: contact your Earth Breeze representative.</div>
+    <p>RFP No. EB-2026-PARCEL-01 · Confidential. Access is granted to invited carriers after approval and a signed NDA. Request access below.</p>
+    <label>Work email</label><input id="req-email" type="email" placeholder="name@carrier.com" autocomplete="email">
+    <label>Your name</label><input id="req-name" placeholder="Full name" autocomplete="name">
+    <label>Company</label><input id="req-company" placeholder="Carrier name" autocomplete="organization">
+    <button id="req-btn" onclick="requestAccess()">Request access</button>
+    <div class="gate-err" id="req-err"></div>
+    <div class="gate-note">Already approved? Open the access link from your approval email.</div>
   </div>
+  <!-- pending -->
+  <div class="gate-card" id="scr-pending" style="display:none">
+    <div class="status-icon">⏳</div>
+    <h1>Request received</h1>
+    <p id="pending-msg">Your access request is with the Earth Breeze procurement team. You'll receive an email with your access link once approved. This page also unlocks automatically in this browser after approval.</p>
+    <button onclick="boot()">Check status</button>
+    <div class="gate-note">Requested the wrong email? <a href="#" onclick="resetToken();return false">Start over</a></div>
+  </div>
+  <!-- denied -->
+  <div class="gate-card" id="scr-denied" style="display:none">
+    <div class="status-icon">🚫</div>
+    <h1>Access not granted</h1>
+    <p>This request was not approved. If you believe this is an error, contact your Earth Breeze representative.</p>
+    <div class="gate-note"><a href="#" onclick="resetToken();return false">Submit a new request</a></div>
+  </div>
+  <!-- NDA -->
+  <div class="gate-card wide" id="scr-nda" style="display:none">
+    <div class="mark">Earth Breeze</div>
+    <h1>Non-Disclosure Agreement</h1>
+    <p>You're approved. Review and sign the NDA below to access the RFP, data packet, and downloads.</p>
+    <div class="nda-box" id="nda-text">Loading…</div>
+    <div class="frow">
+      <div><label>Full name (signature)</label><input id="nda-name" placeholder="Type your full legal name"></div>
+      <div><label>Title</label><input id="nda-title" placeholder="e.g. Director, Pricing"></div>
+    </div>
+    <div class="agree-row"><input type="checkbox" id="nda-agree"><span>I am authorized to sign on behalf of my organization and agree to the terms of this Non-Disclosure Agreement.</span></div>
+    <button id="nda-btn" onclick="signNDA()">Sign &amp; access RFP</button>
+    <div class="gate-err" id="nda-err"></div>
+  </div>
+  <div class="gate-card" id="scr-loading"><p style="margin:0">Loading…</p></div>
 </div>
 
+<!-- ══ SITE (rendered after access) ══ -->
+<div id="site">
 <header>
   <div class="wrap">
-    <div class="eyebrow" id="c-eyebrow">Request for Proposal · EB-2026-PARCEL-01 · Issued 27 July 2026</div>
-    <h1 id="c-title">US Domestic Parcel Transportation<br>Two-Origin Network</h1>
-    <p class="sub" id="c-sub">Earth Breeze invites qualified carriers to bid residential parcel transportation from Harrodsburg, Kentucky 40330 and White City, Oregon 97503. Bid one origin or both.</p>
-    <div class="hero-facts" id="c-facts">
-      <div><b>~2.9M</b><span>parcels / year (last 91 days annualized)</span></div>
-      <div><b>2 origins</b><span>KY (East) · OR (West), each shipping nationally</span></div>
-      <div><b>16,440</b><span>peak network day (7 May 2026)</span></div>
-      <div><b>~100%</b><span>residential, Shopify DTC</span></div>
-    </div>
-    <div class="strip" aria-label="Network weight distribution">
-      <div class="bar">
-        <div class="seg" style="width:64.4%;background:#7FB069">64% under 1 lb</div>
-        <div class="seg" style="width:19.5%;background:#B9D4A5">1–2 lb · 19%</div>
-        <div class="seg" style="width:7.3%;background:#E4EBD6">2–3 lb</div>
-        <div class="seg" style="width:8.8%;background:#F3EFE2;color:#5A6B68">3 lb+</div>
-      </div>
-      <div class="cap"><span>Network weight distribution, last 91 days (743,879 parcels)</span><span>median 0.62 lb</span></div>
-    </div>
+    <div class="eyebrow" id="c-eyebrow"></div>
+    <h1 id="c-title"></h1>
+    <p class="sub" id="c-sub"></p>
+    <div class="hero-facts" id="c-facts"></div>
+    <div class="strip" id="c-strip"></div>
   </div>
 </header>
+<nav><div class="wrap" id="c-nav"></div></nav>
+<main class="wrap" id="c-main"></main>
+<footer><div class="wrap">Earth Breeze, Inc. · RFP EB-2026-PARCEL-01 · Confidential — covered by your signed NDA. This portal does not constitute a commitment to purchase; volumes are indicative and not guaranteed.</div></footer>
+</div>
 
-<nav><div class="wrap">
-  <a href="#overview">Overview</a><a href="#profile">Shipment profile</a><a href="#scope">Scope &amp; requirements</a><a href="#pricing">Pricing format</a><a href="#timeline">Timeline</a><a href="#evaluation">Evaluation</a><a href="#downloads">Downloads</a><a href="#submit">Submit</a>
-</div></nav>
+<script>
+const SB_URL = "https://upbjdmnykheubxkuknuj.supabase.co";
+const SB_KEY = "sb_publishable_CvYsgH8si7ucRsiB-VktIA_Nh9H2qeT";
+const HDRS = {'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
+const rpc = async (fn, args) => {
+  const r = await fetch(SB_URL+'/rest/v1/rpc/'+fn, {method:'POST', headers:HDRS, body:JSON.stringify(args)});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+};
+const $ = id => document.getElementById(id);
+const show = id => { for (const s of ['scr-request','scr-pending','scr-denied','scr-nda','scr-loading']) $(s).style.display = s===id?'block':'none'; };
 
-<main class="wrap">
+function getToken(){
+  const u = new URL(location.href); const t = u.searchParams.get('token');
+  if (t) { localStorage.setItem('eb_rfp_token', t); u.searchParams.delete('token'); history.replaceState({},'',u.pathname); }
+  return localStorage.getItem('eb_rfp_token');
+}
+function resetToken(){ localStorage.removeItem('eb_rfp_token'); show('scr-request'); }
 
-<section id="overview">
-  <h2>1 · Overview</h2>
-  <p class="lead" id="c-overview-lead">Earth Breeze, Inc. is a rapidly growing direct-to-consumer eco-friendly laundry care brand. We ship approximately <b>2.9 million residential parcels per year</b> across a two-origin network — stable at 200–240k parcels/month — with a distinctive lightweight profile: <b>64% of parcels under one pound, 84% under two</b>. We seek a carrier partner, or a complementary multi-carrier mix, delivering reliable 2–5 day residential service at highly competitive lightweight rates.</p>
-  <ul id="c-overview-bullets">
-    <li><b>Origins:</b> Harrodsburg, KY 40330 (East) and White City, OR 97503 (West, Earth Breeze-operated). Carriers may bid either origin or both; separate rate cards per origin.</li>
-    <li><b>Portability:</b> Kentucky volume migrated from presort mail (90% of January volume) to ground carriers within one quarter — network volume moves to whoever wins on cost and service. Earth Breeze retains routing flexibility between origins.</li>
-    <li><b>Sustainability:</b> carbon-neutral or reduced-emission programs, methodology, and emissions reporting are weighted in evaluation.</li>
-  </ul>
-</section>
+async function boot(){
+  const t = getToken();
+  if (!t) { show('scr-request'); return; }
+  show('scr-loading');
+  try {
+    const st = await rpc('rfp_check_access', {p_token: t});
+    if (st.status === 'pending') { $('pending-msg').innerHTML = 'Your request as <b>'+(st.email||'')+'</b> is with the Earth Breeze procurement team. You\'ll receive an email with your access link once approved. This page also unlocks automatically in this browser after approval.'; show('scr-pending'); }
+    else if (st.status === 'denied') { show('scr-denied'); }
+    else if (st.status === 'approved' && !st.nda_signed) { await showNDA(t, st); }
+    else if (st.status === 'approved' && st.nda_signed) { await enter(t); }
+    else { localStorage.removeItem('eb_rfp_token'); show('scr-request'); }
+  } catch(e) { show('scr-request'); }
+}
 
-<section id="profile">
-  <h2>2 · Shipment profile</h2>
-  <table id="c-profile">
-    <tr><th>Metric</th><th>Value</th></tr>
-    <tr><td>Annualized network volume (last 91 days)</td><td>~2.9M parcels/yr</td></tr>
-    <tr><td>YTD volume (1 Jan – 21 Jul 2026)</td><td>1,526,716 parcels (KY 703,710 · OR 823,006)</td></tr>
-    <tr><td>Network monthly volume</td><td>~200k–240k parcels/month, stable YTD</td></tr>
-    <tr><td>Origin split (last 91 days)</td><td>Kentucky 56% · Oregon 44%</td></tr>
-    <tr><td>Peak network day</td><td>16,440 parcels (7 May 2026)</td></tr>
-    <tr><td>Average / median weight (last 91d)</td><td>0.99 lb / 0.62 lb</td></tr>
-    <tr><td>Under 1 lb · 1–3 lb</td><td>64.4% · 26.8%</td></tr>
-    <tr><td>Destination coverage</td><td>National from both origins (KY 883 · OR 962 ZIP3s)</td></tr>
-    <tr><td>Packaging</td><td>Flat polybag mailers (sub-1 lb majority); small cartons</td></tr>
-  </table>
-  <p>Full detail — monthly volumes by origin, weight brackets, state and ZIP3 distributions, carrier mix evolution, and observed transit — is in the data packet below.</p>
-</section>
+async function requestAccess(){
+  const email = $('req-email').value.trim(), name = $('req-name').value.trim(), company = $('req-company').value.trim();
+  const err = $('req-err'); err.style.display='none';
+  if (!email.includes('@')) { err.textContent='Please enter a valid work email.'; err.style.display='block'; return; }
+  $('req-btn').disabled = true; $('req-btn').textContent = 'Sending…';
+  try {
+    const res = await rpc('rfp_request_access', {p_email: email, p_name: name, p_company: company});
+    if (!res.ok) throw new Error('invalid');
+    localStorage.setItem('eb_rfp_token', res.token);
+    boot();
+  } catch(e) { err.textContent='Request failed — please try again.'; err.style.display='block'; }
+  $('req-btn').disabled = false; $('req-btn').textContent = 'Request access';
+}
 
-<section id="scope">
-  <h2>3 · Scope &amp; requirements</h2>
-  <h3>Core service</h3>
-  <ul id="c-scope-core">
-    <li>Economy residential ground, 2–5 day, 4 oz to 20 lb (e.g., USPS Ground Advantage, FedEx Ground Economy, UPS Ground Saver, DHL eCommerce, or equivalent).</li>
-    <li>A lightweight product for the sub-1 lb envelope (64% of network volume; the Oregon origin ships a median 0.36 lb parcel) — quote mail-class, presort, or lightweight parcel products explicitly alongside ounce tiers.</li>
-    <li>Sharp 1–3 lb pricing (27% of volume, concentrated at Kentucky, trending heavier).</li>
-    <li>Standard ground and limited 2–3 day expedited as ancillary (&lt;1% of volume).</li>
-  </ul>
-  <h3>Operational</h3>
-  <ul id="c-scope-op">
-    <li>Daily scheduled pickup at each origin served (Mon–Fri minimum; state Saturday availability).</li>
-    <li>Peak network capacity ≥ 20,000 parcels/day without embargo; state per-origin capacity, volume caps, GRI timing, and peak surcharge calendars.</li>
-    <li>Label generation via API and/or major multi-carrier platforms; EDI 210/214 or API equivalents; full tracking to final delivery including postal handoff.</li>
-  </ul>
-  <h3>Service levels</h3>
-  <ul id="c-scope-svc">
-    <li>≥95% on-time vs published TNT (monthly, by zone) · damage/loss ≤0.3% · claims resolved ≤30 days · tracking latency ≤4h · invoice accuracy ≥98% · quarterly business reviews.</li>
-    <li>Current KY baseline to meet or beat (median transit): Amazon Ground 3.6d · Veho 3.8d · USPS GA 3.8d · FedEx GE 4.6d · OSM 5.0d.</li>
-  </ul>
-</section>
+async function showNDA(t, st){
+  const res = await rpc('rfp_get_nda', {p_token: t});
+  if (!res.ok) { show('scr-request'); return; }
+  $('nda-text').innerHTML = res.nda_text || '';
+  if (res.name) $('nda-name').value = res.name;
+  show('scr-nda');
+}
 
-<section id="pricing">
-  <h2>4 · Pricing format</h2>
-  <ul id="c-pricing">
-    <li>Editable Excel rate cards, <b>separate per origin bid</b> (zones from 40330 and/or 97503), with ounce tiers at minimum 4 / 8 / 12 / 15.999 oz, then per-pound to 20 lb.</li>
-    <li>All accessorials unbundled: residential, DAS/EDAS (with ZIP list), fuel basis + current %, peak/demand surcharges with 2026–27 calendar, additional handling, address correction, RTS.</li>
-    <li>Dimensional divisor and dim treatment of flat polybag mailers; any minimum billable weight.</li>
-    <li>Payment terms, invoice cadence, audit/dispute process, rebates; rate validity, GRI mechanics. Multi-year with capped increases encouraged.</li>
-    <li>Postal-workshare or consolidation models: state induction points, transit impact, liability.</li>
-  </ul>
-</section>
+async function signNDA(){
+  const err = $('nda-err'); err.style.display='none';
+  const name = $('nda-name').value.trim(), title = $('nda-title').value.trim();
+  if (name.length < 2) { err.textContent='Please type your full name.'; err.style.display='block'; return; }
+  if (!$('nda-agree').checked) { err.textContent='Please tick the authorization checkbox.'; err.style.display='block'; return; }
+  $('nda-btn').disabled = true; $('nda-btn').textContent = 'Signing…';
+  try {
+    const res = await rpc('rfp_sign_nda', {p_token: localStorage.getItem('eb_rfp_token'), p_name: name, p_title: title});
+    if (!res.ok) throw new Error(res.error||'failed');
+    await enter(localStorage.getItem('eb_rfp_token'));
+  } catch(e) { err.textContent='Could not record signature — please retry.'; err.style.display='block'; $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
+}
 
-<section id="timeline">
-  <h2>5 · Timeline</h2>
-  <table id="c-timeline">
-    <tr><th>Milestone</th><th>Date</th></tr>
-    <tr><td>RFP issued</td><td>27 July 2026</td></tr>
-    <tr><td>Intent to bid + NDA returned</td><td>5 August 2026</td></tr>
-    <tr><td>Carrier questions due</td><td>12 August 2026</td></tr>
-    <tr><td>Answers distributed to all bidders</td><td>17 August 2026</td></tr>
-    <tr><td>Proposals due</td><td><b>28 August 2026, 5:00 pm ET</b></td></tr>
-    <tr><td>Finalist presentations</td><td>7–11 September 2026</td></tr>
-    <tr><td>Award decision</td><td>18 September 2026</td></tr>
-    <tr><td>Implementation · first pickup</td><td>October 2026 · target 2 November 2026</td></tr>
-  </table>
-</section>
+// ── render full site from content JSON ──
+const esc = s => String(s??'');
+const tblHTML = (headers, rows, opts={}) => {
+  let h = '<table'+(opts.max?' class="tbl-max"':'')+'><tr>'+headers.map((x,i)=>'<th'+(i>0&&opts.numeric?' class="num"':'')+'>'+x+'</th>').join('')+'</tr>';
+  for (const r of rows) {
+    const isTotal = String(r[0]).toLowerCase()==='total';
+    h += '<tr'+(isTotal?' class="total"':'')+'>'+r.map((c,i)=>'<td'+(i>0&&opts.numeric?' class="num"':'')+'>'+(typeof c==='number'?c.toLocaleString():esc(c))+'</td>').join('')+'</tr>';
+  }
+  return h+'</table>';
+};
+const listHTML = arr => '<ul>'+(arr||[]).map(x=>'<li>'+x+'</li>').join('')+'</ul>';
 
-<section id="evaluation">
-  <h2>6 · Evaluation</h2>
-  <table id="c-eval">
-    <tr><th>Criterion</th><th>Weight</th></tr>
-    <tr><td>Total landed cost (rates + accessorials + fuel, modeled on the data packet)</td><td>40%</td></tr>
-    <tr><td>Lightweight (&lt;1 lb) economics</td><td>20%</td></tr>
-    <tr><td>Service performance &amp; national residential network fit</td><td>15%</td></tr>
-    <tr><td>Technology, integration &amp; billing accuracy</td><td>10%</td></tr>
-    <tr><td>Sustainability program</td><td>10%</td></tr>
-    <tr><td>Commercial terms &amp; scalability</td><td>5%</td></tr>
-  </table>
-</section>
+async function enter(t){
+  let res;
+  try { res = await rpc('rfp_get_content', {p_token: t}); } catch(e){ show('scr-request'); return; }
+  if (!res.ok || !res.content) { show('scr-request'); return; }
+  const c = res.content, p = c.packet || {};
+  $('c-eyebrow').innerHTML = esc(c.eyebrow);
+  $('c-title').innerHTML = c.title_html || '';
+  $('c-sub').innerHTML = esc(c.sub);
+  $('c-facts').innerHTML = (c.facts||[]).map(f=>'<div><b>'+esc(f.v)+'</b><span>'+esc(f.l)+'</span></div>').join('');
+  if (Array.isArray(p.strip)) $('c-strip').innerHTML =
+    '<div class="bar">'+p.strip.map(s=>'<div class="seg" style="width:'+s.w+'%;background:'+s.bg+(s.fg?';color:'+s.fg:'')+'">'+esc(s.label)+'</div>').join('')+'</div>'+
+    '<div class="cap"><span>'+esc(p.strip_caption)+'</span></div>';
 
-<section id="downloads">
-  <h2>7 · Downloads</h2>
-  <div class="grid2">
-    <a class="dl" href="https://helm-app-six.vercel.app/rfp/EarthBreeze_US_Parcel_RFP_2026.docx" download><div class="ic">RFP</div><div><b>Full RFP document</b><span>Word · complete terms, requirements &amp; response format</span></div></a>
-    <a class="dl" href="https://helm-app-six.vercel.app/rfp/EarthBreeze_US_Parcel_RFP_DataPacket.xlsx" download><div class="ic">XLS</div><div><b>Data packet</b><span>Excel · volumes, weights, geography, ZIP3s, carrier mix</span></div></a>
-  </div>
-  <p style="margin-top:14px;font-size:13.5px;color:var(--ink2)">Shipment-level destination files are available to shortlisted carriers under NDA.</p>
-</section>
+  const S = [];
+  S.push(['overview','Overview', '<p class="lead">'+ (c.overview_lead||'') +'</p>'+listHTML(c.overview_bullets)]);
+  S.push(['profile','Shipment profile', tblHTML(['Metric','Value'], c.profile_rows||[], {max:1}) + '<p class="tbl-note">Full detail in the tables below and the Excel data packet.</p>']);
+  let dt = '<h3>Monthly volume by origin</h3>' + tblHTML(['Month','Kentucky','Oregon','Network'], p.monthly||[], {numeric:1, max:1});
+  dt += '<h3>Weight distribution (network, last 91 days)</h3>' + tblHTML(['Bracket','Parcels','% of volume','Avg lb'], p.weights||[], {numeric:1, max:1});
+  dt += '<h3>Destination states</h3><div class="two-col"><div><h3 style="margin-top:4px">Kentucky origin</h3>'+tblHTML(['State','Parcels','%'], p.geo_ky||[], {numeric:1})+'</div><div><h3 style="margin-top:4px">Oregon origin</h3>'+tblHTML(['State','Parcels','%'], p.geo_or||[], {numeric:1})+'</div></div><p class="tbl-note">'+esc(p.geo_note)+'</p>';
+  dt += '<h3>Kentucky carrier mix by month</h3><div class="tbl-scroll">'+tblHTML(p.carrier_header||[], p.carriers||[], {numeric:1})+'</div><p class="tbl-note">'+esc(p.carrier_note)+'</p>';
+  S.push(['data','Data tables', dt]);
+  S.push(['scope','Scope & requirements', '<h3>Core service</h3>'+listHTML(c.scope_core)+'<h3>Operational</h3>'+listHTML(c.scope_operational)+'<h3>Service levels</h3>'+listHTML(c.scope_service)]);
+  S.push(['transit','Transit baseline', tblHTML(['Service','Share of volume','Median transit (days)'], p.transit||[], {numeric:1, max:1}) + '<p class="tbl-note">'+esc(p.transit_note)+'</p>']);
+  S.push(['pricing','Pricing format', listHTML(c.pricing_bullets)]);
+  S.push(['timeline','Timeline', tblHTML(['Milestone','Date'], c.timeline_rows||[], {max:1})]);
+  S.push(['evaluation','Evaluation', tblHTML(['Criterion','Weight'], c.eval_rows||[], {max:1})]);
+  S.push(['response','Response format', listHTML(c.response_format)]);
+  S.push(['terms','Terms', listHTML(c.terms) + (c.contacts ? '<h3>Contacts</h3><p style="max-width:780px">'+c.contacts+'</p>' : '')]);
+  S.push(['downloads','Downloads',
+    '<div class="grid2">'+
+    '<a class="dl" href="'+esc(c.download_docx)+'" download><div class="ic">RFP</div><div><b>Full RFP document</b><span>Word · complete terms, requirements &amp; response format</span></div></a>'+
+    '<a class="dl" href="'+esc(c.download_xlsx)+'" download><div class="ic">XLS</div><div><b>Data packet</b><span>Excel · volumes, weights, geography, full ZIP3 detail, carrier mix</span></div></a>'+
+    '</div><p class="tbl-note" style="margin-top:14px">Shipment-level destination files are available to shortlisted carriers on request. All files are covered by your signed NDA.</p>']);
+  S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
 
-<section id="submit">
-  <h2>8 · Submit <span class="pill">Intent · Question · Proposal</span></h2>
-  <div id="form-ok"><h3>Received — thank you.</h3><p>Your submission is logged with the Earth Breeze procurement team. Answers to questions are distributed to all bidders on 17 August; proposal confirmations come by email.</p></div>
-  <form id="rfp-form" onsubmit="return submitRFP(event)">
+  const navNames = {overview:'Overview',profile:'Profile',data:'Data tables',scope:'Scope',transit:'Transit',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',submit:'Submit'};
+  $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navNames[id]+'</a>').join('');
+  $('c-main').innerHTML = S.map(([id,title,body],i)=>'<section id="'+id+'"><h2>'+(i+1)+' · '+title+'</h2>'+body+'</section>').join('');
+
+  $('gate').style.display='none';
+  document.getElementById('site').style.display='block';
+}
+
+// ── proposal submission (post-access) ──
+async function submitRFP(e){
+  e.preventDefault();
+  const btn=$('f-btn'); const err=$('form-err');
+  btn.disabled=true; btn.textContent='Submitting…'; err.style.display='none';
+  const body={
+    submission_type:$('f-type').value,
+    origins_bid:$('f-origins').value||null,
+    company:$('f-company').value.trim(),
+    contact_name:$('f-name').value.trim(),
+    email:$('f-email').value.trim(),
+    phone:$('f-phone').value.trim()||null,
+    rate_card_url:$('f-rates').value.trim()||null,
+    proposal_url:$('f-prop').value.trim()||null,
+    summary:$('f-summary').value.trim()||null,
+    questions:$('f-questions').value.trim()||null
+  };
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/rfp_submissions',{method:'POST',headers:{...HDRS,'Prefer':'return=minimal'},body:JSON.stringify(body)});
+    if(!r.ok){throw new Error('HTTP '+r.status)}
+    $('rfp-form').style.display='none';
+    $('form-ok').style.display='block';
+    $('form-ok').scrollIntoView({behavior:'smooth',block:'center'});
+  }catch(ex){
+    err.textContent='Submission failed ('+ex.message+'). Please retry, or email your proposal to your Earth Breeze contact.';
+    err.style.display='block'; btn.disabled=false; btn.textContent='Submit to Earth Breeze';
+  }
+  return false;
+}
+
+boot();
+</script>
+
+<!-- submission form template (injected into Submit section post-access) -->
+<template id="tpl-submit">
+  <span class="pill" style="margin:0 0 10px;display:inline-block">Intent · Question · Proposal</span>
+  <div id="form-ok"><h3>Received — thank you.</h3><p>Your submission is logged with the Earth Breeze procurement team. Answers to questions are distributed to all bidders; proposal confirmations come by email.</p></div>
+  <form id="rfp-form" class="rfp" onsubmit="return submitRFP(event)">
     <div class="frow">
       <div><label>Submission type</label>
         <select id="f-type"><option value="intent">Intent to bid</option><option value="question">Question</option><option value="proposal" selected>Proposal</option></select></div>
@@ -244,74 +338,11 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
     </div>
     <label>Executive summary / notes</label>
     <textarea id="f-summary" maxlength="20000" placeholder="Key strengths of your bid, service model, and anything the evaluation team should know."></textarea>
-    <label>Questions for Earth Breeze <span class="opt">(answered to all bidders 17 Aug)</span></label>
+    <label>Questions for Earth Breeze <span class="opt">(answered to all bidders)</span></label>
     <textarea id="f-questions" maxlength="10000" placeholder="Optional"></textarea>
     <button class="submit-btn" id="f-btn" type="submit">Submit to Earth Breeze</button>
     <div id="form-err"></div>
   </form>
-</section>
-
-</main>
-<footer><div class="wrap">Earth Breeze, Inc. · RFP EB-2026-PARCEL-01 · Confidential — for invited carriers only. This portal does not constitute a commitment to purchase; volumes are indicative and not guaranteed.</div></footer>
-
-<script>
-const HASH = "9c4a843040b552f3918607ed26089326ce0bf1450e79bd1e7fbc998091a7f6b0";
-const SB_URL = "https://upbjdmnykheubxkuknuj.supabase.co";
-const SB_KEY = "sb_publishable_CvYsgH8si7ucRsiB-VktIA_Nh9H2qeT";
-
-async function sha256(t){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
-async function tryUnlock(){
-  const v=document.getElementById('pw').value.trim();
-  if(await sha256(v)===HASH){sessionStorage.setItem('eb_rfp_ok','1');document.getElementById('gate').style.display='none'}
-  else{document.getElementById('gate-err').style.display='block'}
-}
-document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')tryUnlock()});
-if(sessionStorage.getItem('eb_rfp_ok')==='1')document.getElementById('gate').style.display='none';
-
-async function submitRFP(e){
-  e.preventDefault();
-  const btn=document.getElementById('f-btn'); const err=document.getElementById('form-err');
-  btn.disabled=true; btn.textContent='Submitting…'; err.style.display='none';
-  const body={
-    submission_type:document.getElementById('f-type').value,
-    origins_bid:document.getElementById('f-origins').value||null,
-    company:document.getElementById('f-company').value.trim(),
-    contact_name:document.getElementById('f-name').value.trim(),
-    email:document.getElementById('f-email').value.trim(),
-    phone:document.getElementById('f-phone').value.trim()||null,
-    rate_card_url:document.getElementById('f-rates').value.trim()||null,
-    proposal_url:document.getElementById('f-prop').value.trim()||null,
-    summary:document.getElementById('f-summary').value.trim()||null,
-    questions:document.getElementById('f-questions').value.trim()||null
-  };
-  try{
-    const r=await fetch(SB_URL+'/rest/v1/rfp_submissions',{method:'POST',headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Prefer':'return=minimal'},body:JSON.stringify(body)});
-    if(!r.ok){throw new Error('HTTP '+r.status)}
-    document.getElementById('rfp-form').style.display='none';
-    document.getElementById('form-ok').style.display='block';
-    document.getElementById('form-ok').scrollIntoView({behavior:'smooth',block:'center'});
-  }catch(ex){
-    err.textContent='Submission failed ('+ex.message+'). Please retry, or email your proposal to the procurement contact in your invitation.';
-    err.style.display='block'; btn.disabled=false; btn.textContent='Submit to Earth Breeze';
-  }
-  return false;
-}
-// ── Live content hydration from Helm (rfp_portal_content) ──
-(async function hydrate(){
-  try{
-    const r=await fetch(SB_URL+'/rest/v1/rfp_portal_content?rfp_code=eq.EB-2026-PARCEL-01&select=content',{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}});
-    if(!r.ok)return; const rows=await r.json(); const c=rows[0]&&rows[0].content; if(!c)return;
-    const set=(id,html)=>{const el=document.getElementById(id); if(el&&html!=null)el.innerHTML=html};
-    set('c-eyebrow',c.eyebrow); set('c-title',c.title_html); set('c-sub',c.sub);
-    if(Array.isArray(c.facts))set('c-facts',c.facts.map(f=>'<div><b>'+f.v+'</b><span>'+f.l+'</span></div>').join(''));
-    set('c-overview-lead',c.overview_lead);
-    const list=(id,arr)=>{if(Array.isArray(arr))set(id,arr.map(x=>'<li>'+x+'</li>').join(''))};
-    list('c-overview-bullets',c.overview_bullets); list('c-scope-core',c.scope_core); list('c-scope-op',c.scope_operational); list('c-scope-svc',c.scope_service); list('c-pricing',c.pricing_bullets);
-    const tbl=(id,arr,h1,h2)=>{if(Array.isArray(arr))set(id,'<tr><th>'+h1+'</th><th>'+h2+'</th></tr>'+arr.map(x=>'<tr><td>'+x[0]+'</td><td>'+x[1]+'</td></tr>').join(''))};
-    tbl('c-profile',c.profile_rows,'Metric','Value'); tbl('c-timeline',c.timeline_rows,'Milestone','Date'); tbl('c-eval',c.eval_rows,'Criterion','Weight');
-  }catch(e){}
-})();
-
-</script>
+</template>
 </body>
 </html>
