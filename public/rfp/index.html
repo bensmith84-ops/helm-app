@@ -263,7 +263,7 @@ async function enter(t){
   const S = [];
   S.push(['overview','Overview', '<p class="lead">'+ (c.overview_lead||'') +'</p>'+listHTML(c.overview_bullets)]);
   S.push(['profile','Shipment profile', tblHTML(['Metric','Value'], c.profile_rows||[], {max:1}) + '<p class="tbl-note">Full detail in the tables below and the Excel data packet.</p>']);
-  let dt = '<h3>Monthly volume by origin</h3>' + tblHTML(['Month','Kentucky','Oregon','Network'], p.monthly||[], {numeric:1, max:1});
+  let dt = '<h3>Monthly network volume</h3>' + tblHTML(['Month','Parcels'], p.monthly||[], {numeric:1, max:1});
   dt += '<h3>Weight distribution (network, last 91 days)</h3>' + tblHTML(['Bracket','Parcels','% of volume','Avg lb'], p.weights||[], {numeric:1, max:1});
   dt += '<h3>Destination states (network)</h3>'+tblHTML(['State','Est. YTD parcels','% of volume'], p.geo_combined||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.geo_note)+'</p>';
   dt += '<h3>Kentucky carrier mix by month</h3><div class="tbl-scroll">'+tblHTML(p.carrier_header||[], p.carriers||[], {numeric:1})+'</div><p class="tbl-note">'+esc(p.carrier_note)+'</p>';
