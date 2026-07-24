@@ -57,8 +57,36 @@ export default function RichTextEditor({ value, onChange, placeholder = "Add a d
   const link = () => { const url = window.prompt("Link URL:"); if (url) exec("createLink", /^https?:\/\//i.test(url) ? url : "https://" + url); };
   const save = () => { setFocused(false); if (ref.current) onChange(sanitize(ref.current.innerHTML)); };
 
-  // Markdown-style input rules at the start of a line.
+  const closestLi = () => {
+    const sel = window.getSelection();
+    let n = sel && sel.anchorNode;
+    while (n && n !== ref.current) { if (n.nodeName === "LI") return n; n = n.parentNode; }
+    return null;
+  };
+
+  // Markdown-style input rules + word-processor list behaviors.
   const onKeyDown = (e) => {
+    // Tab / Shift+Tab inside a list: indent / outdent (nested lists)
+    if (e.key === "Tab") {
+      if (closestLi()) { e.preventDefault(); document.execCommand(e.shiftKey ? "outdent" : "indent"); refresh(); return; }
+    }
+    // Backspace at the very start of a list item: remove the bullet (outdent), like Word/Docs
+    if (e.key === "Backspace") {
+      const sel = window.getSelection();
+      if (sel && sel.isCollapsed && sel.rangeCount) {
+        const li = closestLi();
+        if (li) {
+          const r = sel.getRangeAt(0);
+          const pre = r.cloneRange(); pre.selectNodeContents(li); pre.setEnd(r.startContainer, r.startOffset);
+          if (pre.toString().length === 0) { e.preventDefault(); document.execCommand("outdent"); refresh(); return; }
+        }
+      }
+    }
+    // Enter on an empty list item: exit the list
+    if (e.key === "Enter" && !e.shiftKey) {
+      const li = closestLi();
+      if (li && li.textContent.replace(/\u00a0/g, " ").trim() === "") { e.preventDefault(); document.execCommand("outdent"); refresh(); return; }
+    }
     if (e.key === " ") {
       const sel = window.getSelection();
       const n = sel && sel.anchorNode;

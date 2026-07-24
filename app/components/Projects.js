@@ -884,6 +884,22 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     }
   }, [pendingProjectId, projects]);
 
+  // Reflect the open task/project in the URL hash so the address bar is always shareable
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const base = window.location.pathname + window.location.search;
+    if (selectedTask?.id) window.history.replaceState(null, "", base + "#projects/t/" + selectedTask.id);
+    else if (activeProject) window.history.replaceState(null, "", base + "#projects/p/" + activeProject);
+    else if ((window.location.hash || "").startsWith("#projects/")) window.history.replaceState(null, "", base);
+  }, [selectedTask?.id, activeProject]);
+
+  const copyShareLink = (kind, id) => {
+    const url = window.location.origin + window.location.pathname + "#projects/" + kind + "/" + id;
+    navigator.clipboard?.writeText(url)
+      .then(() => showToast(kind === "t" ? "Task link copied" : "Project link copied", "success"))
+      .catch(() => window.prompt("Copy link:", url));
+  };
+
   // Open a project flagged before a reload (e.g. just imported from Asana) once it has loaded.
   useEffect(() => {
     let pid = null;
@@ -2076,6 +2092,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
         {!showSidebar && <button onClick={() => setShowSidebar(true)} style={S.iconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text2} strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>}
         <div style={{ width: 12, height: 12, borderRadius: 6, background: proj.color || T.accent, flexShrink: 0 }} />
         <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, flex: 1 }}>{proj.emoji || ""} {proj.name}</h2>
+        <button onClick={() => copyShareLink("p", activeProject)} style={S.iconBtn} title="Copy project link"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></button>
         {/* Project members */}
         {(() => {
           const members = projMembersList.filter(pm => pm.project_id === activeProject);
@@ -2976,6 +2993,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
                 style={{ fontSize: 15, fontWeight: 700, color: T.text, background: "none", border: "none", outline: "none", width: "100%", padding: 0, lineHeight: 1.3 }} />
             </div>
+            <button onClick={() => copyShareLink("t", task.id)} style={S.iconBtn} title="Copy task link"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></button>
             <button onClick={() => setDetailFull(v => !v)} style={S.iconBtn} title={detailFull ? "Exit full view" : "Full view"}>{detailFull ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3v6H3M21 9h-6V3M3 15h6v6M15 21v-6h6"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>}</button>
             <button onClick={() => setSelectedTask(null)} style={S.iconBtn}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>

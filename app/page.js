@@ -128,6 +128,12 @@ export default function HelmApp() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [pendingTaskId, setPendingTaskId] = useState(null);
   const [pendingProjectId, setPendingProjectId] = useState(null);
+
+  // Deep links: #projects/t/<taskId> or #projects/p/<projectId>
+  useEffect(() => {
+    const m = (window.location.hash || "").match(/^#projects\/(t|p)\/([0-9a-f-]{36})/i);
+    if (m) { setActive("projects"); if (m[1] === "t") setPendingTaskId(m[2]); else setPendingProjectId(m[2]); }
+  }, []);
   const [allowedModules, setAllowedModules] = useState(null); // null = loading, array = loaded
   const [isAdmin, setIsAdmin] = useState(false);
   const [isExternal, setIsExternal] = useState(false);
