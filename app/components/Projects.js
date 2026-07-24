@@ -163,7 +163,7 @@ function CelebrationSwim({ variant, onDone }) {
         <Swim top="60%" dur={6.8} bob="turtle-bob 2s" last>
           <Bubbles color="rgba(227,194,92,0.8)" />
           {[[-18, -6, 0], [118, -12, 0.4], [56, -26, 0.8], [-4, 52, 1.2], [104, 48, 0.2]].map(([x, y, d], i) => (
-            <span key={i} style={{ position: "absolute", left: x, top: y, fontSize: 15, color: "#E8C766", animation: `sparkle-twinkle 1.3s ease-in-out ${d}s infinite`, textShadow: "0 0 6px rgba(232,199,102,0.9)" }}>\u2726</span>
+            <span key={i} style={{ position: "absolute", left: x, top: y, fontSize: 15, color: "#E8C766", animation: `sparkle-twinkle 1.3s ease-in-out ${d}s infinite`, textShadow: "0 0 6px rgba(232,199,102,0.9)" }}>✦</span>
           ))}
           <TurtleSVG gold />
         </Swim>
