@@ -213,8 +213,10 @@ Earth Breeze Procurement`);
                   </div>
                   <div style={{ flex: 1 }} />
                   {r.nda_signed_at
-                    ? <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600 }}>✓ NDA signed — {r.nda_name}{r.nda_title ? `, ${r.nda_title}` : ""} · {new Date(r.nda_signed_at).toLocaleString()}</span>
-                    : r.status === "approved" && <span style={{ fontSize: 11.5, color: T.text3 }}>NDA not yet signed</span>}
+                    ? <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600 }}>✓ NDA signed — {r.nda_name}{r.nda_title ? `, ${r.nda_title}` : ""}{r.nda_details?.signer_email ? ` (${r.nda_details.signer_email})` : ""} · {new Date(r.nda_signed_at).toLocaleString()}</span>
+                    : r.status === "approved" && (r.delegate_email
+                      ? <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600 }}>✉ NDA forwarded to {r.delegate_name || r.delegate_email} ({r.delegate_email}) — awaiting signature</span>
+                      : <span style={{ fontSize: 11.5, color: T.text3 }}>NDA not yet signed</span>)}
                   <span style={{ fontSize: 11.5, color: T.text3 }}>{new Date(r.created_at).toLocaleString()}</span>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
