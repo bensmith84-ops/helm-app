@@ -266,7 +266,7 @@ async function enter(t){
   let dt = '<h3>Monthly network volume</h3>' + tblHTML(['Month','Parcels'], p.monthly||[], {numeric:1, max:1});
   dt += '<h3>Weight distribution (network, last 91 days)</h3>' + tblHTML(['Bracket','Parcels','% of volume','Avg lb'], p.weights||[], {numeric:1, max:1});
   dt += '<h3>Destination states (network)</h3>'+tblHTML(['State','Est. YTD parcels','% of volume'], p.geo_combined||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.geo_note)+'</p>';
-  dt += '<h3>Kentucky carrier mix by month</h3><div class="tbl-scroll">'+tblHTML(p.carrier_header||[], p.carriers||[], {numeric:1})+'</div><p class="tbl-note">'+esc(p.carrier_note)+'</p>';
+  dt += '<h3>Carrier mix by month (network)</h3><div class="tbl-scroll">'+tblHTML(p.carrier_header||[], p.carriers||[], {numeric:1})+'</div><p class="tbl-note">'+esc(p.carrier_note)+'</p>';
   S.push(['data','Data tables', dt]);
   S.push(['scope','Scope & requirements', '<h3>Core service</h3>'+listHTML(c.scope_core)+'<h3>Operational</h3>'+listHTML(c.scope_operational)+'<h3>Service levels</h3>'+listHTML(c.scope_service)]);
   S.push(['transit','Transit baseline', tblHTML(['Service','Share of volume','Median transit (days)'], p.transit||[], {numeric:1, max:1}) + '<p class="tbl-note">'+esc(p.transit_note)+'</p>']);
