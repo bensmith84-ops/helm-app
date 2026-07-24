@@ -141,7 +141,10 @@ Earth Breeze Procurement`);
   const save = async () => {
     setSaving(true); setErr(null);
     try {
-      const content = { ...(baseContent || {}), ...fromDraft(draft) }; // merge: preserves packet/downloads/etc.
+      // Merge edits over a FRESH read (not the mount-time snapshot) so data updated
+      // elsewhere (packet tables, downloads, etc.) is never clobbered by a stale save.
+      const { data: fresh } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
+      const content = { ...(fresh?.content || baseContent || {}), ...fromDraft(draft) };
       const { error } = await supabase.from("rfp_portal_content").upsert({ rfp_code: RFP_CODE, content, updated_at: new Date().toISOString() });
       if (error) throw error;
       setBaseContent(content);
