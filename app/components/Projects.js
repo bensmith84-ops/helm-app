@@ -17,6 +17,45 @@ const TABS = ["Info", "List", "Board", "Timeline", "Calendar", "Forms & Template
 const toDateStr = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 const isOverdue = (d) => d && new Date(d) < new Date() && new Date(d).toDateString() !== new Date().toDateString();
 
+// Sea turtle celebration — swims across the screen when a task is completed
+function TurtleSwim({ onDone }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 9999, overflow: "hidden" }}>
+      <style>{`
+        @keyframes turtle-swim { from { transform: translateX(-160px); } to { transform: translateX(calc(100vw + 160px)); } }
+        @keyframes turtle-bob { 0%,100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-16px) rotate(3deg); } }
+        @keyframes flipper-front { 0%,100% { transform: rotate(-18deg); } 50% { transform: rotate(26deg); } }
+        @keyframes flipper-back { 0%,100% { transform: rotate(14deg); } 50% { transform: rotate(-16deg); } }
+        @keyframes turtle-bubble { 0% { opacity: 0; transform: translate(0,0) scale(0.5); } 20% { opacity: 0.8; } 100% { opacity: 0; transform: translate(-30px,-46px) scale(1.15); } }
+      `}</style>
+      <div onAnimationEnd={onDone} style={{ position: "absolute", top: "62%", left: 0, animation: "turtle-swim 5.2s linear forwards" }}>
+        <div style={{ animation: "turtle-bob 1.7s ease-in-out infinite", position: "relative" }}>
+          {[0, 1, 2].map(i => (
+            <span key={i} style={{ position: "absolute", left: -8 - i * 10, top: 12 + (i % 2) * 14, width: 7 - i, height: 7 - i, borderRadius: "50%", border: "1.5px solid rgba(127,176,105,0.75)", animation: `turtle-bubble 1.9s ease-out ${i * 0.55}s infinite` }} />
+          ))}
+          <svg width="112" height="76" viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <g style={{ animation: "flipper-back 0.85s ease-in-out infinite", transformOrigin: "36px 52px" }}>
+              <path d="M36 52 Q26 68 16 70 Q26 58 30 50 Z" fill="#5E9E6C" />
+            </g>
+            <path d="M24 40 Q16 36 14 42 Q18 46 25 45 Z" fill="#6FAF7C" />
+            <ellipse cx="57" cy="40" rx="33" ry="22" fill="#4E8F5B" stroke="#3C7249" strokeWidth="2.5" />
+            <path d="M32 33 Q57 18 82 33" fill="none" stroke="#3C7249" strokeWidth="2" opacity="0.7" />
+            <path d="M28 44 Q57 58 86 44" fill="none" stroke="#3C7249" strokeWidth="2" opacity="0.7" />
+            <path d="M45 20 L45 60 M69 20 L69 60" stroke="#3C7249" strokeWidth="2" opacity="0.45" />
+            <ellipse cx="57" cy="59" rx="27" ry="6" fill="#D9E8CF" opacity="0.85" />
+            <circle cx="97" cy="35" r="10.5" fill="#6FAF7C" stroke="#3C7249" strokeWidth="1.5" />
+            <circle cx="101" cy="31.5" r="2" fill="#143733" />
+            <path d="M101 39 Q104 40.5 106 38.5" fill="none" stroke="#143733" strokeWidth="1.3" strokeLinecap="round" />
+            <g style={{ animation: "flipper-front 0.85s ease-in-out infinite", transformOrigin: "74px 54px" }}>
+              <path d="M74 54 Q72 72 56 77 Q68 62 66 52 Z" fill="#6FAF7C" stroke="#3C7249" strokeWidth="1.2" />
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // @Mention Input Component
 function renderRich(text, T) {
   if (!text) return null;
@@ -463,6 +502,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [comments, setComments] = useState([]);
   const [reactions, setReactions] = useState({}); // comment_id -> [{id,user_id,emoji}]
   const [reactionPickerFor, setReactionPickerFor] = useState(null);
+  const [turtleKey, setTurtleKey] = useState(0);
   const [newComment, setNewComment] = useState(""); // legacy — kept for compat
   const [editingDesc, setEditingDesc] = useState(false);
   const [taskCollabs, setTaskCollabs] = useState([]);
@@ -1058,7 +1098,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     executeRules(data.id, "__created", true, null, data);
   };
   const startAddSubtask = (task, e) => { e?.stopPropagation(); setAddingSubtaskTo(task.id); setNewSubtaskTitle(""); setExpandedTasks(p => ({ ...p, [task.id]: true })); };
-  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") ups.completed_at = new Date().toISOString(); if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("org_id", orgId).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); return; } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); }
+  const updateField = async (taskId, field, value) => { const old = tasks.find(t => t.id === taskId); setTasks(p => p.map(t => t.id === taskId ? { ...t, [field]: value } : t)); if (selectedTask?.id === taskId) setSelectedTask(p => ({ ...p, [field]: value })); const ups = { [field]: value, updated_at: new Date().toISOString() }; if (field === "status" && value === "done") { ups.completed_at = new Date().toISOString(); if (old?.status !== "done" && !(typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) setTurtleKey(Date.now()); } if (field === "status" && old?.status === "done" && value !== "done") ups.completed_at = null; const { error } = await supabase.from("tasks").update(ups).eq("org_id", orgId).eq("id", taskId); if (error) { showToast("Update failed"); setTasks(p => p.map(t => t.id === taskId ? old : t)); return; } if (field === "status") { const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t); syncProjectProgress(old?.project_id || activeProject, updatedTasks); }
     // Notify on assignment
     if (field === "assignee_id" && value && value !== user?.id && value !== old?.assignee_id) {
       const proj = projects.find(p => p.id === (old?.project_id || activeProject));
@@ -4562,6 +4602,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
         </div>
       )}
 
+      {turtleKey > 0 && <TurtleSwim key={turtleKey} onDone={() => setTurtleKey(0)} />}
       {toast && <div style={{ position: "fixed", top: 16, right: 16, zIndex: 200, padding: "10px 16px", borderRadius: 8, background: toast.type === "success" ? T.greenDim : T.redDim, color: toast.type === "success" ? T.green : T.red, fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", animation: "slideIn 0.2s ease" }}>{toast.msg}</div>}
 
       {/* Section context menu */}
