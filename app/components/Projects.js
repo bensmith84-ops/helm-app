@@ -461,6 +461,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [sortCol, setSortCol] = useState("sort_order");
   const [sortDir, setSortDir] = useState("asc");
   const [comments, setComments] = useState([]);
+  const [reactions, setReactions] = useState({}); // comment_id -> [{id,user_id,emoji}]
+  const [reactionPickerFor, setReactionPickerFor] = useState(null);
   const [newComment, setNewComment] = useState(""); // legacy — kept for compat
   const [editingDesc, setEditingDesc] = useState(false);
   const [taskCollabs, setTaskCollabs] = useState([]);
@@ -743,7 +745,15 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     Promise.all([
       supabase.from("comments").select("*").eq("org_id", orgId).eq("entity_type", "task").eq("entity_id", selectedTask.id).is("deleted_at", null).order("created_at", { ascending: true }),
       supabase.from("attachments").select("*").eq("org_id", orgId).eq("entity_type", "task").eq("entity_id", selectedTask.id),
-    ]).then(([cR, aR]) => { setComments(cR.data || []); setAttachments(aR.data || []); });
+    ]).then(async ([cR, aR]) => {
+      setComments(cR.data || []); setAttachments(aR.data || []);
+      const ids = (cR.data || []).map(c => c.id);
+      if (ids.length) {
+        const { data: rx } = await supabase.from("comment_reactions").select("id,comment_id,user_id,emoji").in("comment_id", ids);
+        const m = {}; (rx || []).forEach(r => { (m[r.comment_id] = m[r.comment_id] || []).push(r); });
+        setReactions(m);
+      } else setReactions({});
+    });
   }, [selectedTask?.id]);
 
   useEffect(() => {
@@ -1448,6 +1458,22 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     if (!error && data) setComments(p => p.map(c => c.id === data.id ? data : c));
     setEditingCommentId(null);
   };
+  const toggleReaction = async (commentId, emoji) => {
+    setReactionPickerFor(null);
+    const list = reactions[commentId] || [];
+    const mine = list.find(r => r.emoji === emoji && r.user_id === user?.id);
+    if (mine) {
+      setReactions(m => ({ ...m, [commentId]: (m[commentId] || []).filter(r => r.id !== mine.id) }));
+      await supabase.from("comment_reactions").delete().eq("id", mine.id);
+    } else {
+      const temp = { id: "tmp-" + Date.now(), comment_id: commentId, user_id: user?.id, emoji };
+      setReactions(m => ({ ...m, [commentId]: [...(m[commentId] || []), temp] }));
+      const { data } = await supabase.from("comment_reactions").insert({ org_id: orgId, comment_id: commentId, user_id: user.id, emoji }).select().single();
+      if (data) setReactions(m => ({ ...m, [commentId]: (m[commentId] || []).map(r => r.id === temp.id ? data : r) }));
+      else setReactions(m => ({ ...m, [commentId]: (m[commentId] || []).filter(r => r.id !== temp.id) }));
+    }
+  };
+
   const deleteComment = async (id) => {
     if (!window.confirm("Delete this comment?")) return;
     await supabase.from("comments").update({ deleted_at: new Date().toISOString() }).eq("org_id", orgId).eq("id", id);
@@ -3122,6 +3148,28 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                       ) : (
                         <div style={{ position: "relative" }}>
                           <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.5, wordBreak: "break-word" }}>{renderRich(c.content, T)}</div>
+                          <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap", alignItems: "center", position: "relative" }}>
+                            {Object.entries((reactions[c.id] || []).reduce((a, r) => { (a[r.emoji] = a[r.emoji] || []).push(r); return a; }, {})).map(([em, rs]) => {
+                              const mine = rs.some(r => r.user_id === user?.id);
+                              return (
+                                <button key={em} onClick={() => toggleReaction(c.id, em)}
+                                  title={rs.map(r => uname(r.user_id)).join(", ")}
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "1px 7px", borderRadius: 10, fontSize: 11, cursor: "pointer", border: `1px solid ${mine ? T.accent : T.border}`, background: mine ? T.accent + "18" : T.surface2, color: mine ? T.accent : T.text3 }}>
+                                  <span style={{ fontSize: 12 }}>{em}</span>{rs.length}
+                                </button>
+                              );
+                            })}
+                            <button onClick={() => setReactionPickerFor(reactionPickerFor === c.id ? null : c.id)}
+                              style={{ padding: "1px 6px", borderRadius: 10, fontSize: 11, cursor: "pointer", border: `1px dashed ${T.border}`, background: "none", color: T.text3, opacity: 0.7 }}>+😊</button>
+                            {reactionPickerFor === c.id && (
+                              <div style={{ position: "absolute", bottom: "100%", left: 0, marginBottom: 4, display: "flex", gap: 2, padding: "4px 6px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, boxShadow: "0 4px 12px rgba(0,0,0,0.18)", zIndex: 20 }}>
+                                {["\u{1F44D}", "\u2705", "\u{1F440}", "\u2764\uFE0F", "\u{1F389}", "\u{1F64F}", "\u{1F602}"].map(em => (
+                                  <button key={em} onClick={() => toggleReaction(c.id, em)} style={{ padding: "3px 5px", fontSize: 15, background: "none", border: "none", cursor: "pointer", borderRadius: 5 }}
+                                    onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "none"}>{em}</button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                           {c.author_id === user?.id && (
                             <div style={{ display: "flex", gap: 4, marginTop: 3, opacity: 0.5, transition: "opacity 0.15s" }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
                               <button onClick={() => setEditingCommentId(c.id)} style={{ padding: "1px 6px", fontSize: 9, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.text3, cursor: "pointer" }}>Edit</button>
