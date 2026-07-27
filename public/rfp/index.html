@@ -186,11 +186,11 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 <script>
 const RFP_CODE = new URL(location.href).searchParams.get('rfp') || 'EB-2026-PARCEL-01';
 const TOK_KEY = 'eb_rfp_token:' + RFP_CODE;
-if (RFP_CODE === 'EB-2026-PARCEL-01' && !localStorage.getItem(TOK_KEY) && getTok()) {
-  localStorage.setItem(TOK_KEY, getTok());
-}
 const getTok = () => localStorage.getItem(TOK_KEY);
 const setTok = (t) => localStorage.setItem(TOK_KEY, t);
+if (RFP_CODE === 'EB-2026-PARCEL-01' && !localStorage.getItem(TOK_KEY) && localStorage.getItem('eb_rfp_token')) {
+  localStorage.setItem(TOK_KEY, localStorage.getItem('eb_rfp_token'));
+}
 const SB_URL = "https://upbjdmnykheubxkuknuj.supabase.co";
 const SB_KEY = "sb_publishable_CvYsgH8si7ucRsiB-VktIA_Nh9H2qeT";
 const HDRS = {'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
@@ -229,7 +229,7 @@ async function boot(){
     else if (st.status === 'denied') { show('scr-denied'); }
     else if (st.status === 'approved' && !st.nda_signed) { await showNDA(t, st); }
     else if (st.status === 'approved' && st.nda_signed) { await enter(t); }
-    else { localStorage.removeItem('eb_rfp_token'); show('scr-request'); }
+    else { localStorage.removeItem(TOK_KEY); show('scr-request'); }
   } catch(e) { show('scr-request'); }
 }
 
