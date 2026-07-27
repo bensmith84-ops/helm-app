@@ -38,6 +38,7 @@ export default function PLMSourcingTab({ program }) {
   const [aiChat, setAiChat]           = useState([]);
   const [aiInput, setAiInput]         = useState("");
   const [selectedAgent, setSelectedAgent] = useState("sourcing_expert");
+  const [portalMap, setPortalMap] = useState({});
 
   const load = useCallback(async () => {
     if (!orgId || !program?.id) return;
@@ -48,6 +49,11 @@ export default function PLMSourcingTab({ program }) {
     ]);
     setItems(it || []);
     setRfps(rf || []);
+    const ids = (rf || []).map(r => r.id);
+    if (ids.length) {
+      const { data: portals } = await supabase.from("rfp_portal_content").select("plm_rfp_id,status").in("plm_rfp_id", ids);
+      setPortalMap(Object.fromEntries((portals || []).map(p => [p.plm_rfp_id, p.status])));
+    } else setPortalMap({});
     setLoading(false);
   }, [orgId, program?.id]);
 
@@ -213,7 +219,7 @@ export default function PLMSourcingTab({ program }) {
                     <tr key={r.id} onClick={() => setSelectedRFP(r)} style={{ cursor: "pointer", borderTop: "1px solid " + T.border + "60" }}
                         onMouseEnter={e => e.currentTarget.style.background = T.surface2}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <td style={td}><div style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{r.name}</div>{r.description && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{truncate(r.description, 80)}</div>}</td>
+                      <td style={td}><div style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{r.name}{portalMap[r.id] && <span title={"External portal " + portalMap[r.id]} style={{ marginLeft: 7, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: portalMap[r.id] === "active" ? "#22c55e18" : "#64748b18", color: portalMap[r.id] === "active" ? "#22c55e" : "#64748b" }}>🌐 portal</span>}</div>{r.description && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{truncate(r.description, 80)}</div>}</td>
                       <td style={td}><span style={{ fontSize: 11, fontWeight: 600, color: meta.color }}>{meta.icon} {meta.label}</span></td>
                       <td style={td}><span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: sc.bg, color: sc.color }}>{sc.label}</span></td>
                       <td style={td}>{r.plm_rfp_items?.[0]?.count ?? 0}</td>

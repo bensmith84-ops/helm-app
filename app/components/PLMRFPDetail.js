@@ -6,6 +6,93 @@ import { useAuth } from "../lib/auth";
 
 const PLMRFPBrief       = lazy(() => import("./PLMRFPBrief"));
 const PLMRFPSubmissions = lazy(() => import("./PLMRFPSubmissions"));
+const PortalAdmin       = lazy(() => import("./ThreePLParcelRFP"));
+
+const PORTAL_BASE = "https://helm-app-six.vercel.app/rfp/index.html";
+const CM_TEMPLATE_CODE = "EB-2026-CM-POWDER-01";
+
+// ── External RFP Portal (gated site for manufacturers) tied to this PLM RFP ──
+function ExternalPortalSection({ rfp }) {
+  const [portal, setPortal] = useState(null);
+  const [counts, setCounts] = useState({ pending: 0, signed: 0, subs: 0 });
+  const [loading, setLoading] = useState(true);
+  const [manage, setManage] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase.from("rfp_portal_content").select("rfp_code,title,rfp_type,status").eq("plm_rfp_id", rfp.id).maybeSingle();
+    setPortal(data || null);
+    if (data) {
+      const [{ data: reqs }, { count: subCount }] = await Promise.all([
+        supabase.from("rfp_access_requests").select("status,nda_signed_at").eq("rfp_code", data.rfp_code),
+        supabase.from("rfp_submissions").select("id", { count: "exact", head: true }).eq("rfp_code", data.rfp_code),
+      ]);
+      setCounts({
+        pending: (reqs || []).filter(r => r.status === "pending").length,
+        signed: (reqs || []).filter(r => r.nda_signed_at).length,
+        subs: subCount || 0,
+      });
+    }
+    setLoading(false);
+  }, [rfp.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const createPortal = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const code = ("EB-" + new Date().getFullYear() + "-CM-" + (rfp.name || "RFP").toUpperCase().replace(/^EARTH BREEZE /, "").replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 18) + "-01");
+      const title = `${rfp.name} — Contract Manufacturing RFP`;
+      const { data: tpl, error: e1 } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", CM_TEMPLATE_CODE).maybeSingle();
+      if (e1 || !tpl?.content) throw new Error("CM template content not found.");
+      const cloned = JSON.parse(JSON.stringify(tpl.content).split(CM_TEMPLATE_CODE).join(code));
+      cloned.eyebrow = `Request for Proposal · ${code} · Contract Manufacturing`;
+      cloned.title_html = title;
+      const { error: e2 } = await supabase.from("rfp_portal_content").insert({ rfp_code: code, title, rfp_type: "cm", status: "active", plm_rfp_id: rfp.id, content: cloned });
+      if (e2) throw e2;
+      await load();
+      setManage(true);
+    } catch (e) { setErr(e.message || String(e)); }
+    setBusy(false);
+  };
+
+  const portalUrl = portal ? `${PORTAL_BASE}?rfp=${encodeURIComponent(portal.rfp_code)}` : null;
+  const chip = (bg, fg, txt) => <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: 99, background: bg, color: fg, fontWeight: 700 }}>{txt}</span>;
+
+  return (
+    <div style={{ marginBottom: 24, padding: 14, background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>🌐 External RFP Portal</span>
+        {loading ? <span style={{ fontSize: 12, color: T.text3 }}>Loading…</span> : portal ? (<>
+          {chip(portal.status === "active" ? "#22c55e18" : "#64748b18", portal.status === "active" ? "#22c55e" : "#64748b", portal.status)}
+          <span style={{ fontSize: 12, color: T.text3 }}>{portal.rfp_code}</span>
+          <div style={{ flex: 1 }} />
+          {counts.pending > 0 && chip("#eab30818", "#b8860b", `${counts.pending} pending request${counts.pending === 1 ? "" : "s"}`)}
+          <span style={{ fontSize: 11.5, color: T.text3 }}>{counts.signed} NDA{counts.signed === 1 ? "" : "s"} · {counts.subs} submission{counts.subs === 1 ? "" : "s"}</span>
+          <button onClick={() => setManage(true)} style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none", background: T.accent, color: "#fff" }}>Manage portal</button>
+          <a href={portalUrl} target="_blank" rel="noreferrer" style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, textDecoration: "none", background: T.surface, color: T.text2, border: `1px solid ${T.border}` }}>Open ↗</a>
+        </>) : (<>
+          <span style={{ fontSize: 12, color: T.text3 }}>No gated manufacturer portal yet — create one from the CM template (access requests → MNDA → gated RFP → submissions).</span>
+          <div style={{ flex: 1 }} />
+          <button onClick={createPortal} disabled={busy} style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none", background: T.accent, color: "#fff" }}>{busy ? "Creating…" : "+ Create portal"}</button>
+        </>)}
+        {err && <span style={{ fontSize: 12, color: "#ef4444" }}>{err}</span>}
+      </div>
+
+      {manage && portal && (
+        <div onClick={e => { if (e.target === e.currentTarget) { setManage(false); load(); } }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, overflowY: "auto", padding: "24px 16px" }}>
+          <div style={{ maxWidth: 1040, margin: "12px auto", background: T.surface, borderRadius: 12, padding: 20, border: `1px solid ${T.border}` }}>
+            <Suspense fallback={<div style={{ padding: 30, color: T.text3, fontSize: 13 }}>Loading portal admin…</div>}>
+              <PortalAdmin rfpCode={portal.rfp_code} rfpType={portal.rfp_type} title={portal.title} onBack={() => { setManage(false); load(); }} />
+            </Suspense>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const STATUS_COLORS = {
   draft: { bg: "#94a3b815", color: "#94a3b8", label: "Draft" },
@@ -266,6 +353,9 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
           <SmallField label="Target volume" type="number" value={rfp.target_volume || ""} onChange={v => updateRfp({ target_volume: v ? Number(v) : null })} disabled={!isEditable} />
           <SmallField label="Unit" value={rfp.target_volume_unit || ""} onChange={v => updateRfp({ target_volume_unit: v })} disabled={!isEditable} />
         </div>
+
+        {/* External portal (gated manufacturer site) */}
+        <ExternalPortalSection rfp={rfp} />
 
         {/* Product Development Brief */}
         <Suspense fallback={<div style={{ padding: 20, color: T.text3, fontSize: 12 }}>Loading brief editor…</div>}>
