@@ -3,8 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 
-const RFP_CODE = "EB-2026-PARCEL-01";
-const PORTAL_URL = "https://helm-app-six.vercel.app/rfp/index.html";
+const PORTAL_BASE = "https://helm-app-six.vercel.app/rfp/index.html";
 
 const TYPE_META = {
   proposal: { label: "Proposal", bg: "rgba(52,168,83,0.15)", fg: "#34a853" },
@@ -17,7 +16,30 @@ const STATUS_META = {
   denied:   { label: "Denied",   bg: "rgba(229,72,77,0.15)", fg: "#e5484d" },
 };
 
-const FIELDS = [
+const FIELDS_CM = [
+  { key: "eyebrow",           label: "Eyebrow line (RFP no.)",              type: "input" },
+  { key: "title_html",        label: "Title (HTML, <br> for line break)",   type: "input" },
+  { key: "sub",               label: "Subtitle",                             type: "text", rows: 2 },
+  { key: "facts",             label: "Hero facts — one per line: value | label", type: "facts" },
+  { key: "overview_lead",     label: "Overview — lead paragraph (HTML ok)",  type: "text", rows: 4 },
+  { key: "overview_bullets",  label: "Overview — bullets (one per line)",    type: "list", rows: 4 },
+  { key: "product_rows",      label: "Product summary — one per line: item | detail", type: "pairs", rows: 7 },
+  { key: "claims_core",       label: "Brand claims (must deliver)",          type: "list", rows: 8 },
+  { key: "claims_additional", label: "Additional claims",                    type: "list", rows: 5 },
+  { key: "efficacy",          label: "Efficacy standards",                   type: "list", rows: 4 },
+  { key: "materials_certs",   label: "Raw materials & certifications",       type: "list", rows: 4 },
+  { key: "packaging",         label: "Packaging bullets",                    type: "list", rows: 4 },
+  { key: "regulatory",        label: "Regulatory bullets",                   type: "list", rows: 4 },
+  { key: "commercial",        label: "Commercial & pricing format bullets",  type: "list", rows: 6 },
+  { key: "timeline_rows",     label: "Timeline — one per line: milestone | date", type: "pairs", rows: 9 },
+  { key: "eval_rows",         label: "Evaluation — one per line: criterion | weight", type: "pairs", rows: 7 },
+  { key: "response_format",   label: "Response format bullets",              type: "list", rows: 10 },
+  { key: "terms",             label: "Terms bullets",                        type: "list", rows: 5 },
+  { key: "contacts",          label: "Contacts paragraph (HTML ok)",         type: "text", rows: 2 },
+  { key: "nda_text",          label: "NDA text (HTML — shown at signing)",   type: "text", rows: 14 },
+];
+
+const FIELDS_PARCEL = [
   { key: "eyebrow",           label: "Eyebrow line (RFP no. / issue date)", type: "input" },
   { key: "title_html",        label: "Title (HTML, <br> for line break)",   type: "input" },
   { key: "sub",               label: "Subtitle",                             type: "text", rows: 2 },
@@ -37,7 +59,7 @@ const FIELDS = [
   { key: "nda_text",          label: "NDA text (HTML — shown at signing)",   type: "text", rows: 14 },
 ];
 
-function toDraft(content) {
+function toDraft(content, FIELDS) {
   const d = {};
   for (const f of FIELDS) {
     const v = content?.[f.key];
@@ -48,7 +70,7 @@ function toDraft(content) {
   }
   return d;
 }
-function fromDraft(draft) {
+function fromDraft(draft, FIELDS) {
   const c = {};
   const splitPair = (line) => {
     const i = line.indexOf(" | ");
@@ -64,7 +86,10 @@ function fromDraft(draft) {
   return c;
 }
 
-export default function ThreePLParcelRFP() {
+export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpType = "parcel", title = "US Parcel Network RFP", onBack }) {
+  const RFP_CODE = rfpCode;
+  const PORTAL_URL = PORTAL_BASE + "?rfp=" + encodeURIComponent(rfpCode);
+  const FIELDS = rfpType === "cm" ? FIELDS_CM : FIELDS_PARCEL;
   const { tokens: T } = useTheme();
   const [tab, setTab] = useState("requests");
 
@@ -101,13 +126,13 @@ export default function ThreePLParcelRFP() {
   const loadContent = useCallback(async () => {
     setContentLoading(true);
     const { data, error } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
-    if (!error && data?.content) { setBaseContent(data.content); setDraft(toDraft(data.content)); }
+    if (!error && data?.content) { setBaseContent(data.content); setDraft(toDraft(data.content, FIELDS)); }
     setContentLoading(false);
   }, []);
 
   useEffect(() => { loadReqs(); loadSubs(); loadContent(); }, [loadReqs, loadSubs, loadContent]);
 
-  const accessLink = (r) => `${PORTAL_URL}?token=${r.id}`;
+  const accessLink = (r) => `${PORTAL_URL}&token=${r.id}`;
 
   const decide = async (r, status) => {
     setBusy(r.id);
@@ -144,7 +169,7 @@ Earth Breeze Procurement`);
       // Merge edits over a FRESH read (not the mount-time snapshot) so data updated
       // elsewhere (packet tables, downloads, etc.) is never clobbered by a stale save.
       const { data: fresh } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
-      const content = { ...(fresh?.content || baseContent || {}), ...fromDraft(draft) };
+      const content = { ...(fresh?.content || baseContent || {}), ...fromDraft(draft, FIELDS) };
       const { error } = await supabase.from("rfp_portal_content").upsert({ rfp_code: RFP_CODE, content, updated_at: new Date().toISOString() });
       if (error) throw error;
       setBaseContent(content);
@@ -177,6 +202,8 @@ Earth Breeze Procurement`);
   return (
     <div style={{ maxWidth: 1000 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        {onBack && <button onClick={onBack} style={{ padding: "7px 10px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.text2, border: `1px solid ${T.border}` }}>←</button>}
+        <b style={{ fontSize: 13.5, color: T.text }}>{title}</b>
         <div style={{ display: "flex", gap: 2, background: T.surface2, borderRadius: 8, padding: 3 }}>
           {[["requests", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`], ["submissions", `Submissions${subs.length ? ` (${subs.length})` : ""}`], ["content", "Portal Content"]].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} style={{ ...btn, background: tab === k ? T.surface : "transparent", color: tab === k ? T.text : T.text3, boxShadow: tab === k ? "0 1px 3px rgba(0,0,0,0.15)" : "none" }}>{l}</button>

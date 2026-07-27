@@ -184,6 +184,13 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 </div>
 
 <script>
+const RFP_CODE = new URL(location.href).searchParams.get('rfp') || 'EB-2026-PARCEL-01';
+const TOK_KEY = 'eb_rfp_token:' + RFP_CODE;
+if (RFP_CODE === 'EB-2026-PARCEL-01' && !localStorage.getItem(TOK_KEY) && getTok()) {
+  localStorage.setItem(TOK_KEY, getTok());
+}
+const getTok = () => localStorage.getItem(TOK_KEY);
+const setTok = (t) => localStorage.setItem(TOK_KEY, t);
 const SB_URL = "https://upbjdmnykheubxkuknuj.supabase.co";
 const SB_KEY = "sb_publishable_CvYsgH8si7ucRsiB-VktIA_Nh9H2qeT";
 const HDRS = {'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
@@ -197,10 +204,20 @@ const show = id => { for (const s of ['scr-request','scr-pending','scr-denied','
 
 function getToken(){
   const u = new URL(location.href); const t = u.searchParams.get('token');
-  if (t) { localStorage.setItem('eb_rfp_token', t); u.searchParams.delete('token'); history.replaceState({},'',u.pathname); }
-  return localStorage.getItem('eb_rfp_token');
+  if (t) { setTok(t); u.searchParams.delete('token'); history.replaceState({},'',u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '')); }
+  return getTok();
 }
-function resetToken(){ localStorage.removeItem('eb_rfp_token'); show('scr-request'); }
+function resetToken(){ localStorage.removeItem(TOK_KEY); show('scr-request'); }
+async function brandGate(){
+  try {
+    const m = await rpc('rfp_portal_meta', {p_code: RFP_CODE});
+    if (!m.ok) { document.querySelector('#scr-request h1').textContent = 'RFP not available'; document.querySelector('#scr-request p').textContent = 'This RFP is not open for access requests. Check the link in your invitation or contact Earth Breeze.'; document.getElementById('req-btn').disabled = true; return; }
+    document.title = 'Earth Breeze — ' + m.title;
+    document.querySelector('#scr-request h1').textContent = m.title;
+    document.querySelector('#scr-request p').innerHTML = 'RFP No. ' + m.code + ' · Confidential. Access is granted to invited ' + (m.type === 'cm' ? 'manufacturers' : 'carriers') + ' after approval and a signed NDA. Request access below.';
+  } catch(e) {}
+}
+brandGate();
 
 async function boot(){
   const t = getToken();
@@ -222,9 +239,9 @@ async function requestAccess(){
   if (!email.includes('@')) { err.textContent='Please enter a valid work email.'; err.style.display='block'; return; }
   $('req-btn').disabled = true; $('req-btn').textContent = 'Sending…';
   try {
-    const res = await rpc('rfp_request_access', {p_email: email, p_name: name, p_company: company});
+    const res = await rpc('rfp_request_access', {p_email: email, p_name: name, p_company: company, p_rfp_code: RFP_CODE});
     if (!res.ok) throw new Error('invalid');
-    localStorage.setItem('eb_rfp_token', res.token);
+    setTok(res.token);
     boot();
   } catch(e) { err.textContent='Request failed — please try again.'; err.style.display='block'; }
   $('req-btn').disabled = false; $('req-btn').textContent = 'Request access';
@@ -258,21 +275,21 @@ async function signNDA(){
   if (!$('nda-agree').checked) { err.textContent='Please tick the authorization checkbox.'; err.style.display='block'; return; }
   $('nda-btn').disabled = true; $('nda-btn').textContent = 'Signing…';
   try {
-    const res = await rpc('rfp_sign_nda', {p_token: localStorage.getItem('eb_rfp_token'), p_name: name, p_title: title, p_company_legal: companyLegal, p_entity: entity, p_address: address, p_signer_email: signerEmail});
+    const res = await rpc('rfp_sign_nda', {p_token: getTok(), p_name: name, p_title: title, p_company_legal: companyLegal, p_entity: entity, p_address: address, p_signer_email: signerEmail});
     if (!res.ok) throw new Error(res.error||'failed');
-    await enter(localStorage.getItem('eb_rfp_token'));
+    await enter(getTok());
   } catch(e) { err.textContent='Could not record signature — please retry.'; err.style.display='block'; $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
 }
 
 function toggleFwd(){ const f=$('fwd-form'); f.style.display = f.style.display==='none'?'block':'none'; }
 function buildMailto(name, email, company){
-  const link = location.origin + location.pathname + '?token=' + localStorage.getItem('eb_rfp_token');
+  const link = location.origin + location.pathname + '?token=' + getTok();
   const subject = encodeURIComponent('NDA signature needed \u2014 Earth Breeze Parcel RFP');
   const body = encodeURIComponent('Hi ' + (name||'') + ',\n\nEarth Breeze requires a mutual NDA before ' + (company||'we') + ' can access their US parcel RFP portal. Please review and sign here (takes two minutes):\n\n' + link + '\n\nOnce signed, our access link unlocks the full RFP, data tables, and downloads.\n\nThanks');
   $('fwd-mailto').href = 'mailto:' + email + '?subject=' + subject + '&body=' + body;
 }
 async function copyAccessLink(el){
-  const link = location.origin + location.pathname + '?token=' + localStorage.getItem('eb_rfp_token');
+  const link = location.origin + location.pathname + '?token=' + getTok();
   try { await navigator.clipboard.writeText(link); el.textContent='\u2713 Copied'; setTimeout(()=>{ el.textContent='Copy signing link'; }, 1800); }
   catch(e){ window.prompt('Copy link:', link); }
 }
@@ -282,7 +299,7 @@ async function delegateNDA(){
   if (name.length<2 || !email.includes('@')) { err.textContent='Please enter the signatory\u2019s name and a valid email.'; err.style.display='block'; return; }
   $('fwd-btn').disabled=true; $('fwd-btn').textContent='Saving\u2026';
   try {
-    const res = await rpc('rfp_delegate_nda', {p_token: localStorage.getItem('eb_rfp_token'), p_name: name, p_email: email});
+    const res = await rpc('rfp_delegate_nda', {p_token: getTok(), p_name: name, p_email: email});
     if (!res.ok) throw new Error(res.error||'failed');
     $('fwd-form').style.display='none'; $('fwd-toggle').style.display='none';
     $('nda-name').value = name; $('nda-email').value = email;
@@ -319,6 +336,36 @@ async function enter(t){
     '<div class="cap"><span>'+esc(p.strip_caption)+'</span></div>';
 
   const S = [];
+  if (c.template === 'cm') {
+    S.push(['overview','Overview', '<p class="lead">'+ (c.overview_lead||'') +'</p>'+listHTML(c.overview_bullets)]);
+    S.push(['product','Product summary', tblHTML(['Item','Detail'], c.product_rows||[], {max:1})]);
+    S.push(['claims','Claims & positioning', '<h3>Brand claims (must deliver)</h3>'+listHTML(c.claims_core)+'<h3>Additional claims</h3>'+listHTML(c.claims_additional)]);
+    S.push(['efficacy','Efficacy standards', listHTML(c.efficacy)]);
+    S.push(['materials','Raw materials & certifications', listHTML(c.materials_certs)]);
+    S.push(['packaging','Packaging', listHTML(c.packaging)]);
+    S.push(['regulatory','Regulatory', listHTML(c.regulatory)]);
+    S.push(['commercial','Commercial & pricing format', listHTML(c.commercial)]);
+    S.push(['timeline','Timeline', tblHTML(['Milestone','Date'], c.timeline_rows||[], {max:1})]);
+    S.push(['evaluation','Evaluation', tblHTML(['Criterion','Weight'], c.eval_rows||[], {max:1})]);
+    S.push(['response','Response format', listHTML(c.response_format)]);
+    S.push(['terms','Terms', listHTML(c.terms) + (c.contacts ? '<h3>Contacts</h3><p style="max-width:780px">'+c.contacts+'</p>' : '')]);
+    if (c.download_docx || c.download_xlsx) S.push(['downloads','Downloads',
+      '<div class="grid2">'+
+      (c.download_docx ? '<a class="dl" href="'+esc(c.download_docx)+'" download><div class="ic">RFP</div><div><b>Full RFP document</b><span>Word · complete requirements &amp; response format</span></div></a>' : '')+
+      (c.download_xlsx ? '<a class="dl" href="'+esc(c.download_xlsx)+'" download><div class="ic">XLS</div><div><b>Pricing workbook</b><span>Excel · pricing template</span></div></a>' : '')+
+      '</div>']);
+    S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
+    const navCM = {overview:'Overview',product:'Product',claims:'Claims',efficacy:'Efficacy',materials:'Materials',packaging:'Packaging',regulatory:'Regulatory',commercial:'Commercial',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',submit:'Submit'};
+    $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navCM[id]+'</a>').join('');
+    $('c-main').innerHTML = S.map(([id,title,body],i)=>'<section id="'+id+'"><h2>'+(i+1)+' \u00b7 '+title+'</h2>'+body+'</section>').join('');
+    // CM form adjustments
+    document.getElementById('f-origins-wrap').style.display = 'none';
+    document.getElementById('cm-fields').style.display = 'block';
+    document.getElementById('f-rates-label').innerHTML = 'Pricing workbook link <span class="opt">(Drive / SharePoint / Dropbox)</span>';
+    $('gate').style.display='none';
+    document.getElementById('site').style.display='block';
+    return;
+  }
   S.push(['overview','Overview', '<p class="lead">'+ (c.overview_lead||'') +'</p>'+listHTML(c.overview_bullets)]);
   S.push(['profile','Shipment profile', tblHTML(['Metric','Value'], c.profile_rows||[], {max:1}) + '<p class="tbl-note">Full detail in the tables below and the Excel data packet.</p>']);
   let dt = '<h3>Monthly network volume</h3>' + tblHTML(['Month','Parcels'], p.monthly||[], {numeric:1, max:1});
@@ -354,8 +401,16 @@ async function submitRFP(e){
   const btn=$('f-btn'); const err=$('form-err');
   btn.disabled=true; btn.textContent='Submitting…'; err.style.display='none';
   const body={
+    rfp_code: RFP_CODE,
     submission_type:$('f-type').value,
-    origins_bid:$('f-origins').value||null,
+    origins_bid: (document.getElementById('f-origins-wrap').style.display==='none') ? null : ($('f-origins').value||null),
+    details: (document.getElementById('cm-fields').style.display==='none') ? null : {
+      facilities: $('f-facilities').value.trim()||null,
+      moq: $('f-moq').value.trim()||null,
+      unit_price_indication: $('f-unitprice').value.trim()||null,
+      lead_time: $('f-leadtime').value.trim()||null,
+      certifications: $('f-certs').value.trim()||null
+    },
     company:$('f-company').value.trim(),
     contact_name:$('f-name').value.trim(),
     email:$('f-email').value.trim(),
@@ -389,7 +444,7 @@ boot();
     <div class="frow">
       <div><label>Submission type</label>
         <select id="f-type"><option value="intent">Intent to bid</option><option value="question">Question</option><option value="proposal" selected>Proposal</option></select></div>
-      <div><label>Origins bid</label>
+      <div id="f-origins-wrap"><label>Origins bid</label>
         <select id="f-origins"><option>Both</option><option>Kentucky (40330) only</option><option>Oregon (97503) only</option><option value="">N/A — question only</option></select></div>
     </div>
     <div class="frow">
@@ -400,8 +455,19 @@ boot();
       <div><label>Email</label><input id="f-email" type="email" required placeholder="name@carrier.com"></div>
       <div><label>Phone <span class="opt">(optional)</span></label><input id="f-phone" maxlength="40" placeholder="+1 …"></div>
     </div>
+    <div id="cm-fields" style="display:none">
+      <div class="frow">
+        <div><label>Manufacturing facility location(s)</label><input id="f-facilities" maxlength="300" placeholder="City, State — per facility"></div>
+        <div><label>MOQ per variant</label><input id="f-moq" maxlength="120" placeholder="e.g. 10,000 kg / run"></div>
+      </div>
+      <div class="frow">
+        <div><label>Indicative unit price range <span class="opt">(optional at intent stage)</span></label><input id="f-unitprice" maxlength="120" placeholder="e.g. $x.xx–$x.xx / kg FOB"></div>
+        <div><label>Lead time <span class="opt">(first production / reorder)</span></label><input id="f-leadtime" maxlength="120" placeholder="e.g. 8 wks / 4 wks"></div>
+      </div>
+      <label>Certifications held <span class="opt">(Leaping Bunny, GMP, ISO, biobased %, etc.)</span></label><input id="f-certs" maxlength="400" placeholder="List relevant certifications">
+    </div>
     <div class="frow">
-      <div><label>Rate workbook link <span class="opt">(Drive / SharePoint / Dropbox)</span></label><input id="f-rates" type="url" placeholder="https://…"></div>
+      <div><label id="f-rates-label">Rate workbook link <span class="opt">(Drive / SharePoint / Dropbox)</span></label><input id="f-rates" type="url" placeholder="https://…"></div>
       <div><label>Full proposal link <span class="opt">(optional)</span></label><input id="f-prop" type="url" placeholder="https://…"></div>
     </div>
     <label>Executive summary / notes</label>
