@@ -5,6 +5,7 @@ import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
 
 const PLMRFPDetail = lazy(() => import("./PLMRFPDetail"));
+const PortalAdmin  = lazy(() => import("./ThreePLParcelRFP"));
 
 const SOURCING_TYPES = [
   { key: "ingredient",            label: "Ingredient",            icon: "🧪", color: "#3b82f6" },
@@ -39,6 +40,7 @@ export default function PLMSourcingTab({ program }) {
   const [aiInput, setAiInput]         = useState("");
   const [selectedAgent, setSelectedAgent] = useState("sourcing_expert");
   const [portalMap, setPortalMap] = useState({});
+  const [managePortal, setManagePortal] = useState(null);
 
   const load = useCallback(async () => {
     if (!orgId || !program?.id) return;
@@ -51,8 +53,8 @@ export default function PLMSourcingTab({ program }) {
     setRfps(rf || []);
     const ids = (rf || []).map(r => r.id);
     if (ids.length) {
-      const { data: portals } = await supabase.from("rfp_portal_content").select("plm_rfp_id,status").in("plm_rfp_id", ids);
-      setPortalMap(Object.fromEntries((portals || []).map(p => [p.plm_rfp_id, p.status])));
+      const { data: portals } = await supabase.from("rfp_portal_content").select("plm_rfp_id,rfp_code,title,rfp_type,status").in("plm_rfp_id", ids);
+      setPortalMap(Object.fromEntries((portals || []).map(p => [p.plm_rfp_id, p])));
     } else setPortalMap({});
     setLoading(false);
   }, [orgId, program?.id]);
@@ -199,6 +201,34 @@ export default function PLMSourcingTab({ program }) {
         <SectionHeader title="Requests for Proposal" subtitle="Send sourcing items out to suppliers for competitive bids. AI can help draft briefs, suggest providers, and score responses.">
           <button onClick={() => setShowNewRFP(true)} style={primaryBtn}>＋ New RFP</button>
         </SectionHeader>
+        {Object.keys(portalMap).length > 0 && (
+          <div style={{ marginBottom: 12, padding: "12px 14px", background: T.surface2, border: "1px solid " + T.border, borderRadius: 8 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text, marginBottom: 8 }}>🌐 External RFP Portals <span style={{ fontWeight: 400, color: T.text3 }}>— gated manufacturer sites (access requests → MNDA → RFP → submissions)</span></div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {rfps.filter(r => portalMap[r.id]).map(r => {
+                const p = portalMap[r.id];
+                return (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 11px", background: T.surface, border: "1px solid " + T.border, borderRadius: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{p.title || p.rfp_code}</span>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: p.status === "active" ? "#22c55e18" : "#64748b18", color: p.status === "active" ? "#22c55e" : "#64748b" }}>{p.status}</span>
+                    <button onClick={() => setManagePortal(p)} style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer", background: "#3b82f6", color: "#fff" }}>Manage</button>
+                    <a href={"https://helm-app-six.vercel.app/rfp/index.html?rfp=" + encodeURIComponent(p.rfp_code)} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "1px solid " + T.border, background: T.surface2, color: T.text2, textDecoration: "none" }}>Open ↗</a>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {managePortal && (
+          <div onClick={e => { if (e.target === e.currentTarget) { setManagePortal(null); load(); } }}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, overflowY: "auto", padding: "24px 16px" }}>
+            <div style={{ maxWidth: 1040, margin: "12px auto", background: T.surface, borderRadius: 12, padding: 20, border: "1px solid " + T.border }}>
+              <Suspense fallback={<div style={{ padding: 30, color: T.text3, fontSize: 13 }}>Loading portal admin…</div>}>
+                <PortalAdmin rfpCode={managePortal.rfp_code} rfpType={managePortal.rfp_type} title={managePortal.title} onBack={() => { setManagePortal(null); load(); }} />
+              </Suspense>
+            </div>
+          </div>
+        )}
         {rfps.length === 0 ? (
           <Empty title="No RFPs yet" hint="Create your first RFP to put items out for bid." />
         ) : (
@@ -219,7 +249,7 @@ export default function PLMSourcingTab({ program }) {
                     <tr key={r.id} onClick={() => setSelectedRFP(r)} style={{ cursor: "pointer", borderTop: "1px solid " + T.border + "60" }}
                         onMouseEnter={e => e.currentTarget.style.background = T.surface2}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <td style={td}><div style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{r.name}{portalMap[r.id] && <span title={"External portal " + portalMap[r.id]} style={{ marginLeft: 7, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: portalMap[r.id] === "active" ? "#22c55e18" : "#64748b18", color: portalMap[r.id] === "active" ? "#22c55e" : "#64748b" }}>🌐 portal</span>}</div>{r.description && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{truncate(r.description, 80)}</div>}</td>
+                      <td style={td}><div style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{r.name}{portalMap[r.id] && <span title={"External portal " + portalMap[r.id].status} style={{ marginLeft: 7, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: portalMap[r.id].status === "active" ? "#22c55e18" : "#64748b18", color: portalMap[r.id].status === "active" ? "#22c55e" : "#64748b" }}>🌐 portal</span>}</div>{r.description && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{truncate(r.description, 80)}</div>}</td>
                       <td style={td}><span style={{ fontSize: 11, fontWeight: 600, color: meta.color }}>{meta.icon} {meta.label}</span></td>
                       <td style={td}><span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: sc.bg, color: sc.color }}>{sc.label}</span></td>
                       <td style={td}>{r.plm_rfp_items?.[0]?.count ?? 0}</td>
