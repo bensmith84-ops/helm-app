@@ -435,6 +435,13 @@ async function enter(t){
     d += '<h3>Destination ZIP3 (top 25)</h3>'+tblHTML(['ZIP3','Orders','Order lines','Units'], p.zip3||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.geo_note)+'</p>';
     d += '<h3>Ship-day distribution</h3>'+hBarChart((p.dow||[]).map(r=>[r[0], r[1], r[2]]), {suffix:1, color:'#1C3883'})+'<p class="tbl-note">'+esc(p.dow_note)+'</p>';
     d += '<h3>Parcel weight profile</h3><p class="tbl-note" style="margin-top:6px">'+esc(p.weight_note)+'</p>';
+    if (Array.isArray(c.forecast_rows) && c.forecast_rows.length) {
+      d += '<h3>Volume forecast to 2028 (US DTC only)</h3><p class="lead">'+(c.forecast_intro||'')+'</p>';
+      d += tblHTML(['Year','DTC orders','Units','Units/order','YoY orders'], c.forecast_rows, {numeric:1, max:1});
+      d += lineChart(c.forecast_detail.map(function(r){return [r[0], r[1]];}), {color:'#1C3883'});
+      d += tblHTML(['Half year','DTC orders','Units'], c.forecast_detail||[], {numeric:1, max:1});
+      d += '<p class="tbl-note">'+esc(c.forecast_note)+'</p>';
+    }
     S.push(['data','Data tables', d]);
     if (Array.isArray(c.forecast_annual) && c.forecast_annual.length) {
       let fc = '<p class="lead">'+(c.forecast_intro||'')+'</p>';
