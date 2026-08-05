@@ -444,6 +444,7 @@ async function enter(t){
       fc += tblHTML(['Quarter','DTC orders','Units'], c.forecast_quarterly, {numeric:1, max:1});
       fc += '<p class="lead" style="margin-top:14px">'+(c.forecast_headline||'')+'</p>';
       fc += '<p class="tbl-note">'+esc(c.forecast_note)+'</p>';
+      if (c.download_forecast) fc += '<div class="grid2" style="margin-top:14px"><a class="dl" href="'+esc(c.download_forecast)+'" download><div class="ic">XLS</div><div><b>DTC volume forecast</b><span>Excel \u00b7 annual and monthly, 2026-2028</span></div></a></div>';
       S.push(['forecast','Volume forecast to 2028', fc]);
     }
     S.push(['scope','Scope &amp; requirements', '<h3>Core services</h3>'+listHTML(c.scope_core)+'<h3>Operational</h3>'+listHTML(c.scope_operational)+'<h3>Service levels</h3>'+listHTML(c.scope_service)]);
