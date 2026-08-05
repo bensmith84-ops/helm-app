@@ -1,5 +1,5 @@
 
-// POST /cx-appreciation-drafter — port of supabase/functions/cx-appreciation-drafter
+// POST /cx-appreciation-drafter - port of supabase/functions/cx-appreciation-drafter
 // Picks high-LTV customers, deterministically scores them, drafts thank-you emails via AI.
 const Anthropic = require('@anthropic-ai/sdk');
 const MODEL = 'claude-sonnet-4-20250514';
@@ -83,20 +83,20 @@ module.exports = function(app, { pool }) {
       const customerBlocks = freshPicks.map((p, i) => `Customer ${i + 1}:
   Name: ${p.name || p.email.split('@')[0]}
   Email: ${p.email}
-  Reason to reach out: ${p._reasonCode} — ${p._reasonDetail}
+  Reason to reach out: ${p._reasonCode} - ${p._reasonDetail}
   Order count: ${p.order_count || 0}
   Subscription: ${p.subscription_status || 'none'}`).join('\n\n');
 
-      const systemPrompt = `You draft short, sincere appreciation emails from a customer support team to high-value customers. The goal is brand goodwill — no upsell, no asks. Just a thank-you with one specific personal touch tied to the "reason to reach out".
+      const systemPrompt = `You draft short, sincere appreciation emails from a customer support team to high-value customers. The goal is brand goodwill - no upsell, no asks. Just a thank-you with one specific personal touch tied to the "reason to reach out".
 
 Brand voice: ${aiCfg.brand_voice || 'warm, friendly, professional'}
 Tone: ${aiCfg.tone || 'empathetic'}
 Writing style: ${aiCfg.writing_style || 'conversational, concise'}
 Emoji usage: ${aiCfg.emoji_usage || 'minimal'}
-Sign-off: ${aiCfg.sign_off || '— The team'}
+Sign-off: ${aiCfg.sign_off || '- The team'}
 
 ${cfg.custom_prompt ? `Team override: ${cfg.custom_prompt}\n` : ''}
-Return ONLY a JSON object with this exact shape — no markdown fences:
+Return ONLY a JSON object with this exact shape - no markdown fences:
 {
   "drafts": [
     { "customer_index": <integer matching the Customer N above>, "subject": "<short, warm, NOT clickbait>", "body": "<3-5 sentence email body, addressed by first name when known. End with the sign-off.>" }

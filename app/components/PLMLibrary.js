@@ -27,7 +27,7 @@ function InlineField({ label, value, onChange, onBlur, type="text", placeholder,
       {label && <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>{label}</div>}
       {options ? (
         <select value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur} style={{ ...base, cursor:"pointer" }}>
-          <option value="">—</option>
+          <option value="">-</option>
           {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
         </select>
       ) : multiline ? (
@@ -80,7 +80,7 @@ function PricingTiers({ supplierId, uom }) {
         </button>
       </div>
       {tiers.length === 0 ? (
-        <div style={{ fontSize:12, color:T.text3, fontStyle:"italic" }}>No pricing tiers — add tiers for volume-based pricing</div>
+        <div style={{ fontSize:12, color:T.text3, fontStyle:"italic" }}>No pricing tiers - add tiers for volume-based pricing</div>
       ) : (
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
           <thead>
@@ -256,7 +256,7 @@ function IngredientDetail({ ingredient, onUpdate, onClose }) {
               {suppliers.slice(0,3).map(s => (
                 <div key={s.id} style={{ display:"flex", justifyContent:"space-between", fontSize:12, padding:"4px 0", borderBottom:`1px solid ${T.border}` }}>
                   <span style={{ color:T.text2 }}>{s.is_preferred?"⭐ ":""}{s.supplier_name}</span>
-                  <span style={{ color:T.text3 }}>{s.lead_time_days ? `${s.lead_time_days}d lead` : "—"}</span>
+                  <span style={{ color:T.text3 }}>{s.lead_time_days ? `${s.lead_time_days}d lead` : "-"}</span>
                 </div>
               ))}
             </div>
@@ -292,7 +292,7 @@ function IngredientDetail({ ingredient, onUpdate, onClose }) {
           ) : suppliers.length === 0 ? (
             <div style={{ padding:"24px 0", textAlign:"center", color:T.text3 }}>
               <div style={{ fontSize:28, marginBottom:8 }}>🏭</div>
-              <div style={{ fontSize:12 }}>No suppliers yet — add your first supplier to start tracking pricing</div>
+              <div style={{ fontSize:12 }}>No suppliers yet - add your first supplier to start tracking pricing</div>
             </div>
           ) : suppliers.map(s => (
             <SupplierCard key={s.id} supplier={s} defaultUom={vals.default_uom}
@@ -365,7 +365,7 @@ export default function PLMLibraryView() {
       <div style={{ padding:"14px 24px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:16, fontWeight:700, color:T.text }}>Ingredient & Supplier Library</div>
-          <div style={{ fontSize:11, color:T.text3, marginTop:2 }}>Reusable ingredients, packaging, and supplier pricing — shared across all programs</div>
+          <div style={{ fontSize:11, color:T.text3, marginTop:2 }}>Reusable ingredients, packaging, and supplier pricing - shared across all programs</div>
         </div>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name, INCI, CAS…"
           style={{ fontSize:12, padding:"6px 12px", background:T.surface2, border:`1px solid ${T.border}`, borderRadius:7, color:T.text, width:220, outline:"none" }} />
@@ -404,7 +404,7 @@ export default function PLMLibraryView() {
               <div key={f.key}>
                 <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>{f.label}</div>
                 <select value={newItem[f.key]||""} onChange={e=>setNewItem(p=>({...p,[f.key]:e.target.value}))} style={{ width:"100%", fontSize:12, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"7px 8px", color:T.text, outline:"none", cursor:"pointer" }}>
-                  <option value="">—</option>
+                  <option value="">-</option>
                   {f.opts.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
@@ -463,8 +463,8 @@ export default function PLMLibraryView() {
                   onMouseEnter={e=>e.currentTarget.style.background=T.surface2}
                   onMouseLeave={e=>e.currentTarget.style.background=idx%2===0?"transparent":T.surface2+"50"}>
                   <td style={{ padding:"11px 16px", fontSize:13, fontWeight:600, color:T.text }}>{item.name}</td>
-                  <td style={{ padding:"11px 16px", fontSize:12, color:T.text2 }}>{item.inci_name||"—"}</td>
-                  <td style={{ padding:"11px 16px", fontSize:12, color:T.text3 }}>{item.category||"—"}</td>
+                  <td style={{ padding:"11px 16px", fontSize:12, color:T.text2 }}>{item.inci_name||"-"}</td>
+                  <td style={{ padding:"11px 16px", fontSize:12, color:T.text3 }}>{item.category||"-"}</td>
                   <td style={{ padding:"11px 16px" }}>
                     <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4,
                       background:item.ingredient_type==="packaging"?"#8b5cf620":"#3b82f620",
@@ -472,11 +472,11 @@ export default function PLMLibraryView() {
                       {item.ingredient_type}
                     </span>
                   </td>
-                  <td style={{ padding:"11px 16px", fontSize:12, color:T.text3 }}>{item.default_uom||"—"}</td>
+                  <td style={{ padding:"11px 16px", fontSize:12, color:T.text3 }}>{item.default_uom||"-"}</td>
                   <td style={{ padding:"11px 16px", fontSize:12, color:T.text3 }}>
                     <SupplierCount ingredientId={item.id} />
                   </td>
-                  <td style={{ padding:"11px 16px", fontSize:11, color:T.text3 }}>{item.cas_number||"—"}</td>
+                  <td style={{ padding:"11px 16px", fontSize:11, color:T.text3 }}>{item.cas_number||"-"}</td>
                   <td style={{ padding:"11px 16px" }}>
                     <button onClick={e=>{e.stopPropagation();deleteItem(item.id);}} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:11, opacity:0.5 }}>✕</button>
                   </td>
@@ -498,6 +498,6 @@ function SupplierCount({ ingredientId }) {
     supabase.from("plm_ingredient_suppliers").select("id", { count:"exact", head:true }).eq("ingredient_id", ingredientId)
       .then(({ count: c }) => setCount(c || 0));
   }, [ingredientId]);
-  if (count == null) return <span style={{ color:T.border }}>—</span>;
+  if (count == null) return <span style={{ color:T.border }}>-</span>;
   return <span style={{ color: count>0?T.text:T.text3, fontWeight:count>0?600:400 }}>{count} {count===1?"supplier":"suppliers"}</span>;
 }

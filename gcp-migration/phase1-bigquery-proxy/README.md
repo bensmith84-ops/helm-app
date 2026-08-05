@@ -1,11 +1,11 @@
-# Phase 1 — BigQuery proxy for dp_orders / dp_daily_sales_by_warehouse
+# Phase 1 - BigQuery proxy for dp_orders / dp_daily_sales_by_warehouse
 
 **Status:** in deployment
 **Goal:** move the two heaviest tables out of Supabase into BigQuery so the operational DB shrinks from 1.1 GB → ~150 MB.
 
 ## Why
 
-`dp_orders` is 946 MB / 86% of the Supabase DB. The source data already lives in BigQuery (`eb-testing-01.shopify_hydrogen.orders`). Mirroring it into Supabase via Metabase CSV exports is pointless — better to query BigQuery directly via a thin Cloud Run service.
+`dp_orders` is 946 MB / 86% of the Supabase DB. The source data already lives in BigQuery (`eb-testing-01.shopify_hydrogen.orders`). Mirroring it into Supabase via Metabase CSV exports is pointless - better to query BigQuery directly via a thin Cloud Run service.
 
 This is the first GCP-resident piece of Helm. Same pattern applies to other analytical tables (scoreboard_daily, qbo_*) in later phases.
 
@@ -26,12 +26,12 @@ eb-testing-01.shopify_hydrogen.*
 
 ## Files
 
-- `bigquery/01_create_dataset.sh` — one-time
-- `bigquery/02_dp_orders_v1.sql` — view DDL
-- `bigquery/03_dp_daily_sales_by_warehouse_v1.sql` — view DDL
-- `cloud-run/` — Node.js Express service
-- `deploy.sh` — single-script deploy
-- `verify.sh` — smoke test
+- `bigquery/01_create_dataset.sh` - one-time
+- `bigquery/02_dp_orders_v1.sql` - view DDL
+- `bigquery/03_dp_daily_sales_by_warehouse_v1.sql` - view DDL
+- `cloud-run/` - Node.js Express service
+- `deploy.sh` - single-script deploy
+- `verify.sh` - smoke test
 
 ## Deploy
 

@@ -1,5 +1,5 @@
 
-// GET /qbo-callback — port of supabase/functions/qbo-callback
+// GET /qbo-callback - port of supabase/functions/qbo-callback
 // OAuth callback: CSRF verify state, exchange code for tokens, fetch company info, upsert connection.
 const { getTokenEndpoint } = require('../lib/qbo');
 

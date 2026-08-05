@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 
 // This component renders a print-optimized batch record for a DOE trial run
-// Opens in a modal/overlay with print button — or use window.print()
+// Opens in a modal/overlay with print button - or use window.print()
 export default function PrintBatchRecord({ experimentId, runId, onClose }) {
   const [experiment, setExperiment] = useState(null);
   const [run, setRun] = useState(null);
@@ -65,7 +65,7 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5 }}>BATCH RECORD</div>
-              <div style={{ fontSize: 14, color: "#666", marginTop: 2 }}>{program?.brand || "Earth Breeze"} · {program?.name || "—"}</div>
+              <div style={{ fontSize: 14, color: "#666", marginTop: 2 }}>{program?.brand || "Earth Breeze"} · {program?.name || "-"}</div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 12, color: "#666" }}>Document Date</div>
@@ -81,7 +81,7 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
               <td style={cellLabel}>Experiment</td>
               <td style={cellValue}>{experiment.name}</td>
               <td style={cellLabel}>DOE Design</td>
-              <td style={cellValue}>{experiment.doe_design?.replace(/_/g, " ") || "—"}</td>
+              <td style={cellValue}>{experiment.doe_design?.replace(/_/g, " ") || "-"}</td>
             </tr>
             <tr>
               <td style={cellLabel}>Run #</td>
@@ -123,7 +123,7 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
           return (
             <>
               <div style={sectionHeader}>FORMULA & INGREDIENT WEIGHTS</div>
-              {formula && <div style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>{formula.name} ({formula.version}) — Batch: {formula.target_batch_size || "—"} {formula.batch_size_unit || "kg"} — <strong style={{ color: "#e65100" }}>🔸 = modified by DOE factors</strong></div>}
+              {formula && <div style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>{formula.name} ({formula.version}) - Batch: {formula.target_batch_size || "-"} {formula.batch_size_unit || "kg"} - <strong style={{ color: "#e65100" }}>🔸 = modified by DOE factors</strong></div>}
               <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 10, fontSize: 11 }}>
                 <thead>
                   <tr style={{ background: "#f0f0f0" }}>
@@ -142,18 +142,18 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
                 <tbody>
                   {formulaItems.map((item, i) => {
                     const affected = isAffected(item);
-                    const batchG = formula?.target_batch_size ? (item.quantity / 100 * formula.target_batch_size * 1000).toFixed(1) : "—";
+                    const batchG = formula?.target_batch_size ? (item.quantity / 100 * formula.target_batch_size * 1000).toFixed(1) : "-";
                     return (
                       <tr key={item.id} style={{ background: affected ? "#fff3e0" : "transparent" }}>
                         <td style={{ ...tdStyle, textAlign: "center", width: 16 }}>{affected ? "🔸" : ""}</td>
                         <td style={{ ...tdStyle, textAlign: "center", color: "#999" }}>{item.addition_order || i + 1}</td>
                         <td style={{ ...tdStyle, fontWeight: affected ? 700 : 600, color: affected ? "#e65100" : "#111" }}>{item.ingredient_name}</td>
-                        <td style={{ ...tdStyle, fontSize: 10, color: "#555" }}>{item.function_in_formula || "—"}</td>
-                        <td style={{ ...tdStyle, textAlign: "center" }}>{item.phase || "—"}</td>
+                        <td style={{ ...tdStyle, fontSize: 10, color: "#555" }}>{item.function_in_formula || "-"}</td>
+                        <td style={{ ...tdStyle, textAlign: "center" }}>{item.phase || "-"}</td>
                         <td style={{ ...tdStyle, textAlign: "right", textDecoration: affected ? "line-through" : "none", color: affected ? "#999" : "#111" }}>{item.quantity}</td>
                         <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: affected ? "#e65100" : "#111" }}>{affected ? "adj." : item.quantity}</td>
                         <td style={{ ...tdStyle, textAlign: "right" }}>{batchG}</td>
-                        <td style={{ ...tdStyle, textAlign: "center" }}>{item.addition_temp_c || "—"}</td>
+                        <td style={{ ...tdStyle, textAlign: "center" }}>{item.addition_temp_c || "-"}</td>
                         <td style={{ ...tdStyle, textAlign: "center" }}>☐</td>
                       </tr>
                     );
@@ -187,7 +187,7 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
                           <tr key={name}>
                             <td style={{ padding: "4px 8px", fontWeight: 700 }}>{name}</td>
                             <td style={{ padding: "4px 8px", fontSize: 14, fontWeight: 800, color: "#e65100" }}>{String(value)}</td>
-                            <td style={{ padding: "4px 8px" }}>{fd?.unit || "—"}</td>
+                            <td style={{ padding: "4px 8px" }}>{fd?.unit || "-"}</td>
                             <td style={{ padding: "4px 8px" }}><div style={fillLine}></div></td>
                           </tr>
                         );
@@ -277,8 +277,8 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
                 {responses.map(r => (
                   <tr key={r.name || r.id}>
                     <td style={tdStyle}><strong>{r.name}</strong></td>
-                    <td style={tdStyle}>{r.unit || "—"}</td>
-                    <td style={tdStyle}>{r.target === "maximize" ? "↑ Maximize" : r.target === "minimize" ? "↓ Minimize" : `◎ Target: ${r.target_value || "—"}`}</td>
+                    <td style={tdStyle}>{r.unit || "-"}</td>
+                    <td style={tdStyle}>{r.target === "maximize" ? "↑ Maximize" : r.target === "minimize" ? "↓ Minimize" : `◎ Target: ${r.target_value || "-"}`}</td>
                     <td style={tdStyle}><div style={fillLine}></div></td>
                   </tr>
                 ))}
@@ -330,12 +330,12 @@ export default function PrintBatchRecord({ experimentId, runId, onClose }) {
         {/* Footer */}
         <div style={{ borderTop: "1px solid #ccc", paddingTop: 8, fontSize: 10, color: "#999", display: "flex", justifyContent: "space-between" }}>
           <span>{program?.brand || "Earth Breeze"} · {experiment.name} · Run {run.run_number}</span>
-          <span>Confidential — Do Not Distribute</span>
+          <span>Confidential - Do Not Distribute</span>
         </div>
       </div>
 
       {/* Print styles */}
-      {/* Print styles — global CSS in page.js handles visibility */}
+      {/* Print styles - global CSS in page.js handles visibility */}
       <style>{`
         @media print {
           @page { margin: 0.6in 0.5in; size: letter; }

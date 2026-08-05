@@ -1,5 +1,5 @@
 
-// POST /qbo-attachments — port of supabase/functions/qbo-attachments
+// POST /qbo-attachments - port of supabase/functions/qbo-attachments
 // 2 actions: get_attachment, sync_attachments. Uses supabase-storage wrapper.
 const { uploadToStorage } = require('../lib/supabase-storage');
 const { qboFetch, getQboBase, getActiveConnection, ensureToken } = require('../lib/qbo');

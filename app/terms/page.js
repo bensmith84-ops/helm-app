@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Terms of Service — Helm Business OS",
+  title: "Terms of Service - Helm Business OS",
   description: "End User License Agreement and Terms of Service for Helm Business OS",
 };
 

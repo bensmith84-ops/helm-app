@@ -14,7 +14,7 @@ const BASE = "https://upbjdmnykheubxkuknuj.supabase.co/functions/v1";
 const HEADERS = { "Content-Type": "application/json", Authorization: `Bearer ${ANON}` };
 
 const fmt$ = (v, compact=true) => {
-  if (v == null || isNaN(v)) return "—";
+  if (v == null || isNaN(v)) return "-";
   const abs = Math.abs(v), s = v < 0 ? "-" : "";
   if (compact) {
     if (abs >= 1e6) return s + "$" + (abs/1e6).toFixed(2) + "M";
@@ -22,8 +22,8 @@ const fmt$ = (v, compact=true) => {
   }
   return s + "$" + abs.toLocaleString("en-US", {minimumFractionDigits:0,maximumFractionDigits:0});
 };
-const fmtN = (v) => v == null ? "—" : Number(v).toLocaleString();
-const fmtPct = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
+const fmtN = (v) => v == null ? "-" : Number(v).toLocaleString();
+const fmtPct = (v) => v == null ? "-" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
 
 // METRIC_META: display info for all scoreboard metrics
 const METRIC_META = {
@@ -229,9 +229,9 @@ const SCOREBOARD_METRICS_CATALOG = [
 ];
 
 const fmtVal = (v, unit, compact=true) => {
-  if (v == null || v === undefined) return "—";
+  if (v == null || v === undefined) return "-";
   const n = Number(v);
-  if (isNaN(n)) return "—";
+  if (isNaN(n)) return "-";
   if (unit === "$") return fmt$(n, compact);
   if (unit === "%") return n.toFixed(1) + "%";
   if (unit === "x") return n.toFixed(2) + "x";
@@ -584,7 +584,7 @@ function ShopifySkuTab() {
       label = pg.display_sku || pg.name;
       productTitle = pg.category || r.product_title;
     } else if (skuMode === "primary" && !skuToPrimary[r.sku]) {
-      // SKU not in any primary group — show as-is under "Other"
+      // SKU not in any primary group - show as-is under "Other"
       key = r.sku;
       label = r.sku;
       productTitle = r.product_title;
@@ -663,7 +663,7 @@ function ShopifySkuTab() {
                     <input type="checkbox" checked={countryMode === "all" ? true : skuCountries.includes(c)}
                       onChange={() => {
                         if (countryMode === "all") {
-                          // Switching from all to selective — deselect this one
+                          // Switching from all to selective - deselect this one
                           setCountryMode("selected");
                           setSkuCountries(countries.filter(x => x !== c));
                         } else if (skuCountries.includes(c)) {
@@ -706,8 +706,8 @@ function ShopifySkuTab() {
       {syncProgress && (
         <div style={{ padding: "10px 14px", borderRadius: 8, background: syncProgress.done ? "#22c55e15" : T.accentDim, border: `1px solid ${syncProgress.done ? "#22c55e40" : T.accent + "40"}`, marginBottom: 12, fontSize: 12 }}>
           {syncProgress.done
-            ? `✅ Sync complete — ${syncProgress.day} days, ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} SKU rows${syncProgress.errors ? ` (${syncProgress.errors} days failed)` : ""}`
-            : `⏳ Day ${syncProgress.day} of ${syncProgress.totalDays} (${syncProgress.date}) — ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows${syncProgress.errors ? ` · ${syncProgress.errors} errors` : ""}`}
+            ? `✅ Sync complete - ${syncProgress.day} days, ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} SKU rows${syncProgress.errors ? ` (${syncProgress.errors} days failed)` : ""}`
+            : `⏳ Day ${syncProgress.day} of ${syncProgress.totalDays} (${syncProgress.date}) - ${syncProgress.orders.toLocaleString()} orders, ${syncProgress.rows.toLocaleString()} rows${syncProgress.errors ? ` · ${syncProgress.errors} errors` : ""}`}
           {syncing && syncProgress.totalDays > 0 && (
             <div style={{ marginTop: 6, height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
               <div style={{ height: "100%", background: T.accent, borderRadius: 2, transition: "width 0.3s", width: `${Math.round((syncProgress.day / syncProgress.totalDays) * 100)}%` }} />
@@ -720,7 +720,7 @@ function ShopifySkuTab() {
           { label: "Total Units", value: fmt(totalUnits), color: "#22c55e" },
           { label: "Net Revenue", value: fmtD(totalRev), color: "#3b82f6" },
           { label: "Unique SKUs", value: skuSummaryArr.length, color: "#8b5cf6" },
-          { label: "Avg Units/Day", value: skuDateRange > 0 ? (totalUnits / Math.min(skuDateRange, Math.max(skuSummaryArr[0]?.days || 1, 1))).toFixed(0) : "—", color: "#f97316" },
+          { label: "Avg Units/Day", value: skuDateRange > 0 ? (totalUnits / Math.min(skuDateRange, Math.max(skuSummaryArr[0]?.days || 1, 1))).toFixed(0) : "-", color: "#f97316" },
         ].map(({ label, value, color }) => (
           <div key={label} style={{ padding: "12px 14px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` }}>
             <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>{label}</div>
@@ -754,7 +754,7 @@ function ShopifySkuTab() {
                 <tr key={s.sku} style={{ borderBottom: `1px solid ${T.border}` }}>
                   <td style={{ padding: "6px 8px", fontWeight: 600, fontFamily: "monospace", fontSize: 11, color: T.accent }}>{s.sku}</td>
                   <td style={{ padding: "6px 8px", color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.product_title}</td>
-                  <td style={{ padding: "6px 8px", color: T.text3 }}>{s.variant_title || "—"}</td>
+                  <td style={{ padding: "6px 8px", color: T.text3 }}>{s.variant_title || "-"}</td>
                   <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{s.units.toLocaleString()}</td>
                   <td style={{ padding: "6px 8px", textAlign: "right", color: "#22c55e", fontWeight: 600 }}>${s.revenue.toFixed(2)}</td>
                   <td style={{ padding: "6px 8px", textAlign: "right", color: T.text2 }}>{s.orders.toLocaleString()}</td>
@@ -921,7 +921,7 @@ export default function ScoreboardView() {
 
   const fetchAiSummary = async (dailyMap) => {
     setAiSummaryLoading(true);
-    // Build context client-side from already-loaded data — no extra DB call needed
+    // Build context client-side from already-loaded data - no extra DB call needed
     const dates = [...new Set(Object.values(dailyMap).flat().map(r => r.date))].sort().reverse();
     const yesterday = dates[1] || dates[0];
     if (!yesterday) { setAiSummaryLoading(false); return; }
@@ -1094,7 +1094,7 @@ export default function ScoreboardView() {
           (() => {
             // Pull latest day and previous day from daily data
             const latest = daily["revenue"]?.[0];
-            const latestDate = latest?.date || "—";
+            const latestDate = latest?.date || "-";
             const getDayVal = (key, offset=0) => daily[key]?.[offset]?.value ?? null;
             const getDayChange = (key) => {
               const cur = getDayVal(key, 0), prev = getDayVal(key, 1);
@@ -1106,7 +1106,7 @@ export default function ScoreboardView() {
             // Staleness guardrail: flag any metric that has stopped updating while
             // the rest of the scoreboard moves on (e.g. its source column was removed
             // from the sheet). A metric is "stale" only if it normally updates ~daily
-            // (recent internal gap <= 2d) but now lags the freshest metric by > 3 days —
+            // (recent internal gap <= 2d) but now lags the freshest metric by > 3 days -
             // so naturally weekly/monthly-cadence metrics are not flagged.
             const STALE_DAYS = 3;
             const STALE_MAX_DAYS = 60; // beyond this, a metric is discontinued/dormant, not a fresh break worth flagging
@@ -1131,7 +1131,7 @@ export default function ScoreboardView() {
               .sort((a,b) => b.gap - a.gap);
 
             // All available metrics. Source of truth is sheets-daily-sync
-            // METRIC_MAP — every metric_key emitted there should appear here.
+            // METRIC_MAP - every metric_key emitted there should appear here.
             // The Net $ color is dynamic (green when positive, red when negative);
             // everything else uses a category-based color.
             const ALL_METRICS = SCOREBOARD_METRICS_CATALOG.map(m => ({
@@ -1173,7 +1173,7 @@ export default function ScoreboardView() {
                       <div style={{ background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.35)", borderRadius:10, padding:"10px 14px", marginBottom:16, display:"flex", alignItems:"flex-start", gap:10 }}>
                         <span style={{ fontSize:15, lineHeight:1.2 }}>⚠️</span>
                         <div style={{ fontSize:12, color:T.text2, lineHeight:1.6 }}>
-                          <span style={{ fontWeight:700, color:"#b45309" }}>{staleMetrics.length} metric{staleMetrics.length>1?"s":""} {staleMetrics.length>1?"have":"has"} stopped updating</span> while the rest of the scoreboard is current (latest data: {refLatest}). The value shown for {staleMetrics.length>1?"these":"this"} is the last one that synced — treat it as out of date until the source is fixed.
+                          <span style={{ fontWeight:700, color:"#b45309" }}>{staleMetrics.length} metric{staleMetrics.length>1?"s":""} {staleMetrics.length>1?"have":"has"} stopped updating</span> while the rest of the scoreboard is current (latest data: {refLatest}). The value shown for {staleMetrics.length>1?"these":"this"} is the last one that synced - treat it as out of date until the source is fixed.
                           <div style={{ marginTop:6, display:"flex", flexWrap:"wrap", gap:6 }}>
                             {staleMetrics.slice(0,12).map(sm => (
                               <span key={sm.key} style={{ fontSize:11, fontWeight:600, color:"#92400e", background:"rgba(245,158,11,0.14)", border:"1px solid rgba(245,158,11,0.3)", borderRadius:5, padding:"2px 7px" }}>
@@ -1186,13 +1186,13 @@ export default function ScoreboardView() {
                       </div>
                     )}
 
-                    {/* AI Summary — manual only */}
+                    {/* AI Summary - manual only */}
                     {aiSummary ? (
                       <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:"14px 18px", marginBottom:20 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
                           <span style={{ fontSize:14 }}>🤖</span>
                           <span style={{ fontSize:12, fontWeight:700, color:T.text }}>AI Summary</span>
-                          {aiSummary?.date && <span style={{ fontSize:11, color:T.text3 }}>— {aiSummary.date}</span>}
+                          {aiSummary?.date && <span style={{ fontSize:11, color:T.text3 }}>- {aiSummary.date}</span>}
                           <button onClick={()=>fetchAiSummary(daily)} disabled={aiSummaryLoading}
                             style={{ marginLeft:"auto", fontSize:11, padding:"3px 10px", background:"none", border:`1px solid ${T.border}`, borderRadius:5, color:T.text3, cursor:"pointer", opacity:aiSummaryLoading?0.5:1 }}>
                             {aiSummaryLoading ? "..." : "↻ Refresh"}
@@ -1222,7 +1222,7 @@ export default function ScoreboardView() {
                         const chg = getDayChange(key);
                         const spark = get7d(key);
                         // isFlow: metric is summed across the period (rev, spend,
-                        // counts). Rates / percentages / averages are NOT in this list —
+                        // counts). Rates / percentages / averages are NOT in this list -
                         // those are time-averaged or last-value. Sourced from
                         // SCOREBOARD_METRICS_CATALOG with unit "$" or "#".
                         const flowMetric = SCOREBOARD_METRICS_CATALOG.find(m => m.key === key);
@@ -1252,7 +1252,7 @@ export default function ScoreboardView() {
                             <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
                               <span style={{ fontSize:10, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</span>
                               {isStale(key) && (
-                                <span title={`Last updated ${metricLatest(key)} — ${dayGap(metricLatest(key))} days behind the rest of the scoreboard`}
+                                <span title={`Last updated ${metricLatest(key)} - ${dayGap(metricLatest(key))} days behind the rest of the scoreboard`}
                                   style={{ fontSize:8, fontWeight:800, color:"#f59e0b", background:"rgba(245,158,11,0.12)", border:"1px solid rgba(245,158,11,0.4)", borderRadius:4, padding:"1px 5px", textTransform:"uppercase", letterSpacing:0.3, whiteSpace:"nowrap" }}>
                                   ⚠ Stale
                                 </span>
@@ -1302,7 +1302,7 @@ export default function ScoreboardView() {
                     <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:12, marginBottom:12 }}>
                       {/* Revenue 7-day trend */}
                       <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:16 }}>
-                        <div style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>Revenue — Last 7 Days</div>
+                        <div style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>Revenue - Last 7 Days</div>
                         <div style={{ fontSize:22, fontWeight:800, color:"#22c55e", marginBottom:8 }}>{fmt$(sum7d("revenue"))}</div>
                         <div style={{ height:80 }}>
                           <BarChart data={get7d("revenue")} color="#22c55e" height={80} />
@@ -1316,7 +1316,7 @@ export default function ScoreboardView() {
 
                       {/* Subscription health */}
                       <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:16 }}>
-                        <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Subscription Health — Today</div>
+                        <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Subscription Health - Today</div>
                         {[
                           { key:"new_gwp_subs",   label:"New GWP Subs",    color:"#22c55e" },
                           { key:"daily_cancels",  label:"Cancels",         color:"#ef4444" },
@@ -1339,7 +1339,7 @@ export default function ScoreboardView() {
 
                     {/* Ad spend breakdown row */}
                     <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:16 }}>
-                      <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Acquisition — Today</div>
+                      <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Acquisition - Today</div>
                       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(120px,1fr))", gap:12 }}>
                         {[
                           { key:"ad_spend",  label:"Total Ad Spend", unit:"$" },
@@ -1386,7 +1386,7 @@ export default function ScoreboardView() {
               if (mData[finKey]?.monthly?.some(r => r.month === m && r.actual != null)) { monthsWithData.add(m); break; }
             }
           }
-          const months = allMonths; // Show all months, empty ones will show "—"
+          const months = allMonths; // Show all months, empty ones will show "-"
           const hasDailyData = Object.keys(daily).length > 0;
 
           // Available years from daily data
@@ -1425,7 +1425,7 @@ export default function ScoreboardView() {
 
           if (!hasDailyData) return (
             <div style={{ textAlign:"center", padding:"60px 0", color:T.text3 }}>
-              <div style={{ fontSize:13 }}>No data yet — click ↻ Sync Sheet</div>
+              <div style={{ fontSize:13 }}>No data yet - click ↻ Sync Sheet</div>
             </div>
           );
 
@@ -1489,7 +1489,7 @@ export default function ScoreboardView() {
                                   const chg = v!=null && prev!=null && prev!==0 ? ((v-prev)/Math.abs(prev))*100 : null;
                                   return (
                                     <td key={m} style={{ ...tdStyle(m===curMonth), color: v==null ? T.text3 : v<0 ? "#ef4444" : T.text }}>
-                                      <div>{v!=null ? fmtVal(v, meta.unit, true) : "—"}</div>
+                                      <div>{v!=null ? fmtVal(v, meta.unit, true) : "-"}</div>
                                       {chg!=null && <div style={{ fontSize:9, color:chg>0?"#22c55e":"#ef4444", fontWeight:400 }}>{chg>0?"▲":"▼"}{Math.abs(chg).toFixed(1)}%</div>}
                                     </td>
                                   );
@@ -1559,7 +1559,7 @@ export default function ScoreboardView() {
                 {selectedMetric && daily[selectedMetric] && (
                   <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, padding:20 }}>
                     <div style={{ fontSize:14, fontWeight:700, marginBottom:16 }}>
-                      {daily[selectedMetric]?.[0]?.metric_label} — Daily
+                      {daily[selectedMetric]?.[0]?.metric_label} - Daily
                       <span style={{ fontSize:11, color:T.text3, marginLeft:8, fontWeight:400 }}>{daily[selectedMetric]?.length} days</span>
                     </div>
                     <div style={{ height:120, marginBottom:12 }}>
@@ -1579,7 +1579,7 @@ export default function ScoreboardView() {
                             <tr key={row.date} style={{ borderBottom:`1px solid ${T.border}` }}>
                               <td style={{ padding:"6px 8px", fontSize:12, color:T.text2 }}>{row.date}</td>
                               <td style={{ padding:"6px 8px", textAlign:"right", fontSize:12, fontWeight:500, color:row.value<0?"#ef4444":T.text }}>{fmtVal(row.value, METRIC_META[selectedMetric]?.unit||"$")}</td>
-                              <td style={{ padding:"6px 8px", textAlign:"right", fontSize:11, color:change>0?"#22c55e":change<0?"#ef4444":T.text3 }}>{change!=null?`${change>0?"▲":"▼"}${Math.abs(change).toFixed(1)}%`:"—"}</td>
+                              <td style={{ padding:"6px 8px", textAlign:"right", fontSize:11, color:change>0?"#22c55e":change<0?"#ef4444":T.text3 }}>{change!=null?`${change>0?"▲":"▼"}${Math.abs(change).toFixed(1)}%`:"-"}</td>
                             </tr>
                           );
                         })}
@@ -1674,7 +1674,7 @@ export default function ScoreboardView() {
                   <div style={{ fontSize:22, fontWeight:700, marginBottom:8 }}>Ask me anything about your data 🤖</div>
                   <div style={{ fontSize:13, color:T.text3, marginBottom:24, lineHeight:1.7 }}>
                     I have access to your Google Sheets scoreboard data. I can analyze trends, calculate metrics, compare periods, and generate charts.
-                    {!hasData && <span style={{ color:"#f97316" }}> No data synced yet — click "↻ Sync Sheet" first.</span>}
+                    {!hasData && <span style={{ color:"#f97316" }}> No data synced yet - click "↻ Sync Sheet" first.</span>}
                   </div>
                   <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                     {PROMPTS.map(p => (
@@ -1742,7 +1742,7 @@ export default function ScoreboardView() {
               const next = userCards.filter(c => c.metric_key !== metric.key);
               setUserCards(next.length > 0 ? next : null);
             } else {
-              // First time customizing — save all defaults minus this one
+              // First time customizing - save all defaults minus this one
               const remaining = ALL_METRICS.filter(m => DEFAULT_KEYS.includes(m.key) && m.key !== metric.key);
               const rows = remaining.map((m, i) => ({ user_id: userId, metric_key: m.key, label: m.label, unit: m.unit, color: m.color, sort_order: i }));
               await supabase.from("scoreboard_user_cards").upsert(rows, { onConflict: "user_id,metric_key" });
@@ -1756,7 +1756,7 @@ export default function ScoreboardView() {
               if (userCards) {
                 setUserCards([...userCards, data]);
               } else {
-                // First time adding — save defaults + new
+                // First time adding - save defaults + new
                 const defaults = ALL_METRICS.filter(m => DEFAULT_KEYS.includes(m.key));
                 const rows = [...defaults, metric].map((m, i) => ({ user_id: userId, metric_key: m.key, label: m.label, unit: m.unit, color: m.color, sort_order: i }));
                 await supabase.from("scoreboard_user_cards").upsert(rows, { onConflict: "user_id,metric_key" });

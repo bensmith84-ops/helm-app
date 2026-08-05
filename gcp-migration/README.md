@@ -6,7 +6,7 @@ Migrating Helm from Supabase + Vercel to GCP. Phased.
 
 | Phase | What | Status |
 |---|---|---|
-| 1 | Move dp_orders + dp_daily_sales_by_warehouse to BigQuery (Cloud Run proxy) | **In progress** — see `phase1-bigquery-proxy/RUNBOOK.md` |
+| 1 | Move dp_orders + dp_daily_sales_by_warehouse to BigQuery (Cloud Run proxy) | **In progress** - see `phase1-bigquery-proxy/RUNBOOK.md` |
 | 2 | Move other analytical tables (scoreboard_daily, qbo_*) to BigQuery | Planned |
 | 3 | Migrate operational Postgres to Cloud SQL, auth to Identity Platform | Planned |
 | 4 | Migrate ~70 edge functions to Cloud Run | Planned |

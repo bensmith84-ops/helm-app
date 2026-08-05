@@ -1,4 +1,4 @@
-# Phase 1 Runbook — Exact commands to run
+# Phase 1 Runbook - Exact commands to run
 
 Everything in this folder is committed to the Helm repo. The frontend already has a `useProxy` flag that flips on when `NEXT_PUBLIC_BQ_PROXY_URL` is set in Vercel. So Helm keeps working off Supabase until you complete the steps below.
 
@@ -11,7 +11,7 @@ gcloud auth login
 gcloud config set project helm-490123
 ```
 
-## Step 1 — Create BigQuery dataset and views
+## Step 1 - Create BigQuery dataset and views
 
 ```bash
 cd gcp-migration/phase1-bigquery-proxy
@@ -35,7 +35,7 @@ gcloud projects add-iam-policy-binding eb-testing-01 \
   --role=roles/bigquery.dataViewer
 ```
 
-## Step 2 — Deploy Cloud Run
+## Step 2 - Deploy Cloud Run
 
 ```bash
 ./deploy.sh
@@ -45,7 +45,7 @@ This creates the service account, secret, enables APIs, builds the container, de
 
 Prints the URL at the end. Copy it.
 
-## Step 3 — Smoke test
+## Step 3 - Smoke test
 
 ```bash
 ./verify.sh
@@ -59,7 +59,7 @@ You should see:
 
 If any of those fail, do **NOT** proceed to step 4. Paste the error and I'll fix.
 
-## Step 4 — Flip Helm to BigQuery via Vercel env vars
+## Step 4 - Flip Helm to BigQuery via Vercel env vars
 
 In Vercel project settings → Environment Variables, add to **both Production and Preview**:
 
@@ -70,13 +70,13 @@ NEXT_PUBLIC_BQ_PROXY_TOKEN = txyWHNyRNiUbcUrsxsxFjpKkk4BBpFCsyLGf+YD9DNo=
 
 Then redeploy (any commit, or "Redeploy" from the Vercel dashboard).
 
-## Step 5 — Verify in Helm
+## Step 5 - Verify in Helm
 
 Open Helm → Demand Planning. Browser console should show data loading. The line `[DP] Loaded N warehouse-sales rows, N order rows` should appear with non-zero N. If you see `bq-proxy ... failed`, something's wrong with auth or CORS.
 
-## Step 6 — Drop the Supabase tables
+## Step 6 - Drop the Supabase tables
 
-ONLY do this after step 5 confirms Helm is reading from BigQuery successfully. Run in Supabase SQL editor (NOT here through me — you do this manually):
+ONLY do this after step 5 confirms Helm is reading from BigQuery successfully. Run in Supabase SQL editor (NOT here through me - you do this manually):
 
 ```sql
 -- Confirm nothing is reading from these anymore
@@ -86,7 +86,7 @@ DROP TABLE public.dp_daily_sales_by_warehouse;
 
 Supabase DB will shrink from 1.1 GB to ~150 MB. The Supabase capacity alert should resolve within a day.
 
-## Step 7 — Remove the dead sync paths
+## Step 7 - Remove the dead sync paths
 
 The pg_cron `dp-daily-sync` and the metabase-sync code still try to populate the dropped tables. Remove cards 587 and 588 from the sync plan:
 

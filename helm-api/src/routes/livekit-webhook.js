@@ -1,5 +1,5 @@
 
-// POST /livekit-webhook — port of supabase/functions/livekit-webhook
+// POST /livekit-webhook - port of supabase/functions/livekit-webhook
 // 7 events: room_started/finished, participant_joined/left, track_published/unpublished, egress_started/ended.
 // Verifies LiveKit webhook signature via WebhookReceiver.
 const express = require('express');
@@ -10,7 +10,7 @@ module.exports = function(app, { pool }) {
   const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
   const receiver = new WebhookReceiver(LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
 
-  // Use express.raw — LiveKit sends application/webhook+json with sig in Authorization
+  // Use express.raw - LiveKit sends application/webhook+json with sig in Authorization
   app.post('/livekit-webhook',
     express.raw({ type: '*/*', limit: '5mb' }),
     async (req, res) => {

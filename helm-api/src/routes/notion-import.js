@@ -1,5 +1,5 @@
 
-// POST /notion-import — port of supabase/functions/notion-import
+// POST /notion-import - port of supabase/functions/notion-import
 // Accepts parsed Notion pages, creates Helm documents with parent_id mapping.
 const Anthropic = require('@anthropic-ai/sdk');
 const ORG_ID = 'a0000000-0000-0000-0000-000000000001';
@@ -113,7 +113,7 @@ module.exports = function(app, { pool }) {
                 try {
                   const r = await client.messages.create({
                     model: 'claude-sonnet-4-20250514', max_tokens: 4000,
-                    system: 'You are reformatting a Notion page export into clean, structured markdown. The original content may have lost its formatting during export. Your job is to reconstruct the logical structure: identify headers, bullet points, sub-bullets, bold text, numbered lists, and organize them properly. Return ONLY the reformatted markdown — no explanation, no code fences.',
+                    system: 'You are reformatting a Notion page export into clean, structured markdown. The original content may have lost its formatting during export. Your job is to reconstruct the logical structure: identify headers, bullet points, sub-bullets, bold text, numbered lists, and organize them properly. Return ONLY the reformatted markdown - no explanation, no code fences.',
                     messages: [{
                       role: 'user',
                       content: `Restructure this exported Notion content into clean markdown with proper headers, bullet points, and nesting:\n\nTitle: ${page.title}\n\nContent:\n${contentMd.slice(0, 8000)}`,

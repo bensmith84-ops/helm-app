@@ -71,7 +71,7 @@ export default function PrintAIChat({ conversationId, messages: propMessages, mo
       {/* Non-printable toolbar */}
       <div className="no-print" style={{ position: "sticky", top: 0, background: "#1a1a2e", padding: "10px 24px", display: "flex", alignItems: "center", gap: 12, zIndex: 10 }}>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>← Back</button>
-        <div style={{ flex: 1, color: "#fff", fontSize: 14, fontWeight: 600 }}>AI Chat Export — {title}</div>
+        <div style={{ flex: 1, color: "#fff", fontSize: 14, fontWeight: 600 }}>AI Chat Export - {title}</div>
         <button onClick={handlePrint} style={{ padding: "8px 20px", fontSize: 13, fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>
           🖨 Print / Save PDF
         </button>
@@ -107,7 +107,7 @@ export default function PrintAIChat({ conversationId, messages: propMessages, mo
               <td style={cellLabel}>Messages</td>
               <td style={cellValue}>{messages.length} ({messages.filter(m => m.role === "user").length} user, {messages.filter(m => m.role === "assistant").length} AI)</td>
               <td style={cellLabel}>Total Tokens</td>
-              <td style={cellValue}>{totalTokens > 0 ? totalTokens.toLocaleString() : "—"}</td>
+              <td style={cellValue}>{totalTokens > 0 ? totalTokens.toLocaleString() : "-"}</td>
             </tr>
             {conversation?.created_at && (
               <tr>
@@ -185,11 +185,11 @@ export default function PrintAIChat({ conversationId, messages: propMessages, mo
         {/* Footer */}
         <div style={{ borderTop: "1px solid #ccc", paddingTop: 8, marginTop: 32, fontSize: 10, color: "#999", display: "flex", justifyContent: "space-between" }}>
           <span>Earth Breeze · PLM AI {modeLabels[displayMode] || ""} · {messages.length} messages</span>
-          <span>Confidential — Do Not Distribute</span>
+          <span>Confidential - Do Not Distribute</span>
         </div>
       </div>
 
-      {/* Print styles — global CSS in page.js handles visibility */}
+      {/* Print styles - global CSS in page.js handles visibility */}
       <style>{`
         @media print {
           @page { margin: 0.6in 0.5in; size: letter; }

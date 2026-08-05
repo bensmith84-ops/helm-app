@@ -1,5 +1,5 @@
 
-// POST /calendar-manager — port of supabase/functions/calendar-manager
+// POST /calendar-manager - port of supabase/functions/calendar-manager
 // 4 actions: create, rsvp, find-times, book. Uses ?action= query string + JSON body.
 
 module.exports = function(app, { requireAuth, pool }) {

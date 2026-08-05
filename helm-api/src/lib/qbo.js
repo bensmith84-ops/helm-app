@@ -51,7 +51,7 @@ async function qboFetch(url, token) {
   return r.json();
 }
 
-// Bulk upsert helper — chunks rows by `chunkSize`, uses ON CONFLICT clause.
+// Bulk upsert helper - chunks rows by `chunkSize`, uses ON CONFLICT clause.
 async function bulkUpsert(pool, table, rows, columns, conflictTarget, chunkSize = 100) {
   if (!rows.length) return 0;
   let total = 0;

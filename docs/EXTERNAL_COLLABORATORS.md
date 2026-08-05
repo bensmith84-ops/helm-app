@@ -19,10 +19,10 @@ They authenticate normally (Supabase Auth). RLS gives them access ONLY to:
 ## Per-project role
 
 `project_members.role` values:
-- `owner` — full control
-- `editor` — can edit tasks, comment, upload
-- `commenter` — can view + comment, no edits
-- `viewer` — read-only
+- `owner` - full control
+- `editor` - can edit tasks, comment, upload
+- `commenter` - can view + comment, no edits
+- `viewer` - read-only
 
 ## Per-project access scope
 
@@ -37,6 +37,6 @@ to show inside a project.
 
 ## RLS helper
 
-`is_project_collaborator(project_uuid)` — SECURITY DEFINER, returns true iff
+`is_project_collaborator(project_uuid)` - SECURITY DEFINER, returns true iff
 `auth.uid()` has a `project_members` row for that project. Used in additive
 policies on every project-scoped table.

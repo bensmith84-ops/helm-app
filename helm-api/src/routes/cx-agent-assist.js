@@ -1,5 +1,5 @@
 
-// POST /cx-agent-assist — port of supabase/functions/cx-agent-assist
+// POST /cx-agent-assist - port of supabase/functions/cx-agent-assist
 // Per-ticket AI assistant: thread summary + suggested reply + macro match + VIP score,
 // cached in cx_agent_assist keyed on (ticket_id, message_count_at_generation).
 const Anthropic = require('@anthropic-ai/sdk');

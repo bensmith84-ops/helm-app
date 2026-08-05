@@ -25,7 +25,7 @@ const SYSTEM_PROMPT = [
   ">>>",
   "```",
   "",
-  "3. Multiple patches in one block — just repeat <<<FIND/===/>>> for each change.",
+  "3. Multiple patches in one block - just repeat <<<FIND/===/>>> for each change.",
   "4. The FIND section MUST be an exact copy-paste from the file content shown to you. Even whitespace matters.",
   "5. For SQL: ```sql:migration_name with the SQL inside.",
   "6. For brand new files only: ```deploy:path/to/new_file.js with full content inside.",
@@ -431,7 +431,7 @@ export default function AIBuilderView() {
         setMessages(prev => [...prev, { role: "assistant", content: "⏹ Cancelled." }]);
       } else if (retryCount < 3) {
         const wait = 2000 * Math.pow(2, retryCount);
-        setStreamingText(`⟳ Network error — retrying in ${Math.round(wait/1000)}s...`);
+        setStreamingText(`⟳ Network error - retrying in ${Math.round(wait/1000)}s...`);
         await new Promise(r => setTimeout(r, wait));
         setLoading(false);
         return sendMessage(retryCount + 1);
@@ -669,7 +669,7 @@ export default function AIBuilderView() {
                                 else if (blockType === "deploy") {
                                   const isLargeFile = blockName.includes("Projects") || blockName.includes("Dashboard") || blockName.includes("OKRs") || blockName.includes("Finance") || blockName.includes("PLM");
                                   if (isLargeFile && code.split("\n").length < 500) {
-                                    if (!window.confirm(`⚠️ WARNING: ${blockName} is a large component (1000+ lines). This deploy block only has ${code.split("\n").length} lines — it may be truncated and could break the app. Deploy anyway?`)) return;
+                                    if (!window.confirm(`⚠️ WARNING: ${blockName} is a large component (1000+ lines). This deploy block only has ${code.split("\n").length} lines - it may be truncated and could break the app. Deploy anyway?`)) return;
                                   }
                                   deployFiles([{ path: blockName, content: code }], null, `feat(ai-builder): ${blockName}`, blockId);
                                 }
@@ -793,7 +793,7 @@ export default function AIBuilderView() {
           <div style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #a855f7, #6366f1)", fontSize: 17, color: "#fff" }}>✦</div>
           <div>
             <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>AI Builder</div>
-            <div style={{ fontSize: 10, color: T.text3 }}>Build, deploy, and manage — auto-deploys to production</div>
+            <div style={{ fontSize: 10, color: T.text3 }}>Build, deploy, and manage - auto-deploys to production</div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>

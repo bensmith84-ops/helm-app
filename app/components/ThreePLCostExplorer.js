@@ -13,7 +13,7 @@ const EXAMPLES = [
 ];
 
 const fmtCell = (v) => {
-  if (v == null) return "—";
+  if (v == null) return "-";
   if (typeof v === "number") return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
   return String(v);
 };
@@ -105,7 +105,7 @@ export default function ThreePLCostExplorer({ goBack }) {
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text }}>Cost Explorer</h2>
         <span style={{ fontSize: 11, color: T.text3, background: T.surface2, padding: "2px 8px", borderRadius: 10 }}>🌏 US · UK · CA · AU</span>
       </div>
-      <p style={{ fontSize: 13, color: T.text3, margin: "0 0 14px" }}>Ask about shipping/postage costs across all markets in plain English — US (USD), UK & international (GBP), Canada (USD), and Australia (AUD). GWP/pack-size questions work for US, CA & AU; the UK feed has no SKU link yet.</p>
+      <p style={{ fontSize: 13, color: T.text3, margin: "0 0 14px" }}>Ask about shipping/postage costs across all markets in plain English - US (USD), UK & international (GBP), Canada (USD), and Australia (AUD). GWP/pack-size questions work for US, CA & AU; the UK feed has no SKU link yet.</p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
         <textarea ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)}

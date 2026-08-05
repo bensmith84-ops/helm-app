@@ -1,5 +1,5 @@
 
-// POST /cx-moderate — port of supabase/functions/cx-moderate
+// POST /cx-moderate - port of supabase/functions/cx-moderate
 // 2 actions: moderate (keyword rules + AI risk classification + mention update),
 // generate_reply (AI reply to social mention).
 const Anthropic = require('@anthropic-ai/sdk');

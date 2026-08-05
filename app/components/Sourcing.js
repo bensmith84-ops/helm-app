@@ -553,7 +553,7 @@ function ProjectDetail({ project, onBack, onUpdate }) {
         );})()}
 
         {/* Placeholder tabs */}
-        {tab === "outreach" && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>📧 Outreach management coming next — draft, approve, and track emails to CMs</div>}
+        {tab === "outreach" && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>📧 Outreach management coming next - draft, approve, and track emails to CMs</div>}
         {tab === "quotes" && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>📊 Quote collection and comparison coming soon</div>}
         {tab === "compare" && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>⚖️ Side-by-side CM comparison matrix coming soon</div>}
         {tab === "settings" && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>⚙️ Project settings</div>}
@@ -598,11 +598,11 @@ function CMDirectory() {
             {filtered.map(c => (
               <tr key={c.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td style={{ padding: "8px", fontWeight: 600, color: T.text }}>{c.company_name}{c.website && <a href={c.website} target="_blank" rel="noopener" style={{ marginLeft: 6, color: T.accent, fontSize: 10 }}>↗</a>}</td>
-                <td style={{ padding: "8px", color: T.text3 }}>{[c.headquarters_city, c.headquarters_state, c.headquarters_country].filter(Boolean).join(", ") || "—"}</td>
+                <td style={{ padding: "8px", color: T.text3 }}>{[c.headquarters_city, c.headquarters_state, c.headquarters_country].filter(Boolean).join(", ") || "-"}</td>
                 <td style={{ padding: "8px" }}>{(c.certifications || []).map(cert => <span key={cert} style={{ fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "#22c55e20", color: "#22c55e", marginRight: 3 }}>{cert}</span>)}</td>
                 <td style={{ padding: "8px" }}><StagePill stage={c.status} /></td>
-                <td style={{ padding: "8px", fontWeight: 700, color: c.ai_fit_score >= 70 ? "#22c55e" : c.ai_fit_score >= 40 ? "#eab308" : T.text3 }}>{c.ai_fit_score ? `${c.ai_fit_score}%` : "—"}</td>
-                <td style={{ padding: "8px", color: T.text3 }}>{c.source || "—"}</td>
+                <td style={{ padding: "8px", fontWeight: 700, color: c.ai_fit_score >= 70 ? "#22c55e" : c.ai_fit_score >= 40 ? "#eab308" : T.text3 }}>{c.ai_fit_score ? `${c.ai_fit_score}%` : "-"}</td>
+                <td style={{ padding: "8px", color: T.text3 }}>{c.source || "-"}</td>
               </tr>
             ))}
           </tbody>

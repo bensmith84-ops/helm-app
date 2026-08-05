@@ -43,7 +43,7 @@ function ExternalPortalSection({ rfp }) {
     setBusy(true); setErr(null);
     try {
       const code = ("EB-" + new Date().getFullYear() + "-CM-" + (rfp.name || "RFP").toUpperCase().replace(/^EARTH BREEZE /, "").replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 18) + "-01");
-      const title = `${rfp.name} — Contract Manufacturing RFP`;
+      const title = `${rfp.name} - Contract Manufacturing RFP`;
       const { data: tpl, error: e1 } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", CM_TEMPLATE_CODE).maybeSingle();
       if (e1 || !tpl?.content) throw new Error("CM template content not found.");
       const cloned = JSON.parse(JSON.stringify(tpl.content).split(CM_TEMPLATE_CODE).join(code));
@@ -73,7 +73,7 @@ function ExternalPortalSection({ rfp }) {
           <button onClick={() => setManage(true)} style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none", background: T.accent, color: "#fff" }}>Manage portal</button>
           <a href={portalUrl} target="_blank" rel="noreferrer" style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, textDecoration: "none", background: T.surface, color: T.text2, border: `1px solid ${T.border}` }}>Open ↗</a>
         </>) : (<>
-          <span style={{ fontSize: 12, color: T.text3 }}>No gated manufacturer portal yet — create one from the CM template (access requests → MNDA → gated RFP → submissions).</span>
+          <span style={{ fontSize: 12, color: T.text3 }}>No gated manufacturer portal yet - create one from the CM template (access requests → MNDA → gated RFP → submissions).</span>
           <div style={{ flex: 1 }} />
           <button onClick={createPortal} disabled={busy} style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none", background: T.accent, color: "#fff" }}>{busy ? "Creating…" : "+ Create portal"}</button>
         </>)}
@@ -106,8 +106,8 @@ const STATUS_COLORS = {
 
 const TYPE_LABELS = { ingredient: "🧪 Ingredient", packaging: "📦 Packaging", contract_manufacturer: "🏭 Contract Manufacturer", other: "🔧 Other" };
 
-const fmtMoney = (n, c = "USD") => n == null ? "—" : ({USD:"$",GBP:"£",AUD:"A$",EUR:"€",CAD:"C$"}[c]||"$") + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-const fmtDate  = (d) => d ? new Date(d).toLocaleDateString(undefined, { month:"short", day:"numeric", year:"numeric" }) : "—";
+const fmtMoney = (n, c = "USD") => n == null ? "-" : ({USD:"$",GBP:"£",AUD:"A$",EUR:"€",CAD:"C$"}[c]||"$") + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtDate  = (d) => d ? new Date(d).toLocaleDateString(undefined, { month:"short", day:"numeric", year:"numeric" }) : "-";
 
 export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
   const { orgId } = useAuth();
@@ -364,7 +364,7 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
 
         {/* Items */}
         <Section title={`Items (${items.length})`} action={isEditable && <button onClick={addItem} style={ghostBtn}>+ Add item</button>}>
-          {items.length === 0 ? <Empty hint="No items yet — add what you want providers to bid on" /> : (
+          {items.length === 0 ? <Empty hint="No items yet - add what you want providers to bid on" /> : (
             <div>
               {items.map((it, idx) => (
                 <div key={it.id} style={{ background: T.surface2, border: "1px solid " + T.border, borderRadius: 8, padding: 12, marginBottom: 8 }}>
@@ -394,7 +394,7 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
             {isEditable && <button onClick={() => addProvider()} style={ghostBtn}>+ Add provider</button>}
           </div>
         }>
-          {providers.length === 0 ? <Empty hint="No providers yet — invite suppliers to bid, or use AI to suggest candidates" /> : (
+          {providers.length === 0 ? <Empty hint="No providers yet - invite suppliers to bid, or use AI to suggest candidates" /> : (
             <div style={{ overflow: "auto", border: "1px solid " + T.border, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
@@ -412,9 +412,9 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
                       </td>
                       <td style={td}><input value={p.contact_name || ""} onChange={e => updateProvider(p.id, { contact_name: e.target.value })} disabled={!isEditable && rfp.status !== "sent"} style={inlineInp} placeholder="Contact" /></td>
                       <td style={td}><input value={p.contact_email || ""} onChange={e => updateProvider(p.id, { contact_email: e.target.value })} disabled={!isEditable && rfp.status !== "sent"} style={inlineInp} placeholder="email@example.com" /></td>
-                      <td style={td}><input value={p.country || ""} onChange={e => updateProvider(p.id, { country: e.target.value })} disabled={!isEditable && rfp.status !== "sent"} style={inlineInp} placeholder="—" /></td>
+                      <td style={td}><input value={p.country || ""} onChange={e => updateProvider(p.id, { country: e.target.value })} disabled={!isEditable && rfp.status !== "sent"} style={inlineInp} placeholder="-" /></td>
                       <td style={td}><span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: T.surface, color: T.text3 }}>{p.status}</span></td>
-                      <td style={td}>{p.ai_score != null ? <strong style={{ color: p.ai_score >= 70 ? "#22c55e" : p.ai_score >= 50 ? "#eab308" : "#ef4444" }}>{Math.round(p.ai_score)}</strong> : "—"}</td>
+                      <td style={td}>{p.ai_score != null ? <strong style={{ color: p.ai_score >= 70 ? "#22c55e" : p.ai_score >= 50 ? "#eab308" : "#ef4444" }}>{Math.round(p.ai_score)}</strong> : "-"}</td>
                       <td style={td}>{isEditable && <button onClick={() => deleteProvider(p.id)} style={{ background:"none", border:"none", color:T.text3, cursor:"pointer", fontSize:14 }}>✕</button>}</td>
                     </tr>
                   ))}
@@ -454,10 +454,10 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
                         const r = getResp(it.id, p.id);
                         return <>
                           <td key={`u${p.id}`} style={td}>
-                            <input value={r?.unit_price ?? ""} onChange={e => upsertResponse(it.id, p.id, { unit_price: e.target.value ? Number(e.target.value) : null, currency: rfp.currency })} type="number" placeholder="—" style={smallInp(90)} />
+                            <input value={r?.unit_price ?? ""} onChange={e => upsertResponse(it.id, p.id, { unit_price: e.target.value ? Number(e.target.value) : null, currency: rfp.currency })} type="number" placeholder="-" style={smallInp(90)} />
                           </td>
                           <td key={`l${p.id}`} style={td}>
-                            <input value={r?.lead_time_days ?? ""} onChange={e => upsertResponse(it.id, p.id, { lead_time_days: e.target.value ? Number(e.target.value) : null })} type="number" placeholder="—" style={smallInp(60)} />
+                            <input value={r?.lead_time_days ?? ""} onChange={e => upsertResponse(it.id, p.id, { lead_time_days: e.target.value ? Number(e.target.value) : null })} type="number" placeholder="-" style={smallInp(60)} />
                           </td>
                         </>;
                       })}
@@ -472,8 +472,8 @@ export default function PLMRFPDetail({ rfp: rfpInitial, program, onBack }) {
                         return ls.length ? Math.round(ls.reduce((a,b)=>a+b,0)/ls.length) : null;
                       })();
                       return <>
-                        <td key={`tu${p.id}`} style={{ ...td, fontWeight: 700 }}>{tot > 0 ? fmtMoney(tot, rfp.currency) : "—"}</td>
-                        <td key={`tl${p.id}`} style={{ ...td, fontWeight: 700 }}>{avgLead != null ? avgLead : "—"}</td>
+                        <td key={`tu${p.id}`} style={{ ...td, fontWeight: 700 }}>{tot > 0 ? fmtMoney(tot, rfp.currency) : "-"}</td>
+                        <td key={`tl${p.id}`} style={{ ...td, fontWeight: 700 }}>{avgLead != null ? avgLead : "-"}</td>
                       </>;
                     })}
                   </tr>

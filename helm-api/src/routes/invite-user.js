@@ -1,5 +1,5 @@
 
-// POST /invite-user — port of supabase/functions/invite-user
+// POST /invite-user - port of supabase/functions/invite-user
 // Uses Firebase Admin SDK to create users and generate sign-in links.
 // Replaces supabase.auth.admin.{listUsers, inviteUserByEmail, deleteUser, updateUserById, resetPasswordForEmail}.
 // Note: requires Firebase Admin SDK init (admin) and profiles.firebase_uid mapping.
@@ -84,7 +84,7 @@ module.exports = function(app, { pool, admin }) {
       );
       const existingProfile = profRows[0];
 
-      // CASE 1: Firebase user exists + not resending — ensure profile + membership
+      // CASE 1: Firebase user exists + not resending - ensure profile + membership
       if (existingFbUser && !resend) {
         const helmId = existingProfile?.id || existingFbUser.uid;
         await pool.query(
@@ -123,7 +123,7 @@ module.exports = function(app, { pool, admin }) {
         } catch (e) { return res.status(400).json({ error: e?.message }); }
       }
 
-      // CASE 3: No Firebase user — create + generate sign-in link
+      // CASE 3: No Firebase user - create + generate sign-in link
       let newFbUser;
       try {
         newFbUser = await admin.auth().createUser({

@@ -1,5 +1,5 @@
 
-// POST /invoice-inbound — port of supabase/functions/invoice-inbound
+// POST /invoice-inbound - port of supabase/functions/invoice-inbound
 // Receives invoice attachments via SendGrid Inbound Parse, JSON+base64, or JSON+file_url.
 // Stores in Supabase Storage (bill-attachments bucket), creates invoice_inbox row.
 const multer = require('multer');
@@ -20,7 +20,7 @@ module.exports = function(app, { pool }) {
     });
   });
 
-  // POST — use multer to handle both multipart and JSON
+  // POST - use multer to handle both multipart and JSON
   app.post('/invoice-inbound', upload.any(), async (req, res) => {
     try {
       const ct = req.headers['content-type'] || '';
@@ -34,7 +34,7 @@ module.exports = function(app, { pool }) {
         // SendGrid Inbound Parse format
         fromEmail = String(req.body.from || req.body.sender_ip || 'unknown');
         subject = String(req.body.subject || 'Invoice');
-        // Look at attachments — try attachment1..5 first, then any file
+        // Look at attachments - try attachment1..5 first, then any file
         const files = req.files || [];
         for (const f of files) {
           if (f.mimetype.includes('pdf') || f.mimetype.startsWith('image/')) {
@@ -98,7 +98,7 @@ module.exports = function(app, { pool }) {
       let extraction = null;
       if (fileUrl) {
         try {
-          // We need our own URL — derive from env or use localhost (since we're calling self)
+          // We need our own URL - derive from env or use localhost (since we're calling self)
           const selfUrl = process.env.SELF_URL || 'http://localhost:8080';
           const r = await fetch(`${selfUrl}/invoice-ai`, {
             method: 'POST',

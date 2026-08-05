@@ -10,9 +10,9 @@ import MetabaseSync from "./MetabaseSync";
 // Two UIs: Supply Chain (PO/Inventory) + Growth Planner (Marketing)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const fmt = n => n == null ? "—" : Number(n).toLocaleString();
-const fmtD = n => n == null ? "—" : `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-const fmtPct = n => n == null ? "—" : `${(Number(n) * 100).toFixed(1)}%`;
+const fmt = n => n == null ? "-" : Number(n).toLocaleString();
+const fmtD = n => n == null ? "-" : `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+const fmtPct = n => n == null ? "-" : `${(Number(n) * 100).toFixed(1)}%`;
 const RISK_COLORS = { critical: "#dc2626", red: "#ef4444", yellow: "#f59e0b", green: "#22c55e" };
 const CHANNELS = ["website", "amazon", "walmart", "target", "kroger", "wholesale", "other"];
 const COUNTRIES = ["US", "CA", "GB", "AU", "EU", "Other"];
@@ -76,7 +76,7 @@ function MiniBar({ data, maxH = 40, barW = 6, gap = 2, color = T.accent }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SUPPLY CHAIN VIEW — Inventory planning, PO recommendations, stockout risk
+// SUPPLY CHAIN VIEW - Inventory planning, PO recommendations, stockout risk
 // ═══════════════════════════════════════════════════════════════════════════════
 // Parallel paginator: fetch all rows for a table as concurrent pages (count + Promise.all)
 // instead of sequential round-trips. A unique `id` tiebreaker in the sort keeps page
@@ -107,7 +107,7 @@ function SupplyChainView({ isMobile, orgId }) {
   const [skuMaster, setSkuMaster] = useState([]);
   const [skuOverrides, setSkuOverrides] = useState([]);
   // Option B: daily sales attributed to fulfillment warehouse. Empty until
-  // a matching Metabase card has been authored + synced — UI renders an
+  // a matching Metabase card has been authored + synced - UI renders an
   // empty-state pointing to MetabaseSync when length === 0.
   const [warehouseSales, setWarehouseSales] = useState([]);
   // Option C: order-level detail with line items as jsonb. Same empty-state
@@ -167,7 +167,7 @@ function SupplyChainView({ isMobile, orgId }) {
         return _dpPaginateAll("dp_daily_sales", orgId, [["sale_date", false], ["id", true]]);
       }
 
-      // dp_inventory stores DAILY snapshots — same (sku, warehouse) pair has
+      // dp_inventory stores DAILY snapshots - same (sku, warehouse) pair has
               // one row per snapshot_date. The old .limit(3000) call without ordering
               // returned an unpredictable subset, AND the consuming code summed every
               // row, so totals were inflated ~37x and the By Location tab showed dozens
@@ -231,7 +231,7 @@ function SupplyChainView({ isMobile, orgId }) {
 
       async function fetchAllWarehouseSales() {
         if (useProxy) {
-          // BigQuery view — fetch last 90 days, same default as Supabase path
+          // BigQuery view - fetch last 90 days, same default as Supabase path
           const end = new Date(); const start = new Date(); start.setUTCDate(start.getUTCDate() - 90);
           const url = `${BQ_PROXY_URL}/dp/warehouse-sales?start_date=${start.toISOString().split("T")[0]}&end_date=${end.toISOString().split("T")[0]}&limit=200000`;
           try {
@@ -247,7 +247,7 @@ function SupplyChainView({ isMobile, orgId }) {
             return [];
           }
         }
-        // Legacy Supabase path — kept as fallback during cutover
+        // Legacy Supabase path - kept as fallback during cutover
         return _dpPaginateAll("dp_daily_sales_by_warehouse", orgId, [["sale_date", false], ["id", true]]);
       }
 
@@ -328,7 +328,7 @@ function SupplyChainView({ isMobile, orgId }) {
       _has_override: true,
     } : s;
   });
-  // Overrides for SKUs not in master (orphans like FREESHIPPING) — still surface them
+  // Overrides for SKUs not in master (orphans like FREESHIPPING) - still surface them
   skuOverrides.forEach(o => {
     if (!skuMap[o.sku]) {
       skuMap[o.sku] = {
@@ -502,13 +502,13 @@ function SupplyChainView({ isMobile, orgId }) {
   });
   const countries = Object.values(byCountry).sort((a, b) => b.units - a.units);
 
-  // Inventory aggregated by SKU — filtered through the same search whitelist
+  // Inventory aggregated by SKU - filtered through the same search whitelist
   // so the By Location / Inventory tabs match the rest of the view.
   const filteredInventory = searchedSkus === null ? inventory : inventory.filter(r => searchedSkus.has(r.sku));
   const invBySku = {};
   filteredInventory.forEach(r => {
     const key = r.sku || "Unknown";
-    if (!invBySku[key]) invBySku[key] = { sku: key, warehouse: r.warehouse_location || "—", on_hand: 0, reserved: 0, incoming: 0, arrival: r.expected_arrival_date, lead_time: r.lead_time_days || 0 };
+    if (!invBySku[key]) invBySku[key] = { sku: key, warehouse: r.warehouse_location || "-", on_hand: 0, reserved: 0, incoming: 0, arrival: r.expected_arrival_date, lead_time: r.lead_time_days || 0 };
     invBySku[key].on_hand += r.quantity_on_hand || 0;
     invBySku[key].reserved += r.quantity_reserved || 0;
     invBySku[key].incoming += r.quantity_incoming || 0;
@@ -527,7 +527,7 @@ function SupplyChainView({ isMobile, orgId }) {
   const avgWos = totalWeeklyDemand > 0 ? totalOnHand / totalWeeklyDemand : 0;
   const criticalCount = invItems.filter(i => i.wos < 4 && i.weeklyDemand > 0).length;
 
-  // matchesProductSearch — returns true when the search field is empty (no
+  // matchesProductSearch - returns true when the search field is empty (no
   // filter active) OR when any of the passed fields contains the query as a
   // case-insensitive substring. Used by all list-based sub-tabs so a single
   // search box filters the whole Supply Chain view consistently.
@@ -563,7 +563,7 @@ function SupplyChainView({ isMobile, orgId }) {
             {t.icon} {t.label}
           </button>
         ))}
-        {/* Product search input — now shown on every sub-tab including Overview.
+        {/* Product search input - now shown on every sub-tab including Overview.
             Typing here filters EVERY aggregate (KPI tiles, charts, tables) through
             the upstream `searchedSkus` Set. A live counter shows how many SKUs were
             matched, so you can immediately see whether a query is filtering. */}
@@ -639,7 +639,7 @@ function SupplyChainView({ isMobile, orgId }) {
         <KPI label={isMultiWeek ? "Total Units" : "Weekly Units"} value={fmt(totalUnits)} sub={isMultiWeek ? `${fmt(Math.round(totalUnits / weeksInRange))}/wk · ${rangeLabel}` : `week of ${latestWeek}`} icon="📦" />
         <KPI label={isMultiWeek ? "Total Revenue" : "Weekly Revenue"} value={fmtD(totalRevenue)} sub={isMultiWeek ? `${fmtD(Math.round(totalRevenue / weeksInRange))}/wk · ${fmt(totalOrders)} orders` : `${fmt(totalOrders)} orders`} icon="💰" color="#22c55e" />
         <KPI label="Sub Mix" value={`${(subPct * 100).toFixed(0)}%`} sub={`${fmt(subUnits)} sub units`} icon="🔄" color={T.accent} />
-        <KPI label="Avg WoS" value={avgWos > 0 ? avgWos.toFixed(1) : "—"} sub={inventory.length > 0 ? `${fmt(totalOnHand)} on hand` : "No inventory data"} icon="⏱" color={avgWos > 0 && avgWos < 6 ? "#f59e0b" : "#22c55e"} />
+        <KPI label="Avg WoS" value={avgWos > 0 ? avgWos.toFixed(1) : "-"} sub={inventory.length > 0 ? `${fmt(totalOnHand)} on hand` : "No inventory data"} icon="⏱" color={avgWos > 0 && avgWos < 6 ? "#f59e0b" : "#22c55e"} />
         <KPI label="At Risk" value={criticalCount} sub="SKUs < 4 weeks" icon="⚠️" color={criticalCount > 0 ? "#ef4444" : "#22c55e"} />
       </div>
 
@@ -704,7 +704,7 @@ function SupplyChainView({ isMobile, orgId }) {
       {subTab === "products" && (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, fontSize: 13, fontWeight: 700, color: T.text }}>
-            Demand by Base Product — {rangeLabel} ({topBaseProducts.length} products, {topProducts.length} SKUs)
+            Demand by Base Product - {rangeLabel} ({topBaseProducts.length} products, {topProducts.length} SKUs)
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
@@ -722,8 +722,8 @@ function SupplyChainView({ isMobile, orgId }) {
                   <td style={{ padding: "6px 10px", color: T.text, fontWeight: 700 }}>{fmt(p.units)}</td>
                   <td style={{ padding: "6px 10px", color: "#22c55e" }}>{fmtD(p.revenue)}</td>
                   <td style={{ padding: "6px 10px", color: T.text2 }}>{fmt(p.orders)}</td>
-                  <td style={{ padding: "6px 10px", color: T.accent }}>{p.units > 0 ? `${(p.subUnits / p.units * 100).toFixed(0)}%` : "—"}</td>
-                  <td style={{ padding: "6px 10px", color: T.text3 }}>{totalUnits > 0 ? `${(p.units / totalUnits * 100).toFixed(1)}%` : "—"}</td>
+                  <td style={{ padding: "6px 10px", color: T.accent }}>{p.units > 0 ? `${(p.subUnits / p.units * 100).toFixed(0)}%` : "-"}</td>
+                  <td style={{ padding: "6px 10px", color: T.text3 }}>{totalUnits > 0 ? `${(p.units / totalUnits * 100).toFixed(1)}%` : "-"}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -748,8 +748,8 @@ function SupplyChainView({ isMobile, orgId }) {
                       <td style={{ padding: "4px 8px", textAlign: "center" }}>{s.is_gwp ? "🎁" : ""}</td>
                       <td style={{ padding: "4px 8px", textAlign: "center" }}>{s.is_subscription ? "🔄" : ""}</td>
                       <td style={{ padding: "4px 8px", textAlign: "center" }}>{s.is_one_time ? "1️⃣" : ""}</td>
-                      <td style={{ padding: "4px 8px", color: "#22c55e" }}>{s.current_price ? `$${Number(s.current_price).toFixed(0)}` : "—"}</td>
-                      <td style={{ padding: "4px 8px", color: T.text3 }}>{s.cogs_per_unit ? `$${Number(s.cogs_per_unit).toFixed(2)}` : "—"}</td>
+                      <td style={{ padding: "4px 8px", color: "#22c55e" }}>{s.current_price ? `$${Number(s.current_price).toFixed(0)}` : "-"}</td>
+                      <td style={{ padding: "4px 8px", color: T.text3 }}>{s.cogs_per_unit ? `$${Number(s.cogs_per_unit).toFixed(2)}` : "-"}</td>
                       <td style={{ padding: "4px 8px" }}><span style={{ fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 3, background: s.status === "active" ? "#22c55e15" : "#ef444415", color: s.status === "active" ? "#22c55e" : "#ef4444" }}>{s.status}</span></td>
                       <td style={{ padding: "4px 8px", fontSize: 9, color: T.text3, textTransform: "capitalize" }}>{s.product_category?.replace("_", " ")}</td>
                     </tr>
@@ -765,7 +765,7 @@ function SupplyChainView({ isMobile, orgId }) {
       {subTab === "inventory" && (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Inventory Health — Sorted by Weeks of Supply</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Inventory Health - Sorted by Weeks of Supply</div>
             <span style={{ fontSize: 10, color: T.text3 }}>{inventory.length} inventory records</span>
           </div>
           <div style={{ overflowX: "auto", maxHeight: 500 }}>
@@ -795,7 +795,7 @@ function SupplyChainView({ isMobile, orgId }) {
         </div>
       )}
 
-      {/* WAREHOUSES TAB — Inventory by Location */}
+      {/* WAREHOUSES TAB - Inventory by Location */}
       {subTab === "warehouses" && (() => {
         // Use filteredInventory so warehouse tiles + per-warehouse details respect search
         const byWh = {};
@@ -850,8 +850,8 @@ function SupplyChainView({ isMobile, orgId }) {
                           <td style={{ padding: "5px 10px", fontWeight: 700, color: T.text }}>{fmt(r.quantity_on_hand)}</td>
                           <td style={{ padding: "5px 10px", color: T.text3 }}>{fmt(r.quantity_reserved)}</td>
                           <td style={{ padding: "5px 10px", color: available > 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmt(available)}</td>
-                          <td style={{ padding: "5px 10px", color: r.quantity_incoming > 0 ? T.accent : T.text3 }}>{r.quantity_incoming > 0 ? `+${fmt(r.quantity_incoming)}` : "—"}</td>
-                          <td style={{ padding: "5px 10px", color: T.text3 }}>{r.lead_time_days ? `${r.lead_time_days}d` : "—"}</td>
+                          <td style={{ padding: "5px 10px", color: r.quantity_incoming > 0 ? T.accent : T.text3 }}>{r.quantity_incoming > 0 ? `+${fmt(r.quantity_incoming)}` : "-"}</td>
+                          <td style={{ padding: "5px 10px", color: T.text3 }}>{r.lead_time_days ? `${r.lead_time_days}d` : "-"}</td>
                         </tr>
                       );
                     })}</tbody>
@@ -875,7 +875,7 @@ function SupplyChainView({ isMobile, orgId }) {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
                 <div><div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmt(ch.units)}</div><div style={{ fontSize: 9, color: T.text3 }}>units</div></div>
                 <div><div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{fmt(ch.orders)}</div><div style={{ fontSize: 9, color: T.text3 }}>orders</div></div>
-                <div><div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{totalUnits > 0 ? `${(ch.units / totalUnits * 100).toFixed(0)}%` : "—"}</div><div style={{ fontSize: 9, color: T.text3 }}>share</div></div>
+                <div><div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{totalUnits > 0 ? `${(ch.units / totalUnits * 100).toFixed(0)}%` : "-"}</div><div style={{ fontSize: 9, color: T.text3 }}>share</div></div>
               </div>
               {/* Top SKUs for this channel */}
               <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 4 }}>Top SKUs</div>
@@ -942,7 +942,7 @@ function SupplyChainView({ isMobile, orgId }) {
         return (
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
             <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Sales × Warehouse — {rangeLabel}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Sales × Warehouse - {rangeLabel}</div>
               <span style={{ fontSize: 10, color: T.text3 }}>{skuTotals.length} SKUs × {warehouses.length} warehouses</span>
             </div>
             <div style={{ overflowX: "auto", maxHeight: 600 }}>
@@ -975,8 +975,8 @@ function SupplyChainView({ isMobile, orgId }) {
                       {warehouses.flatMap(wh => {
                         const cell = grid[s.sku]?.[wh];
                         return [
-                          <td key={`${wh}-u`} style={{ padding: "5px 6px", textAlign: "right", color: cell?.units > 0 ? T.text : T.text3, borderLeft: `1px solid ${T.border}` }}>{cell?.units > 0 ? fmt(cell.units) : "—"}</td>,
-                          <td key={`${wh}-r`} style={{ padding: "5px 6px", textAlign: "right", color: cell?.revenue > 0 ? "#22c55e" : T.text3, fontSize: 9 }}>{cell?.revenue > 0 ? fmtD(cell.revenue) : "—"}</td>,
+                          <td key={`${wh}-u`} style={{ padding: "5px 6px", textAlign: "right", color: cell?.units > 0 ? T.text : T.text3, borderLeft: `1px solid ${T.border}` }}>{cell?.units > 0 ? fmt(cell.units) : "-"}</td>,
+                          <td key={`${wh}-r`} style={{ padding: "5px 6px", textAlign: "right", color: cell?.revenue > 0 ? "#22c55e" : T.text3, fontSize: 9 }}>{cell?.revenue > 0 ? fmtD(cell.revenue) : "-"}</td>,
                         ];
                       })}
                       <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 700, color: T.text, borderLeft: `2px solid ${T.border}` }}>{fmt(s.totalUnits)}</td>
@@ -1028,7 +1028,7 @@ function SupplyChainView({ isMobile, orgId }) {
         const oq = (orderSearch || "").trim().toLowerCase();
         const filteredOrders = orders.filter(o => {
           if (rangeFrom && rangeTo && o.order_date && (o.order_date < rangeFrom || o.order_date > rangeTo)) return false;
-          // SKU whitelist from productSearch — at least one line item must match
+          // SKU whitelist from productSearch - at least one line item must match
           if (searchedSkus !== null) {
             const items = Array.isArray(o.line_items) ? o.line_items : [];
             if (!items.some(li => li && searchedSkus.has(li.sku))) return false;
@@ -1068,7 +1068,7 @@ function SupplyChainView({ isMobile, orgId }) {
                 <div style={{ fontSize: 20, fontWeight: 800, color: T.accent }}>{fmtD(aov)}</div>
               </div>
             </div>
-            {/* Local search input — separate from productSearch so users can filter by
+            {/* Local search input - separate from productSearch so users can filter by
                 order# / email / discount code without affecting the rest of the view */}
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <input
@@ -1102,12 +1102,12 @@ function SupplyChainView({ isMobile, orgId }) {
                         <tr key={o.id || o.order_id} onClick={() => setOrderDetail(o)} style={{ background: i % 2 === 0 ? "transparent" : T.surface2 + "30", cursor: "pointer" }} onMouseEnter={e => { e.currentTarget.style.background = T.accentDim; }} onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 0 ? "transparent" : T.surface2 + "30"; }}>
                           <td style={{ padding: "6px 10px", fontFamily: "monospace", fontSize: 10, color: T.accent, fontWeight: 600 }}>{o.order_name || o.order_id}</td>
                           <td style={{ padding: "6px 10px", color: T.text2, whiteSpace: "nowrap" }}>{o.order_date}</td>
-                          <td style={{ padding: "6px 10px", color: T.text, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.customer_email || "—"}</td>
-                          <td style={{ padding: "6px 10px", color: T.text2 }}>{o.channel || "—"}</td>
+                          <td style={{ padding: "6px 10px", color: T.text, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.customer_email || "-"}</td>
+                          <td style={{ padding: "6px 10px", color: T.text2 }}>{o.channel || "-"}</td>
                           <td style={{ padding: "6px 10px", color: T.text2 }}>{lineCount} × {o.total_units || 0}u</td>
-                          <td style={{ padding: "6px 10px", color: discounts.length > 0 ? "#f97316" : T.text3, fontSize: 10 }}>{discounts.length > 0 ? discounts.slice(0, 2).join(", ") + (discounts.length > 2 ? ` +${discounts.length-2}` : "") : "—"}</td>
+                          <td style={{ padding: "6px 10px", color: discounts.length > 0 ? "#f97316" : T.text3, fontSize: 10 }}>{discounts.length > 0 ? discounts.slice(0, 2).join(", ") + (discounts.length > 2 ? ` +${discounts.length-2}` : "") : "-"}</td>
                           <td style={{ padding: "6px 10px", color: "#22c55e", fontWeight: 700, whiteSpace: "nowrap" }}>{fmtD(Number(o.total_price || 0))}</td>
-                          <td style={{ padding: "6px 10px", fontSize: 9 }}><span style={{ padding: "2px 6px", borderRadius: 3, background: o.fulfillment_status === "fulfilled" ? "#22c55e15" : "#94a3b815", color: o.fulfillment_status === "fulfilled" ? "#22c55e" : T.text3, fontWeight: 600 }}>{o.fulfillment_status || "—"}</span></td>
+                          <td style={{ padding: "6px 10px", fontSize: 9 }}><span style={{ padding: "2px 6px", borderRadius: 3, background: o.fulfillment_status === "fulfilled" ? "#22c55e15" : "#94a3b815", color: o.fulfillment_status === "fulfilled" ? "#22c55e" : T.text3, fontWeight: 600 }}>{o.fulfillment_status || "-"}</span></td>
                         </tr>
                       );
                     })}
@@ -1131,7 +1131,7 @@ function SupplyChainView({ isMobile, orgId }) {
             <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>🧾 {orderDetail.order_name || orderDetail.order_id}</div>
-                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{orderDetail.order_date} · {orderDetail.customer_email || "no email"} · {orderDetail.channel || "—"}</div>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{orderDetail.order_date} · {orderDetail.customer_email || "no email"} · {orderDetail.channel || "-"}</div>
               </div>
               <button onClick={() => setOrderDetail(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 22, lineHeight: 1 }}>×</button>
             </div>
@@ -1167,8 +1167,8 @@ function SupplyChainView({ isMobile, orgId }) {
                   <tbody>
                     {(Array.isArray(orderDetail.line_items) ? orderDetail.line_items : []).map((li, idx) => (
                       <tr key={idx}>
-                        <td style={{ padding: "5px 8px", fontFamily: "monospace", fontSize: 9, color: T.text }}>{li?.sku || "—"}</td>
-                        <td style={{ padding: "5px 8px", color: T.text2, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{li?.product_title || "—"}{li?.variant_title ? ` · ${li.variant_title}` : ""}</td>
+                        <td style={{ padding: "5px 8px", fontFamily: "monospace", fontSize: 9, color: T.text }}>{li?.sku || "-"}</td>
+                        <td style={{ padding: "5px 8px", color: T.text2, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{li?.product_title || "-"}{li?.variant_title ? ` · ${li.variant_title}` : ""}</td>
                         <td style={{ padding: "5px 8px", color: T.text, fontWeight: 600 }}>{li?.quantity || 0}</td>
                         <td style={{ padding: "5px 8px", color: T.text2 }}>{fmtD(Number(li?.price || 0))}</td>
                         <td style={{ padding: "5px 8px", color: "#22c55e", fontWeight: 600 }}>{fmtD(Number(li?.price || 0) * Number(li?.quantity || 0))}</td>
@@ -1200,10 +1200,10 @@ function SupplyChainView({ isMobile, orgId }) {
               )}
               {/* Shipping + meta */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11, color: T.text2 }}>
-                <div><span style={{ color: T.text3 }}>Ship to:</span> {[orderDetail.shipping_city, orderDetail.shipping_state, orderDetail.country].filter(Boolean).join(", ") || "—"}</div>
-                <div><span style={{ color: T.text3 }}>From warehouse:</span> {orderDetail.warehouse_location || "—"}</div>
-                <div><span style={{ color: T.text3 }}>Financial status:</span> {orderDetail.financial_status || "—"}</div>
-                <div><span style={{ color: T.text3 }}>Sub cycle:</span> {orderDetail.is_subscription_order ? `#${orderDetail.subscription_cycle || "?"}` : "—"}</div>
+                <div><span style={{ color: T.text3 }}>Ship to:</span> {[orderDetail.shipping_city, orderDetail.shipping_state, orderDetail.country].filter(Boolean).join(", ") || "-"}</div>
+                <div><span style={{ color: T.text3 }}>From warehouse:</span> {orderDetail.warehouse_location || "-"}</div>
+                <div><span style={{ color: T.text3 }}>Financial status:</span> {orderDetail.financial_status || "-"}</div>
+                <div><span style={{ color: T.text3 }}>Sub cycle:</span> {orderDetail.is_subscription_order ? `#${orderDetail.subscription_cycle || "?"}` : "-"}</div>
               </div>
             </div>
           </div>
@@ -1227,7 +1227,7 @@ function SupplyChainView({ isMobile, orgId }) {
                   <td style={{ padding: "5px 10px", color: T.text3 }}>{o.month}</td>
                   <td style={{ padding: "5px 10px", color: T.text2 }}>{fmt(o.times_shown)}</td>
                   <td style={{ padding: "5px 10px", color: T.text2 }}>{fmt(o.times_accepted)}</td>
-                  <td style={{ padding: "5px 10px", fontWeight: 700, color: T.accent }}>{o.take_rate ? `${(Number(o.take_rate) * 100).toFixed(1)}%` : "—"}</td>
+                  <td style={{ padding: "5px 10px", fontWeight: 700, color: T.accent }}>{o.take_rate ? `${(Number(o.take_rate) * 100).toFixed(1)}%` : "-"}</td>
                   <td style={{ padding: "5px 10px", color: "#22c55e" }}>{fmtD(o.revenue_impact)}</td>
                 </tr>
               ))}</tbody>
@@ -1251,7 +1251,7 @@ function SupplyChainView({ isMobile, orgId }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SKU OVERRIDE MANAGER — Override base_product / variant / category for SKUs
+// SKU OVERRIDE MANAGER - Override base_product / variant / category for SKUs
 // when the upstream Metabase data is wrong or incomplete
 // ═══════════════════════════════════════════════════════════════════════════════
 function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose, onSaved }) {
@@ -1427,7 +1427,7 @@ function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose,
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 18px" }}>
           {filtered.length === 0 && (
             <div style={{ padding: 40, textAlign: "center", color: T.text3, fontSize: 12 }}>
-              {filter === "issues" ? "🎉 No issues found — all SKUs look mapped correctly!" : "No SKUs match this filter."}
+              {filter === "issues" ? "🎉 No issues found - all SKUs look mapped correctly!" : "No SKUs match this filter."}
             </div>
           )}
           {filtered.map(s => (
@@ -1496,7 +1496,7 @@ function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose,
                     </div>
                     <div style={{ fontSize: 11, color: T.text, fontWeight: 600 }}>→ {s.effectiveBaseProduct}</div>
                     <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
-                      Metabase: {s.titles.length > 1 ? <span style={{ color: "#f59e0b" }}>{s.titles.length} titles seen — </span> : null}
+                      Metabase: {s.titles.length > 1 ? <span style={{ color: "#f59e0b" }}>{s.titles.length} titles seen - </span> : null}
                       {s.titles.slice(0, 2).join(" / ") || "(no title)"}
                       {s.variants.length > 0 ? ` · ${s.variants.slice(0, 2).join(" / ")}` : ""}
                     </div>
@@ -1524,7 +1524,7 @@ function SkuOverrideManager({ orgId, weeklySales, skuMaster, overrides, onClose,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GROWTH PLANNER VIEW — Scenario planning, growth headroom, marketing scaling
+// GROWTH PLANNER VIEW - Scenario planning, growth headroom, marketing scaling
 // ═══════════════════════════════════════════════════════════════════════════════
 function GrowthPlannerView({ isMobile, orgId }) {
   const EB_ORG = "a0000000-0000-0000-0000-000000000001";
@@ -1645,7 +1645,7 @@ function GrowthPlannerView({ isMobile, orgId }) {
               {growthPct > maxGrowthWithoutStockout ? (
                 <span style={{ color: "#ef4444" }}>⚠️ This scenario exceeds growth headroom by {(growthPct - maxGrowthWithoutStockout).toFixed(0)}%. You would need to increase inventory by ~{fmt(Math.round((projectedWeekly - currentWeekly * (1 + maxGrowthWithoutStockout / 100)) * 8))} units before scaling to this level.</span>
               ) : growthPct > maxGrowthWithoutStockout * 0.8 ? (
-                <span style={{ color: "#f59e0b" }}>⚡ Approaching capacity — using {((growthPct / maxGrowthWithoutStockout) * 100).toFixed(0)}% of growth headroom. Consider placing POs now to maintain runway.</span>
+                <span style={{ color: "#f59e0b" }}>⚡ Approaching capacity - using {((growthPct / maxGrowthWithoutStockout) * 100).toFixed(0)}% of growth headroom. Consider placing POs now to maintain runway.</span>
               ) : (
                 <span style={{ color: "#22c55e" }}>✅ This scenario is well within current inventory capacity. You have room to scale further.</span>
               )}
@@ -1658,7 +1658,7 @@ function GrowthPlannerView({ isMobile, orgId }) {
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 20 }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Subscription Retention Curves</div>
-          <div style={{ fontSize: 11, color: T.text3 }}>Cohort retention rates — shows how subscribers drop off over time</div>
+          <div style={{ fontSize: 11, color: T.text3 }}>Cohort retention rates - shows how subscribers drop off over time</div>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -1683,7 +1683,7 @@ function GrowthPlannerView({ isMobile, orgId }) {
                             <div style={{ fontSize: 11, fontWeight: 700, color: pct > 80 ? "#22c55e" : pct > 60 ? "#f59e0b" : "#ef4444" }}>{pct.toFixed(0)}%</div>
                             <div style={{ fontSize: 9, color: T.text3 }}>{fmt(v)}</div>
                           </div>
-                        ) : <span style={{ color: T.text3, fontSize: 10 }}>—</span>}
+                        ) : <span style={{ color: T.text3, fontSize: 10 }}>-</span>}
                       </td>
                     );
                   })}
@@ -1830,8 +1830,8 @@ function DataSourcesView({ isMobile, orgId }) {
 // NEW PRODUCT LAUNCH PLANNER
 // ═══════════════════════════════════════════════════════════════════════════════
 const CHANNEL_DEFS = [
-  { key: "hero_gwp", label: "Hero GWP", icon: "🎁", group: "primary", desc: "Primary acquisition funnel — ALL marketing channels (email, SMS, ads, organic, TikTok, etc.) drive traffic into this GWP offer" },
-  { key: "amazon", label: "Amazon", icon: "📦", group: "marketplace", desc: "Amazon sales — direct PPC or halo from DTC brand awareness" },
+  { key: "hero_gwp", label: "Hero GWP", icon: "🎁", group: "primary", desc: "Primary acquisition funnel - ALL marketing channels (email, SMS, ads, organic, TikTok, etc.) drive traffic into this GWP offer" },
+  { key: "amazon", label: "Amazon", icon: "📦", group: "marketplace", desc: "Amazon sales - direct PPC or halo from DTC brand awareness" },
   { key: "tiktok", label: "TikTok", icon: "🎵", group: "marketplace", desc: "TikTok Shop sales" },
   { key: "retail", label: "Retail", icon: "🏬", group: "offline", desc: "Brick & mortar retail distribution" },
   { key: "wholesale", label: "Wholesale", icon: "🏢", group: "offline", desc: "Wholesale / B2B distribution" },
@@ -1846,11 +1846,11 @@ const STATUS_OPTS = [
   { value: "cancelled", label: "Cancelled", color: "#ef4444" },
 ];
 
-// Marketing channel type definitions — defines which inputs apply per channel type
+// Marketing channel type definitions - defines which inputs apply per channel type
 const MARKETING_TYPES = [
   { key: "email", label: "Email", icon: "📧", color: "#8b5cf6", inputs: ["sends", "open_rate_pct", "ctr_pct", "conversion_rate_pct"], desc: "Email campaign with full funnel" },
   { key: "sms", label: "SMS", icon: "💬", color: "#f59e0b", inputs: ["sends", "ctr_pct", "conversion_rate_pct"], desc: "SMS / MMS campaign with click + convert" },
-  { key: "paid_ads", label: "Paid Ads", icon: "📱", color: "#ef4444", inputs: ["spend", "cpa"], desc: "Paid media (Meta, Google, TikTok, etc.) — budget and target CPA" },
+  { key: "paid_ads", label: "Paid Ads", icon: "📱", color: "#ef4444", inputs: ["spend", "cpa"], desc: "Paid media (Meta, Google, TikTok, etc.) - budget and target CPA" },
   { key: "influencer", label: "Influencer", icon: "🎬", color: "#ec4899", inputs: ["spend", "cpa", "direct_orders"], desc: "Paid influencer or affiliate" },
   { key: "organic", label: "Organic / PR", icon: "🌿", color: "#22c55e", inputs: ["direct_orders"], desc: "Organic traffic, PR, earned media" },
   { key: "other", label: "Other", icon: "➕", color: "#6b7280", inputs: ["spend", "cpa", "direct_orders"], desc: "Custom marketing source" },
@@ -2048,7 +2048,7 @@ function FmtInput({ defaultValue, onBlur, style, disabled }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SkuPicker — autocomplete search of dp_sku_master with "Create New Draft SKU" fallback
+// SkuPicker - autocomplete search of dp_sku_master with "Create New Draft SKU" fallback
 // Used for: launch.product_sku, dp_launch_gwp_tiers.gift_sku, etc.
 // ─────────────────────────────────────────────────────────────────────────────
 function SkuPicker({ value, onChange, orgId, placeholder, allowCreate = true, isGiftPicker = false, style }) {
@@ -2222,7 +2222,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
 
   return (
     <div>
-      {/* Demand source toggle — not shown for hero_gwp (always direct) */}
+      {/* Demand source toggle - not shown for hero_gwp (always direct) */}
       {!isPrimary && haloSources.length > 0 && (
         <div style={{ marginBottom: 10, padding: "8px 12px", background: T.surface3, borderRadius: 6, border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Demand Source</div>
@@ -2236,10 +2236,10 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
             ))}
           </div>
 
-          {/* Halo inputs — shown for 'halo' and 'both' modes */}
+          {/* Halo inputs - shown for 'halo' and 'both' modes */}
           {(isHalo || isBoth) && (
             <div style={{ marginTop: 8, padding: "8px 10px", background: "#8b5cf610", borderRadius: 6, border: "1px solid #8b5cf620" }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "#8b5cf6", marginBottom: 4 }}>🌊 Halo Effect — spillover demand from paid media</div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#8b5cf6", marginBottom: 4 }}>🌊 Halo Effect - spillover demand from paid media</div>
               <div style={{ fontSize: 9, color: T.text3, marginBottom: 6, lineHeight: 1.4, fontStyle: "italic" }}>{
                 c === "amazon" ? "DTC ad spend (Meta, Google, TV) drives brand awareness → organic Amazon searches + higher conversion. What % of DTC orders do you expect to also generate Amazon orders?" :
                 c === "upsell" ? "New customers acquired through Hero GWP will see this product as an upsell at checkout. What % of those new orders will take the upsell?" :
@@ -2271,7 +2271,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
       {(!isHalo || isPrimary) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           
-          {/* Hero GWP / DTC Paid — primary driver with optional time-phased spend */}
+          {/* Hero GWP / DTC Paid - primary driver with optional time-phased spend */}
           {(c === "hero_gwp" || c === "dtc_paid") && (() => {
             const chPeriods = (allPeriods || []).filter(p => p.channel_id === ch.id).sort((a,b) => a.period_index - b.period_index);
             const hasPeriods = chPeriods.length > 0;
@@ -2365,7 +2365,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
             </>;
           })()}
 
-          {/* GWP Tier Gifts — only for hero_gwp */}
+          {/* GWP Tier Gifts - only for hero_gwp */}
           {c === "hero_gwp" && (() => {
             const tiers = gwpTiers || [];
             const inp4 = { width: "100%", padding: "4px 6px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: T.text, boxSizing: "border-box" };
@@ -2454,7 +2454,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
             );
           })()}
 
-          {/* Email — Multi-Send Table */}
+          {/* Email - Multi-Send Table */}
           {c === "email" && (() => {
             const sends = emailSends || [];
             const hasSends = sends.length > 0;
@@ -2550,7 +2550,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
             </div>;
           })()}
 
-          {/* SMS — Multi-Send Table (like email but no open rate) */}
+          {/* SMS - Multi-Send Table (like email but no open rate) */}
           {c === "sms" && (() => {
             const sends = emailSends || [];
             const hasSends = sends.length > 0;
@@ -2666,7 +2666,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
         </div>
       )}
 
-      {/* OTP vs Subscription Split — all channels */}
+      {/* OTP vs Subscription Split - all channels */}
       <div style={{ marginTop: 8, padding: "8px 12px", background: T.surface3, borderRadius: 6, border: `1px solid ${T.border}` }}>
         <div style={{ fontSize: 9, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Order Type Split</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -2700,7 +2700,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
         )}
       </div>
 
-      {/* Variant / Pack-Size Allocation — available on any channel */}
+      {/* Variant / Pack-Size Allocation - available on any channel */}
       {(() => {
         const splits = variantSplits || [];
         const totalPct = splits.reduce((s, v) => s + (v.take_rate_pct || 0), 0);
@@ -2807,19 +2807,19 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                             <FmtInput defaultValue={v.first_purchase_price ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { first_purchase_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
                           </td>
                           <td style={{ padding: "4px 4px" }}>
-                            {/* First Sub Price — the price the customer pays on their FIRST subscription order.
+                            {/* First Sub Price - the price the customer pays on their FIRST subscription order.
                                 Falls back to legacy subscription_price when not yet set, so untouched
                                 variants render and calculate exactly as before. */}
                             <FmtInput defaultValue={(v.first_sub_price != null ? v.first_sub_price : v.subscription_price) ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { first_sub_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
                           </td>
                           <td style={{ padding: "4px 4px" }}>
-                            {/* Recurring Sub Price — the rebill price (every order after the first sub).
+                            {/* Recurring Sub Price - the rebill price (every order after the first sub).
                                 Falls back to legacy subscription_price likewise. */}
                             <FmtInput defaultValue={(v.recurring_sub_price != null ? v.recurring_sub_price : v.subscription_price) ?? ""} onBlur={e => onUpdateVariantSplit(v.id, { recurring_sub_price: e.target.value === "" ? null : Number(e.target.value) })} style={inp3} />
                           </td>
-                          <td style={{ padding: "4px 4px", textAlign: "right", fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "—"}</td>
-                          <td style={{ padding: "4px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "—"}</td>
-                          <td style={{ padding: "4px 4px", textAlign: "right", fontSize: 9, color: T.green }}>{vRev > 0 ? `$${fmt(Math.round(vRev))}` : "—"}</td>
+                          <td style={{ padding: "4px 4px", textAlign: "right", fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(vOrders) : "-"}</td>
+                          <td style={{ padding: "4px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: colors[i % colors.length] }}>{totalOrders > 0 ? fmt(vUnits) : "-"}</td>
+                          <td style={{ padding: "4px 4px", textAlign: "right", fontSize: 9, color: T.green }}>{vRev > 0 ? `$${fmt(Math.round(vRev))}` : "-"}</td>
                           <td style={{ padding: "4px 2px", textAlign: "center" }}><button onClick={() => onRemoveVariantSplit(v.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button></td>
                         </tr>
                       );
@@ -2832,12 +2832,12 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                       <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: pctWarning ? T.red : T.text }}>{totalPct.toFixed(0)}%{pctWarning ? " ⚠" : ""}</td>
                       <td style={{ padding: "6px 4px" }}></td>
                       <td style={{ padding: "6px 4px" }}></td>
-                      <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(totalOrders) : "—"}</td>
+                      <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 600, fontSize: 10, color: T.text2 }}>{totalOrders > 0 ? fmt(totalOrders) : "-"}</td>
                       <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 800, fontSize: 11, color: T.accent }}>
                         {totalOrders > 0 ? fmt(splits.reduce((s, v) => {
                           const vOrders = Math.round(totalOrders * ((v.take_rate_pct || 0) / 100));
                           return s + Math.round(vOrders * (v.units_per_variant || 1));
-                        }, 0)) : "—"}
+                        }, 0)) : "-"}
                       </td>
                       <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 700, fontSize: 10, color: T.green }}>
                         {totalOrders > 0 ? "$" + fmt(Math.round(splits.reduce((s, v) => {
@@ -2851,13 +2851,13 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                           const vRates = Array.isArray(v.rebill_rates) ? v.rebill_rates : (Array.isArray(ch.rebill_rates) ? ch.rebill_rates : []);
                           const rebillRev = vRates.reduce((acc, r) => acc + Math.round(subO * (r / 100)) * (rebillPx || 0), 0);
                           return s + otpO * (v.first_purchase_price || 0) + subO * (firstSubPx || 0) + rebillRev;
-                        }, 0))) : "—"}
+                        }, 0))) : "-"}
                       </td>
                       <td style={{ padding: "6px 2px" }}></td>
                     </tr>
                   </tfoot>
                 </table>
-                {pctWarning && <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>⚠ Take rates sum to {totalPct.toFixed(0)}% — should total 100%</div>}
+                {pctWarning && <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>⚠ Take rates sum to {totalPct.toFixed(0)}% - should total 100%</div>}
                 {totalOrders === 0 && splits.length > 0 && <div style={{ fontSize: 9, color: T.text3, marginTop: 4, fontStyle: "italic" }}>Fill in the demand model above to see order/unit projections per variant.</div>}
               </>
             )}
@@ -2867,7 +2867,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
         );
       })()}
 
-      {/* Subscription & Reorder — Rebill Rate Model */}
+      {/* Subscription & Reorder - Rebill Rate Model */}
       <div style={{ marginTop: 10, padding: "10px 12px", background: "#0ea5e908", borderRadius: 8, border: `1px solid #0ea5e915` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#0ea5e9" }}>🔄 Rebill / Reorder Curve</div>
@@ -2950,7 +2950,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                         <td style={{ padding: "3px 6px", width: 70 }}>
                           <FmtInput defaultValue={rate} onBlur={e => { const newRates = [...rates]; newRates[i] = Number(e.target.value) || 0; up("rebill_rates", newRates); }} style={inp6} />
                         </td>
-                        <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 600, fontSize: 10, color: "#0ea5e9" }}>{subOrders > 0 ? fmt(rebillOrders) : "—"}</td>
+                        <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 600, fontSize: 10, color: "#0ea5e9" }}>{subOrders > 0 ? fmt(rebillOrders) : "-"}</td>
                         <td style={{ padding: "3px 2px" }}>
                           {rates.length > 1 && <button onClick={() => { const newRates = rates.filter((_, j) => j !== i); up("rebill_rates", newRates); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 10, padding: 2 }}>×</button>}
                         </td>
@@ -2962,7 +2962,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                   <tr style={{ borderTop: `2px solid ${T.border}` }}>
                     <td style={{ padding: "5px 6px", fontWeight: 700, fontSize: 10, color: T.text }}>Total Rebills</td>
                     <td style={{ padding: "5px 6px", textAlign: "right", fontSize: 9, color: T.text3 }}>{rates.reduce((s, r) => s + r, 0)}% cum.</td>
-                    <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 800, fontSize: 12, color: "#0ea5e9" }}>{subOrders > 0 ? fmt(rates.reduce((s, r) => s + Math.round(subOrders * (r / 100)), 0)) : "—"}</td>
+                    <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 800, fontSize: 12, color: "#0ea5e9" }}>{subOrders > 0 ? fmt(rates.reduce((s, r) => s + Math.round(subOrders * (r / 100)), 0)) : "-"}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -2997,7 +2997,7 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
                           <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
                             <span style={{ fontSize: 7, color: T.text3 }}>R{i + 1}</span>
                             <FmtInput defaultValue={rate} onBlur={e => { const nr = [...vRates]; nr[i] = Number(e.target.value) || 0; onUpdateVariantSplit(v.id, { rebill_rates: nr }); }} style={inp6} />
-                            <span style={{ fontSize: 7, color: "#0ea5e9" }}>{vOrders > 0 ? fmt(Math.round(vOrders * (rate / 100))) : "—"}</span>
+                            <span style={{ fontSize: 7, color: "#0ea5e9" }}>{vOrders > 0 ? fmt(Math.round(vOrders * (rate / 100))) : "-"}</span>
                           </div>
                         ))}
                         <button onClick={() => { const nr = [...vRates, Math.max(2, Math.round((vRates[vRates.length - 1] || 10) * 0.8))]; onUpdateVariantSplit(v.id, { rebill_rates: nr }); }}
@@ -3018,11 +3018,11 @@ function ChannelInputs({ ch, onUpdateChannel, allChannels, allPeriods, onAddPeri
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RebillRatesEditor — separate OTP and Sub rebill rate tables for any scope
+// RebillRatesEditor - separate OTP and Sub rebill rate tables for any scope
 // (used both for the main GWP funnel and for individual upsells with custom rates)
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// MarketingChannelsSection — per-channel, per-period acquisition driver inputs
+// MarketingChannelsSection - per-channel, per-period acquisition driver inputs
 // Each launch can have multiple marketing channels (Email, SMS, Paid Ads, etc.)
 // Each channel has period inputs (W1, W2, ... or M1, M2, ...) configured by type.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3108,7 +3108,7 @@ function MarketingChannelsSection({ launch, launchMarketingChannels, launchMarke
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
             <div><span style={{ fontSize: 10, color: T.text3 }}>Spend: </span><span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>${fmt(Math.round(totalSpend))}</span></div>
             <div><span style={{ fontSize: 10, color: T.text3 }}>Orders: </span><span style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{fmt(totalOrders)}</span></div>
-            <div><span style={{ fontSize: 10, color: T.text3 }}>Blended CPA: </span><span style={{ fontSize: 14, fontWeight: 800, color: "#f59e0b" }}>${blendedCpa > 0 ? blendedCpa.toFixed(2) : "—"}</span></div>
+            <div><span style={{ fontSize: 10, color: T.text3 }}>Blended CPA: </span><span style={{ fontSize: 14, fontWeight: 800, color: "#f59e0b" }}>${blendedCpa > 0 ? blendedCpa.toFixed(2) : "-"}</span></div>
           </div>
         </div>
       )}
@@ -3162,7 +3162,7 @@ function MarketingChannelRow({ channel, periods, periodLabel, launchPeriods, upd
         </div>
       </div>
 
-      {/* Period table — periods as columns, input metrics as rows */}
+      {/* Period table - periods as columns, input metrics as rows */}
       <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 6 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: periods.length * 60 + 120 }}>
           <thead>
@@ -3212,7 +3212,7 @@ function MarketingChannelRow({ channel, periods, periodLabel, launchPeriods, upd
                 const orders = calcMarketingPeriodOrders(channel.channel_type, byIdx[idx]);
                 return (
                   <td key={idx} style={{ padding: "6px 4px", textAlign: "center", color: def.color, fontWeight: 700, fontSize: 11 }}>
-                    {orders > 0 ? fmt(orders) : "—"}
+                    {orders > 0 ? fmt(orders) : "-"}
                   </td>
                 );
               })}
@@ -3225,7 +3225,7 @@ function MarketingChannelRow({ channel, periods, periodLabel, launchPeriods, upd
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GeographySection — toggle/% UI for AU/CA/UK/US + add custom geo
+// GeographySection - toggle/% UI for AU/CA/UK/US + add custom geo
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_GEOS = [
   { code: "US", label: "United States" },
@@ -3239,7 +3239,7 @@ function GeographySection({ launchId, launchGeoSplit, totalAcquisitionOrders, up
   const [newCode, setNewCode] = useState("");
   const [newLabel, setNewLabel] = useState("");
 
-  // Merge defaults with stored — defaults always show as toggleable rows even if disabled
+  // Merge defaults with stored - defaults always show as toggleable rows even if disabled
   const stored = launchGeoSplit;
   const defaultRows = DEFAULT_GEOS.map(g => {
     const s = stored.find(x => x.geo_code === g.code);
@@ -3385,7 +3385,7 @@ function GeographySection({ launchId, launchGeoSplit, totalAcquisitionOrders, up
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CapacityDosSection — manufacturing capacity & days of supply
+// CapacityDosSection - manufacturing capacity & days of supply
 // ─────────────────────────────────────────────────────────────────────────────
 function CapacityDosSection({ launch, totalUnits, peakUnits, maxMonthlyCapacity, targetDos, forecastWeeks, updateLaunch, T, isMobile }) {
   const monthCount = Math.max(1, Math.ceil(forecastWeeks / 4.33));
@@ -3425,7 +3425,7 @@ function CapacityDosSection({ launch, totalUnits, peakUnits, maxMonthlyCapacity,
         </div>
         <div style={{ padding: "10px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${overCap ? "#ef4444" : T.border}` }}>
           <div style={{ fontSize: 9, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Max Capacity</div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: cap > 0 ? (overCap ? "#ef4444" : "#22c55e") : T.text3 }}>{cap > 0 ? fmt(cap) : "—"}</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: cap > 0 ? (overCap ? "#ef4444" : "#22c55e") : T.text3 }}>{cap > 0 ? fmt(cap) : "-"}</div>
           <div style={{ fontSize: 9, color: T.text3 }}>{cap > 0 ? "units / month" : "not set"}</div>
         </div>
         <div style={{ padding: "10px 12px", background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}` }}>
@@ -3449,8 +3449,8 @@ function CapacityDosSection({ launch, totalUnits, peakUnits, maxMonthlyCapacity,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UpsellPeriodsEditor — per-period orders inputs for STANDALONE upsells
-// (separate funnel from Hero GWP — its own spend, CPA, or direct orders)
+// UpsellPeriodsEditor - per-period orders inputs for STANDALONE upsells
+// (separate funnel from Hero GWP - its own spend, CPA, or direct orders)
 // ─────────────────────────────────────────────────────────────────────────────
 function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod, updateUpsell, T, isMobile }) {
   const periodType = launch.period_type || "month";
@@ -3553,7 +3553,7 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
                 const o = upsellOrdersFor(byIdx[idx]);
                 return (
                   <td key={idx} style={{ padding: "5px 4px", textAlign: "center", color: "#ec4899", fontWeight: 700, fontSize: 11 }}>
-                    {o > 0 ? fmt(o) : "—"}
+                    {o > 0 ? fmt(o) : "-"}
                   </td>
                 );
               })}
@@ -3571,11 +3571,11 @@ function UpsellPeriodsEditor({ launch, upsell, upsellPeriods, upsertUpsellPeriod
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MonthlyDemandSchedule — synthesizes everything into a monthly forecast
+// MonthlyDemandSchedule - synthesizes everything into a monthly forecast
 // New Orders + Recurring Orders + Total Units, broken out per month
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// computeMonthlyDemand — single source of truth for v3 launch demand math.
+// computeMonthlyDemand - single source of truth for v3 launch demand math.
 // Used by MonthlyDemandSchedule (rendering) AND CapacityDosSection (peak/avg).
 // ─────────────────────────────────────────────────────────────────────────────
 function computeMonthlyDemand({ launch, marketingChannels, marketingPeriods, packTiers, rebillRates, upsells, upsellPeriods }) {
@@ -3772,7 +3772,7 @@ function MonthlyDemandSchedule({ launch, marketingChannels, marketingPeriods, pa
                   const overThisMonth = cap > 0 && v > cap;
                   return (
                     <td key={i} style={{ padding: "8px 4px", textAlign: "center", fontSize: 12, fontWeight: 800, color: overThisMonth ? "#ef4444" : T.text, borderTop: `2px solid ${T.accent}30`, fontVariantNumeric: "tabular-nums" }}>
-                      {v > 0 ? fmt(v) : "—"}
+                      {v > 0 ? fmt(v) : "-"}
                     </td>
                   );
                 })}
@@ -3816,7 +3816,7 @@ function ScheduleRow({ label, subtitle, values, color, T, isUnit }) {
       </td>
       {values.map((v, i) => (
         <td key={i} style={{ padding: "6px 4px", textAlign: "center", fontSize: 11, color: v > 0 ? color : T.text3, fontWeight: v > 0 ? 600 : 400, borderBottom: `1px solid ${T.border}`, fontVariantNumeric: "tabular-nums" }}>
-          {v > 0 ? fmt(v) : "—"}
+          {v > 0 ? fmt(v) : "-"}
         </td>
       ))}
       <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 11, fontWeight: 800, color, borderBottom: `1px solid ${T.border}`, fontVariantNumeric: "tabular-nums" }}>
@@ -3827,7 +3827,7 @@ function ScheduleRow({ label, subtitle, values, color, T, isUnit }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PackTiersEditor — pack-size take rates + free gifts per tier
+// PackTiersEditor - pack-size take rates + free gifts per tier
 // e.g., 30% of orders are 1-pack, 50% are 2-pack with free gift X, 20% are 3-pack with gift Y
 // Take rates must sum to 100%. Total units = Σ (orders × take% × pack_size).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3849,7 +3849,7 @@ function PackTiersEditor({ launchId, orgId, tiers, totalAcqOrders, addGwpPackTie
     tierWithOrders.slice(idx).reduce((s, t) => s + t._orders, 0);
 
   // Per-row "cumulative gift cost" = own gift cost (×orders) + every smaller tier's gift cost (×orders for this tier)
-  // Wait — re-read user requirement:
+  // Wait - re-read user requirement:
   //   1-pack gets gift A (qty 1); 2-pack gets A + B; 3-pack gets A + B + C.
   // So orders at THIS tier × (sum of gift costs for THIS tier and all SMALLER tiers).
   const cumulativeGiftCostForTier = (idx) => {
@@ -3885,7 +3885,7 @@ function PackTiersEditor({ launchId, orgId, tiers, totalAcqOrders, addGwpPackTie
   const totalGiftCost = giftInventory.reduce((s, g) => s + g.totalCost, 0);
   const usedSizes = new Set(sorted.map(t => t.pack_size));
 
-  // Build "includes" string per tier — what gifts cascade in from smaller tiers
+  // Build "includes" string per tier - what gifts cascade in from smaller tiers
   const includesFor = (idx) => {
     const smaller = tierWithOrders.slice(0, idx).filter(s => s.gift_name);
     return smaller.map(s => `${s.pack_size}-pk: ${s.gift_name}`).join(" + ");
@@ -3894,7 +3894,7 @@ function PackTiersEditor({ launchId, orgId, tiers, totalAcqOrders, addGwpPackTie
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>Pack Tiers · Take Rate + Free Gifts <span style={{ fontWeight: 400, color: T.text3, fontSize: 10 }}>(gifts cascade — bigger packs include smaller-pack gifts)</span></div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>Pack Tiers · Take Rate + Free Gifts <span style={{ fontWeight: 400, color: T.text3, fontSize: 10 }}>(gifts cascade - bigger packs include smaller-pack gifts)</span></div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <div style={{ padding: "2px 8px", borderRadius: 5, fontSize: 9, fontWeight: 700, background: sumOk ? "#22c55e15" : "#ef444415", color: sumOk ? "#22c55e" : "#ef4444" }}>
             {totalPct.toFixed(0)}% {sumOk ? "✓" : "✗"}
@@ -3978,7 +3978,7 @@ function PackTiersEditor({ launchId, orgId, tiers, totalAcqOrders, addGwpPackTie
                         style={{ width: "100%", padding: "3px 4px", fontSize: 10, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, outline: "none" }} />
                     </td>
                     <td style={{ padding: "4px 8px", color: T.text3, fontSize: 9 }}>
-                      {inc ? inc : <span style={{ fontStyle: "italic" }}>—</span>}
+                      {inc ? inc : <span style={{ fontStyle: "italic" }}>-</span>}
                     </td>
                     <td style={{ padding: "3px 4px", textAlign: "center" }}>
                       <button onClick={() => deleteGwpPackTier(t.id)} title="Remove tier"
@@ -3992,7 +3992,7 @@ function PackTiersEditor({ launchId, orgId, tiers, totalAcqOrders, addGwpPackTie
         </div>
       )}
 
-      {/* Gift Inventory Needs — cumulative quantities across all tiers that include each gift */}
+      {/* Gift Inventory Needs - cumulative quantities across all tiers that include each gift */}
       {giftInventory.length > 0 && (
         <div style={{ marginTop: 10, padding: 10, background: T.accent + "06", border: `1px solid ${T.accent}30`, borderRadius: 6 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.text, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -4046,7 +4046,7 @@ function PackTiersEditor({ launchId, orgId, tiers, totalAcqOrders, addGwpPackTie
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RebillRatesEditor — separate OTP and Sub rebill rate tables for any scope
+// RebillRatesEditor - separate OTP and Sub rebill rate tables for any scope
 // (used both for the main GWP funnel and for individual upsells with custom rates)
 // ─────────────────────────────────────────────────────────────────────────────
 function RebillRatesEditor({ launchId, scopeType, scopeId, otpPct, subPct, rebillRates, upsertRebillRate, forecastWeeks, T, isMobile, compact }) {
@@ -4230,7 +4230,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
     if (!confirm(`Delete launch "${productName}"? This will also remove all channels, periods, POs, email sends, variants, GWP tiers, upsells, geo splits, and rebill rates tied to it. This cannot be undone.`)) return;
     // Cascade deletes for child tables. Three of these (dp_launch_periods,
     // dp_launch_email_sends, dp_launch_variant_splits) hang off
-    // dp_launch_channels — not directly off the launch — so they have a
+    // dp_launch_channels - not directly off the launch - so they have a
     // channel_id column, NOT a launch_id column. Trying to delete them by
     // launch_id was returning 400 from PostgREST ('column does not exist').
     // The DB already handles those via ON DELETE CASCADE on dp_launch_channels,
@@ -4621,7 +4621,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
         });
       });
     } else {
-      // No variants — orders = units (qty 1)
+      // No variants - orders = units (qty 1)
       totalUnits += chOrders;
       totalRevenue += chOrders * (selected?.retail_price || 0);
     }
@@ -4665,7 +4665,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
             { label: "Total Units", value: fmt(totalUnits), sub: `${fmt(totalOrders)} orders + rebills`, color: T.accent },
             { label: "Revenue", value: "$" + fmt(Math.round(totalRevenue)), sub: "first + rebills", color: "#22c55e" },
             { label: "COGS", value: "$" + fmt(Math.round(totalCost)), sub: "total", color: "#f59e0b" },
-            { label: "Margin", value: totalRevenue > 0 ? ((1 - totalCost / totalRevenue) * 100).toFixed(1) + "%" : "—", sub: "gross", color: "#10b981" },
+            { label: "Margin", value: totalRevenue > 0 ? ((1 - totalCost / totalRevenue) * 100).toFixed(1) + "%" : "-", sub: "gross", color: "#10b981" },
             { label: "Channels", value: launchChannels.length, sub: "active", color: "#8b5cf6" },
           ].map(k => (
             <div key={k.label} style={{ padding: "12px 14px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
@@ -4694,7 +4694,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                 placeholder="Search SKU or product title…"
               />
             </div>
-            {/* Product Details intentionally NOT carrying price/cost — pricing now
+            {/* Product Details intentionally NOT carrying price/cost - pricing now
                 lives per-pack-size in the Hero GWP section (Acquisition Funnel);
                 unit_cost lives in Supply & Manufacturing. */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -4720,7 +4720,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* MARKETING CHANNELS — drive orders through Email, SMS, Paid Ads, etc. */}
+        {/* MARKETING CHANNELS - drive orders through Email, SMS, Paid Ads, etc. */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
         <MarketingChannelsSection
           launch={selected}
@@ -4735,7 +4735,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
           isMobile={isMobile}
         />
 
-        {/* ACQUISITION FUNNEL — GWP-driven (replaces multi-channel acquisition) */}
+        {/* ACQUISITION FUNNEL - GWP-driven (replaces multi-channel acquisition) */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {(() => {
           const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
@@ -4817,7 +4817,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
         })()}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* UPSELLS — multiple named upsells per launch                       */}
+        {/* UPSELLS - multiple named upsells per launch                       */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {(() => {
           // Pre-compute per-upsell totals so we can both render each card AND a footer summary
@@ -4857,7 +4857,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
               </div>
               {launchUpsells.length === 0 ? (
                 <div style={{ padding: 24, textAlign: "center", color: T.text3, fontSize: 11, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: 8 }}>
-                  No upsells configured. Click "+ Add Upsell" to add one — e.g., a same-product upsell or cross-sell.
+                  No upsells configured. Click "+ Add Upsell" to add one - e.g., a same-product upsell or cross-sell.
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -4982,7 +4982,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
         })()}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* GEOGRAPHY — distribution split for shipping/demand allocation     */}
+        {/* GEOGRAPHY - distribution split for shipping/demand allocation     */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {(() => {
           const totalAcqOrders = launchMarketingChannels.reduce((sum, ch) => {
@@ -5003,7 +5003,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
         })()}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* CAPACITY & DAYS OF SUPPLY — production guardrails                 */}
+        {/* CAPACITY & DAYS OF SUPPLY - production guardrails                 */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {(() => {
           const dem = computeMonthlyDemand({
@@ -5036,7 +5036,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
         })()}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* MONTHLY DEMAND SCHEDULE — pulls everything together               */}
+        {/* MONTHLY DEMAND SCHEDULE - pulls everything together               */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
         <MonthlyDemandSchedule
           launch={selected}
@@ -5057,7 +5057,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
           </div>
           <div style={{ fontSize: 11, color: T.text3, marginBottom: 12, lineHeight: 1.5 }}>Non-acquisition channels with their own demand. Use these for marketplace sales (Amazon, TikTok), retail distribution, and wholesale.</div>
 
-          {/* Add channel buttons — grouped */}
+          {/* Add channel buttons - grouped */}
           {[
             { group: "marketplace", label: "Marketplace" },
             { group: "offline", label: "Offline / Wholesale" },
@@ -5152,7 +5152,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{fmt(po.quantity)} units</div>
                     <div style={{ fontSize: 10, color: T.text3 }}>
-                      ${fmt(Math.round(po.total_cost || 0))} · Order by {po.order_by_date || "—"} · Arrival {po.expected_arrival || "—"}
+                      ${fmt(Math.round(po.total_cost || 0))} · Order by {po.order_by_date || "-"} · Arrival {po.expected_arrival || "-"}
                     </div>
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: po.status === "ordered" ? "#0ea5e915" : po.status === "received" ? "#22c55e15" : "#6366f115", color: po.status === "ordered" ? "#0ea5e9" : po.status === "received" ? "#22c55e" : "#6366f1" }}>{po.status}</span>
@@ -5189,7 +5189,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
             <I label="Launch Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Q3 Lemon Launch" />
             <I label="Launch Date" value={form.launch_date} onChange={v => setForm(f => ({ ...f, launch_date: v }))} type="date" />
             <I label="Unit Cost" value={form.unit_cost} onChange={v => setForm(f => ({ ...f, unit_cost: v }))} type="number" prefix="$" />
-            {/* Retail price removed — pricing now lives per-pack-size in Hero GWP variant table. */}
+            {/* Retail price removed - pricing now lives per-pack-size in Hero GWP variant table. */}
             <I label="MOQ" value={form.moq} onChange={v => setForm(f => ({ ...f, moq: v }))} type="number" suffix="units" />
             <I label="Lead Time" value={form.lead_time_days} onChange={v => setForm(f => ({ ...f, lead_time_days: v }))} type="number" suffix="days" />
             <I label="Supplier" value={form.supplier} onChange={v => setForm(f => ({ ...f, supplier: v }))} />
@@ -5206,7 +5206,7 @@ function LaunchPlannerView({ isMobile, orgId }) {
         <div style={{ padding: 60, textAlign: "center" }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>🚀</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>No Product Launches Yet</div>
-          <div style={{ fontSize: 12, color: T.text3, marginTop: 6, maxWidth: 420, margin: "6px auto 0", lineHeight: 1.6 }}>Plan demand for new product launches by estimating demand across promotion channels — GWP, upsell, Amazon, email, retail, and more.</div>
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 6, maxWidth: 420, margin: "6px auto 0", lineHeight: 1.6 }}>Plan demand for new product launches by estimating demand across promotion channels - GWP, upsell, Amazon, email, retail, and more.</div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

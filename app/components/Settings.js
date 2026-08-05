@@ -98,10 +98,10 @@ export default function SettingsView({ isAdmin, allowedModules }) {
   const [addingGroup, setAddingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
 
-  // Team (was inside conditional IIFE — lifted to top)
+  // Team (was inside conditional IIFE - lifted to top)
   const [selectedMembers, setSelectedMembers] = useState(new Set());
 
-  // Permissions (was inside conditional IIFE — lifted to top)
+  // Permissions (was inside conditional IIFE - lifted to top)
   const [perms, setPerms] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [permSaving, setPermSaving] = useState({});
@@ -309,7 +309,7 @@ export default function SettingsView({ isAdmin, allowedModules }) {
               </Field>
             </Section>
 
-            <Section title="Sidebar Menu" subtitle="Customize your navigation — drag to reorder, toggle visibility, create custom groups">
+            <Section title="Sidebar Menu" subtitle="Customize your navigation - drag to reorder, toggle visibility, create custom groups">
               {sidebarGroups && (
               <div>
                 {sidebarGroups
@@ -508,7 +508,7 @@ export default function SettingsView({ isAdmin, allowedModules }) {
             {/* Create new org */}
             <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Create New Organization</div>
-              <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>Create a separate workspace for another business. Each org has its own data, team members, and settings — completely isolated.</div>
+              <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>Create a separate workspace for another business. Each org has its own data, team members, and settings - completely isolated.</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 3, textTransform: "uppercase" }}>Organization Name</div>
@@ -756,7 +756,7 @@ export default function SettingsView({ isAdmin, allowedModules }) {
                   {integ.testable && (
                     <button onClick={async () => {
                       const res = await notifySlack({ type:"info", title:"Helm test notification 🔔", message:"Your Slack integration is working. Helm will send you notifications here automatically.", url:"https://helm-app-six.vercel.app" });
-                      showToast(res?.success ? "Test message sent to your Slack DM ✓" : "Failed — check SLACK_BOT_TOKEN in Supabase secrets", res?.success ? "#22c55e" : "#ef4444");
+                      showToast(res?.success ? "Test message sent to your Slack DM ✓" : "Failed - check SLACK_BOT_TOKEN in Supabase secrets", res?.success ? "#22c55e" : "#ef4444");
                     }} style={{ padding:"7px 14px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer",
                       background:T.surface2, color:T.text2, border:`1px solid ${T.border}` }}>
                       ↗ Test
@@ -814,7 +814,7 @@ export default function SettingsView({ isAdmin, allowedModules }) {
                 </div>
               </div>
               <div style={{ fontSize:13, color:T.text2, lineHeight:1.8, marginBottom:20 }}>
-                Helm brings together your OKRs, Projects, PLM, Finance, and operations into a single platform — giving you real-time visibility across every part of your business.
+                Helm brings together your OKRs, Projects, PLM, Finance, and operations into a single platform - giving you real-time visibility across every part of your business.
               </div>
               <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:10 }}>
                 {[

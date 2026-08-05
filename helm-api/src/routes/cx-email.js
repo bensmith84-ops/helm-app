@@ -1,5 +1,5 @@
 
-// POST /cx-email — port of supabase/functions/cx-email
+// POST /cx-email - port of supabase/functions/cx-email
 // 3 actions: inbound (new ticket or append + AI draft reply), send_reply, get_thread.
 const Anthropic = require('@anthropic-ai/sdk');
 const DEFAULT_ORG_ID = 'a0000000-0000-0000-0000-000000000001';
@@ -105,8 +105,8 @@ CRITICAL RULES:
 7. Include specific next steps.
 8. NEVER mention: ${restricted || 'nothing restricted'}
 9. You are replying as the support agent directly via email.
-10. Keep it concise — 2-3 short paragraphs max.
-11. Do NOT include a subject line — just the body text.
+10. Keep it concise - 2-3 short paragraphs max.
+11. Do NOT include a subject line - just the body text.
 ${samples ? `\nSAMPLE RESPONSES:\n${samples}` : ''}
 
 KNOWLEDGE BASE:\n${kbContext}`;

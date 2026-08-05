@@ -26,7 +26,7 @@ const fmtCompact = (n) => {
   if (Math.abs(x) >= 1_000) return (x / 1e3).toFixed(1) + "k";
   return x.toLocaleString();
 };
-// Currency context — every sub-component reads the active currency via useFmt().
+// Currency context - every sub-component reads the active currency via useFmt().
 const CCY_SYM = { USD: "$", GBP: "£", AUD: "A$", EUR: "€", CAD: "C$" };
 const CcyCtx = createContext("USD");
 const useFmt = () => {
@@ -49,7 +49,7 @@ const fmtDate = (s) => {
   return new Date(s).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "2-digit" });
 };
 const fmtPct = (n, withSign = true) => {
-  if (n == null || isNaN(n)) return "—";
+  if (n == null || isNaN(n)) return "-";
   const x = Number(n);
   const sign = withSign && x > 0 ? "+" : "";
   return sign + x.toFixed(1) + "%";
@@ -199,7 +199,7 @@ function RateAlertsTable({ data, T, setTip }) {
   );
 }
 
-// ─── Uncategorized table — with per-row Apply / category override ───────
+// ─── Uncategorized table - with per-row Apply / category override ───────
 function UncategorizedTable({ data, T, setTip, totalOther, onRelabel, busyDescriptions }) {
   const { fmt$, fmt$Full } = useFmt();
   // Per-row category selection (defaults to suggested_category if present)
@@ -209,7 +209,7 @@ function UncategorizedTable({ data, T, setTip, totalOther, onRelabel, busyDescri
     return p;
   });
 
-  if (!data || !data.length) return <EmptyState T={T} message="Nothing categorized as 'other' — all charges are properly categorized" color="#10B981" />;
+  if (!data || !data.length) return <EmptyState T={T} message="Nothing categorized as 'other' - all charges are properly categorized" color="#10B981" />;
 
   return (
     <div style={{ fontSize: 11.5 }}>
@@ -262,7 +262,7 @@ function UncategorizedTable({ data, T, setTip, totalOther, onRelabel, busyDescri
                   fontFamily: "inherit",
                 }}
               >
-                <option value="">— pick category —</option>
+                <option value="">- pick category -</option>
                 {ALLOWED_CATEGORIES.filter(c => c !== "other").map(c => (
                   <option key={c} value={c}>{c}{c === suggested ? " (suggested)" : ""}</option>
                 ))}
@@ -314,7 +314,7 @@ function CreditsTable({ data, T, setTip }) {
             { value: c.description, bold: true, swatch: CAT_COLOR(c.category) },
             { label: "Invoice", value: c.invoice_number, mono: true },
             { label: "Period", value: fmtDate(c.period_end), mono: true },
-            { label: "Warehouse", value: c.warehouse || "—" },
+            { label: "Warehouse", value: c.warehouse || "-" },
             { label: "Qty × Rate", value: `${fmtNum(c.qty)} × $${Number(c.rate||0).toFixed(4)}`, mono: true },
             { label: "Credit", value: fmt$Full(c.amount), mono: true, swatch: "#10B981" },
           ]})}
@@ -341,7 +341,7 @@ function ChangedChargesPanel({ T, newCharges, vanished, setTip }) {
         <div style={{ fontSize: 11.5, fontWeight: 700, color: "#EF4444", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 10 }}>▲</span> New this month <span style={{ color: T.text3, fontWeight: 500 }}>({(newCharges || []).length})</span>
         </div>
-        {!newCharges || !newCharges.length ? <EmptyState T={T} message="No new charge types" icon="—" /> : (
+        {!newCharges || !newCharges.length ? <EmptyState T={T} message="No new charge types" icon="-" /> : (
           <div style={{ fontSize: 11 }}>
             {newCharges.map((c, i) => (
               <div key={i}
@@ -349,7 +349,7 @@ function ChangedChargesPanel({ T, newCharges, vanished, setTip }) {
                   { value: c.description, bold: true, swatch: CAT_COLOR(c.category) },
                   { label: "Category", value: c.category },
                   { label: "Qty", value: fmtNum(c.qty), mono: true },
-                  { label: "Rate", value: c.rate ? "$"+Number(c.rate).toFixed(4) : "—", mono: true },
+                  { label: "Rate", value: c.rate ? "$"+Number(c.rate).toFixed(4) : "-", mono: true },
                   { label: "Amount", value: fmt$Full(c.amount), mono: true },
                   { label: "First seen", value: fmtDate(c.first_month), mono: true },
                 ]})}
@@ -369,7 +369,7 @@ function ChangedChargesPanel({ T, newCharges, vanished, setTip }) {
         <div style={{ fontSize: 11.5, fontWeight: 700, color: "#10B981", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 10 }}>▼</span> Vanished from this month <span style={{ color: T.text3, fontWeight: 500 }}>({(vanished || []).length})</span>
         </div>
-        {!vanished || !vanished.length ? <EmptyState T={T} message="No charges disappeared" icon="—" /> : (
+        {!vanished || !vanished.length ? <EmptyState T={T} message="No charges disappeared" icon="-" /> : (
           <div style={{ fontSize: 11 }}>
             {vanished.map((c, i) => (
               <div key={i}
@@ -377,7 +377,7 @@ function ChangedChargesPanel({ T, newCharges, vanished, setTip }) {
                   { value: c.description, bold: true, swatch: CAT_COLOR(c.category) },
                   { label: "Category", value: c.category },
                   { label: "Prior month qty", value: fmtNum(c.prior_qty), mono: true },
-                  { label: "Prior month rate", value: c.prior_rate ? "$"+Number(c.prior_rate).toFixed(4) : "—", mono: true },
+                  { label: "Prior month rate", value: c.prior_rate ? "$"+Number(c.prior_rate).toFixed(4) : "-", mono: true },
                   { label: "Prior month amount", value: fmt$Full(c.prior_amount), mono: true },
                   { label: "Last seen", value: fmtDate(c.last_seen), mono: true },
                 ]})}
@@ -417,15 +417,15 @@ function OutlierShipmentsTable({ data, T, setTip }) {
               onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
               style={{ borderBottom: `1px solid ${T.border}20`, transition: "background 0.1s" }}>
               <td style={{ padding: "6px 10px", color: T.text3, fontFamily: '"SF Mono", Monaco, monospace', whiteSpace: "nowrap" }}>{fmtDate(s.shipment_date)}</td>
-              <td style={{ padding: "6px 10px", fontFamily: '"SF Mono", Monaco, monospace', color: T.text2, fontWeight: 600 }}>{s.external_order_no || "—"}</td>
-              <td style={{ padding: "6px 10px", color: T.text3 }}>{s.carrier || "—"}</td>
-              <td style={{ padding: "6px 10px", color: T.text2 }}>{s.service_level || "—"}</td>
-              <td style={{ padding: "6px 10px", color: T.text3, fontFamily: '"SF Mono", Monaco, monospace', textAlign: "center" }}>{s.zone || "—"}</td>
-              <td style={{ padding: "6px 10px", color: T.text3, fontFamily: '"SF Mono", Monaco, monospace' }}>{s.weight_kg ? Number(s.weight_kg).toFixed(2) + "kg" : "—"}</td>
-              <td style={{ padding: "6px 10px", color: T.text3 }}>{s.recipient_region || s.recipient_country || "—"}</td>
+              <td style={{ padding: "6px 10px", fontFamily: '"SF Mono", Monaco, monospace', color: T.text2, fontWeight: 600 }}>{s.external_order_no || "-"}</td>
+              <td style={{ padding: "6px 10px", color: T.text3 }}>{s.carrier || "-"}</td>
+              <td style={{ padding: "6px 10px", color: T.text2 }}>{s.service_level || "-"}</td>
+              <td style={{ padding: "6px 10px", color: T.text3, fontFamily: '"SF Mono", Monaco, monospace', textAlign: "center" }}>{s.zone || "-"}</td>
+              <td style={{ padding: "6px 10px", color: T.text3, fontFamily: '"SF Mono", Monaco, monospace' }}>{s.weight_kg ? Number(s.weight_kg).toFixed(2) + "kg" : "-"}</td>
+              <td style={{ padding: "6px 10px", color: T.text3 }}>{s.recipient_region || s.recipient_country || "-"}</td>
               <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace' }}>{fmt$Full(s.freight_cost)}</td>
-              <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{s.fuel_surcharge > 0 ? fmt$Full(s.fuel_surcharge) : "—"}</td>
-              <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{s.other_surcharges > 0 ? fmt$Full(s.other_surcharges) : "—"}</td>
+              <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{s.fuel_surcharge > 0 ? fmt$Full(s.fuel_surcharge) : "-"}</td>
+              <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{s.other_surcharges > 0 ? fmt$Full(s.other_surcharges) : "-"}</td>
               <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', fontWeight: 700 }}>{fmt$Full(s.total_cost)}</td>
             </tr>
           ))}
@@ -572,12 +572,12 @@ function ReconciliationTable({ data, T, summary }) {
                 <tr key={i} style={{ borderBottom: `1px solid ${T.border}20` }}>
                   <td style={{ padding: "5px 10px", fontFamily: '"SF Mono", Monaco, monospace', color: T.text2, fontWeight: 600 }}>{r.invoice_number}</td>
                   <td style={{ padding: "5px 10px", color: T.text3, fontFamily: '"SF Mono", Monaco, monospace' }}>{fmtDate(r.period_end)}</td>
-                  <td style={{ padding: "5px 10px", fontWeight: 600 }}>{r.warehouse || "—"}</td>
+                  <td style={{ padding: "5px 10px", fontWeight: 600 }}>{r.warehouse || "-"}</td>
                   <td style={{ padding: "5px 10px", fontSize: 10, color: T.text3 }}>{r.source}</td>
                   <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', fontWeight: 600 }}>{fmt$Full(r.invoice_total)}</td>
                   <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{fmt$Full(r.lines_sum)}</td>
-                  <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', fontWeight: isDiscrepancy ? 700 : 400, color: isDiscrepancy ? "#EF4444" : T.text3 }}>{Math.abs(r.diff_abs) < 0.01 ? "—" : fmt$Full(r.diff_abs, 2)}</td>
-                  <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: isDiscrepancy ? "#EF4444" : T.text3 }}>{r.diff_pct != null && Math.abs(r.diff_pct) >= 0.01 ? fmtPct(r.diff_pct) : "—"}</td>
+                  <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', fontWeight: isDiscrepancy ? 700 : 400, color: isDiscrepancy ? "#EF4444" : T.text3 }}>{Math.abs(r.diff_abs) < 0.01 ? "-" : fmt$Full(r.diff_abs, 2)}</td>
+                  <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: isDiscrepancy ? "#EF4444" : T.text3 }}>{r.diff_pct != null && Math.abs(r.diff_pct) >= 0.01 ? fmtPct(r.diff_pct) : "-"}</td>
                   <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{r.line_count}</td>
                   <td style={{ padding: "5px 10px" }}>
                     {isDiscrepancy ? (
@@ -612,7 +612,7 @@ export default function ThreePLBillingAudit({ goBack }) {
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
 
   // Locally-computed formatters for this component's own JSX. Sub-components
-  // access these through CcyCtx.Provider via useFmt() — no prop-drilling needed.
+  // access these through CcyCtx.Provider via useFmt() - no prop-drilling needed.
   const { fmt$, fmt$Full } = useMemo(() => {
     const sym = CCY_SYM[selectedCurrency] || "$";
     return {
@@ -783,10 +783,10 @@ export default function ThreePLBillingAudit({ goBack }) {
               onClick={uncategorizedCount > 0 ? () => scrollTo(refUncategorized) : undefined} />
             <StatusCard T={T}
               label="Credits"
-              value={creditCount > 0 ? fmt$(creditTotal) : "—"}
+              value={creditCount > 0 ? fmt$(creditTotal) : "-"}
               color={creditCount > 0 ? "#3B82F6" : T.text3}
               sub={creditCount > 0 ? `${creditCount} negative-amount lines` : "none"}
-              icon={creditCount > 0 ? "↶" : "—"}
+              icon={creditCount > 0 ? "↶" : "-"}
               onClick={creditCount > 0 ? () => scrollTo(refCredits) : undefined} />
           </div>
 
@@ -805,7 +805,7 @@ export default function ThreePLBillingAudit({ goBack }) {
             <Section T={T} accent="#F59E0B" sectionRef={refUncategorized}
               title="Uncategorized charges"
               count={uncategorizedCount}
-              subtitle={`${fmt$Full(otherTotal)} (${otherPct.toFixed(1)}% of total spend) currently in the "other" bucket — pick a category and click Apply to reassign all matching lines`}>
+              subtitle={`${fmt$Full(otherTotal)} (${otherPct.toFixed(1)}% of total spend) currently in the "other" bucket - pick a category and click Apply to reassign all matching lines`}>
               <UncategorizedTable
                 data={audit.uncategorized}
                 T={T} setTip={setTip}
@@ -829,7 +829,7 @@ export default function ThreePLBillingAudit({ goBack }) {
             <Section T={T} accent="#10B981" sectionRef={refCredits}
               title="Credits & negative lines"
               count={creditCount}
-              subtitle={`${creditCount} lines with negative amounts totaling ${fmt$Full(Math.abs(creditTotal))} — refunds, voids, adjustments`}>
+              subtitle={`${creditCount} lines with negative amounts totaling ${fmt$Full(Math.abs(creditTotal))} - refunds, voids, adjustments`}>
               <CreditsTable data={audit.credits} T={T} setTip={setTip} />
             </Section>
           )}
@@ -839,7 +839,7 @@ export default function ThreePLBillingAudit({ goBack }) {
             <Section T={T} accent="#06B6D4"
               title="Outlier shipments"
               count={audit.outlier_shipments.length}
-              subtitle="Most expensive single parcels — useful for spotting surcharge-heavy shipments and dimensional weight surprises">
+              subtitle="Most expensive single parcels - useful for spotting surcharge-heavy shipments and dimensional weight surprises">
               <OutlierShipmentsTable data={audit.outlier_shipments} T={T} setTip={setTip} />
             </Section>
           )}
@@ -848,7 +848,7 @@ export default function ThreePLBillingAudit({ goBack }) {
           {(audit.rate_history || []).length > 0 && (
             <Section T={T} accent="#3B82F6"
               title="Rate history explorer"
-              subtitle="Select any charge description to see the effective unit rate over time — flags rate creep, mid-period contract changes, or seasonal variation">
+              subtitle="Select any charge description to see the effective unit rate over time - flags rate creep, mid-period contract changes, or seasonal variation">
               <RateHistoryExplorer data={audit.rate_history} T={T} />
             </Section>
           )}
@@ -856,7 +856,7 @@ export default function ThreePLBillingAudit({ goBack }) {
           {/* ═══ RECONCILIATION ═══ */}
           <Section T={T} accent={reconCount === 0 ? "#10B981" : "#EF4444"} sectionRef={refReconciliation}
             title="Reconciliation"
-            subtitle="Invoice totals vs sum of line items — flags any invoice where the breakdown doesn't add up">
+            subtitle="Invoice totals vs sum of line items - flags any invoice where the breakdown doesn't add up">
             <ReconciliationTable data={audit.reconciliation} T={T} summary={summary} />
           </Section>
 

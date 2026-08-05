@@ -10,7 +10,7 @@ const DemandPlanningView = lazy(() => import("./DemandPlanning"));
 const ThreePLBillingView = lazy(() => import("./ThreePLBilling"));
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ERP MODULE — Products, Suppliers, POs, Inventory, Orders, Customers, Mfg, Facilities
+// ERP MODULE - Products, Suppliers, POs, Inventory, Orders, Customers, Mfg, Facilities
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Searchable Select Component (inline) ─────────────────────────────────────
@@ -76,7 +76,7 @@ function Select({ options = [], value, onChange, placeholder = "Select…", mult
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n || 0);
 const fmtN = n => new Intl.NumberFormat("en-US").format(n || 0);
 
-// GL Auto-Posting helper — creates balanced journal entries
+// GL Auto-Posting helper - creates balanced journal entries
 const postJournalEntry = async (source, refType, refId, description, lines, entityId) => {
   const entryNum = `JE-${Date.now().toString(36).toUpperCase()}`;
   const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0);
@@ -345,13 +345,13 @@ function RampExpensesView({ isMobile, orgId }) {
                     const sc = stateColors[t.state] || T.text3;
                     return (
                       <tr key={t.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
-                        <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{t.transaction_date ? new Date(t.transaction_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.merchant_name || "—"}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{t.card_holder_name || "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{t.transaction_date ? new Date(t.transaction_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.merchant_name || "-"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{t.card_holder_name || "-"}</td>
                         <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtFull(t.amount)}</td>
-                        <td style={{ padding: "8px 10px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: sc + "18", color: sc }}>{t.state || "—"}</span></td>
-                        <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 12 }}>{t.has_receipt ? "✅" : <span style={{ color: Number(t.amount) > 25 ? "#f59e0b" : T.text3 }}>—</span>}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.memo || "—"}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: sc + "18", color: sc }}>{t.state || "-"}</span></td>
+                        <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 12 }}>{t.has_receipt ? "✅" : <span style={{ color: Number(t.amount) > 25 ? "#f59e0b" : T.text3 }}>-</span>}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.memo || "-"}</td>
                       </tr>
                     );
                   })}
@@ -678,7 +678,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Left nav — desktop (grouped) */}
+      {/* Left nav - desktop (grouped) */}
       {!isMobile && (
         <div style={{ width: 185, borderRight: `1px solid ${T.border}`, padding: "8px 6px", flexShrink: 0, overflow: "auto" }}>
           {filteredNav.map((n, i) => n.type === "header" ? (
@@ -696,7 +696,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
 
       {/* Content column */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* Mobile nav — grouped dropdown */}
+        {/* Mobile nav - grouped dropdown */}
         {isMobile && (
           <div style={{ borderBottom: `1px solid ${T.border}`, background: T.bg, flexShrink: 0 }}>
             <select value={view} onChange={e => setView(e.target.value)}
@@ -751,7 +751,7 @@ export default function ERPView({ modulePerms = {}, pendingSubView, clearPending
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ERP DASHBOARD — Overview across all modules
+// ERP DASHBOARD - Overview across all modules
 // ═══════════════════════════════════════════════════════════════════════════════
 function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrders, inventory, lots, orders, customers, workOrders, facilities, entities, setView, isMobile }) {
   const totalStock = inventory.reduce((s, i) => s + (i.quantity || 0), 0);
@@ -882,7 +882,7 @@ function ERPDashboard({ navigateTo, products, variants, suppliers, purchaseOrder
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// PRODUCTS VIEW — SKU master, variants, BOMs
+// PRODUCTS VIEW - SKU master, variants, BOMs
 // ═══════════════════════════════════════════════════════════════════════════════
 function ProductsView({ navigateTo, inventory, facilities, products, setProducts, variants, setVariants, boms, setBoms, bomItems, setBomItems, isMobile }) {
   const { orgId, orgs } = useAuth();
@@ -1026,7 +1026,7 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
 
             {/* KPI row */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
-              {[{ l: "SKUs", v: prodVariants.length, c: T.accent }, { l: "Total Stock", v: fmtN(prodStock), c: "#10B981" }, { l: "Avg Cost", v: prodVariants.length > 0 ? fmt(prodVariants.reduce((s, v) => s + (v.cost || 0), 0) / prodVariants.length) : "—", c: "#F59E0B" }].map(s => (
+              {[{ l: "SKUs", v: prodVariants.length, c: T.accent }, { l: "Total Stock", v: fmtN(prodStock), c: "#10B981" }, { l: "Avg Cost", v: prodVariants.length > 0 ? fmt(prodVariants.reduce((s, v) => s + (v.cost || 0), 0) / prodVariants.length) : "-", c: "#F59E0B" }].map(s => (
                 <div key={s.l} style={{ textAlign: "center", padding: 10, background: T.surface2, borderRadius: 8 }}>
                   <div style={{ fontSize: 18, fontWeight: 800, color: s.c }}>{s.v}</div>
                   <div style={{ fontSize: 10, color: T.text3 }}>{s.l}</div>
@@ -1081,7 +1081,7 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
                       <span style={{ flex: 1, display: "flex", gap: 4, flexWrap: "wrap" }}>
                         {varInv.length === 0 ? <span style={{ color: T.text3 }}>No stock</span> :
                           varInv.map((inv, i) => {
-                            const fname = facilities?.find(f => f.id === inv.facility_id)?.name || "—";
+                            const fname = facilities?.find(f => f.id === inv.facility_id)?.name || "-";
                             return <span key={i} style={{ padding: "1px 6px", borderRadius: 4, background: T.bg, color: T.text3, fontSize: 10 }}>{fname}: {fmtN(inv.quantity)}</span>;
                           })
                         }
@@ -1149,7 +1149,7 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
                       if (data) setBoms(p => [...p, data]);
                     }} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: T.accentDim, color: T.accent, border: `1px solid ${T.accent}30`, borderRadius: 6, cursor: "pointer" }}>+ BOM</button>
                   </div>
-                  {prodBoms.length === 0 ? <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: 12 }}>No BOMs — create one to define ingredient composition</div> :
+                  {prodBoms.length === 0 ? <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: 12 }}>No BOMs - create one to define ingredient composition</div> :
                     prodBoms.map(bom => {
                       const items = bomItems.filter(i => i.bom_id === bom.id).sort((a, b) => a.sort_order - b.sort_order);
                       const totalCost = items.reduce((s, i) => s + ((i.quantity || 0) * (i.cost_per_unit || 0)), 0);
@@ -1173,7 +1173,7 @@ function ProductsView({ navigateTo, inventory, facilities, products, setProducts
                               <button onClick={async () => { if (!window.confirm("Delete this BOM and all items?")) return; await supabase.from("erp_bom").delete().eq("id", bom.id); setBoms(p => p.filter(x => x.id !== bom.id)); setBomItems(p => p.filter(x => x.bom_id !== bom.id)); }} style={{ padding: "2px 8px", fontSize: 10, background: "#EF444420", color: "#EF4444", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 700 }}>Delete</button>
                             </div>
                           </div>
-                          {items.length === 0 ? <div style={{ fontSize: 11, color: T.text3, padding: 6 }}>No ingredients — add items to define the recipe</div> :
+                          {items.length === 0 ? <div style={{ fontSize: 11, color: T.text3, padding: 6 }}>No ingredients - add items to define the recipe</div> :
                             <div style={{ overflowX: "auto" }}>
                               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                                 <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -1396,12 +1396,12 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
                   {filt.slice(0, 200).map((v, i) => (
                     <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
                       <td style={{ padding: "8px 10px" }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{v.display_name || "—"}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{v.display_name || "-"}</div>
                         {v.company_name && v.company_name !== v.display_name && <div style={{ fontSize: 10, color: T.text3 }}>{v.company_name}</div>}
                       </td>
-                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{v.email || "—"}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{v.phone || "—"}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, textAlign: "right", color: Number(v.balance) > 0 ? "#EF4444" : T.text3 }}>{Number(v.balance) > 0 ? fmt(Number(v.balance)) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{v.email || "-"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text3 }}>{v.phone || "-"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, textAlign: "right", color: Number(v.balance) > 0 ? "#EF4444" : T.text3 }}>{Number(v.balance) > 0 ? fmt(Number(v.balance)) : "-"}</td>
                       <td style={{ padding: "8px 10px", textAlign: "center" }}>{v.active ? <span style={{ fontSize: 9, fontWeight: 600, color: "#10B981" }}>Active</span> : <span style={{ fontSize: 9, color: T.text3 }}>Inactive</span>}</td>
                     </tr>
                   ))}
@@ -1472,8 +1472,8 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
             {/* Details grid */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
               {[
-                { l: "Country", v: selected.country || "—" }, { l: "City", v: selected.city || "—" }, { l: "Payment", v: selected.payment_terms?.replace(/_/g, " ") || "—" },
-                { l: "Lead Time", v: selected.lead_time_days ? `${selected.lead_time_days} days` : "—" }, { l: "Currency", v: selected.currency || "USD" }, { l: "Min Order", v: selected.minimum_order_value ? fmt(selected.minimum_order_value) : "—" },
+                { l: "Country", v: selected.country || "-" }, { l: "City", v: selected.city || "-" }, { l: "Payment", v: selected.payment_terms?.replace(/_/g, " ") || "-" },
+                { l: "Lead Time", v: selected.lead_time_days ? `${selected.lead_time_days} days` : "-" }, { l: "Currency", v: selected.currency || "USD" }, { l: "Min Order", v: selected.minimum_order_value ? fmt(selected.minimum_order_value) : "-" },
               ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2 }}>{d.v}</div></div>)}
             </div>
 
@@ -1556,10 +1556,10 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
                                   <div style={{ fontWeight: 600 }}>{si.item_name}</div>
                                   {prod && <div style={{ fontSize: 9, color: T.text3 }}>→ {prod.name}</div>}
                                 </td>
-                                <td style={{ padding: "6px", fontFamily: "monospace", fontSize: 10, color: T.text3 }}>{si.supplier_part_number || "—"}</td>
+                                <td style={{ padding: "6px", fontFamily: "monospace", fontSize: 10, color: T.text3 }}>{si.supplier_part_number || "-"}</td>
                                 <td style={{ padding: "6px", fontWeight: 700, color: T.accent }}>{fmt(si.unit_price)}<span style={{ fontWeight: 400, color: T.text3 }}>/{si.moq_unit || "ea"}</span></td>
-                                <td style={{ padding: "6px", color: T.text3 }}>{si.moq ? `${fmtN(si.moq)} ${si.moq_unit || ""}` : "—"}</td>
-                                <td style={{ padding: "6px", color: T.text3 }}>{si.lead_time_days ? `${si.lead_time_days}d` : "—"}</td>
+                                <td style={{ padding: "6px", color: T.text3 }}>{si.moq ? `${fmtN(si.moq)} ${si.moq_unit || ""}` : "-"}</td>
+                                <td style={{ padding: "6px", color: T.text3 }}>{si.lead_time_days ? `${si.lead_time_days}d` : "-"}</td>
                                 <td style={{ padding: "6px" }}>{si.is_preferred && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 6, background: "#D1FAE520", color: "#065F46", fontWeight: 700 }}>PREF</span>}</td>
                               </tr>
                             );
@@ -1604,7 +1604,7 @@ function SuppliersView({ navigateTo, pendingNav, setPendingNav, suppliers, setSu
               {/* Intercompany */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface2, borderRadius: 8 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text, cursor: "pointer" }}><input type="checkbox" checked={form.is_intercompany} onChange={e => setForm(f => ({ ...f, is_intercompany: e.target.checked }))} /> Intercompany supplier</label>
-                {form.is_intercompany && <Select value={form.entity_id} onChange={v => setForm(f => ({ ...f, entity_id: v }))} placeholder="Select entity…" style={{ flex: 1 }} options={(entities||[]).map(e => ({ value: e.id, label: `${e.code} — ${e.name}`, sublabel: `${e.country} · ${e.base_currency}` }))} />}
+                {form.is_intercompany && <Select value={form.entity_id} onChange={v => setForm(f => ({ ...f, entity_id: v }))} placeholder="Select entity…" style={{ flex: 1 }} options={(entities||[]).map(e => ({ value: e.id, label: `${e.code} - ${e.name}`, sublabel: `${e.country} · ${e.base_currency}` }))} />}
               </div>
               {/* Certifications */}
               <div>
@@ -1797,7 +1797,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
                         {po.is_intercompany && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: "#EDE9FE", color: "#5B21B6", fontWeight: 700 }}>IC</span>}
                       </div>
                       <div style={{ fontSize: 11, color: T.text3, marginTop: 3 }}>
-                        {sup?.name || "—"}{fac ? ` → ${fac.name}` : ""}{ent ? ` · ${ent.code}` : ""}
+                        {sup?.name || "-"}{fac ? ` → ${fac.name}` : ""}{ent ? ` · ${ent.code}` : ""}
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -1833,14 +1833,14 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
               {[
                 { l: "Status", v: selected.status?.replace(/_/g, " ") },
-                { l: "Order Date", v: selected.order_date ? new Date(selected.order_date).toLocaleDateString() : "—" },
-                { l: "Expected", v: selected.expected_date ? new Date(selected.expected_date).toLocaleDateString() : "—" },
-                { l: "Entity", v: getEntity(selected.buying_entity_id)?.code || "—" },
+                { l: "Order Date", v: selected.order_date ? new Date(selected.order_date).toLocaleDateString() : "-" },
+                { l: "Expected", v: selected.expected_date ? new Date(selected.expected_date).toLocaleDateString() : "-" },
+                { l: "Entity", v: getEntity(selected.buying_entity_id)?.code || "-" },
                 { l: "Currency", v: selected.po_currency || "USD" },
-                { l: "Terms", v: selected.payment_terms?.replace(/_/g, " ") || "—" },
-                { l: "Facility", v: getFacility(selected.facility_id)?.name || "—" },
+                { l: "Terms", v: selected.payment_terms?.replace(/_/g, " ") || "-" },
+                { l: "Facility", v: getFacility(selected.facility_id)?.name || "-" },
                 { l: "Total", v: `${getCurrencySymbol(selected.po_currency)}${fmtN(selected.total)}` },
-                { l: "Received", v: selected.received_date ? new Date(selected.received_date).toLocaleDateString() : "—" },
+                { l: "Received", v: selected.received_date ? new Date(selected.received_date).toLocaleDateString() : "-" },
               ].map(d => (
                 <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>
               ))}
@@ -1898,7 +1898,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
               </div>
             }
 
-            {/* Landed Costs (P5 — Checklist 2.3) */}
+            {/* Landed Costs (P5 - Checklist 2.3) */}
             {(() => {
               const poLanded = landedCosts.filter(lc => lc.po_id === selected.id);
               const estTotal = poLanded.reduce((s, l) => s + (l.estimated_amount || 0), 0);
@@ -1947,7 +1947,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
                       </div>
                     </div>
                   )}
-                  {poLanded.length === 0 && <div style={{ fontSize: 10, color: T.text3 }}>No landed costs — click + to add duty, freight, brokerage</div>}
+                  {poLanded.length === 0 && <div style={{ fontSize: 10, color: T.text3 }}>No landed costs - click + to add duty, freight, brokerage</div>}
                 </div>
               );
             })()}
@@ -1965,8 +1965,8 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Supplier + Entity */}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Supplier *</div><Select value={form.supplier_id} onChange={v => onSupplierChange(v)} placeholder="Select supplier…" options={suppliers.map(s => ({ value: s.id, label: `${s.name} (${s.code || "—"})`, sublabel: `${s.supplier_type?.replace(/_/g," ")} · ${s.country}${s.is_intercompany ? " · Intercompany" : ""}`, icon: { raw_material: "🧪", packaging: "📋", contract_manufacturer: "🏭", "3pl": "🚚" }[s.supplier_type] || "🏢" }))} /></div>
-                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Buying Entity</div><Select value={form.buying_entity_id} onChange={v => setForm(f => ({ ...f, buying_entity_id: v }))} placeholder="Select entity…" options={entities.map(e => ({ value: e.id, label: `${e.code} — ${e.name}`, sublabel: `${e.country} · ${e.base_currency}`, icon: e.entity_type === "parent" ? "🏛" : "🌐" }))} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Supplier *</div><Select value={form.supplier_id} onChange={v => onSupplierChange(v)} placeholder="Select supplier…" options={suppliers.map(s => ({ value: s.id, label: `${s.name} (${s.code || "-"})`, sublabel: `${s.supplier_type?.replace(/_/g," ")} · ${s.country}${s.is_intercompany ? " · Intercompany" : ""}`, icon: { raw_material: "🧪", packaging: "📋", contract_manufacturer: "🏭", "3pl": "🚚" }[s.supplier_type] || "🏢" }))} /></div>
+                <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Buying Entity</div><Select value={form.buying_entity_id} onChange={v => setForm(f => ({ ...f, buying_entity_id: v }))} placeholder="Select entity…" options={entities.map(e => ({ value: e.id, label: `${e.code} - ${e.name}`, sublabel: `${e.country} · ${e.base_currency}`, icon: e.entity_type === "parent" ? "🏛" : "🌐" }))} /></div>
               </div>
               {/* Facility + Currency + Terms */}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
@@ -1983,7 +1983,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
               {/* Intercompany indicator */}
               {form.is_intercompany && (
                 <div style={{ padding: "8px 12px", borderRadius: 8, background: "#EDE9FE", border: "1px solid #C4B5FD", fontSize: 11, color: "#5B21B6", fontWeight: 600 }}>
-                  ⚡ Intercompany PO — transfer pricing rules will apply. Markup: {suppliers.find(s => s.id === form.supplier_id)?.entity_id ? `${entities.find(e => e.id === suppliers.find(s => s.id === form.supplier_id)?.entity_id)?.transfer_pricing_markup_pct || 0}%` : "—"}
+                  ⚡ Intercompany PO - transfer pricing rules will apply. Markup: {suppliers.find(s => s.id === form.supplier_id)?.entity_id ? `${entities.find(e => e.id === suppliers.find(s => s.id === form.supplier_id)?.entity_id)?.transfer_pricing_markup_pct || 0}%` : "-"}
                 </div>
               )}
 
@@ -1998,7 +1998,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
                     <div>
                       {i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>ITEM</div>}
                       <Select value={line.variant_id} onChange={v => { updateLine(i, "variant_id", v); onLineProductChange(i, v); }} placeholder="Select item…"
-                        options={[...variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, sublabel: v.size || "", icon: "📦" })), ...products.filter(p => p.product_type !== "finished_good").map(p => ({ value: `raw-${p.id}`, label: p.name, sublabel: p.product_type?.replace(/_/g, " "), icon: "🧪" }))]} />
+                        options={[...variants.map(v => ({ value: v.id, label: `${v.sku} - ${v.name}`, sublabel: v.size || "", icon: "📦" })), ...products.filter(p => p.product_type !== "finished_good").map(p => ({ value: `raw-${p.id}`, label: p.name, sublabel: p.product_type?.replace(/_/g, " "), icon: "🧪" }))]} />
                     </div>
                     <div>
                       {i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>QTY</div>}
@@ -2040,7 +2040,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
         return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowReceivePO(false)}>
             <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(600px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 4 }}>📥 Receive Items — {selected.po_number}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 4 }}>📥 Receive Items - {selected.po_number}</div>
               <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>{getSupplier(selected.supplier_id)?.name} → {getFacility(selected.facility_id)?.name || "No facility"}</div>
 
               {items.map(item => {
@@ -2103,7 +2103,7 @@ function PurchaseOrdersView({ navigateTo, pendingNav, setPendingNav, setApInvoic
                       if (apInv) setApInvoices(p => [apInv, ...p]);
                       // GL: DR Inventory, CR AP Accrual (Checklist 8.1.1)
                       await postJournalEntry("po_receipt", "purchase_order", selected.id,
-                        `PO Receipt: ${selected.po_number} — ${getSupplier(selected.supplier_id)?.name}`,
+                        `PO Receipt: ${selected.po_number} - ${getSupplier(selected.supplier_id)?.name}`,
                         [{ account: "1200", name: "Inventory - Raw Materials", debit: selected.total, desc: "Goods received" },
                          { account: "2100", name: "AP Accrual", credit: selected.total, desc: "Vendor accrual" }],
                         selected.buying_entity_id);
@@ -2142,7 +2142,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
   filteredInv.forEach(inv => {
     const v = getVariant(inv.variant_id);
     const key = v?.sku || inv.product_id || "unknown";
-    if (!bySku[key]) bySku[key] = { sku: v?.sku || "—", name: v?.name || getProduct(inv.product_id)?.name || "Unknown", variantId: inv.variant_id, total: 0, reserved: 0, facilities: {}, lots: new Set() };
+    if (!bySku[key]) bySku[key] = { sku: v?.sku || "-", name: v?.name || getProduct(inv.product_id)?.name || "Unknown", variantId: inv.variant_id, total: 0, reserved: 0, facilities: {}, lots: new Set() };
     bySku[key].total += inv.quantity || 0;
     bySku[key].reserved += inv.reserved_quantity || 0;
     const fName = getFacility(inv.facility_id)?.name || "Unknown";
@@ -2238,7 +2238,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
     const absAmt = Math.abs(adjQty) * (variants.find(v => v.id === adjForm.variant_id)?.cost || 0);
     if (absAmt > 0) {
       await postJournalEntry("adjustment", "adjustment", mvmt?.id,
-        `Inv Adjustment: ${adjForm.reason} — ${getVariant(adjForm.variant_id)?.sku}`,
+        `Inv Adjustment: ${adjForm.reason} - ${getVariant(adjForm.variant_id)?.sku}`,
         adjQty > 0
           ? [{ account: "1210", name: "Inventory - Finished Goods", debit: absAmt }, { account: "5400", name: "Inventory Adjustment Expense", credit: absAmt }]
           : [{ account: "5400", name: "Inventory Adjustment Expense", debit: absAmt }, { account: "1210", name: "Inventory - Finished Goods", credit: absAmt }]);
@@ -2406,7 +2406,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
                 const daysLeft = Math.ceil((new Date(l.expiry_date) - new Date()) / 86400000);
                 return (
                   <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11 }}>
-                    <span><strong style={{ fontFamily: "monospace" }}>{l.lot_number}</strong> · {v?.sku || "—"} · {v?.name || "—"}</span>
+                    <span><strong style={{ fontFamily: "monospace" }}>{l.lot_number}</strong> · {v?.sku || "-"} · {v?.name || "-"}</span>
                     <span style={{ color: daysLeft < 30 ? "#EF4444" : "#F59E0B", fontWeight: 700 }}>{daysLeft}d left · exp {new Date(l.expiry_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}</span>
                   </div>
                 );
@@ -2429,7 +2429,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
                       {isExpiring && lot.status === "available" && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: "#FEE2E2", color: "#991B1B", fontWeight: 700 }}>EXPIRING</span>}
                     </div>
                     <div style={{ fontSize: 11, color: T.text3, marginTop: 3 }}>
-                      {v?.sku || "—"} · {v?.name || getProduct(lot.product_id)?.name || "—"}
+                      {v?.sku || "-"} · {v?.name || getProduct(lot.product_id)?.name || "-"}
                     </div>
                   </div>
                   <div style={{ textAlign: "right" }}>
@@ -2438,12 +2438,12 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 6, marginTop: 8, padding: "8px 10px", background: T.surface2, borderRadius: 6 }}>
-                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>SUPPLIER</div><div style={{ fontSize: 11, color: T.text }}>{sup?.name || "—"}</div></div>
-                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>SUPPLIER LOT</div><div style={{ fontSize: 11, color: T.text, fontFamily: "monospace" }}>{lot.supplier_lot_number || "—"}</div></div>
-                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>MFG DATE</div><div style={{ fontSize: 11, color: T.text }}>{lot.manufactured_date ? new Date(lot.manufactured_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</div></div>
-                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>EXPIRY</div><div style={{ fontSize: 11, color: isExpiring ? "#EF4444" : T.text, fontWeight: isExpiring ? 700 : 400 }}>{lot.expiry_date ? new Date(lot.expiry_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</div></div>
+                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>SUPPLIER</div><div style={{ fontSize: 11, color: T.text }}>{sup?.name || "-"}</div></div>
+                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>SUPPLIER LOT</div><div style={{ fontSize: 11, color: T.text, fontFamily: "monospace" }}>{lot.supplier_lot_number || "-"}</div></div>
+                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>MFG DATE</div><div style={{ fontSize: 11, color: T.text }}>{lot.manufactured_date ? new Date(lot.manufactured_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}</div></div>
+                  <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>EXPIRY</div><div style={{ fontSize: 11, color: isExpiring ? "#EF4444" : T.text, fontWeight: isExpiring ? 700 : 400 }}>{lot.expiry_date ? new Date(lot.expiry_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}</div></div>
                 </div>
-                {/* Lot Trace — Forward & Backward (Checklist 12.2) */}
+                {/* Lot Trace - Forward & Backward (Checklist 12.2) */}
                 <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
                   <button onClick={async () => {
                     // Forward trace: lot → movements → what orders/WOs used it
@@ -2452,21 +2452,21 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
                     const shipments = (mvmts || []).filter(m => m.movement_type === "shipment");
                     const prodOut = (mvmts || []).filter(m => m.movement_type === "production_out");
                     const adjusts = (mvmts || []).filter(m => m.movement_type === "adjustment");
-                    let trace = `═══ FORWARD LOT TRACE ═══\nLot: ${lot.lot_number}\nSKU: ${v?.sku || "—"} — ${v?.name || "—"}\nSupplier: ${sup?.name || "—"} (Lot: ${lot.supplier_lot_number || "—"})\nReceived: ${lot.received_date || "—"}\n\n`;
-                    trace += `RECEIPT (${receipts.length}):\n${receipts.map(m => `  📥 ${m.quantity} units — ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
-                    trace += `PRODUCTION USAGE (${prodOut.length}):\n${prodOut.map(m => `  🏭 ${m.quantity} units — ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
-                    trace += `SHIPMENTS (${shipments.length}):\n${shipments.map(m => `  📦 ${Math.abs(m.quantity)} units — ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
-                    trace += `ADJUSTMENTS (${adjusts.length}):\n${adjusts.map(m => `  ± ${m.quantity} units — ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
+                    let trace = `═══ FORWARD LOT TRACE ═══\nLot: ${lot.lot_number}\nSKU: ${v?.sku || "-"} - ${v?.name || "-"}\nSupplier: ${sup?.name || "-"} (Lot: ${lot.supplier_lot_number || "-"})\nReceived: ${lot.received_date || "-"}\n\n`;
+                    trace += `RECEIPT (${receipts.length}):\n${receipts.map(m => `  📥 ${m.quantity} units - ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
+                    trace += `PRODUCTION USAGE (${prodOut.length}):\n${prodOut.map(m => `  🏭 ${m.quantity} units - ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
+                    trace += `SHIPMENTS (${shipments.length}):\n${shipments.map(m => `  📦 ${Math.abs(m.quantity)} units - ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
+                    trace += `ADJUSTMENTS (${adjusts.length}):\n${adjusts.map(m => `  ± ${m.quantity} units - ${m.notes || ""}`).join("\n") || "  None"}\n\n`;
                     trace += `CURRENT: ${fmtN(lotQty)} units on hand`;
                     alert(trace);
                   }} style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, background: "#EFF6FF20", border: "1px solid #93C5FD40", borderRadius: 4, color: "#1D4ED8", cursor: "pointer" }}>🔍 Forward Trace</button>
                   <button onClick={async () => {
                     // Backward trace: lot → supplier → PO → receipt
                     const po = lot.po_id ? purchaseOrders.find(p => p.id === lot.po_id) : null;
-                    let trace = `═══ BACKWARD LOT TRACE ═══\nLot: ${lot.lot_number}\nSKU: ${v?.sku || "—"} — ${v?.name || "—"}\n\n`;
-                    trace += `SUPPLIER:\n  ${sup?.name || "Unknown"} (${sup?.code || "—"})\n  Supplier Lot: ${lot.supplier_lot_number || "—"}\n  Country: ${sup?.country || "—"}\n\n`;
-                    trace += `PURCHASE ORDER:\n  ${po ? `${po.po_number} — ${po.status} — ${fmt(po.total)}` : "No linked PO"}\n\n`;
-                    trace += `DATES:\n  Manufactured: ${lot.manufactured_date || "—"}\n  Received: ${lot.received_date || "—"}\n  Expiry: ${lot.expiry_date || "—"}\n\n`;
+                    let trace = `═══ BACKWARD LOT TRACE ═══\nLot: ${lot.lot_number}\nSKU: ${v?.sku || "-"} - ${v?.name || "-"}\n\n`;
+                    trace += `SUPPLIER:\n  ${sup?.name || "Unknown"} (${sup?.code || "-"})\n  Supplier Lot: ${lot.supplier_lot_number || "-"}\n  Country: ${sup?.country || "-"}\n\n`;
+                    trace += `PURCHASE ORDER:\n  ${po ? `${po.po_number} - ${po.status} - ${fmt(po.total)}` : "No linked PO"}\n\n`;
+                    trace += `DATES:\n  Manufactured: ${lot.manufactured_date || "-"}\n  Received: ${lot.received_date || "-"}\n  Expiry: ${lot.expiry_date || "-"}\n\n`;
                     trace += `CURRENT STATUS: ${lot.status}\nON HAND: ${fmtN(lotQty)} units`;
                     alert(trace);
                   }} style={{ padding: "3px 8px", fontSize: 9, fontWeight: 600, background: "#FEF3C720", border: "1px solid #FCD34D40", borderRadius: 4, color: "#92400E", cursor: "pointer" }}>↩ Backward Trace</button>
@@ -2499,7 +2499,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
                             <span style={{ fontSize: 12, fontWeight: 700, color: T.text, textTransform: "capitalize" }}>{m.movement_type.replace(/_/g, " ")}</span>
                             {v && <span style={{ fontSize: 10, fontFamily: "monospace", color: T.accent }}>{v.sku}</span>}
                           </div>
-                          <div style={{ fontSize: 10, color: T.text3 }}>{fac?.name || "—"} · {new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
+                          <div style={{ fontSize: 10, color: T.text3 }}>{fac?.name || "-"} · {new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
                         </div>
                       </div>
                       <div style={{ fontSize: 16, fontWeight: 800, color: isPositive ? "#10B981" : "#EF4444" }}>{isPositive ? "+" : ""}{fmtN(m.quantity)}</div>
@@ -2521,7 +2521,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
             <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 16 }}>📥 Receive Inventory</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={lbl}>Product / SKU *</div><Select value={rcvForm.variant_id} onChange={v => setRcvForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
+                <div><div style={lbl}>Product / SKU *</div><Select value={rcvForm.variant_id} onChange={v => setRcvForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} - ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
                 <div><div style={lbl}>Receive At *</div><Select value={rcvForm.facility_id} onChange={v => setRcvForm(f => ({ ...f, facility_id: v }))} placeholder="Select facility…" options={facilities.map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
@@ -2553,7 +2553,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: T.text }}>
                 <input type="checkbox" checked={rcvForm.qc_hold || false} onChange={e => setRcvForm(f => ({ ...f, qc_hold: e.target.checked }))} style={{ width: 16, height: 16, accentColor: "#F59E0B" }} />
-                <span>🔬 Place on <strong style={{ color: "#F59E0B" }}>QC Hold</strong> — requires inspection before available for allocation</span>
+                <span>🔬 Place on <strong style={{ color: "#F59E0B" }}>QC Hold</strong> - requires inspection before available for allocation</span>
               </label>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowReceive(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
@@ -2571,7 +2571,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
             <div style={{ fontSize: 16, fontWeight: 700, color: "#F59E0B", marginBottom: 16 }}>± Adjust Inventory</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                <div><div style={lbl}>Product / SKU *</div><Select value={adjForm.variant_id} onChange={v => setAdjForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, icon: "📦" }))} /></div>
+                <div><div style={lbl}>Product / SKU *</div><Select value={adjForm.variant_id} onChange={v => setAdjForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} - ${v.name}`, icon: "📦" }))} /></div>
                 <div><div style={lbl}>Facility *</div><Select value={adjForm.facility_id} onChange={v => setAdjForm(f => ({ ...f, facility_id: v }))} placeholder="Select…" options={facilities.map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))} /></div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
@@ -2594,7 +2594,7 @@ function InventoryView({ navigateTo, inventory, setInventory, lots, setLots, var
           <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(500px, 95vw)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#3B82F6", marginBottom: 16 }}>↔ Transfer Inventory</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><div style={lbl}>Product / SKU *</div><Select value={xferForm.variant_id} onChange={v => setXferForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, icon: "📦" }))} /></div>
+              <div><div style={lbl}>Product / SKU *</div><Select value={xferForm.variant_id} onChange={v => setXferForm(f => ({ ...f, variant_id: v }))} placeholder="Select SKU…" options={variants.map(v => ({ value: v.id, label: `${v.sku} - ${v.name}`, icon: "📦" }))} /></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, alignItems: "end" }}>
                 <div><div style={lbl}>From Facility *</div><Select value={xferForm.from_facility_id} onChange={v => setXferForm(f => ({ ...f, from_facility_id: v }))} placeholder="Select…" options={facilities.map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: { warehouse: "🏢", factory: "🏭", "3pl": "🚚" }[f.facility_type] || "🏢" }))} /></div>
                 <div style={{ fontSize: 18, color: T.text3, paddingBottom: 8 }}>→</div>
@@ -2818,13 +2818,13 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                     return (q ? shopifyOrders.filter(o => (o.order_number || "").toLowerCase().includes(q) || (o.email || "").toLowerCase().includes(q) || (o.tags || "").toLowerCase().includes(q)) : shopifyOrders).slice(0, 200).map(o => (
                       <tr key={o.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                         <td style={{ padding: "6px 10px", fontSize: 12, fontWeight: 600, color: T.accent }}>{o.order_number || `#${o.shopify_order_id}`}</td>
-                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2 }}>{o.created_at ? new Date(o.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
-                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text }}>{o.email || "—"}</td>
-                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2, textAlign: "right" }}>{o.line_item_count || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2 }}>{o.created_at ? new Date(o.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text }}>{o.email || "-"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2, textAlign: "right" }}>{o.line_item_count || "-"}</td>
                         <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.text, textAlign: "right" }}>${Number(o.total_price || 0).toFixed(2)}</td>
-                        <td style={{ padding: "6px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: o.financial_status === "paid" ? "#10B98118" : o.financial_status === "refunded" ? "#EF444418" : "#F59E0B18", color: o.financial_status === "paid" ? "#10B981" : o.financial_status === "refunded" ? "#EF4444" : "#F59E0B" }}>{o.financial_status || "—"}</span></td>
+                        <td style={{ padding: "6px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: o.financial_status === "paid" ? "#10B98118" : o.financial_status === "refunded" ? "#EF444418" : "#F59E0B18", color: o.financial_status === "paid" ? "#10B981" : o.financial_status === "refunded" ? "#EF4444" : "#F59E0B" }}>{o.financial_status || "-"}</span></td>
                         <td style={{ padding: "6px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: o.fulfillment_status === "fulfilled" ? "#10B98118" : "#6366f115", color: o.fulfillment_status === "fulfilled" ? "#10B981" : "#6366f1" }}>{o.fulfillment_status || "unfulfilled"}</span></td>
-                        <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3 }}>{o.shipping_country || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3 }}>{o.shipping_country || "-"}</td>
                       </tr>
                     ));
                   })()}
@@ -2927,7 +2927,7 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                   <tbody>{selItems.map(item => (
                     <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                       <td style={{ padding: "8px", color: T.text, fontWeight: 600 }}>{item.title}</td>
-                      <td style={{ padding: "8px", fontFamily: "monospace", fontSize: 11, color: T.accent }}>{item.sku || getVariant(item.variant_id)?.sku || "—"}</td>
+                      <td style={{ padding: "8px", fontFamily: "monospace", fontSize: 11, color: T.accent }}>{item.sku || getVariant(item.variant_id)?.sku || "-"}</td>
                       <td style={{ padding: "8px" }}>{item.quantity}</td>
                       <td style={{ padding: "8px" }}>{fmt(item.unit_price)}</td>
                       <td style={{ padding: "8px", fontWeight: 700 }}>{fmt(item.total || item.quantity * item.unit_price)}</td>
@@ -2976,7 +2976,7 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
       {showShipModal && selected && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowShipModal(false)}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(540px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 4 }}>📦 Ship Order — {selected.order_number}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#10B981", marginBottom: 4 }}>📦 Ship Order - {selected.order_number}</div>
             <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>{getCustomer(selected.customer_id)?.name || "DTC"} · {selItems.length} item{selItems.length !== 1 ? "s" : ""} · {fmt(selected.total)}</div>
 
             {selected.shipping_name && (
@@ -3036,7 +3036,7 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                           await supabase.from("erp_inventory").update({ quantity: newQty }).eq("id", inv.id);
                           setInventory(p => p.map(x => x.id === inv.id ? { ...x, quantity: newQty } : x));
                         }
-                        await supabase.from("erp_inventory_movements").insert({ variant_id: item.variant_id, facility_id: fac.id, movement_type: "shipment", quantity: -(item.quantity || 0), reference_type: "order", reference_id: selected.id, notes: `Shipped: ${item.quantity} × ${item.sku} — ${selected.order_number}` });
+                        await supabase.from("erp_inventory_movements").insert({ variant_id: item.variant_id, facility_id: fac.id, movement_type: "shipment", quantity: -(item.quantity || 0), reference_type: "order", reference_id: selected.id, notes: `Shipped: ${item.quantity} × ${item.sku} - ${selected.order_number}` });
                       }
                     }
                   }
@@ -3057,7 +3057,7 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                   const orderTotal = selected.total || 0;
                   const costTotal = selItems.reduce((s, i) => { const v = variants.find(x => x.id === i.variant_id); return s + (i.quantity || 0) * (v?.cost || 0); }, 0);
                   await postJournalEntry("shipment", "order", selected.id,
-                    `Shipment: ${selected.order_number} — ${getCustomer(selected.customer_id)?.name || "DTC"}`,
+                    `Shipment: ${selected.order_number} - ${getCustomer(selected.customer_id)?.name || "DTC"}`,
                     [{ account: "1100", name: "Accounts Receivable", debit: orderTotal, desc: "Customer invoice" },
                      { account: "5000", name: "Cost of Goods Sold", debit: costTotal, desc: "COGS on shipment" },
                      { account: "4000", name: "Revenue - Product Sales", credit: orderTotal, desc: "Revenue recognized" },
@@ -3088,7 +3088,7 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
                 </div>
                 {lineItems.map((line, i) => (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
-                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>PRODUCT</div>}<Select value={line.variant_id} onChange={v => onLineVariantChange(i, v)} placeholder="Select…" options={variants.map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>PRODUCT</div>}<Select value={line.variant_id} onChange={v => onLineVariantChange(i, v)} placeholder="Select…" options={variants.map(v => ({ value: v.id, label: `${v.sku} - ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
                     <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>QTY</div>}<input type="number" value={line.quantity} onChange={e => updateLine(i, "quantity", e.target.value)} style={{ ...inp, padding: "7px 10px" }} /></div>
                     <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>PRICE</div>}<input type="number" step="0.01" value={line.unit_price} onChange={e => updateLine(i, "unit_price", e.target.value)} style={{ ...inp, padding: "7px 10px" }} /></div>
                     <button onClick={() => removeLine(i)} style={{ padding: "6px 8px", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 14 }}>✕</button>
@@ -3111,7 +3111,7 @@ function OrdersView({ navigateTo, pendingNav, setPendingNav, orders, setOrders, 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CUSTOMERS VIEW — with CRUD
+// CUSTOMERS VIEW - with CRUD
 // ═══════════════════════════════════════════════════════════════════════════════
 function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCustomers, orders, isMobile }) {
   const [showNew, setShowNew] = useState(false);
@@ -3210,12 +3210,12 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
                     const q = shopifyCustSearch.toLowerCase();
                     return (q ? shopifyCusts.filter(c => (c.email || "").toLowerCase().includes(q) || (c.first_name || "").toLowerCase().includes(q) || (c.last_name || "").toLowerCase().includes(q) || (c.tags || "").toLowerCase().includes(q)) : shopifyCusts).slice(0, 200).map(c => (
                       <tr key={c.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                        <td style={{ padding: "6px 10px", fontSize: 12, fontWeight: 600, color: T.text }}>{[c.first_name, c.last_name].filter(Boolean).join(" ") || "—"}</td>
-                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2 }}>{c.email || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 12, fontWeight: 600, color: T.text }}>{[c.first_name, c.last_name].filter(Boolean).join(" ") || "-"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2 }}>{c.email || "-"}</td>
                         <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2, textAlign: "right" }}>{c.orders_count || 0}</td>
                         <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.text, textAlign: "right" }}>${Number(c.total_spent || 0).toFixed(2)}</td>
-                        <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3 }}>{c.country || "—"}</td>
-                        <td style={{ padding: "6px 10px", fontSize: 9, color: T.text3, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.tags || "—"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3 }}>{c.country || "-"}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 9, color: T.text3, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.tags || "-"}</td>
                       </tr>
                     ));
                   })()}
@@ -3278,7 +3278,7 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
 
             {/* Customer KPIs */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
-              {[{ l: "Total Revenue", v: fmt(custRev), c: "#10B981" }, { l: "Orders", v: custOrders.length, c: T.accent }, { l: "Avg Order", v: custOrders.length > 0 ? fmt(custRev / custOrders.length) : "—", c: "#F59E0B" }].map(s => (
+              {[{ l: "Total Revenue", v: fmt(custRev), c: "#10B981" }, { l: "Orders", v: custOrders.length, c: T.accent }, { l: "Avg Order", v: custOrders.length > 0 ? fmt(custRev / custOrders.length) : "-", c: "#F59E0B" }].map(s => (
                 <div key={s.l} style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 16, fontWeight: 800, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></div>
               ))}
             </div>
@@ -3286,10 +3286,10 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
             {/* Contact info */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
               {[
-                { l: "Email", v: selected.email || "—" }, { l: "Phone", v: selected.phone || "—" },
-                { l: "Payment Terms", v: selected.payment_terms?.replace(/_/g, " ") || "—" }, { l: "Credit Limit", v: selected.credit_limit ? fmt(selected.credit_limit) : "—" },
-                { l: "Source", v: selected.source || "—" }, { l: "Lifetime Orders", v: selected.total_orders || 0 },
-                { l: "Lifetime Spent", v: fmt(selected.total_spent) }, { l: "Last Order", v: selected.last_order_at ? new Date(selected.last_order_at).toLocaleDateString() : "—" },
+                { l: "Email", v: selected.email || "-" }, { l: "Phone", v: selected.phone || "-" },
+                { l: "Payment Terms", v: selected.payment_terms?.replace(/_/g, " ") || "-" }, { l: "Credit Limit", v: selected.credit_limit ? fmt(selected.credit_limit) : "-" },
+                { l: "Source", v: selected.source || "-" }, { l: "Lifetime Orders", v: selected.total_orders || 0 },
+                { l: "Lifetime Spent", v: fmt(selected.total_spent) }, { l: "Last Order", v: selected.last_order_at ? new Date(selected.last_order_at).toLocaleDateString() : "-" },
               ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2 }}>{d.v}</div></div>)}
             </div>
 
@@ -3392,7 +3392,7 @@ function CustomersView({ navigateTo, pendingNav, setPendingNav, customers, setCu
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MANUFACTURING VIEW — with work order creation
+// MANUFACTURING VIEW - with work order creation
 // ═══════════════════════════════════════════════════════════════════════════════
 function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, products, facilities, boms, bomItems, lots, setLots, inventory, setInventory, isMobile }) {
   const [showNew, setShowNew] = useState(false);
@@ -3459,7 +3459,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
       const v = variants.find(x => x.id === wo.variant_id);
       const fgValue = qty * (v?.cost || 0);
       if (fgValue > 0) {
-        await postJournalEntry("production", "work_order", wo.id, `WO Complete: ${wo.wo_number} — ${qty} units`, [
+        await postJournalEntry("production", "work_order", wo.id, `WO Complete: ${wo.wo_number} - ${qty} units`, [
           { account: "1210", name: "Inventory - Finished Goods", debit: fgValue },
           { account: "1220", name: "Inventory - WIP", credit: fgValue },
         ]);
@@ -3479,7 +3479,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
-        {[{ l: "Planned", v: fmtN(totalPlanned), c: T.accent }, { l: "Completed", v: fmtN(totalCompleted), c: "#10B981" }, { l: "In Progress", v: inProgress, c: "#F59E0B" }, { l: "Yield", v: totalPlanned > 0 ? `${Math.round((totalCompleted / totalPlanned) * 100)}%` : "—", c: "#3B82F6" }].map(s => (
+        {[{ l: "Planned", v: fmtN(totalPlanned), c: T.accent }, { l: "Completed", v: fmtN(totalCompleted), c: "#10B981" }, { l: "In Progress", v: inProgress, c: "#F59E0B" }, { l: "Yield", v: totalPlanned > 0 ? `${Math.round((totalCompleted / totalPlanned) * 100)}%` : "-", c: "#3B82F6" }].map(s => (
           <Card key={s.l} style={{ textAlign: "center", padding: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{s.v}</div><div style={{ fontSize: 9, color: T.text3 }}>{s.l}</div></Card>
         ))}
       </div>
@@ -3504,9 +3504,9 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{wo.wo_number}</span><Pill status={wo.status} /></div>
                     <div style={{ fontSize: 12, fontWeight: 700 }}>{fmtN(wo.completed_quantity || 0)} / {fmtN(wo.planned_quantity)}</div>
                   </div>
-                  <div style={{ fontSize: 12, color: T.text, marginBottom: 4 }}>{v?.sku || ""} — {v?.name || "Unknown"}</div>
+                  <div style={{ fontSize: 12, color: T.text, marginBottom: 4 }}>{v?.sku || ""} - {v?.name || "Unknown"}</div>
                   <div style={{ height: 4, background: T.surface2, borderRadius: 4, overflow: "hidden", marginBottom: 4 }}><div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "#10B981" : pct > 0 ? T.accent : T.surface2, borderRadius: 4 }} /></div>
-                  <div style={{ fontSize: 10, color: T.text3 }}>{f?.name || "—"}{wo.planned_start ? ` · Start ${new Date(wo.planned_start).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{f?.name || "-"}{wo.planned_start ? ` · Start ${new Date(wo.planned_start).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
                 </Card>
               );
             })
@@ -3519,7 +3519,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: T.accent }}>{selected.wo_number}</div>
-                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getVariant(selected.variant_id)?.name || "—"}</div>
+                <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{getVariant(selected.variant_id)?.name || "-"}</div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 {(selected.status === "planned" || selected.status === "released") && <button onClick={() => { setForm({ variant_id: selected.variant_id, facility_id: selected.facility_id || "", planned_quantity: selected.planned_quantity || "", planned_start: selected.planned_start || "", planned_end: selected.planned_end || "", notes: selected.notes || "" }); setShowNew(true); }} style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer" }}>Edit</button>}
@@ -3532,7 +3532,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, padding: "12px 14px", background: T.surface2, borderRadius: 8, marginBottom: 12 }}>
               {[
                 { l: "Status", v: selected.status?.replace(/_/g, " ") }, { l: "Planned Qty", v: fmtN(selected.planned_quantity) }, { l: "Completed", v: fmtN(selected.completed_quantity || 0) },
-                { l: "Facility", v: getFacility(selected.facility_id)?.name || "—" }, { l: "Start", v: selected.planned_start ? new Date(selected.planned_start).toLocaleDateString() : "—" }, { l: "End", v: selected.planned_end ? new Date(selected.planned_end).toLocaleDateString() : "—" },
+                { l: "Facility", v: getFacility(selected.facility_id)?.name || "-" }, { l: "Start", v: selected.planned_start ? new Date(selected.planned_start).toLocaleDateString() : "-" }, { l: "End", v: selected.planned_end ? new Date(selected.planned_end).toLocaleDateString() : "-" },
               ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>)}
             </div>
             {selected.notes && <div style={{ fontSize: 11, color: T.text3, padding: "8px 10px", background: T.surface2, borderRadius: 6, marginBottom: 12 }}>{selected.notes}</div>}
@@ -3542,7 +3542,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
               const woBom = boms.find(b => b.id === selected.bom_id);
               const woItems = woBom ? bomItems.filter(bi => bi.bom_id === woBom.id).sort((a, b) => a.sort_order - b.sort_order) : [];
               const multiplier = selected.planned_quantity / (woBom?.batch_size || selected.planned_quantity || 1);
-              if (woItems.length === 0) return <div style={{ fontSize: 11, color: T.text3 }}>No BOM linked — {selected.bom_id ? "BOM has no items" : "link a BOM to see material requirements"}</div>;
+              if (woItems.length === 0) return <div style={{ fontSize: 11, color: T.text3 }}>No BOM linked - {selected.bom_id ? "BOM has no items" : "link a BOM to see material requirements"}</div>;
               const materialItems = woItems.filter(i => i.item_type !== "labor");
               const laborItems = woItems.filter(i => i.item_type === "labor");
               const totalMaterialCost = materialItems.reduce((s, i) => s + ((i.quantity || 0) * (i.cost_per_unit || 0) * multiplier), 0);
@@ -3557,7 +3557,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
                     <div style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{fmt(totalMaterialCost)}</div><div style={{ fontSize: 9, color: T.text3 }}>Materials</div></div>
                     <div style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 14, fontWeight: 800, color: "#8B5CF6" }}>{fmt(totalLaborCost)}</div><div style={{ fontSize: 9, color: T.text3 }}>Labor</div></div>
-                    <div style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 14, fontWeight: 800, color: "#10B981" }}>{selected.planned_quantity > 0 ? fmt(totalCost / selected.planned_quantity) : "—"}</div><div style={{ fontSize: 9, color: T.text3 }}>Cost/Unit</div></div>
+                    <div style={{ textAlign: "center", padding: 8, background: T.surface2, borderRadius: 8 }}><div style={{ fontSize: 14, fontWeight: 800, color: "#10B981" }}>{selected.planned_quantity > 0 ? fmt(totalCost / selected.planned_quantity) : "-"}</div><div style={{ fontSize: 9, color: T.text3 }}>Cost/Unit</div></div>
                   </div>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
@@ -3606,12 +3606,12 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
                       }
                       // GL: DR WIP, CR Raw Material Inventory (Checklist 8.1.4)
                       if (totalMatCost > 0) {
-                        await postJournalEntry("production", "work_order", selected.id, `Backflush: ${selected.wo_number} — ${materialItems.length} components`, [
+                        await postJournalEntry("production", "work_order", selected.id, `Backflush: ${selected.wo_number} - ${materialItems.length} components`, [
                           { account: "1220", name: "Inventory - WIP", debit: totalMatCost },
                           { account: "1200", name: "Inventory - Raw Materials", credit: totalMatCost },
                         ]);
                       }
-                      alert(`✅ Backflushed ${materialItems.length} components — inventory deducted, GL posted`);
+                      alert(`✅ Backflushed ${materialItems.length} components - inventory deducted, GL posted`);
                     }} style={{ marginTop: 10, padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#8B5CF620", border: "1px solid #8B5CF640", borderRadius: 8, color: "#5B21B6", cursor: "pointer", width: "100%" }}>⚡ Backflush All Materials</button>
                   )}
                 </div>
@@ -3627,7 +3627,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
           <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(520px, 95vw)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Work Order</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Product / SKU *</div><Select value={form.variant_id} onChange={v => setForm(f => ({ ...f, variant_id: v }))} placeholder="Select finished good…" options={variants.filter(v => products.find(p => p.id === v.product_id)?.product_type === "finished_good").map(v => ({ value: v.id, label: `${v.sku} — ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Product / SKU *</div><Select value={form.variant_id} onChange={v => setForm(f => ({ ...f, variant_id: v }))} placeholder="Select finished good…" options={variants.filter(v => products.find(p => p.id === v.product_id)?.product_type === "finished_good").map(v => ({ value: v.id, label: `${v.sku} - ${v.name}`, sublabel: v.size || "", icon: "📦" }))} /></div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Quantity *</div><input type="number" value={form.planned_quantity} onChange={e => setForm(f => ({ ...f, planned_quantity: e.target.value }))} placeholder="10000" style={{ width: "100%", padding: "8px 12px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Facility</div><Select value={form.facility_id} onChange={v => setForm(f => ({ ...f, facility_id: v }))} placeholder="Select…" options={(factories.length > 0 ? factories : facilities).map(f => ({ value: f.id, label: f.name, sublabel: f.facility_type?.replace(/_/g," "), icon: {warehouse:"🏢",factory:"🏭","3pl":"🚚"}[f.facility_type]||"🏢" }))} /></div>
@@ -3651,7 +3651,7 @@ function ManufacturingView({ navigateTo, workOrders, setWorkOrders, variants, pr
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FACILITIES VIEW — with CRUD and entity assignment
+// FACILITIES VIEW - with CRUD and entity assignment
 // ═══════════════════════════════════════════════════════════════════════════════
 function FacilitiesView({ facilities, setFacilities, inventory, entities, binLocations, setBinLocations, isMobile }) {
   const [showNew, setShowNew] = useState(false);
@@ -3749,7 +3749,7 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, binLoc
                 return (
                   <tr key={b.id} style={{ borderBottom: `1px solid ${T.border}20`, opacity: b.is_active ? 1 : 0.5 }}>
                     <td style={{ padding: "5px 6px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{b.code}</td>
-                    <td style={{ padding: "5px 6px", color: T.text3, fontSize: 10 }}>{fac?.name || "—"}</td>
+                    <td style={{ padding: "5px 6px", color: T.text3, fontSize: 10 }}>{fac?.name || "-"}</td>
                     <td style={{ padding: "5px 6px" }}>{b.zone}</td>
                     <td style={{ padding: "5px 6px" }}>{b.aisle}</td>
                     <td style={{ padding: "5px 6px" }}>{b.rack}</td>
@@ -3783,7 +3783,7 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, binLoc
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>State</div><input value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} style={inp} /></div>
                 <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Country</div><input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} style={inp} /></div>
               </div>
-              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Legal Entity</div><Select value={form.entity_id} onChange={v => setForm(f => ({ ...f, entity_id: v }))} placeholder="None" options={(entities||[]).map(e => ({ value: e.id, label: `${e.code} — ${e.name}`, sublabel: `${e.country} · ${e.base_currency}`, icon: e.entity_type==="parent"?"🏛":"🌐" }))} /></div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Legal Entity</div><Select value={form.entity_id} onChange={v => setForm(f => ({ ...f, entity_id: v }))} placeholder="None" options={(entities||[]).map(e => ({ value: e.id, label: `${e.code} - ${e.name}`, sublabel: `${e.country} · ${e.base_currency}`, icon: e.entity_type==="parent"?"🏛":"🌐" }))} /></div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", fontSize: 12, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
                 <button onClick={saveFacility} disabled={!form.name.trim()} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !form.name.trim() ? 0.5 : 1 }}>Create</button>
@@ -3797,7 +3797,7 @@ function FacilitiesView({ facilities, setFacilities, inventory, entities, binLoc
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GL VIEW — Chart of Accounts, Journal Entries, Trial Balance
+// GL VIEW - Chart of Accounts, Journal Entries, Trial Balance
 // ═══════════════════════════════════════════════════════════════════════════════
 function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, entities, isMobile, qboAccounts = [], qboPL = [] }) {
   const [subView, setSubView] = useState(qboAccounts.length > 0 ? "qbo_coa" : "coa");
@@ -3899,7 +3899,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
                   <span style={{ fontFamily: "monospace", fontWeight: 700, color: T.accent, width: 40, textAlign: "right", flexShrink: 0 }}>{a.qbo_id}</span>
                   <span style={{ flex: 1, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.fully_qualified_name || a.name}</span>
                   <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: T.surface2, color: T.text3, fontWeight: 500, flexShrink: 0 }}>{a.account_type}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: a.current_balance > 0 ? "#10B981" : a.current_balance < 0 ? "#EF4444" : T.text3, flexShrink: 0, textAlign: "right", width: 80 }}>{a.current_balance !== 0 ? "$" + Math.abs(a.current_balance).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "—"}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: a.current_balance > 0 ? "#10B981" : a.current_balance < 0 ? "#EF4444" : T.text3, flexShrink: 0, textAlign: "right", width: 80 }}>{a.current_balance !== 0 ? "$" + Math.abs(a.current_balance).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "-"}</span>
                   {a.active ? <span style={{ fontSize: 9, color: "#10B981", fontWeight: 600, flexShrink: 0 }}>✓</span> : <span style={{ fontSize: 9, color: T.text3, flexShrink: 0 }}>Off</span>}
                 </div>
               ))}
@@ -3998,7 +3998,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
-                {[{ l: "Date", v: new Date(selected.entry_date).toLocaleDateString() }, { l: "Period", v: selected.period || "—" }, { l: "Source", v: selected.source || "manual" }, { l: "Total Debit", v: fmt(selected.total_debit) }, { l: "Total Credit", v: fmt(selected.total_credit) }, { l: "Reference", v: selected.reference_type || "—" }].map(d => (
+                {[{ l: "Date", v: new Date(selected.entry_date).toLocaleDateString() }, { l: "Period", v: selected.period || "-" }, { l: "Source", v: selected.source || "manual" }, { l: "Total Debit", v: fmt(selected.total_debit) }, { l: "Total Credit", v: fmt(selected.total_credit) }, { l: "Reference", v: selected.reference_type || "-" }].map(d => (
                   <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>
                 ))}
               </div>
@@ -4017,7 +4017,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
                         {lines.map(l => (
                           <tr key={l.id} style={{ borderBottom: `1px solid ${T.border}20` }}>
                             <td style={{ padding: "5px 6px" }}><span style={{ fontFamily: "monospace", fontWeight: 700, color: T.accent, marginRight: 6 }}>{l.account_number}</span><span style={{ color: T.text }}>{l.account_name}</span></td>
-                            <td style={{ padding: "5px 6px", color: T.text3, fontSize: 10 }}>{l.description || "—"}</td>
+                            <td style={{ padding: "5px 6px", color: T.text3, fontSize: 10 }}>{l.description || "-"}</td>
                             <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: l.debit > 0 ? 700 : 400, color: l.debit > 0 ? "#10B981" : T.text3 }}>{l.debit > 0 ? fmt(l.debit) : ""}</td>
                             <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: l.credit > 0 ? 700 : 400, color: l.credit > 0 ? "#EF4444" : T.text3 }}>{l.credit > 0 ? fmt(l.credit) : ""}</td>
                           </tr>
@@ -4068,9 +4068,9 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
                       <tr key={r.number} style={{ borderBottom: `1px solid ${T.border}20` }}>
                         <td style={{ padding: "5px 8px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{r.number}</td>
                         <td style={{ padding: "5px 8px", color: T.text }}>{r.name}</td>
-                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: r.debit > 0 ? 600 : 400, color: r.debit > 0 ? T.text : T.text3 }}>{r.debit > 0 ? fmt(r.debit) : "—"}</td>
-                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: r.credit > 0 ? 600 : 400, color: r.credit > 0 ? T.text : T.text3 }}>{r.credit > 0 ? fmt(r.credit) : "—"}</td>
-                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: net > 0 ? "#10B981" : net < 0 ? "#EF4444" : T.text3 }}>{net !== 0 ? (net > 0 ? "" : "") + fmt(Math.abs(net)) : "—"}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: r.debit > 0 ? 600 : 400, color: r.debit > 0 ? T.text : T.text3 }}>{r.debit > 0 ? fmt(r.debit) : "-"}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: r.credit > 0 ? 600 : 400, color: r.credit > 0 ? T.text : T.text3 }}>{r.credit > 0 ? fmt(r.credit) : "-"}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, color: net > 0 ? "#10B981" : net < 0 ? "#EF4444" : T.text3 }}>{net !== 0 ? (net > 0 ? "" : "") + fmt(Math.abs(net)) : "-"}</td>
                       </tr>
                     );
                   })}</tbody>
@@ -4093,7 +4093,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
           <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: 14, padding: isMobile ? 14 : 24, width: "min(650px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>New Journal Entry</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Description *</div><input value={jeForm.description} onChange={e => setJeForm(f => ({ ...f, description: e.target.value }))} placeholder="Manual adjustment — describe the entry" style={inp} /></div>
+              <div><div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 4 }}>Description *</div><input value={jeForm.description} onChange={e => setJeForm(f => ({ ...f, description: e.target.value }))} placeholder="Manual adjustment - describe the entry" style={inp} /></div>
 
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -4102,7 +4102,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
                 </div>
                 {jeForm.lines.map((line, i) => (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1.5fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
-                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>ACCOUNT</div>}<Select value={line.account} onChange={v => { const ls = [...jeForm.lines]; ls[i].account = v; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="Select account…" options={glAccounts.map(a => ({ value: a.account_number, label: `${a.account_number} — ${a.name}`, sublabel: a.account_type }))} /></div>
+                    <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>ACCOUNT</div>}<Select value={line.account} onChange={v => { const ls = [...jeForm.lines]; ls[i].account = v; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="Select account…" options={glAccounts.map(a => ({ value: a.account_number, label: `${a.account_number} - ${a.name}`, sublabel: a.account_type }))} /></div>
                     <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>DEBIT</div>}<input type="number" step="0.01" value={line.debit} onChange={e => { const ls = [...jeForm.lines]; ls[i].debit = e.target.value; if (e.target.value) ls[i].credit = ""; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="0.00" style={{ ...inp, padding: "7px 10px", textAlign: "right", color: "#10B981" }} /></div>
                     <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>CREDIT</div>}<input type="number" step="0.01" value={line.credit} onChange={e => { const ls = [...jeForm.lines]; ls[i].credit = e.target.value; if (e.target.value) ls[i].debit = ""; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="0.00" style={{ ...inp, padding: "7px 10px", textAlign: "right", color: "#EF4444" }} /></div>
                     <div>{i === 0 && <div style={{ fontSize: 9, color: T.text3, fontWeight: 700, marginBottom: 2 }}>MEMO</div>}<input value={line.desc} onChange={e => { const ls = [...jeForm.lines]; ls[i].desc = e.target.value; setJeForm(f => ({ ...f, lines: ls })); }} placeholder="Line description" style={{ ...inp, padding: "7px 10px" }} /></div>
@@ -4136,7 +4136,7 @@ function GLView({ glAccounts, journalEntries, setJournalEntries, journalLines, e
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AP / AR VIEW — Accounts Payable, Accounts Receivable, Payments
+// AP / AR VIEW - Accounts Payable, Accounts Receivable, Payments
 // ═══════════════════════════════════════════════════════════════════════════════
 function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arInvoices, setArInvoices, payments, setPayments, suppliers, customers, orders, purchaseOrders, isMobile, qboBills = [], qboInvoices = [], user }) {
   const { orgId } = useAuth();
@@ -4188,7 +4188,7 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
   const qboAPOpen = qboBills.filter(b => b.payment_status === "open");
   const qboAPTotal = qboAPOpen.reduce((s, b) => s + Number(b.balance || 0), 0);
 
-  // QBO bills filtering — search includes GL accounts
+  // QBO bills filtering - search includes GL accounts
   const filteredQboBills = qboBills.filter(b => {
     if (qboStatus && b.payment_status !== qboStatus) return false;
     if (qboSearch) {
@@ -4275,7 +4275,7 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
         }} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", margin: "4px 0" }}>+ AR Invoice</button>}
       </div>
 
-      {/* AP BILLS — sortable, filterable, with approval workflow */}
+      {/* AP BILLS - sortable, filterable, with approval workflow */}
       {subView === "ap" && (() => {
         // Merge QBO bills into AP view when on "ap" tab too
         const isQboTab = subView === "qbo_ap";
@@ -4379,9 +4379,9 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                             }}
                             style={{ cursor: "pointer", width: 14, height: 14 }} />
                         </td>
-                        <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.vendor_name || "—"}</td>
-                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.accent, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.gl_accounts || "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.vendor_name || "-"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: T.accent, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.gl_accounts || "-"}</td>
                         <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right" }}>{fmt(Number(b.total_amount))}</td>
                         <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: Number(b.balance) > 0 ? "#EF4444" : "#10B981", textAlign: "right" }}>{fmt(Number(b.balance))}</td>
                         <td style={{ padding: "8px 10px", textAlign: "center" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: b.payment_status === "paid" ? "#10B98118" : overdue ? "#EF444418" : "#F59E0B18", color: b.payment_status === "paid" ? "#10B981" : overdue ? "#EF4444" : "#F59E0B" }}>{b.payment_status === "paid" ? "PAID" : overdue ? "OVERDUE" : "OPEN"}</span></td>
@@ -4390,9 +4390,9 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                             {(b.approval_status || "pending").toUpperCase()}
                           </span>
                         </td>
-                        <td style={{ padding: "8px 10px", fontSize: 11, color: overdue ? "#EF4444" : T.text3, fontWeight: overdue ? 600 : 400, whiteSpace: "nowrap" }}>{b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: overdue ? "#EF4444" : T.text3, fontWeight: overdue ? 600 : 400, whiteSpace: "nowrap" }}>{b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}</td>
                         <td style={{ padding: "8px 10px", fontSize: 11, color: b.scheduled_payment_date ? T.accent : T.text3, fontWeight: b.scheduled_payment_date ? 600 : 400, whiteSpace: "nowrap" }}>
-                          {b.scheduled_payment_date ? new Date(b.scheduled_payment_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                          {b.scheduled_payment_date ? new Date(b.scheduled_payment_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}
                         </td>
                         <td style={{ padding: "4px 6px", textAlign: "center", whiteSpace: "nowrap" }}>
                           {b.payment_status !== "paid" && (
@@ -4428,7 +4428,7 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
         );
       })()}
 
-      {/* AR / AP Invoice List — sortable table with due dates + approval */}
+      {/* AR / AP Invoice List - sortable table with due dates + approval */}
       {(subView === "ar" || (subView === "ap" && qboBills.length === 0)) && (() => {
         const [sortKey, sortDir] = qboSort || ["due_date", "asc"];
         const sorted = [...invoices].sort((a, b) => {
@@ -4474,15 +4474,15 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                   return (
                     <tr key={inv.id} onClick={() => setSelected(inv)} style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: selected?.id === inv.id ? T.accentDim : i % 2 === 0 ? "transparent" : T.surface2 + "40" }}>
                       <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entity?.name || "—"}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>{inv.invoice_date ? new Date(inv.invoice_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entity?.name || "-"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>{inv.invoice_date ? new Date(inv.invoice_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}</td>
                       <td style={{ padding: "8px 10px", fontSize: 11, whiteSpace: "nowrap", fontWeight: overdue ? 700 : 400, color: overdue ? "#EF4444" : daysUntilDue != null && daysUntilDue <= 7 ? "#F59E0B" : T.text2 }}>
-                        {inv.due_date ? new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}
+                        {inv.due_date ? new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}
                         {overdue && <span style={{ fontSize: 8, marginLeft: 4, padding: "1px 4px", borderRadius: 3, background: "#FEE2E2", color: "#991B1B", fontWeight: 700 }}>OVERDUE</span>}
                         {!overdue && daysUntilDue != null && daysUntilDue <= 7 && daysUntilDue >= 0 && <span style={{ fontSize: 8, marginLeft: 4, color: "#F59E0B" }}>{daysUntilDue}d</span>}
                       </td>
                       <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{fmt(inv.total)}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 12, color: "#10B981", textAlign: "right", fontFamily: "monospace" }}>{inv.paid_amount ? fmt(inv.paid_amount) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, color: "#10B981", textAlign: "right", fontFamily: "monospace" }}>{inv.paid_amount ? fmt(inv.paid_amount) : "-"}</td>
                       <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, textAlign: "right", fontFamily: "monospace", color: bal > 0 ? "#EF4444" : "#10B981" }}>{fmt(bal)}</td>
                       <td style={{ padding: "8px 10px", textAlign: "center" }}>
                         <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4,
@@ -4507,7 +4507,7 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
         );
       })()}
 
-      {/* Invoice Detail Panel — shown when an invoice row is clicked */}
+      {/* Invoice Detail Panel - shown when an invoice row is clicked */}
       {selected && (subView === "ar" || subView === "ap") && !isMobile && (
         <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
             <button onClick={() => setSelected(null)} style={{ position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, background: T.surface2, border: `1px solid ${T.border}`, color: T.text3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, zIndex: 5 }} title="Close">✕</button>
@@ -4532,9 +4532,9 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
                 {[
-                  { l: "Status", v: selected.status }, { l: "Invoice Date", v: selected.invoice_date ? new Date(selected.invoice_date).toLocaleDateString() : "—" }, { l: "Due Date", v: selected.due_date ? new Date(selected.due_date).toLocaleDateString() : "—" },
+                  { l: "Status", v: selected.status }, { l: "Invoice Date", v: selected.invoice_date ? new Date(selected.invoice_date).toLocaleDateString() : "-" }, { l: "Due Date", v: selected.due_date ? new Date(selected.due_date).toLocaleDateString() : "-" },
                   { l: "Total", v: fmt(selected.total) }, { l: "Paid", v: fmt(selected.paid_amount || 0) }, { l: "Balance", v: fmt(selected.balance != null ? selected.balance : selected.total - (selected.paid_amount || 0)) },
-                  { l: "Currency", v: selected.currency || "USD" }, { l: "Terms", v: selected.payment_terms?.replace(/_/g, " ") || "—" }, { l: subView === "ap" ? "Match Status" : "Ref", v: subView === "ap" ? (selected.match_status || "—") : (getOrder(selected.order_id)?.order_number || "—") },
+                  { l: "Currency", v: selected.currency || "USD" }, { l: "Terms", v: selected.payment_terms?.replace(/_/g, " ") || "-" }, { l: subView === "ap" ? "Match Status" : "Ref", v: subView === "ap" ? (selected.match_status || "-") : (getOrder(selected.order_id)?.order_number || "-") },
                 ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>)}
               </div>
 
@@ -4575,8 +4575,8 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                     <td style={{ padding: "8px", color: T.text3 }}>{new Date(p.payment_date).toLocaleDateString()}</td>
                     <td style={{ padding: "8px", textTransform: "uppercase", fontSize: 10, fontWeight: 600, color: T.text3 }}>{p.payment_method}</td>
                     <td style={{ padding: "8px", fontWeight: 700, color: p.payment_type === "ap_payment" ? "#EF4444" : "#10B981" }}>{p.payment_type === "ap_payment" ? "-" : "+"}{fmt(p.amount)}</td>
-                    <td style={{ padding: "8px", fontFamily: "monospace", fontSize: 10, color: T.text3 }}>{p.reference_number || "—"}</td>
-                    <td style={{ padding: "8px", color: T.text }}>{entity?.name || "—"}</td>
+                    <td style={{ padding: "8px", fontFamily: "monospace", fontSize: 10, color: T.text3 }}>{p.reference_number || "-"}</td>
+                    <td style={{ padding: "8px", color: T.text }}>{entity?.name || "-"}</td>
                   </tr>
                 );
               })}</tbody>
@@ -4619,10 +4619,10 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
                     <tr key={cm.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                       <td style={{ padding: "8px", fontFamily: "monospace", fontWeight: 700, color: T.accent }}>{cm.memo_number}</td>
                       <td style={{ padding: "8px" }}><Pill status={cm.memo_type} /></td>
-                      <td style={{ padding: "8px", color: T.text3 }}>{cm.issue_date ? new Date(cm.issue_date).toLocaleDateString() : "—"}</td>
-                      <td style={{ padding: "8px", color: T.text }}>{entity?.name || "—"}</td>
+                      <td style={{ padding: "8px", color: T.text3 }}>{cm.issue_date ? new Date(cm.issue_date).toLocaleDateString() : "-"}</td>
+                      <td style={{ padding: "8px", color: T.text }}>{entity?.name || "-"}</td>
                       <td style={{ padding: "8px", fontWeight: 700, color: "#EF4444" }}>{fmt(cm.amount)}</td>
-                      <td style={{ padding: "8px", color: T.text3, fontSize: 11 }}>{cm.reason || "—"}</td>
+                      <td style={{ padding: "8px", color: T.text3, fontSize: 11 }}>{cm.reason || "-"}</td>
                       <td style={{ padding: "8px" }}><Pill status={cm.status} /></td>
                       <td style={{ padding: "8px", display: "flex", gap: 3 }}>
                         {cm.status === "issued" && <button onClick={async () => {
@@ -4669,7 +4669,7 @@ function APARView({ creditMemos, setCreditMemos, apInvoices, setApInvoices, arIn
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// RETURNS VIEW — RMA management, inspection, disposition
+// RETURNS VIEW - RMA management, inspection, disposition
 // ═══════════════════════════════════════════════════════════════════════════════
 function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems, customers, variants, inventory, setInventory, movements, setMovements, facilities, isMobile }) {
   const [selected, setSelected] = useState(null);
@@ -4763,7 +4763,7 @@ function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems,
                     <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(r.refund_amount)}</span>
                   </div>
                   <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>
-                    {cust?.name || "Unknown"} · {ord?.order_number || "—"} · {REASON_LABELS[r.reason_code] || r.reason_code} · {r.return_type}
+                    {cust?.name || "Unknown"} · {ord?.order_number || "-"} · {REASON_LABELS[r.reason_code] || r.reason_code} · {r.return_type}
                   </div>
                 </Card>
               );
@@ -4787,7 +4787,7 @@ function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems,
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
-              {[{ l: "Status", v: selected.status }, { l: "Reason", v: REASON_LABELS[selected.reason_code] || selected.reason_code }, { l: "Type", v: selected.return_type }, { l: "Refund", v: fmt(selected.refund_amount) }, { l: "Requested", v: selected.requested_at ? new Date(selected.requested_at).toLocaleDateString() : "—" }, { l: "Received", v: selected.received_at ? new Date(selected.received_at).toLocaleDateString() : "—" }].map(d => (
+              {[{ l: "Status", v: selected.status }, { l: "Reason", v: REASON_LABELS[selected.reason_code] || selected.reason_code }, { l: "Type", v: selected.return_type }, { l: "Refund", v: fmt(selected.refund_amount) }, { l: "Requested", v: selected.requested_at ? new Date(selected.requested_at).toLocaleDateString() : "-" }, { l: "Received", v: selected.received_at ? new Date(selected.received_at).toLocaleDateString() : "-" }].map(d => (
                 <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2, textTransform: "capitalize" }}>{d.v}</div></div>
               ))}
             </div>
@@ -4842,7 +4842,7 @@ function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems,
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>Items to Return</div>
                   {newItems.map((item, i) => (
                     <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 6, marginBottom: 4, alignItems: "center" }}>
-                      <div style={{ fontSize: 11 }}>{item.sku} — {item.title}</div>
+                      <div style={{ fontSize: 11 }}>{item.sku} - {item.title}</div>
                       <input type="number" value={item.quantity} min="1" onChange={e => setNewItems(p => p.map((x, j) => j === i ? { ...x, quantity: e.target.value } : x))} style={{ ...inp, padding: "5px 8px", fontSize: 11 }} />
                       <input type="number" step="0.01" value={item.refund_amount} onChange={e => setNewItems(p => p.map((x, j) => j === i ? { ...x, refund_amount: e.target.value } : x))} style={{ ...inp, padding: "5px 8px", fontSize: 11 }} />
                       <button onClick={() => setNewItems(p => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }}>✕</button>
@@ -4865,7 +4865,7 @@ function ReturnsView({ rmas, setRmas, rmaItems, setRmaItems, orders, orderItems,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SHIPPING VIEW — Carriers, services, rules, integrations
+// SHIPPING VIEW - Carriers, services, rules, integrations
 // ═══════════════════════════════════════════════════════════════════════════════
 function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, carrierServices, setCarrierServices, fulfillmentIntegrations, orders, isMobile }) {
   const [subView, setSubView] = useState("carriers");
@@ -5073,7 +5073,7 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
       {subView === "rates" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ fontSize: 11, color: T.text3, padding: "8px 12px", background: T.surface2, borderRadius: 8 }}>
-            Compare carrier rates across all active services. Rates are base rates from carrier service configuration — actual rates may vary by contract, zone, and surcharges.
+            Compare carrier rates across all active services. Rates are base rates from carrier service configuration - actual rates may vary by contract, zone, and surcharges.
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -5092,10 +5092,10 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
                       <td style={{ padding: "6px 8px", fontWeight: 600, color: T.text }}>{ICONS[car?.code] || "🚚"} {car?.name}</td>
                       <td style={{ padding: "6px 8px", color: T.text }}>{svc.name}</td>
                       <td style={{ padding: "6px 8px" }}><span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: `${LEVEL_COLORS[svc.service_level] || T.text3}15`, color: LEVEL_COLORS[svc.service_level] || T.text3, fontWeight: 600, textTransform: "capitalize" }}>{svc.service_level}</span></td>
-                      <td style={{ padding: "6px 8px", color: T.text3 }}>{svc.estimated_days_min && svc.estimated_days_max ? `${svc.estimated_days_min}-${svc.estimated_days_max}d` : "—"}</td>
-                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: i === 0 ? "#10B981" : T.text }}>{svc.base_rate ? fmt(svc.base_rate) : "—"}{i === 0 && svc.base_rate && <span style={{ fontSize: 9, marginLeft: 4, color: "#10B981" }}>BEST</span>}</td>
-                      <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>{svc.base_rate ? fmt(svc.base_rate / 16) : "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{svc.is_active ? <span style={{ color: "#10B981", fontWeight: 600, fontSize: 10 }}>✓</span> : <span style={{ color: T.text3, fontSize: 10 }}>—</span>}</td>
+                      <td style={{ padding: "6px 8px", color: T.text3 }}>{svc.estimated_days_min && svc.estimated_days_max ? `${svc.estimated_days_min}-${svc.estimated_days_max}d` : "-"}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: i === 0 ? "#10B981" : T.text }}>{svc.base_rate ? fmt(svc.base_rate) : "-"}{i === 0 && svc.base_rate && <span style={{ fontSize: 9, marginLeft: 4, color: "#10B981" }}>BEST</span>}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", color: T.text3 }}>{svc.base_rate ? fmt(svc.base_rate / 16) : "-"}</td>
+                      <td style={{ padding: "6px 8px" }}>{svc.is_active ? <span style={{ color: "#10B981", fontWeight: 600, fontSize: 10 }}>✓</span> : <span style={{ color: T.text3, fontSize: 10 }}>-</span>}</td>
                     </tr>
                   );
                 })
@@ -5194,7 +5194,7 @@ function ShippingView({ shippingRules, setShippingRules, carriers, setCarriers, 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ENTITIES VIEW — Legal entities, subsidiaries, transfer pricing, currencies
+// ENTITIES VIEW - Legal entities, subsidiaries, transfer pricing, currencies
 // ═══════════════════════════════════════════════════════════════════════════════
 function EntitiesView({ entities, setEntities, facilities, currencies, exchangeRates, suppliers, isMobile }) {
   const [selected, setSelected] = useState(null);
@@ -5274,7 +5274,7 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: regionColor }}>{ent.transfer_pricing_markup_pct || 0}%</div>
-                    <div style={{ fontSize: 9, color: T.text3 }}>{TP_METHODS[ent.transfer_pricing_method] || "—"}</div>
+                    <div style={{ fontSize: 9, color: T.text3 }}>{TP_METHODS[ent.transfer_pricing_method] || "-"}</div>
                   </div>
                 </div>
               </Card>
@@ -5297,8 +5297,8 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.surface2, borderRadius: 8 }}>
               {[
-                { l: "Country", v: selected.country }, { l: "Region", v: selected.region || "—" }, { l: "Base Currency", v: selected.base_currency },
-                { l: "Fiscal Year", v: `Starts ${MONTHS[(selected.fiscal_year_start || 1) - 1]}` }, { l: "Tax ID", v: selected.tax_id || "—" }, { l: "City", v: selected.city || "—" },
+                { l: "Country", v: selected.country }, { l: "Region", v: selected.region || "-" }, { l: "Base Currency", v: selected.base_currency },
+                { l: "Fiscal Year", v: `Starts ${MONTHS[(selected.fiscal_year_start || 1) - 1]}` }, { l: "Tax ID", v: selected.tax_id || "-" }, { l: "City", v: selected.city || "-" },
               ].map(d => <div key={d.l}><div style={{ fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{d.l}</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginTop: 2 }}>{d.v}</div></div>)}
             </div>
 
@@ -5306,7 +5306,7 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
             <div style={{ marginBottom: 16, padding: "12px 14px", background: "#EDE9FE15", border: "1px solid #C4B5FD40", borderRadius: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#5B21B6", marginBottom: 8 }}>⚡ Transfer Pricing</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>METHOD</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, textTransform: "capitalize" }}>{TP_METHODS[selected.transfer_pricing_method] || "—"}</div></div>
+                <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>METHOD</div><div style={{ fontSize: 12, fontWeight: 600, color: T.text, textTransform: "capitalize" }}>{TP_METHODS[selected.transfer_pricing_method] || "-"}</div></div>
                 <div><div style={{ fontSize: 9, color: T.text3, fontWeight: 700 }}>MARKUP</div><div style={{ fontSize: 18, fontWeight: 800, color: "#5B21B6" }}>{selected.transfer_pricing_markup_pct || 0}%</div></div>
               </div>
               {selected.base_currency !== "USD" && (
@@ -5362,7 +5362,7 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
             return (
               <div key={c.code} style={{ padding: "8px 10px", background: T.surface2, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div><div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{c.symbol} {c.code}</div><div style={{ fontSize: 9, color: T.text3 }}>{c.name}</div></div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{rate || "—"}</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{rate || "-"}</div>
               </div>
             );
           })}
@@ -5410,10 +5410,10 @@ function EntitiesView({ entities, setEntities, facilities, currencies, exchangeR
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// REPORTS VIEW — Pre-built reports + Custom Report Builder
+// REPORTS VIEW - Pre-built reports + Custom Report Builder
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Schema map — describes all ERP tables and their relationships
+// Schema map - describes all ERP tables and their relationships
 const ERP_SCHEMA = {
   products: { label: "Products", icon: "📦", table: "erp_products", fields: [
     { key: "name", label: "Name", type: "text" }, { key: "category", label: "Category", type: "text" },
@@ -5534,7 +5534,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
           const units = facInv.reduce((s,i) => s + (i.quantity||0), 0);
           const skus = new Set(facInv.map(i => i.variant_id).filter(Boolean)).size;
           const value = facInv.reduce((s,i) => { const v = getVariant(i.variant_id); return s + (i.quantity||0) * (v?.cost||0); }, 0);
-          return [f.name, f.facility_type, f.operator || "—", fmtN(units), skus, fmt(value)];
+          return [f.name, f.facility_type, f.operator || "-", fmtN(units), skus, fmt(value)];
         }).filter(r => parseInt(r[3].replace(/,/g,"")) > 0);
         return { columns: ["Facility", "Type", "Operator", "Units", "SKUs", "Value"], rows, summary: `${facilities.length} facilities` };
       }
@@ -5547,7 +5547,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
           const v = getVariant(l.variant_id);
           const sup = getSupplier(l.supplier_id);
           const qty = inventory.filter(i => i.lot_id === l.id).reduce((s,i) => s + (i.quantity||0), 0);
-          return { days, row: [l.lot_number, v?.sku || "—", v?.name || "—", sup?.name || "—", fmtN(qty), l.expiry_date ? new Date(l.expiry_date).toLocaleDateString() : "—", days < 0 ? "EXPIRED" : `${days}d`] };
+          return { days, row: [l.lot_number, v?.sku || "-", v?.name || "-", sup?.name || "-", fmtN(qty), l.expiry_date ? new Date(l.expiry_date).toLocaleDateString() : "-", days < 0 ? "EXPIRED" : `${days}d`] };
         }).sort((a,b) => a.days - b.days);
         return { columns: ["Lot #", "SKU", "Product", "Supplier", "Qty", "Expiry", "Days Left"], rows: rows.map(r => r.row), summary: `${rows.filter(r => r.days <= 30).length} critical (<30d), ${rows.filter(r => r.days <= 90).length} total` };
       }
@@ -5562,7 +5562,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
           if (o.fulfillment_status === "fulfilled") channels[o.channel].fulfilled++;
         });
         Object.values(channels).forEach(c => c.avgOrder = c.orders > 0 ? c.revenue / c.orders : 0);
-        return { columns: ["Channel", "Orders", "Revenue", "Avg Order", "Fulfilled", "Fill Rate"], rows: Object.values(channels).sort((a,b) => b.revenue - a.revenue).map(c => [c.channel, c.orders, fmt(c.revenue), fmt(c.avgOrder), c.fulfilled, c.orders > 0 ? `${Math.round(c.fulfilled/c.orders*100)}%` : "—"]),
+        return { columns: ["Channel", "Orders", "Revenue", "Avg Order", "Fulfilled", "Fill Rate"], rows: Object.values(channels).sort((a,b) => b.revenue - a.revenue).map(c => [c.channel, c.orders, fmt(c.revenue), fmt(c.avgOrder), c.fulfilled, c.orders > 0 ? `${Math.round(c.fulfilled/c.orders*100)}%` : "-"]),
           summary: `Total: ${fmt(orders.reduce((s,o) => s + (o.total||0), 0))}` };
       }
     },
@@ -5572,12 +5572,12 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
         orders.forEach(o => {
           const c = getCustomer(o.customer_id);
           const key = c?.id || "unknown";
-          if (!custs[key]) custs[key] = { name: c?.name || "DTC", type: c?.customer_type || "—", orders: 0, revenue: 0, lastOrder: null };
+          if (!custs[key]) custs[key] = { name: c?.name || "DTC", type: c?.customer_type || "-", orders: 0, revenue: 0, lastOrder: null };
           custs[key].orders++;
           custs[key].revenue += o.total || 0;
           if (!custs[key].lastOrder || new Date(o.order_date) > new Date(custs[key].lastOrder)) custs[key].lastOrder = o.order_date;
         });
-        return { columns: ["Customer", "Type", "Orders", "Revenue", "Avg Order", "Last Order"], rows: Object.values(custs).sort((a,b) => b.revenue - a.revenue).map(c => [c.name, c.type, c.orders, fmt(c.revenue), fmt(c.revenue/c.orders), c.lastOrder ? new Date(c.lastOrder).toLocaleDateString() : "—"]) };
+        return { columns: ["Customer", "Type", "Orders", "Revenue", "Avg Order", "Last Order"], rows: Object.values(custs).sort((a,b) => b.revenue - a.revenue).map(c => [c.name, c.type, c.orders, fmt(c.revenue), fmt(c.revenue/c.orders), c.lastOrder ? new Date(c.lastOrder).toLocaleDateString() : "-"]) };
       }
     },
     { id: "top_skus", name: "Top Selling SKUs", icon: "🏆", category: "Sales", description: "Best-selling products by units sold and revenue",
@@ -5586,7 +5586,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
         orderItems.forEach(oi => {
           const key = oi.sku || oi.variant_id || "unknown";
           const v = getVariant(oi.variant_id);
-          if (!skus[key]) skus[key] = { sku: oi.sku || v?.sku || "—", name: oi.title || v?.name || "—", units: 0, revenue: 0, orders: 0 };
+          if (!skus[key]) skus[key] = { sku: oi.sku || v?.sku || "-", name: oi.title || v?.name || "-", units: 0, revenue: 0, orders: 0 };
           skus[key].units += oi.quantity || 0;
           skus[key].revenue += oi.total || (oi.quantity * oi.unit_price) || 0;
           skus[key].orders++;
@@ -5599,7 +5599,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
         const rows = purchaseOrders.map(po => {
           const sup = getSupplier(po.supplier_id);
           const items = poItems.filter(i => i.po_id === po.id);
-          return [po.po_number, sup?.name || "—", po.status, po.order_date ? new Date(po.order_date).toLocaleDateString() : "—", po.expected_date ? new Date(po.expected_date).toLocaleDateString() : "—", items.length, fmt(po.total), po.is_intercompany ? "Yes" : "No"];
+          return [po.po_number, sup?.name || "-", po.status, po.order_date ? new Date(po.order_date).toLocaleDateString() : "-", po.expected_date ? new Date(po.expected_date).toLocaleDateString() : "-", items.length, fmt(po.total), po.is_intercompany ? "Yes" : "No"];
         });
         return { columns: ["PO #", "Supplier", "Status", "Order Date", "Expected", "Lines", "Total", "IC"], rows, summary: `Total: ${fmt(purchaseOrders.reduce((s,p) => s + (p.total||0), 0))}` };
       }
@@ -5610,7 +5610,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
         purchaseOrders.forEach(po => {
           const s = getSupplier(po.supplier_id);
           const key = s?.id || "unknown";
-          if (!sups[key]) sups[key] = { name: s?.name || "—", code: s?.code || "—", type: s?.supplier_type || "—", pos: 0, total: 0, open: 0 };
+          if (!sups[key]) sups[key] = { name: s?.name || "-", code: s?.code || "-", type: s?.supplier_type || "-", pos: 0, total: 0, open: 0 };
           sups[key].pos++;
           sups[key].total += po.total || 0;
           if (!["received","closed","cancelled"].includes(po.status)) sups[key].open++;
@@ -5628,7 +5628,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
           const laborCost = items.filter(i => i.item_type === "labor").reduce((s,i) => s + (i.quantity||0)*(i.cost_per_unit||0), 0);
           const total = materialCost + packagingCost + laborCost;
           const margin = v?.msrp ? ((v.msrp - total) / v.msrp * 100) : 0;
-          return [v?.sku || "—", b.name, items.length, fmt(materialCost), fmt(packagingCost), fmt(laborCost), fmt(total), v?.msrp ? fmt(v.msrp) : "—", `${margin.toFixed(1)}%`];
+          return [v?.sku || "-", b.name, items.length, fmt(materialCost), fmt(packagingCost), fmt(laborCost), fmt(total), v?.msrp ? fmt(v.msrp) : "-", `${margin.toFixed(1)}%`];
         });
         return { columns: ["SKU", "BOM", "Items", "Materials", "Packaging", "Labor", "Total Cost", "MSRP", "Margin %"], rows };
       }
@@ -5639,7 +5639,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
           const v = getVariant(wo.variant_id);
           const f = getFacility(wo.facility_id);
           const yld = wo.planned_quantity > 0 ? ((wo.completed_quantity||0)/wo.planned_quantity*100) : 0;
-          return [wo.wo_number, v?.sku || "—", f?.name || "—", wo.status, fmtN(wo.planned_quantity), fmtN(wo.completed_quantity||0), `${yld.toFixed(0)}%`, wo.planned_start ? new Date(wo.planned_start).toLocaleDateString() : "—"];
+          return [wo.wo_number, v?.sku || "-", f?.name || "-", wo.status, fmtN(wo.planned_quantity), fmtN(wo.completed_quantity||0), `${yld.toFixed(0)}%`, wo.planned_start ? new Date(wo.planned_start).toLocaleDateString() : "-"];
         });
         return { columns: ["WO #", "SKU", "Facility", "Status", "Planned", "Completed", "Yield", "Start"], rows };
       }
@@ -5649,7 +5649,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
         const rows = entities.map(e => {
           const facs = facilities.filter(f => f.entity_id === e.id).length;
           const sups = suppliers.filter(s => s.entity_id === e.id).length;
-          return [e.code, e.name, e.country, e.region || "—", e.base_currency, e.entity_type, facs, e.transfer_pricing_method || "—", `${e.transfer_pricing_markup_pct||0}%`];
+          return [e.code, e.name, e.country, e.region || "-", e.base_currency, e.entity_type, facs, e.transfer_pricing_method || "-", `${e.transfer_pricing_markup_pct||0}%`];
         });
         return { columns: ["Code", "Name", "Country", "Region", "Currency", "Type", "Facilities", "TP Method", "Markup"], rows };
       }
@@ -5671,7 +5671,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
           if (order && new Date(order.order_date) >= thirtyAgo) skuData[v.sku].sold30d += oi.quantity || 0;
         });
         Object.values(skuData).forEach(s => { s.dailyRate = s.sold30d / 30; s.daysOfStock = s.dailyRate > 0 ? Math.round(s.stock / s.dailyRate) : 999; });
-        return { columns: ["SKU", "Product", "Stock", "Sold (30d)", "Daily Rate", "Days of Stock", "Reorder Value"], rows: Object.values(skuData).sort((a,b) => a.daysOfStock - b.daysOfStock).map(s => [s.sku, s.name, fmtN(s.stock), fmtN(s.sold30d), s.dailyRate.toFixed(1), s.daysOfStock >= 999 ? "∞" : s.daysOfStock, s.daysOfStock < 60 ? fmt(s.dailyRate * 90 * s.cost) : "—"]) };
+        return { columns: ["SKU", "Product", "Stock", "Sold (30d)", "Daily Rate", "Days of Stock", "Reorder Value"], rows: Object.values(skuData).sort((a,b) => a.daysOfStock - b.daysOfStock).map(s => [s.sku, s.name, fmtN(s.stock), fmtN(s.sold30d), s.dailyRate.toFixed(1), s.daysOfStock >= 999 ? "∞" : s.daysOfStock, s.daysOfStock < 60 ? fmt(s.dailyRate * 90 * s.cost) : "-"]) };
       }
     },
   ];
@@ -5713,7 +5713,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
     // Resolve lookups for display
     const rows = data.map(row => fields.map(k => {
       const val = row[k];
-      if (val === null || val === undefined) return "—";
+      if (val === null || val === undefined) return "-";
       if (typeof val === "boolean") return val ? "Yes" : "No";
       if (k.endsWith("_id") && typeof val === "string" && val.includes("-")) {
         // Try to resolve foreign keys
@@ -5860,7 +5860,7 @@ function ReportsView({ products, variants, suppliers, purchaseOrders, poItems, i
                     <button onClick={() => removeFilter(i)} style={{ padding: "4px 8px", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 14 }}>✕</button>
                   </div>
                 ))}
-                {builderConfig.filters.length === 0 && <div style={{ fontSize: 11, color: T.text3 }}>No filters — showing all records</div>}
+                {builderConfig.filters.length === 0 && <div style={{ fontSize: 11, color: T.text3 }}>No filters - showing all records</div>}
               </Card>
 
               {/* Sort + Run */}

@@ -27,7 +27,7 @@ export async function getBudgetSnapshot({ glCode, orgId, atDate, requestId }) {
   const ref = atDate ? new Date(atDate) : new Date();
   const year = ref.getUTCFullYear();
   const month0 = ref.getUTCMonth();           // 0-indexed (0=Jan)
-  const month1 = month0 + 1;                  // 1-indexed (1=Jan) — af_monthly_budgets convention
+  const month1 = month0 + 1;                  // 1-indexed (1=Jan) - af_monthly_budgets convention
   const periodKey = `${year}-${String(month1).padStart(2, "0")}`;
   const yearStart = `${year}-01-01`;
   const nextYearStart = `${year + 1}-01-01`;
@@ -68,7 +68,7 @@ export async function getBudgetSnapshot({ glCode, orgId, atDate, requestId }) {
   }
 
   // 3b. Fallback: legacy budget_plans / budget_plan_categories / budget_plan_gl
-  // (used if no af_monthly_budgets data — kept so newer plans still surface).
+  // (used if no af_monthly_budgets data - kept so newer plans still surface).
   if (!sourceUsed) {
     const { data: plans } = await supabase
       .from("budget_plans").select("id, status")
@@ -151,7 +151,7 @@ export async function getBudgetSnapshot({ glCode, orgId, atDate, requestId }) {
   const ytdSpent = ytdActual + approvedYtd;
   const hasBudget = monthBudget > 0 || ytdBudget > 0;
 
-  // hasPlan is true if we have either a budget OR actuals for the category — that
+  // hasPlan is true if we have either a budget OR actuals for the category - that
   // way the approver still sees actuals even when no budget has been entered.
   return {
     hasPlan: hasBudget || ytdSpent > 0,
@@ -167,7 +167,7 @@ export async function getBudgetSnapshot({ glCode, orgId, atDate, requestId }) {
   };
 }
 
-/** Format helper used by callers — short money string */
+/** Format helper used by callers - short money string */
 export function fmtMoney(n) {
   if (n == null) return "$0";
   const v = Number(n);

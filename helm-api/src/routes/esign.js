@@ -1,5 +1,5 @@
 
-// POST /esign — port of supabase/functions/esign
+// POST /esign - port of supabase/functions/esign
 // 7 actions: send, access, sign, decline, void, audit, remind.
 // RESEND_API_KEY from env (was hardcoded in original).
 // Self-calls /esign-pdf via SELF_URL on completion.

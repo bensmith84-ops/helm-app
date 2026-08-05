@@ -378,7 +378,7 @@ function DependencyEditor({ task, blockedBy, blocking, onAdd, onRemove, orgId, T
         <div style={{ marginTop: 6, border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, background: T.surface2 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
             <span style={{ fontSize: 10, fontWeight: 700, color: mode === "blocked_by" ? "#ef4444" : "#f97316", textTransform: "uppercase", letterSpacing: 0.4 }}>{mode === "blocked_by" ? "Blocked by" : "Blocking"}</span>
-            <span style={{ fontSize: 10, color: T.text3 }}>— search a task to link</span>
+            <span style={{ fontSize: 10, color: T.text3 }}>- search a task to link</span>
             <button onClick={close} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
           </div>
           <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Type to search tasks…"
@@ -464,7 +464,7 @@ function ProfileCardPopover({ userId, pos, profilesMap, orgId, T, onClose }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: T.text2 }}>
           {p && p.email && <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Email</span><a href={`mailto:${p.email}`} style={{ color: T.accent, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.email}</a></div>}
           {p && p.location && <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Location</span><span>{p.location}</span></div>}
-          {manager && <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Manager</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{manager.display_name || "\u2014"}</span></div>}
+          {manager && <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Manager</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{manager.display_name || "-"}</span></div>}
           <div style={{ display: "flex", gap: 6 }}><span style={labelStyle}>Open tasks</span><span>{openCount == null ? "\u2026" : openCount}</span></div>
         </div>
       </div>
@@ -536,7 +536,7 @@ function AlsoInProjects({ task, homeProject, projects, sections, links, onAdd, o
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
                 <button onClick={() => setPendProj(null)} title="Back" style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13, padding: 0 }}>‹</button>
                 <span style={{ fontSize: 11, color: T.text2, fontWeight: 600 }}>{pendProj.name}</span>
-                <span style={{ fontSize: 10, color: T.text3 }}>— pick a section</span>
+                <span style={{ fontSize: 10, color: T.text3 }}>- pick a section</span>
                 <button onClick={() => { setAdding(false); setPendProj(null); setQ(""); }} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
               </div>
               <SecList pid={pendProj.id} current={null} onPick={(sid) => { onAdd(pendProj.id, sid); setAdding(false); setPendProj(null); setQ(""); }} />
@@ -619,7 +619,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [reactions, setReactions] = useState({}); // comment_id -> [{id,user_id,emoji}]
   const [reactionPickerFor, setReactionPickerFor] = useState(null);
   const [celebration, setCelebration] = useState(null);
-  const [newComment, setNewComment] = useState(""); // legacy — kept for compat
+  const [newComment, setNewComment] = useState(""); // legacy - kept for compat
   const [editingDesc, setEditingDesc] = useState(false);
   const [taskCollabs, setTaskCollabs] = useState([]);
   const [detailWidth, setDetailWidth] = useState(() => { try { const w = Number(localStorage.getItem("helm_detail_width")); return w >= 340 ? w : 460; } catch (e) { return 460; } });
@@ -794,7 +794,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
           p.visibility === "public" || p.owner_id === user?.id || p.created_by === user?.id || myMemberProjects.has(p.id)
         );
         setProjects(visibleProjects); setSections(sR.data || []); setTasks(tR.data || []);
-        // The top-level RPC omits subtasks, so pull the ones assigned to me — otherwise
+        // The top-level RPC omits subtasks, so pull the ones assigned to me - otherwise
         // "My Tasks" silently hides work that lives as a subtask.
         if (user?.id) {
           supabase.from("tasks").select("*").eq("org_id", orgId).eq("assignee_id", user.id)
@@ -859,7 +859,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
         // Stay on My Tasks for personal tasks
         clearPendingTask?.();
       } else {
-        // Not in the loaded top-level set — likely a subtask. Fetch it directly,
+        // Not in the loaded top-level set - likely a subtask. Fetch it directly,
         // open it, and load its parent's subtasks so it shows in context.
         supabase.from("tasks").select("*").eq("id", pendingTaskId).is("deleted_at", null).maybeSingle()
           .then(({ data: t }) => {
@@ -1597,7 +1597,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const saveProject = async () => { if (!projectForm.name.trim()) return showToast("Name required"); if (!profile?.org_id) return showToast("No organization found"); const payload = { name: projectForm.name.trim(), description: projectForm.description || "", color: projectForm.color || "#3b82f6", status: projectForm.status || "active", visibility: projectForm.visibility || "private", join_policy: projectForm.join_policy || "invite_only", team_id: projectForm.team_id || null, objective_id: projectForm.objective_id || null, key_result_id: projectForm.key_result_id || null, owner_id: projectForm.owner_id || null, start_date: projectForm.start_date || null, target_end_date: projectForm.target_end_date || null, default_view: projectForm.default_view || "List", plm_program_id: projectForm.plm_program_id || null }; if (showProjectForm === "new") { payload.org_id = profile.org_id; payload.created_by = profile?.id || null; console.log("Creating project with payload:", JSON.stringify(payload)); const { data, error } = await supabase.from("projects").insert(payload).select().single(); if (error) { console.error("Project create error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => [...p, data]); setActiveProject(data.id); { const bt = projectForm.board_type || "basic"; const basic = [{ name: "To Do" }, { name: "In Progress" }, { name: "Done", is_complete_column: true }]; let secDefs; if (bt === "blank") { secDefs = []; } else if (bt !== "basic") { const tmpl = templates.find(t => t.id === bt); secDefs = (tmpl && Array.isArray(tmpl.sections) ? tmpl.sections : []).map(x => ({ name: x.name, is_complete_column: !!x.is_complete_column, wip_limit: x.wip_limit || null })); if (!secDefs.length) secDefs = basic; } else { secDefs = basic; } for (let i = 0; i < secDefs.length; i++) { const d = secDefs[i]; const { data: sec } = await supabase.from("sections").insert({ project_id: data.id, org_id: profile.org_id, name: d.name, sort_order: i + 1, is_complete_column: d.is_complete_column || false, wip_limit: d.wip_limit || null }).select().single(); if (sec) setSections(p => [...p, sec]); } } if (projectForm.members.length > 0) { const newMembers = []; for (const uid of projectForm.members) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); newMembers.push({ project_id: data.id, user_id: uid, role: "member" }); if (uid !== user?.id) { await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: uid, type: "project_added", title: `${uname(user?.id)} added you to ${data.name}`, body: data.description || "You've been added to a project", entity_type: "project", entity_id: data.id, actor_id: user?.id, is_read: false, category: "assignment", metadata: { project_name: data.name } }); } } setProjMembersList(p => [...p, ...newMembers]); } if (projectForm.owner_id) { const exists = projectForm.members.includes(projectForm.owner_id); if (!exists) { await supabase.from("project_members").insert({ project_id: data.id, user_id: projectForm.owner_id, role: "owner" }); setProjMembersList(p => [...p, { project_id: data.id, user_id: projectForm.owner_id, role: "owner" }]); if (projectForm.owner_id !== user?.id) { await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: projectForm.owner_id, type: "project_added", title: `${uname(user?.id)} made you owner of ${data.name}`, body: "You've been assigned as project owner", entity_type: "project", entity_id: data.id, actor_id: user?.id, is_read: false, category: "assignment", metadata: { project_name: data.name } }); } } } if (projectForm.team_id) { const { data: tm } = await supabase.from("team_members").select("user_id").eq("team_id", projectForm.team_id); const already = new Set([...(projectForm.members || []), projectForm.owner_id].filter(Boolean)); const toAdd = [...new Set((tm || []).map(r => r.user_id))].filter(uid => uid && !already.has(uid)); if (toAdd.length) { const ntm = []; for (const uid of toAdd) { await supabase.from("project_members").insert({ project_id: data.id, user_id: uid, role: "member" }); ntm.push({ project_id: data.id, user_id: uid, role: "member" }); if (uid !== user?.id) { await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: uid, type: "project_added", title: `${uname(user?.id)} added you to ${data.name}`, body: data.description || "You\u2019ve been added to a project", entity_type: "project", entity_id: data.id, actor_id: user?.id, is_read: false, category: "assignment", metadata: { project_name: data.name } }); } } setProjMembersList(p => [...p, ...ntm]); } } } else { const { error } = await supabase.from("projects").update(payload).eq("org_id", orgId).eq("id", activeProject); if (error) { console.error("Project update error:", error); return showToast("Failed: " + (error.message || error.details || "Unknown error")); } setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, ...payload } : pr)); if (projectForm.team_id) { const { data: tm } = await supabase.from("team_members").select("user_id").eq("team_id", projectForm.team_id); const existing = new Set(projMembersList.filter(pm => pm.project_id === activeProject).map(pm => pm.user_id)); const toAdd = [...new Set((tm || []).map(r => r.user_id))].filter(uid => uid && !existing.has(uid)); if (toAdd.length) { const ntm = []; for (const uid of toAdd) { await supabase.from("project_members").insert({ project_id: activeProject, user_id: uid, role: "member" }); ntm.push({ project_id: activeProject, user_id: uid, role: "member" }); if (uid !== user?.id) { await supabase.from("notifications").insert({ org_id: profile.org_id, user_id: uid, type: "project_added", title: `${uname(user?.id)} added you to ${projectForm.name}`, body: "You\u2019ve been added to a project", entity_type: "project", entity_id: activeProject, actor_id: user?.id, is_read: false, category: "assignment", metadata: { project_name: projectForm.name } }); } } setProjMembersList(p => [...p, ...ntm]); } } } setShowProjectForm(false); showToast(showProjectForm === "new" ? "Project created" : "Project updated", "success"); };
   const addCommentFromRef = async (text) => {
     if (!text || !selectedTask) return;
-    // Extract @mentions — pattern: @[Name](userId)
+    // Extract @mentions - pattern: @[Name](userId)
     const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
     const mentionIds = [];
     let match;
@@ -1885,7 +1885,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     const link = taskProjects.find(l => l.task_id === taskId && l.project_id === activeProject);
     const real = tasks.find(t => t.id === taskId) || linkedTaskObjs[taskId];
     if (link && real && real.project_id !== activeProject) {
-      // This is a shared (multi-homed) instance in this project — re-pin the link, don't move the home task.
+      // This is a shared (multi-homed) instance in this project - re-pin the link, don't move the home task.
       setTaskProjects(p => p.map(l => l.id === link.id ? { ...l, section_id: newSec } : l));
       await supabase.from("task_projects").update({ section_id: newSec }).eq("id", link.id);
       setDragTask(null); setDragOverTarget(null); return;
@@ -2157,7 +2157,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
           </div>
           <div style={{ fontSize: 11, color: T.text3 }}>{doneCount}/{projTasks.length} done</div>
         </div>
-        <button onClick={cycleHealth} title={`Click to change — currently ${healthLabels[projHealth]}`} style={{ ...S.pill, background: healthColors[projHealth] + "18", color: healthColors[projHealth], fontSize: 11, fontWeight: 700, gap: 4, border: `1px solid ${healthColors[projHealth]}40`, cursor: "pointer" }}>
+        <button onClick={cycleHealth} title={`Click to change - currently ${healthLabels[projHealth]}`} style={{ ...S.pill, background: healthColors[projHealth] + "18", color: healthColors[projHealth], fontSize: 11, fontWeight: 700, gap: 4, border: `1px solid ${healthColors[projHealth]}40`, cursor: "pointer" }}>
           {healthIcons[projHealth]} {healthLabels[projHealth]}
         </button>
         <button onClick={() => { setStatusForm({ health: projHealth, summary: "", highlights: "", blockers: "" }); setShowStatusForm(true); }} style={{ ...S.pill, background: T.surface2, color: T.text3, fontSize: 11, gap: 4 }} title="Post status update">
@@ -2351,25 +2351,25 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     if (col.builtin === "blocked_by" || col.builtin === "blocking") {
       const deps = _dependenciesRef.current;
       const rel = col.builtin === "blocked_by" ? deps.filter(d => d.successor_id === task.id).map(d => d.predecessor_id) : deps.filter(d => d.predecessor_id === task.id).map(d => d.successor_id);
-      if (!rel.length) return <span style={{ color: T.text3 }}>—</span>;
+      if (!rel.length) return <span style={{ color: T.text3 }}>-</span>;
       const arr = _tasksRef.current;
       const c = col.builtin === "blocked_by" ? T.red : T.text3;
       const bg = col.builtin === "blocked_by" ? (T.redDim || T.surface3) : T.surface3;
       return <span style={{ display: "inline-flex", gap: 3, overflow: "hidden" }}>{rel.slice(0, 2).map(id => { const rt = arr.find(t => t.id === id); return <span key={id} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 7, background: bg, color: c, fontWeight: 600, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rt ? rt.title : "task"}</span>; })}{rel.length > 2 && <span style={{ fontSize: 10, color: T.text3 }}>+{rel.length - 2}</span>}</span>;
     }
-    if (col.builtin === "start_date") return task.start_date ? <span>{_fmtColDate(task.start_date)}</span> : <span style={{ color: T.text3 }}>—</span>;
-    if (col.builtin === "created_at") return task.created_at ? <span>{_fmtColDate(task.created_at)}</span> : <span style={{ color: T.text3 }}>—</span>;
+    if (col.builtin === "start_date") return task.start_date ? <span>{_fmtColDate(task.start_date)}</span> : <span style={{ color: T.text3 }}>-</span>;
+    if (col.builtin === "created_at") return task.created_at ? <span>{_fmtColDate(task.created_at)}</span> : <span style={{ color: T.text3 }}>-</span>;
     if (col.builtin === "tags") {
       const asg = _labelAssignmentsRef.current.filter(a => a.task_id === task.id).map(a => a.label_id);
       const tgs = _labelsRef.current.filter(l => asg.includes(l.id));
-      if (!tgs.length) return <span style={{ color: T.text3 }}>—</span>;
+      if (!tgs.length) return <span style={{ color: T.text3 }}>-</span>;
       return <span style={{ display: "inline-flex", gap: 3 }}>{tgs.slice(0, 2).map(t => <span key={t.id} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 7, background: (t.color || T.accent) + "22", color: t.color || T.accent, fontWeight: 700 }}>{t.name}</span>)}{tgs.length > 2 && <span style={{ fontSize: 10, color: T.text3 }}>+{tgs.length - 2}</span>}</span>;
     }
     if (col.cf) {
       const fld = col.cf; const val = (_customFieldValuesRef.current[task.id] || {})[fld.id];
       if (fld.field_type === "checkbox") { const on = val === true || val === "true"; return <span onClick={e => { e.stopPropagation(); updateCustomFieldValue(task.id, fld.id, !on); }} style={{ cursor: "pointer", fontSize: 14, color: on ? T.accent : T.text3 }}>{on ? "☑" : "☐"}</span>; }
-      if (fld.field_type === "select") { const choices = fld.options?.choices || []; return <select value={val || ""} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); updateCustomFieldValue(task.id, fld.id, e.target.value || null); }} style={{ background: "none", border: "none", color: val ? T.text2 : T.text3, fontSize: 12, outline: "none", cursor: "pointer", maxWidth: "100%", fontFamily: "inherit" }}><option value="">—</option>{choices.map(c => <option key={c} value={c}>{c}</option>)}</select>; }
-      if (val == null || val === "") return <span style={{ color: T.text3 }}>—</span>;
+      if (fld.field_type === "select") { const choices = fld.options?.choices || []; return <select value={val || ""} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); updateCustomFieldValue(task.id, fld.id, e.target.value || null); }} style={{ background: "none", border: "none", color: val ? T.text2 : T.text3, fontSize: 12, outline: "none", cursor: "pointer", maxWidth: "100%", fontFamily: "inherit" }}><option value="">-</option>{choices.map(c => <option key={c} value={c}>{c}</option>)}</select>; }
+      if (val == null || val === "") return <span style={{ color: T.text3 }}>-</span>;
       if (fld.field_type === "currency") return <span>{(fld.options?.currency_prefix || "$") + val}</span>;
       if (fld.field_type === "percent") return <span>{val}%</span>;
       if (fld.field_type === "rating") return <span>{"⭐".repeat(Math.min(5, Number(val) || 0))}</span>;
@@ -2685,7 +2685,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     const LABEL_W = 220;
     const today = new Date().toISOString().split("T")[0];
 
-    // Date range — extend to at least 6 months out and start from beginning of earliest month
+    // Date range - extend to at least 6 months out and start from beginning of earliest month
     const allDates = tw.flatMap(t => [t.start_date, t.due_date].filter(Boolean).map(d => new Date(d)));
     const rawMin = new Date(Math.min(...allDates.map(d => d.getTime())));
     const rawMax = new Date(Math.max(...allDates.map(d => d.getTime())));
@@ -3010,7 +3010,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                 + Tag
               </button>
               <div style={{ display: "none", position: "absolute", top: "100%", left: 0, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 6, minWidth: 200, maxHeight: 280, overflow: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", marginTop: 4 }}>
-                {labels.length === 0 && <div style={{ fontSize: 11, color: T.text3, padding: "4px 8px" }}>No tags yet — create one below.</div>}
+                {labels.length === 0 && <div style={{ fontSize: 11, color: T.text3, padding: "4px 8px" }}>No tags yet - create one below.</div>}
                 {labels.map(t => {
                   const on = labelAssignments.some(a => a.task_id === task.id && a.label_id === t.id);
                   return (
@@ -3521,9 +3521,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
             </div>
             {isNew && (() => {
               const opts = [
-                { value: "basic", label: "Basic — To Do · In Progress · Done" },
+                { value: "basic", label: "Basic - To Do · In Progress · Done" },
                 ...templates.filter(t => Array.isArray(t.sections) && t.sections.length).map(t => ({ value: t.id, label: `${t.icon || "📋"} ${t.name}` })),
-                { value: "blank", label: "Blank — no columns" },
+                { value: "blank", label: "Blank - no columns" },
               ];
               const bt = f.board_type || "basic";
               const preview = bt === "blank" ? [] : bt === "basic" ? ["To Do", "In Progress", "Done"] : (templates.find(t => t.id === bt)?.sections || []).map(x => x.name);
@@ -3533,7 +3533,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                   <SearchableMultiSelect multi={false} placeholder="Board type" options={opts} selected={bt} onChange={val => set("board_type", val)} />
                   <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
                     {preview.length === 0
-                      ? <span style={{ fontSize: 11, color: T.text3 }}>No columns — add your own after creating.</span>
+                      ? <span style={{ fontSize: 11, color: T.text3 }}>No columns - add your own after creating.</span>
                       : preview.map((n, i) => <span key={i} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 12, background: T.surface3, color: T.text2, fontWeight: 500 }}>{n}</span>)}
                   </div>
                   <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>You can rename, reorder, add or remove columns anytime once the project exists. Manage board types with the ⊞ button on the projects list.</div>
@@ -3574,7 +3574,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
               ) : (
                 <>
                   <SearchableMultiSelect multi={false} placeholder="No team" options={teams.map(t => ({ value: t.id, label: t.name, icon: "👥" }))} selected={f.team_id || ""} onChange={val => set("team_id", val)} />
-                  {teams.length === 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>No teams yet — use “+ New team” to create one.</div>}
+                  {teams.length === 0 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>No teams yet - use “+ New team” to create one.</div>}
                 </>
               )}
             </div>
@@ -3707,7 +3707,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
           await supabase.from("projects").update({ linked_doc_id: data.id }).eq("org_id", orgId).eq("id", activeProject);
           setProjects(p => p.map(pr => pr.id === activeProject ? { ...pr, linked_doc_id: data.id } : pr));
         }
-        showToast("Doc created — open it in the Docs module to edit", "success");
+        showToast("Doc created - open it in the Docs module to edit", "success");
       } else {
         showToast("Failed to create doc: " + (error?.message || "unknown error"));
       }
@@ -3835,7 +3835,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
           {filteredOther.length === 0 ? (
             <div style={{ textAlign: "center", padding: "30px 0", color: T.text3 }}>
               <div style={{ fontSize: 24, marginBottom: 8 }}>📂</div>
-              <div style={{ fontSize: 13 }}>{docSearch ? "No docs match your search" : "No other docs — create a new one above"}</div>
+              <div style={{ fontSize: 13 }}>{docSearch ? "No docs match your search" : "No other docs - create a new one above"}</div>
             </div>
           ) : filteredOther.map(d => (
             <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 6 }}>
@@ -3942,7 +3942,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                       <div style={{ width: 36, height: 36, borderRadius: 8, background: (t.color || "#3b82f6") + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{t.icon || "📋"}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
-                        <div style={{ fontSize: 11, color: T.text3 }}>{secCount} section{secCount !== 1 ? "s" : ""} · {taskCount} task{taskCount !== 1 ? "s" : ""}{t.description ? ` — ${t.description}` : ""}</div>
+                        <div style={{ fontSize: 11, color: T.text3 }}>{secCount} section{secCount !== 1 ? "s" : ""} · {taskCount} task{taskCount !== 1 ? "s" : ""}{t.description ? ` - ${t.description}` : ""}</div>
                       </div>
                       <button onClick={() => openEditTemplateEditor(t)} style={{ padding: "6px 12px", borderRadius: 6, background: T.surface3, color: T.text2, border: "none", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>Edit</button>
                       <button onClick={() => deleteTemplate(t)} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", color: T.red, border: `1px solid ${T.border}`, fontSize: 11, fontWeight: 500, cursor: "pointer" }}>Delete</button>
@@ -3962,7 +3962,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                       <div style={{ width: 36, height: 36, borderRadius: 8, background: (t.color || "#3b82f6") + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{t.icon || "📋"}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{t.name} <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: T.surface3, color: T.text3, marginLeft: 6, fontWeight: 500 }}>Built-in</span></div>
-                        <div style={{ fontSize: 11, color: T.text3 }}>{secCount} section{secCount !== 1 ? "s" : ""} · {taskCount} task{taskCount !== 1 ? "s" : ""}{t.description ? ` — ${t.description}` : ""}</div>
+                        <div style={{ fontSize: 11, color: T.text3 }}>{secCount} section{secCount !== 1 ? "s" : ""} · {taskCount} task{taskCount !== 1 ? "s" : ""}{t.description ? ` - ${t.description}` : ""}</div>
                       </div>
                       <span style={{ fontSize: 10, color: T.text3 }}>Read-only</span>
                     </div>
@@ -4122,7 +4122,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
             </div>
           </div>
           <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: 10, marginBottom: 14, fontSize: 13, color: T.text2, lineHeight: 1.5 }}>
-            Saving <strong style={{ color: T.text }}>{secCount} section{secCount !== 1 ? "s" : ""}</strong> and <strong style={{ color: T.text }}>{taskCount} task{taskCount !== 1 ? "s" : ""}</strong> as a reusable template. Sections and task names are always included — pick what else to carry over.
+            Saving <strong style={{ color: T.text }}>{secCount} section{secCount !== 1 ? "s" : ""}</strong> and <strong style={{ color: T.text }}>{taskCount} task{taskCount !== 1 ? "s" : ""}</strong> as a reusable template. Sections and task names are always included - pick what else to carry over.
           </div>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Include in template</div>
@@ -4605,7 +4605,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0 14px" }}>
               <div onClick={() => setF({ is_active: !ed.is_active })} style={{ width: 34, height: 19, borderRadius: 10, background: ed.is_active !== false ? T.green : T.surface3, position: "relative", cursor: "pointer", flexShrink: 0 }}><div style={{ width: 15, height: 15, borderRadius: 8, background: "#fff", position: "absolute", top: 2, left: ed.is_active !== false ? 17 : 2, transition: "left 0.15s" }} /></div>
-              <span style={{ fontSize: 12, color: T.text2 }}>Form is {ed.is_active !== false ? "active — accepting submissions" : "off"}</span>
+              <span style={{ fontSize: 12, color: T.text2 }}>Form is {ed.is_active !== false ? "active - accepting submissions" : "off"}</span>
             </div>
             <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}><label style={{ ...lbl, marginBottom: 0 }}>Fields</label></div>
@@ -4855,7 +4855,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
 
                     {proj.team_id && <>
                       <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Team</div>
-                      <div style={{ fontSize: 13, color: T.text }}>{teams.find(t => t.id === proj.team_id)?.name || "—"}</div>
+                      <div style={{ fontSize: 13, color: T.text }}>{teams.find(t => t.id === proj.team_id)?.name || "-"}</div>
                     </>}
 
                     <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Visibility</div>
@@ -4878,7 +4878,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                     </>}
 
                     <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Created</div>
-                    <div style={{ fontSize: 13, color: T.text }}>{proj.created_at ? new Date(proj.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}</div>
+                    <div style={{ fontSize: 13, color: T.text }}>{proj.created_at ? new Date(proj.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "-"}</div>
 
                     <div style={{ fontSize: 12, color: T.text3, fontWeight: 600 }}>Default View</div>
                     <div style={{ fontSize: 13, color: T.text }}>{proj.default_view || "List"}</div>
@@ -4939,7 +4939,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
                         <div key={t.id} onClick={() => { setViewMode("List"); setTimeout(() => setSelectedTask(t), 100); }}
                           style={{ fontSize: 12, color: T.text2, padding: "4px 0", cursor: "pointer" }}
                           onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.text2}>
-                          · {t.title} <span style={{ color: T.text3 }}>— due {toDateStr(t.due_date)}</span>
+                          · {t.title} <span style={{ color: T.text3 }}>- due {toDateStr(t.due_date)}</span>
                         </div>
                       ))}
                       {projOverdue.length > 5 && <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>and {projOverdue.length - 5} more...</div>}
@@ -5454,7 +5454,7 @@ function PriorityPill({ task, onUpdate, S }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// InviteExternalRow — collapsible invite-by-email form for the project members modal.
+// InviteExternalRow - collapsible invite-by-email form for the project members modal.
 // External collaborators have no org_memberships; access is scoped via project_members.
 // ─────────────────────────────────────────────────────────────────────────────
 function InviteExternalRow({ projectId, orgId, invitedBy, T, onInvited, onError }) {
@@ -5719,7 +5719,7 @@ function SubtaskDateRange({ sub, onUpdate }) {
 
 function DateCell({ task, onUpdate }) {
   // Range cell: shows both start_date and due_date as inline date inputs separated by an arrow.
-  // Each input is independent — change one without touching the other. If only one is set,
+  // Each input is independent - change one without touching the other. If only one is set,
   // the other input still renders (empty) so the user can fill it in without going to the
   // detail panel. Overdue (due_date < today, not done) is highlighted in red on the due-date side.
   const od = isOverdue(task.due_date) && task.status !== "done";
@@ -5810,13 +5810,13 @@ function CustomFieldCell({ task, field, value, onChange }) {
   if (ft === "checkbox") return <input type="checkbox" checked={value === "true"} onChange={e => onChange(task.id, field.id, e.target.checked ? "true" : "false")} style={{ accentColor: T.accent }} />;
   if (ft === "select") return (
     <select value={value || ""} onChange={e => onChange(task.id, field.id, e.target.value)} style={{ ...base, cursor: "pointer" }}>
-      <option value="">—</option>
+      <option value="">-</option>
       {(field.options || []).map(o => <option key={o.value || o} value={o.value || o}>{o.value || o}</option>)}
     </select>
   );
   if (ft === "date") return <input type="date" value={value || ""} onChange={e => onChange(task.id, field.id, e.target.value)} style={{ ...base, width: 110 }} />;
   if (ft === "number") return <input type="number" value={value || ""} onBlur={e => onChange(task.id, field.id, e.target.value)} onChange={() => {}} style={{ ...base, textAlign: "right", width: 60 }} />;
-  return <input value={value || ""} onBlur={e => onChange(task.id, field.id, e.target.value)} style={{ ...base }} placeholder="—" />;
+  return <input value={value || ""} onBlur={e => onChange(task.id, field.id, e.target.value)} style={{ ...base }} placeholder="-" />;
 }
 
 function Dropdown({ children, onClose, wide }) {

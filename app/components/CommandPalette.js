@@ -8,7 +8,7 @@ import { NAV_ITEMS } from "./Sidebar";
 // from search routes to the parent module *and* deep-links the right sub-view
 // via the navigateTo(module, subView) signature in page.js.
 //
-// Keep this list curated rather than auto-generated — we want the palette to
+// Keep this list curated rather than auto-generated - we want the palette to
 // surface the things people actually want to land on, not every internal tab.
 const SUB_NAV = [
   // Finance sub-views (FinanceView reads pendingSubView)

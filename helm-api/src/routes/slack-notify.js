@@ -1,5 +1,5 @@
 
-// POST /slack-notify — port of supabase/functions/slack-notify
+// POST /slack-notify - port of supabase/functions/slack-notify
 // Posts Slack messages: either to a channel alias OR fans out as approver DMs.
 // Uses the pg pool directly (admin role) since this is system-fired (cron, webhooks).
 

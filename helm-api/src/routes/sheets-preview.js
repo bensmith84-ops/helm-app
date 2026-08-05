@@ -1,5 +1,5 @@
 
-// GET /sheets-preview — port of supabase/functions/sheets-preview
+// GET /sheets-preview - port of supabase/functions/sheets-preview
 // Returns header row inspection from the financial scoreboard sheet.
 const { getGoogleAccessToken, loadServiceAccount } = require('../lib/google-jwt');
 

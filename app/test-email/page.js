@@ -169,7 +169,7 @@ export default function TestEmailPage() {
             3. A ticket is created in Helm's Support inbox<br />
             4. The AI agent (Breeze) reads the message + knowledge base and generates a reply<br />
             5. The reply is saved to the ticket AND shown here<br />
-            6. You can reply again — it continues the same thread<br />
+            6. You can reply again - it continues the same thread<br />
             7. Open Helm → Support to see the ticket, messages, and AI drafts in the agent view
           </div>
         </div>

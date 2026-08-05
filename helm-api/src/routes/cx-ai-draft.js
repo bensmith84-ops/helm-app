@@ -1,5 +1,5 @@
 
-// POST /cx-ai-draft — port of supabase/functions/cx-ai-draft
+// POST /cx-ai-draft - port of supabase/functions/cx-ai-draft
 // AI drafts a CX reply: per-brand AI config + KB articles + sample responses → Claude.
 const Anthropic = require('@anthropic-ai/sdk');
 const DEFAULT_ORG_ID = 'a0000000-0000-0000-0000-000000000001';
@@ -73,7 +73,7 @@ module.exports = function(app, { pool }) {
 
       let kbContext = '';
       if (kbArticles.length) {
-        kbContext = '\n\nKNOWLEDGE BASE (use this to inform your response — cite specific details):\n' +
+        kbContext = '\n\nKNOWLEDGE BASE (use this to inform your response - cite specific details):\n' +
           kbArticles.map(a => `--- ${a.title} [${a.category}] ---\n${a.content}`).join('\n\n');
       }
 
@@ -111,16 +111,16 @@ ${greeting ? `GREETING STYLE: ${greeting}` : ''}
 
 CRITICAL RULES:
 1. READ THE CUSTOMER'S MESSAGE CAREFULLY and respond SPECIFICALLY to what they said.
-2. Do NOT give a generic greeting — directly address their issue in the first sentence.
+2. Do NOT give a generic greeting - directly address their issue in the first sentence.
 3. Be warm, empathetic, and solution-oriented.
 4. If the customer is upset or frustrated, acknowledge their feelings FIRST before offering solutions.
-5. Use the knowledge base below to give SPECIFIC answers — mention exact policies, steps, or product details.
+5. Use the knowledge base below to give SPECIFIC answers - mention exact policies, steps, or product details.
 6. Use the customer's first name: "${customerName.split(' ')[0]}".
 7. Include specific next steps or actions the customer can take.
 8. If you're unsure about something, say so rather than making it up.
 9. NEVER mention: ${restricted || 'nothing restricted'}
 10. You are drafting for a human agent to review and edit before sending.
-11. Do NOT start with "Hi there! Thanks for reaching out." — that's too generic. Reference their actual issue.
+11. Do NOT start with "Hi there! Thanks for reaching out." - that's too generic. Reference their actual issue.
 ${samplesContext}${kbContext}`;
 
       const userContent = `TICKET SUBJECT: ${ticketSubject}

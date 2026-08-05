@@ -1,5 +1,5 @@
 
-// POST /slack-interactivity — port of supabase/functions/slack-interactivity
+// POST /slack-interactivity - port of supabase/functions/slack-interactivity
 // Slack interactive button + modal callbacks for the spend-request workflow.
 // CRITICAL: Slack signature verification requires the RAW body bytes.
 // We use express.raw for this route only, then parse the URL-encoded body manually.
@@ -46,7 +46,7 @@ function verifySlackSig(rawBody, headers) {
 }
 
 function outcomeBlocks(status, title, actorName, note) {
-  const headerLine = `${STATUS_LABELS[status] || status} \u2014 ${title}`;
+  const headerLine = `${STATUS_LABELS[status] || status} - ${title}`;
   const bodyLines = [];
   if (actorName) bodyLines.push(`_by ${actorName} via Slack_`);
   if (note) bodyLines.push(`> ${note}`);
@@ -146,7 +146,7 @@ async function handleBlockActions(payload, pool, slackToken) {
   if (actionType === 'approve') {
     if (!['pending', 'conditionally_approved_info_added'].includes(reqRow.status)) {
       return { status: 200, body: { replace_original: false, response_type: 'ephemeral',
-        text: `\u26a0\ufe0f Can't approve \u2014 request is currently *${reqRow.status}*.` } };
+        text: `\u26a0\ufe0f Can't approve - request is currently *${reqRow.status}*.` } };
     }
     const actor = await resolveActor(pool, slackUserId);
     const customSteps = Array.isArray(reqRow.approval_chain_steps) && reqRow.approval_chain_steps.length ? reqRow.approval_chain_steps : null;
@@ -202,7 +202,7 @@ async function handleBlockActions(payload, pool, slackToken) {
        requestId, actor.id, actor.name]
     );
     const finalStatus = done ? 'approved' : 'partially_approved';
-    const note = done ? null : `Step ${newStep} approved \u2014 awaiting next approver`;
+    const note = done ? null : `Step ${newStep} approved - awaiting next approver`;
     await updateOriginalMessage(slackToken, channelId, messageTs,
       outcomeBlocks(finalStatus, reqRow.title, actor.name, note),
       `${done ? 'Approved' : 'Step approved'}: ${reqRow.title}`);
@@ -212,7 +212,7 @@ async function handleBlockActions(payload, pool, slackToken) {
   if (actionType === 'reject') {
     if (!['pending', 'conditionally_approved_info_added'].includes(reqRow.status)) {
       return { status: 200, body: { replace_original: false, response_type: 'ephemeral',
-        text: `\u26a0\ufe0f Can't reject \u2014 request is currently *${reqRow.status}*.` } };
+        text: `\u26a0\ufe0f Can't reject - request is currently *${reqRow.status}*.` } };
     }
     await openModal(slackToken, payload.trigger_id, rejectModal(requestId, channelId, messageTs, reqRow.title));
     return { status: 200, body: {} };
@@ -221,7 +221,7 @@ async function handleBlockActions(payload, pool, slackToken) {
   if (actionType === 'info') {
     if (!['pending', 'conditionally_approved_info_added'].includes(reqRow.status)) {
       return { status: 200, body: { replace_original: false, response_type: 'ephemeral',
-        text: `\u26a0\ufe0f Can't request info \u2014 request is currently *${reqRow.status}*.` } };
+        text: `\u26a0\ufe0f Can't request info - request is currently *${reqRow.status}*.` } };
     }
     await openModal(slackToken, payload.trigger_id, moreInfoModal(requestId, channelId, messageTs, reqRow.title));
     return { status: 200, body: {} };
@@ -259,7 +259,7 @@ async function handleViewSubmission(payload, pool, slackToken) {
     await pool.query(
       `INSERT INTO af_audit_log (action, detail, request_id, user_id, user_name)
        VALUES ('Request rejected (via Slack)', $1, $2, $3, $4)`,
-      [`"${title || request_id}" rejected by ${actor.name} \u2014 ${reason}`, request_id, actor.id, actor.name]
+      [`"${title || request_id}" rejected by ${actor.name} - ${reason}`, request_id, actor.id, actor.name]
     );
     await updateOriginalMessage(slackToken, channel_id, message_ts,
       outcomeBlocks('rejected', title, actor.name, reason),
@@ -281,7 +281,7 @@ async function handleViewSubmission(payload, pool, slackToken) {
     await pool.query(
       `INSERT INTO af_audit_log (action, detail, request_id, user_id, user_name)
        VALUES ('Additional info requested (via Slack)', $1, $2, $3, $4)`,
-      [`"${title || request_id}" \u2014 ${question}`, request_id, actor.id, actor.name]
+      [`"${title || request_id}" - ${question}`, request_id, actor.id, actor.name]
     );
     await updateOriginalMessage(slackToken, channel_id, message_ts,
       outcomeBlocks('conditionally_approved', title, actor.name, question),

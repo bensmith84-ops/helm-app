@@ -83,7 +83,7 @@ export default function NotificationBell({ setActive }) {
     const today = new Date().toISOString().split("T")[0];
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
 
-    // Check for overdue tasks assigned to me — only those that live under a
+    // Check for overdue tasks assigned to me - only those that live under a
     // project, since orphan tasks (project_id NULL) don't appear in the
     // Projects UI and there's nowhere for the user to see/action them.
     const { data: overdueTasks } = await supabase.from("tasks")
@@ -94,7 +94,7 @@ export default function NotificationBell({ setActive }) {
 
     for (const task of (overdueTasks || [])) {
       const daysLate = Math.ceil((new Date() - new Date(task.due_date)) / 86400000);
-      // Pre-check existence to keep DevTools quiet — the unique index
+      // Pre-check existence to keep DevTools quiet - the unique index
       // (notifications_dedupe_daily) is still the source of truth, but
       // hitting it spams the console with 409s. SCANNED_USERS prevents
       // rapid re-runs so this select-then-insert race window is tiny.
@@ -111,7 +111,7 @@ export default function NotificationBell({ setActive }) {
         body: `${daysLate} day${daysLate !== 1 ? "s" : ""} late`,
         entity_type: "task", entity_id: task.id, link: "projects",
       }).select().maybeSingle();
-      // If insErr is the unique violation (23505), another tab won the race —
+      // If insErr is the unique violation (23505), another tab won the race -
       // silently skip. Any other error is a real problem.
       if (insErr) {
         if (insErr.code !== "23505") console.warn("notif insert failed:", insErr);
@@ -149,7 +149,7 @@ export default function NotificationBell({ setActive }) {
             await supabase.from("notifications").insert({
               org_id: profile?.org_id, user_id: user.id, type: "okr_deadline",
               title: `Check-in needed: ${kr.title}`,
-              body: `No update in 7+ days — team needs visibility on this KR`,
+              body: `No update in 7+ days - team needs visibility on this KR`,
               entity_type: "key_result", entity_id: kr.id, link: "okrs",
             });
           }

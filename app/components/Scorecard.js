@@ -10,7 +10,7 @@ const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length-1)%AVATAR_COLORS.length] : T.text3;
 
 const fmt = (v, unit) => {
-  if (v == null) return "—";
+  if (v == null) return "-";
   if (unit === "$") {
     const abs = Math.abs(v);
     const s = v < 0 ? "-" : "";
@@ -90,7 +90,7 @@ function InlineEntry({ value, onSave, unit, onComment, hasComment }) {
         minHeight:20, display:"flex", alignItems:"center", justifyContent:"center" }}
       onMouseEnter={e => e.currentTarget.style.background = T.surface3}
       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-      {value != null ? fmt(value, unit) : <span style={{ color:T.border, fontSize:10 }}>—</span>}
+      {value != null ? fmt(value, unit) : <span style={{ color:T.border, fontSize:10 }}>-</span>}
     </div>
   );
 }
@@ -307,7 +307,7 @@ export default function ScorecardView() {
       // Reload metrics (in case auto_source was configured externally)
       const { data: freshMetrics } = await supabase.from("scorecard_metrics").select("*").eq("active", true).order("sort_order");
       if (freshMetrics) setMetrics(freshMetrics);
-      // Reload entries — match original load format exactly
+      // Reload entries - match original load format exactly
       const metricIds = (freshMetrics || metrics).map(m => m.id);
       const { data: allEntries } = await supabase.from("scorecard_entries").select("*").eq("org_id", orgId)
         .in("metric_id", metricIds).in("week_start", WEEKS);
@@ -395,7 +395,7 @@ export default function ScorecardView() {
               const header = ["Metric","Goal","Unit","Hit Rate", ...WEEKS].join(",");
               const rows = metricSummary.map(m => [
                 `"${m.name}"`, m.goal ?? "", m.unit,
-                m.total > 0 ? `${Math.round((m.hits/m.total)*100)}%` : "—",
+                m.total > 0 ? `${Math.round((m.hits/m.total)*100)}%` : "-",
                 ...WEEKS.map(w => entries[m.id]?.[w] ?? "")
               ].join(","));
               const csv = [header, ...rows].join("\n");
@@ -608,17 +608,17 @@ export default function ScorecardView() {
                         )}
                       </div>
                     </td>
-                    {/* Goal — hide for RAG metrics */}
+                    {/* Goal - hide for RAG metrics */}
                     <td style={{ padding:"10px 8px", textAlign:"center" }}>
                       {m.metric_type === "rag" ? (
                         <span style={{ fontSize:9, padding:"2px 6px", borderRadius:4, background:"#6366f115", color:"#6366f1", fontWeight:600 }}>RAG</span>
                       ) : (
                       <span style={{ fontSize:12, color:T.text2, fontWeight:500 }}>
-                        {m.currentGoal != null ? <span onClick={e => { e.stopPropagation(); setEditingGoals(editingGoals === m.id ? null : m.id); }} style={{ cursor: "pointer" }} title="Click to manage goal periods">{fmt(m.currentGoal, m.unit)}</span> : <span onClick={e => { e.stopPropagation(); setEditingGoals(m.id); }} style={{ cursor: "pointer" }} title="Set goal">—</span>}
+                        {m.currentGoal != null ? <span onClick={e => { e.stopPropagation(); setEditingGoals(editingGoals === m.id ? null : m.id); }} style={{ cursor: "pointer" }} title="Click to manage goal periods">{fmt(m.currentGoal, m.unit)}</span> : <span onClick={e => { e.stopPropagation(); setEditingGoals(m.id); }} style={{ cursor: "pointer" }} title="Set goal">-</span>}
                       </span>
                       )}
                     </td>
-                    {/* Sparkline — RAG dots for RAG metrics */}
+                    {/* Sparkline - RAG dots for RAG metrics */}
                     <td style={{ padding:"10px 8px", textAlign:"center" }}>
                       {m.metric_type === "rag" ? (
                         <div style={{ display:"flex", gap:2, justifyContent:"center" }}>
@@ -634,22 +634,22 @@ export default function ScorecardView() {
                       </div>
                       )}
                     </td>
-                    {/* Hit % — hide for RAG */}
+                    {/* Hit % - hide for RAG */}
                     <td style={{ padding:"10px 8px", textAlign:"center" }}>
                       {m.metric_type === "rag" ? (
-                        <span style={{ color:T.border, fontSize:11 }}>—</span>
+                        <span style={{ color:T.border, fontSize:11 }}>-</span>
                       ) : hitPct != null ? (
                         <span style={{ fontSize:11, fontWeight:700,
                           color: hitPct>=80?"#22c55e":hitPct>=60?"#eab308":"#ef4444" }}>
                           {hitPct}%
                         </span>
-                      ) : <span style={{ color:T.border, fontSize:11 }}>—</span>}
+                      ) : <span style={{ color:T.border, fontSize:11 }}>-</span>}
                     </td>
                     {/* Weekly cells */}
                     {WEEKS.map(w => {
                       const isThis = w === thisWeek;
                       if (m.metric_type === "rag") {
-                        // RAG cell — colored circle with click to update
+                        // RAG cell - colored circle with click to update
                         const re = ragEntries[m.id]?.[w];
                         const ragColor = re?.color;
                         const bgColor = ragColor === "green" ? "#22c55e" : ragColor === "amber" ? "#f59e0b" : ragColor === "red" ? "#ef4444" : null;
@@ -770,7 +770,7 @@ export default function ScorecardView() {
               <div style={{ position: "relative", width: "min(480px, 95vw)", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, boxShadow: "0 20px 60px rgba(0,0,0,0.4)", zIndex: 201, maxHeight: "80vh", overflow: "auto" }}>
                 <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
-                    <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Goal Periods — {m.name}</h3>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Goal Periods - {m.name}</h3>
                     <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Set different targets for different time periods. {m.target_direction === "below" ? "Lower is better." : "Higher is better."}</div>
                   </div>
                   <button onClick={() => setEditingGoals(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
@@ -819,7 +819,7 @@ export default function ScorecardView() {
                   <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700 }}>{existing ? "Edit Comment" : "Add Comment"}</div>
-                      <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{metric?.name} — Week of {weekLabel}</div>
+                      <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{metric?.name} - Week of {weekLabel}</div>
                     </div>
                     <button onClick={() => setCommentModal(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>×</button>
                   </div>
@@ -948,7 +948,7 @@ export default function ScorecardView() {
                 <div style={{ marginBottom: 12 }}>
                   <label style={lbl}>Scoreboard metric key</label>
                   <select value={eas.auto_source} onChange={e => set("auto_source", e.target.value)} style={sel}>
-                    <option value="">— Disabled —</option>
+                    <option value="">- Disabled -</option>
                     {DAILY_KEYS.map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
                   </select>
                 </div>
@@ -957,17 +957,17 @@ export default function ScorecardView() {
                     <div style={{ marginBottom: 12 }}>
                       <label style={lbl}>Aggregation method</label>
                       <select value={eas.auto_agg} onChange={e => set("auto_agg", e.target.value)} style={sel}>
-                        <option value="sum">Sum — Total for the week</option>
-                        <option value="average">Average — Simple daily average</option>
-                        <option value="weighted_average">Weighted average — By another metric</option>
-                        <option value="last">Last — Last day's value</option>
+                        <option value="sum">Sum - Total for the week</option>
+                        <option value="average">Average - Simple daily average</option>
+                        <option value="weighted_average">Weighted average - By another metric</option>
+                        <option value="last">Last - Last day's value</option>
                       </select>
                     </div>
                     {eas.auto_agg === "weighted_average" && (
                       <div style={{ marginBottom: 12 }}>
                         <label style={lbl}>Weight by metric</label>
                         <select value={eas.auto_weight_key} onChange={e => set("auto_weight_key", e.target.value)} style={sel}>
-                          <option value="">— Select —</option>
+                          <option value="">- Select -</option>
                           {DAILY_KEYS.filter(k => k !== eas.auto_source).map(k => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
                         </select>
                       </div>

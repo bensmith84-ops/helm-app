@@ -1,5 +1,5 @@
 
-// POST /qbo-sync — port of supabase/functions/qbo-sync
+// POST /qbo-sync - port of supabase/functions/qbo-sync
 // 13 sub-syncs: accounts, vendors, items, customers, bills, purchases,
 // payments, deposits, transfers, invoices, journal_entries, pl, pl_monthly,
 // balance_sheet, attachments. Uses supabase-storage wrapper for bill PDFs.

@@ -94,7 +94,7 @@ export default function RFPPortals() {
     <div style={{ maxWidth: 1000 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
         <b style={{ fontSize: 14, color: T.text }}>RFP Portals</b>
-        <span style={{ fontSize: 12, color: T.text3 }}>gated external portals — access requests, NDA, submissions</span>
+        <span style={{ fontSize: 12, color: T.text3 }}>gated external portals - access requests, NDA, submissions</span>
         <div style={{ flex: 1 }} />
         <button onClick={openCreate} style={btnPrimary}>+ New CM RFP portal</button>
       </div>
@@ -106,21 +106,21 @@ export default function RFPPortals() {
           <select style={inputStyle} value={newForm.plm_rfp_id}
             onChange={e => {
               const r = plmRfps.find(x => x.id === e.target.value);
-              setNewForm(f => ({ ...f, plm_rfp_id: e.target.value, code: f.code || (r ? slugify(r.name) : f.code), title: f.title || (r ? `${r.name} — Contract Manufacturing RFP` : f.title) }));
+              setNewForm(f => ({ ...f, plm_rfp_id: e.target.value, code: f.code || (r ? slugify(r.name) : f.code), title: f.title || (r ? `${r.name} - Contract Manufacturing RFP` : f.title) }));
             }}>
-            <option value="">— none —</option>
+            <option value="">- none -</option>
             {plmRfps.map(r => <option key={r.id} value={r.id}>{r.name} ({r.rfp_type}, {r.status}{r.target_volume ? `, ${r.target_volume} ${r.target_volume_unit || ""}` : ""})</option>)}
           </select>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div><label style={label}>RFP code (in links & NDA)</label><input style={inputStyle} value={newForm.code} onChange={e => setNewForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="EB-2026-CM-WIDGET-01" /></div>
-            <div><label style={label}>Portal title</label><input style={inputStyle} value={newForm.title} onChange={e => setNewForm(f => ({ ...f, title: e.target.value }))} placeholder="Widget — Contract Manufacturing RFP" /></div>
+            <div><label style={label}>Portal title</label><input style={inputStyle} value={newForm.title} onChange={e => setNewForm(f => ({ ...f, title: e.target.value }))} placeholder="Widget - Contract Manufacturing RFP" /></div>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 14 }}>
             <button onClick={createPortal} disabled={busy} style={btnPrimary}>{busy ? "Creating…" : "Create portal"}</button>
             <button onClick={() => setCreating(false)} style={btnGhost}>Cancel</button>
             {err && <span style={{ fontSize: 12, color: "#e5484d" }}>{err}</span>}
           </div>
-          <div style={{ fontSize: 11.5, color: T.text3, marginTop: 10 }}>Content is cloned from the powder-detergent CM template (incl. MNDA with the new RFP code in Exhibit A) — edit every section in the portal's Content tab after creating.</div>
+          <div style={{ fontSize: 11.5, color: T.text3, marginTop: 10 }}>Content is cloned from the powder-detergent CM template (incl. MNDA with the new RFP code in Exhibit A) - edit every section in the portal's Content tab after creating.</div>
         </div>
       )}
 

@@ -73,14 +73,14 @@ export default function LaunchHub() {
     load();
   }, [profile?.org_id]);
 
-  // Build launch items — aggregate PLM programs with their linked projects and OKRs
+  // Build launch items - aggregate PLM programs with their linked projects and OKRs
   const launches = programs.map(pg => {
     const linkedProjects = projects.filter(p => p.plm_program_id === pg.id);
     const linkedProjectIds = new Set(linkedProjects.map(p => p.id));
     const projTasks = tasks.filter(t => linkedProjectIds.has(t.project_id) && !t.parent_task_id);
     const doneTasks = projTasks.filter(t => t.status === "done").length;
 
-    // Find linked OKRs — from direct program link AND through projects
+    // Find linked OKRs - from direct program link AND through projects
     const objIds = new Set([
       ...linkedProjects.map(p => p.objective_id).filter(Boolean),
       pg.objective_id, // direct link on program
@@ -344,7 +344,7 @@ export default function LaunchHub() {
           {/* Link to Project */}
           <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Linked Project</label>
             <select value={ef.linked_project_id || ""} onChange={e => setEditForm(p => ({ ...p, linked_project_id: e.target.value }))} style={sel}>
-              <option value="">— None —</option>
+              <option value="">- None -</option>
               {projects.filter(p => !p.plm_program_id || p.plm_program_id === pg.id).filter(p => p.status !== "archived").map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -353,7 +353,7 @@ export default function LaunchHub() {
           {/* Link to OKR */}
           <div><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, display: "block", marginBottom: 3 }}>Linked Objective</label>
             <select value={ef.linked_objective_id || ""} onChange={e => setEditForm(p => ({ ...p, linked_objective_id: e.target.value }))} style={sel}>
-              <option value="">— None —</option>
+              <option value="">- None -</option>
               {objectives.map(o => (
                 <option key={o.id} value={o.id}>{o.title}</option>
               ))}

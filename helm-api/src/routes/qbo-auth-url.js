@@ -1,5 +1,5 @@
 
-// POST /qbo-auth-url — port of supabase/functions/qbo-auth-url
+// POST /qbo-auth-url - port of supabase/functions/qbo-auth-url
 // Builds Intuit OAuth authorization URL with CSRF state stored in qbo_oauth_states.
 // Optional reCAPTCHA verification (if RECAPTCHA_SECRET_KEY set).
 const crypto = require('crypto');

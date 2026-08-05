@@ -1,5 +1,5 @@
 
-// /sheets-explore — port of supabase/functions/sheets-explore
+// /sheets-explore - port of supabase/functions/sheets-explore
 // Debug: returns row 1 (headers) + first 6 rows of first 26 columns.
 const { getGoogleAccessToken, loadServiceAccount } = require('../lib/google-jwt');
 

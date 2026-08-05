@@ -20,11 +20,11 @@ const FIELDS_CM = [
   { key: "eyebrow",           label: "Eyebrow line (RFP no.)",              type: "input" },
   { key: "title_html",        label: "Title (HTML, <br> for line break)",   type: "input" },
   { key: "sub",               label: "Subtitle",                             type: "text", rows: 2 },
-  { key: "facts",             label: "Hero facts — one per line: value | label", type: "facts" },
-  { key: "overview_lead",     label: "Overview — lead paragraph (HTML ok)",  type: "text", rows: 4 },
-  { key: "overview_bullets",  label: "Overview — bullets (one per line)",    type: "list", rows: 4 },
-  { key: "product_rows",      label: "Product summary — one per line: item | detail", type: "pairs", rows: 7 },
-  { key: "offer_rows",        label: "Product offer & MOQ — one per line: SKU | MOQ tiers", type: "pairs", rows: 4 },
+  { key: "facts",             label: "Hero facts - one per line: value | label", type: "facts" },
+  { key: "overview_lead",     label: "Overview - lead paragraph (HTML ok)",  type: "text", rows: 4 },
+  { key: "overview_bullets",  label: "Overview - bullets (one per line)",    type: "list", rows: 4 },
+  { key: "product_rows",      label: "Product summary - one per line: item | detail", type: "pairs", rows: 7 },
+  { key: "offer_rows",        label: "Product offer & MOQ - one per line: SKU | MOQ tiers", type: "pairs", rows: 4 },
   { key: "claims_core",       label: "Brand claims (must deliver)",          type: "list", rows: 8 },
   { key: "claims_additional", label: "Additional claims",                    type: "list", rows: 5 },
   { key: "efficacy",          label: "Efficacy standards",                   type: "list", rows: 4 },
@@ -32,54 +32,54 @@ const FIELDS_CM = [
   { key: "packaging",         label: "Packaging bullets",                    type: "list", rows: 4 },
   { key: "regulatory",        label: "Regulatory bullets",                   type: "list", rows: 4 },
   { key: "commercial",        label: "Commercial & pricing format bullets",  type: "list", rows: 6 },
-  { key: "timeline_rows",     label: "Timeline — one per line: milestone | date", type: "pairs", rows: 9 },
-  { key: "eval_rows",         label: "Evaluation — one per line: criterion | weight", type: "pairs", rows: 7 },
+  { key: "timeline_rows",     label: "Timeline - one per line: milestone | date", type: "pairs", rows: 9 },
+  { key: "eval_rows",         label: "Evaluation - one per line: criterion | weight", type: "pairs", rows: 7 },
   { key: "response_format",   label: "Response format bullets",              type: "list", rows: 10 },
   { key: "documentation",     label: "Documentation requirements bullets",   type: "list", rows: 5 },
   { key: "terms",             label: "Terms bullets",                        type: "list", rows: 5 },
   { key: "contacts",          label: "Contacts paragraph (HTML ok)",         type: "text", rows: 2 },
-  { key: "nda_text",          label: "NDA text (HTML — shown at signing)",   type: "text", rows: 14 },
+  { key: "nda_text",          label: "NDA text (HTML - shown at signing)",   type: "text", rows: 14 },
 ];
 
 const FIELDS_FF = [
   { key: "eyebrow",           label: "Eyebrow line (RFP no. / issue date)", type: "input" },
   { key: "title_html",        label: "Title (HTML, <br> for line break)",   type: "input" },
   { key: "sub",               label: "Subtitle",                             type: "text", rows: 2 },
-  { key: "facts",             label: "Hero facts — one per line: value | label", type: "facts" },
-  { key: "overview_lead",     label: "Overview — lead paragraph (HTML ok)",  type: "text", rows: 4 },
-  { key: "overview_bullets",  label: "Overview — bullets (one per line)",    type: "list", rows: 5 },
-  { key: "profile_rows",      label: "Business profile — one per line: metric | value", type: "pairs", rows: 11 },
-  { key: "scope_core",        label: "Scope — core services",               type: "list", rows: 6 },
-  { key: "scope_operational", label: "Scope — operational",                 type: "list", rows: 5 },
-  { key: "scope_service",     label: "Scope — service levels",              type: "list", rows: 3 },
+  { key: "facts",             label: "Hero facts - one per line: value | label", type: "facts" },
+  { key: "overview_lead",     label: "Overview - lead paragraph (HTML ok)",  type: "text", rows: 4 },
+  { key: "overview_bullets",  label: "Overview - bullets (one per line)",    type: "list", rows: 5 },
+  { key: "profile_rows",      label: "Business profile - one per line: metric | value", type: "pairs", rows: 11 },
+  { key: "scope_core",        label: "Scope - core services",               type: "list", rows: 6 },
+  { key: "scope_operational", label: "Scope - operational",                 type: "list", rows: 5 },
+  { key: "scope_service",     label: "Scope - service levels",              type: "list", rows: 3 },
   { key: "postage",           label: "Postage requirements",                type: "list", rows: 5 },
   { key: "pricing_bullets",   label: "Pricing format bullets",              type: "list", rows: 7 },
-  { key: "timeline_rows",     label: "Timeline — one per line: milestone | date", type: "pairs", rows: 8 },
-  { key: "eval_rows",         label: "Evaluation — one per line: criterion | weight", type: "pairs", rows: 7 },
+  { key: "timeline_rows",     label: "Timeline - one per line: milestone | date", type: "pairs", rows: 8 },
+  { key: "eval_rows",         label: "Evaluation - one per line: criterion | weight", type: "pairs", rows: 7 },
   { key: "response_format",   label: "Response format bullets",             type: "list", rows: 10 },
   { key: "terms",             label: "Terms bullets",                       type: "list", rows: 5 },
   { key: "contacts",          label: "Contacts paragraph (HTML ok)",        type: "text", rows: 2 },
-  { key: "nda_text",          label: "NDA text (HTML — shown at signing)",  type: "text", rows: 14 },
+  { key: "nda_text",          label: "NDA text (HTML - shown at signing)",  type: "text", rows: 14 },
 ];
 
 const FIELDS_PARCEL = [
   { key: "eyebrow",           label: "Eyebrow line (RFP no. / issue date)", type: "input" },
   { key: "title_html",        label: "Title (HTML, <br> for line break)",   type: "input" },
   { key: "sub",               label: "Subtitle",                             type: "text", rows: 2 },
-  { key: "facts",             label: "Hero facts — one per line: value | label", type: "facts" },
-  { key: "overview_lead",     label: "Overview — lead paragraph (HTML ok)",  type: "text", rows: 4 },
-  { key: "overview_bullets",  label: "Overview — bullets (one per line, HTML ok)", type: "list", rows: 4 },
-  { key: "profile_rows",      label: "Shipment profile — one per line: metric | value", type: "pairs", rows: 9 },
-  { key: "scope_core",        label: "Scope — core service bullets",         type: "list", rows: 5 },
-  { key: "scope_operational", label: "Scope — operational bullets",          type: "list", rows: 4 },
-  { key: "scope_service",     label: "Scope — service level bullets",        type: "list", rows: 3 },
+  { key: "facts",             label: "Hero facts - one per line: value | label", type: "facts" },
+  { key: "overview_lead",     label: "Overview - lead paragraph (HTML ok)",  type: "text", rows: 4 },
+  { key: "overview_bullets",  label: "Overview - bullets (one per line, HTML ok)", type: "list", rows: 4 },
+  { key: "profile_rows",      label: "Shipment profile - one per line: metric | value", type: "pairs", rows: 9 },
+  { key: "scope_core",        label: "Scope - core service bullets",         type: "list", rows: 5 },
+  { key: "scope_operational", label: "Scope - operational bullets",          type: "list", rows: 4 },
+  { key: "scope_service",     label: "Scope - service level bullets",        type: "list", rows: 3 },
   { key: "pricing_bullets",   label: "Pricing format bullets",               type: "list", rows: 6 },
-  { key: "timeline_rows",     label: "Timeline — one per line: milestone | date", type: "pairs", rows: 8 },
-  { key: "eval_rows",         label: "Evaluation — one per line: criterion | weight", type: "pairs", rows: 6 },
+  { key: "timeline_rows",     label: "Timeline - one per line: milestone | date", type: "pairs", rows: 8 },
+  { key: "eval_rows",         label: "Evaluation - one per line: criterion | weight", type: "pairs", rows: 6 },
   { key: "response_format",   label: "Response format bullets",              type: "list", rows: 8 },
   { key: "terms",             label: "RFP terms & conditions bullets",       type: "list", rows: 5 },
   { key: "contacts",          label: "Contacts paragraph (HTML ok)",         type: "text", rows: 2 },
-  { key: "nda_text",          label: "NDA text (HTML — shown at signing)",   type: "text", rows: 14 },
+  { key: "nda_text",          label: "NDA text (HTML - shown at signing)",   type: "text", rows: 14 },
 ];
 
 function toDraft(content, FIELDS) {
@@ -169,7 +169,7 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
   };
 
   const mailtoHref = (r) => {
-    const subject = encodeURIComponent("Earth Breeze US Parcel RFP — access approved");
+    const subject = encodeURIComponent("Earth Breeze US Parcel RFP - access approved");
     const body = encodeURIComponent(
 `Hi ${r.name || ""},
 
@@ -266,14 +266,14 @@ Earth Breeze Procurement`);
                 <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                   <span style={chip(sm)}>{sm.label}</span>
                   <div style={{ minWidth: 200 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.company || "—"} <span style={{ fontWeight: 400, color: T.text2 }}>· {r.name || "—"}</span></div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.company || "-"} <span style={{ fontWeight: 400, color: T.text2 }}>· {r.name || "-"}</span></div>
                     <div style={{ fontSize: 12, color: T.text2 }}>{r.email}</div>
                   </div>
                   <div style={{ flex: 1 }} />
                   {r.nda_signed_at
-                    ? <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600 }}>✓ NDA signed — {r.nda_name}{r.nda_title ? `, ${r.nda_title}` : ""}{r.nda_details?.signer_email ? ` (${r.nda_details.signer_email})` : ""} · {new Date(r.nda_signed_at).toLocaleString()}</span>
+                    ? <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600 }}>✓ NDA signed - {r.nda_name}{r.nda_title ? `, ${r.nda_title}` : ""}{r.nda_details?.signer_email ? ` (${r.nda_details.signer_email})` : ""} · {new Date(r.nda_signed_at).toLocaleString()}</span>
                     : r.status === "approved" && (r.delegate_email
-                      ? <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600 }}>✉ NDA forwarded to {r.delegate_name || r.delegate_email} ({r.delegate_email}) — awaiting signature</span>
+                      ? <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600 }}>✉ NDA forwarded to {r.delegate_name || r.delegate_email} ({r.delegate_email}) - awaiting signature</span>
                       : <span style={{ fontSize: 11.5, color: T.text3 }}>NDA not yet signed</span>)}
                   <span style={{ fontSize: 11.5, color: T.text3 }}>{new Date(r.created_at).toLocaleString()}</span>
                 </div>
@@ -310,7 +310,7 @@ Earth Breeze Procurement`);
           </div>
           {subsLoading && <div style={{ padding: 30, color: T.text3, fontSize: 13 }}>Loading…</div>}
           {!subsLoading && !subs.length && (
-            <div style={{ ...card, padding: 36, textAlign: "center", color: T.text3, fontSize: 13 }}>No submissions yet. Carriers submit through the portal — intents, questions, and proposals all land here.</div>
+            <div style={{ ...card, padding: 36, textAlign: "center", color: T.text3, fontSize: 13 }}>No submissions yet. Carriers submit through the portal - intents, questions, and proposals all land here.</div>
           )}
           {subs.map(s => {
             const m = TYPE_META[s.submission_type] || TYPE_META.intent;
@@ -369,7 +369,7 @@ Earth Breeze Procurement`);
         <div>
           <div style={{ ...card, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: T.text2, display: "flex", alignItems: "center", gap: 10 }}>
             <span>💡</span>
-            <span>Edits go <b>live on the portal immediately</b> — no redeploy; carriers see them on next page load. HTML like &lt;b&gt; is allowed. This includes the full on-site RFP (all sections) and the NDA text. The data tables (monthly volume, weights, geography, carrier mix) and download files are generated from shipment data — ask Claude to refresh those.</span>
+            <span>Edits go <b>live on the portal immediately</b> - no redeploy; carriers see them on next page load. HTML like &lt;b&gt; is allowed. This includes the full on-site RFP (all sections) and the NDA text. The data tables (monthly volume, weights, geography, carrier mix) and download files are generated from shipment data - ask Claude to refresh those.</span>
           </div>
           {contentLoading && <div style={{ padding: 30, color: T.text3, fontSize: 13 }}>Loading…</div>}
           {!contentLoading && draft && (

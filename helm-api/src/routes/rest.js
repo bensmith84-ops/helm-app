@@ -1,12 +1,12 @@
-// PostgREST shim — mounted as /rest/v1/:table and /rest/v1/rpc/:fn.
+// PostgREST shim - mounted as /rest/v1/:table and /rest/v1/rpc/:fn.
 //
 // Handlers:
-//   GET    /rest/v1/:table       — SELECT (with embeds)
-//   HEAD   /rest/v1/:table       — SELECT but return only headers (for count probes)
-//   POST   /rest/v1/:table       — INSERT (or UPSERT if Prefer: resolution=merge-duplicates)
-//   PATCH  /rest/v1/:table       — UPDATE (requires filter)
-//   DELETE /rest/v1/:table       — DELETE (requires filter)
-//   POST   /rest/v1/rpc/:fn      — call stored procedure with body as named args
+//   GET    /rest/v1/:table       - SELECT (with embeds)
+//   HEAD   /rest/v1/:table       - SELECT but return only headers (for count probes)
+//   POST   /rest/v1/:table       - INSERT (or UPSERT if Prefer: resolution=merge-duplicates)
+//   PATCH  /rest/v1/:table       - UPDATE (requires filter)
+//   DELETE /rest/v1/:table       - DELETE (requires filter)
+//   POST   /rest/v1/rpc/:fn      - call stored procedure with body as named args
 
 const {
   buildSelectQueryAsync,

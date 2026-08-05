@@ -5,9 +5,9 @@ import { T } from "../tokens";
 import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 
-const fmt$ = (v) => { if(!v&&v!==0) return "—"; const abs=Math.abs(v); const s=v<0?"-":""; return abs>=1e6?s+"$"+(abs/1e6).toFixed(1)+"M":abs>=1e3?s+"$"+(abs/1e3).toFixed(0)+"K":s+"$"+abs.toFixed(0); };
-const fmtN = (v) => v==null?"—":Number(v).toLocaleString();
-const fmtPct = (v) => v==null?"—":v.toFixed(1)+"%";
+const fmt$ = (v) => { if(!v&&v!==0) return "-"; const abs=Math.abs(v); const s=v<0?"-":""; return abs>=1e6?s+"$"+(abs/1e6).toFixed(1)+"M":abs>=1e3?s+"$"+(abs/1e3).toFixed(0)+"K":s+"$"+abs.toFixed(0); };
+const fmtN = (v) => v==null?"-":Number(v).toLocaleString();
+const fmtPct = (v) => v==null?"-":v.toFixed(1)+"%";
 
 const STATUS_COLORS = {
   backlog:"#6b7280",todo:"#8b93a8",in_progress:"#3b82f6",in_review:"#a855f7",done:"#22c55e",cancelled:"#ef4444"
@@ -203,8 +203,8 @@ export default function ReportsView() {
         {activeTab==="Executive Summary" && (
           <div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))", gap:12, marginBottom:24 }}>
-              <StatCard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"—"} sub={revMetric?.target_annual?`Target: ${fmt$(revMetric.target_annual)}`:"Add financial data"} color="#22c55e" />
-              <StatCard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"—"} sub={ytdRev&&ytdNet?`${((ytdNet/ytdRev)*100).toFixed(1)}% margin`:""} color={ytdNet!=null&&ytdNet>=0?"#22c55e":"#ef4444"} />
+              <StatCard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"-"} sub={revMetric?.target_annual?`Target: ${fmt$(revMetric.target_annual)}`:"Add financial data"} color="#22c55e" />
+              <StatCard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"-"} sub={ytdRev&&ytdNet?`${((ytdNet/ytdRev)*100).toFixed(1)}% margin`:""} color={ytdNet!=null&&ytdNet>=0?"#22c55e":"#ef4444"} />
               <StatCard icon="◎" label="OKR Progress" value={`${okrProgress}%`} sub={`${cycleObjs.filter(o=>o.health==="on_track").length}/${cycleObjs.length} on track`} color={okrProgress>=60?"#22c55e":okrProgress>=30?"#eab308":"#ef4444"} />
               <StatCard icon="☐" label="Tasks Done" value={`${completionPct}%`} sub={`${doneTasks.length}/${tasks.length} complete`} color={completionPct>=70?"#22c55e":T.text} />
               <StatCard icon="⬢" label="PLM Programs" value={plmPrograms.length} sub={`${inDev} in development`} color={T.accent} />
@@ -241,7 +241,7 @@ export default function ReportsView() {
               </Card>
 
               {/* OKR Health */}
-              <Card title={`OKR Health — ${activeCycle?.name||"Current Cycle"}`}>
+              <Card title={`OKR Health - ${activeCycle?.name||"Current Cycle"}`}>
                 {cycleObjs.length===0 ? <div style={{ fontSize:12, color:T.text3, padding:"24px 0", textAlign:"center" }}>No objectives in current cycle</div> : (
                   cycleObjs.map(obj => {
                     const pct = Math.round(Number(obj.progress||0));
@@ -565,7 +565,7 @@ export default function ReportsView() {
                         <div key={m} style={{ background:isCur?T.accentDim:T.surface2, border:`1px solid ${isCur?T.accent:T.border}`, borderRadius:6, padding:"8px 6px", textAlign:"center" }}>
                           <div style={{ fontSize:9, fontWeight:700, color:isCur?T.accent:T.text3, marginBottom:4 }}>{months[m-1]}</div>
                           <div style={{ fontSize:11, fontWeight:700, color:isFuture?T.text3:row.actual!=null?onTarget?"#22c55e":"#ef4444":T.border }}>
-                            {isFuture?"—":row.actual!=null?fmt$(row.actual):"—"}
+                            {isFuture?"-":row.actual!=null?fmt$(row.actual):"-"}
                           </div>
                           {row.target!=null&&<div style={{ fontSize:9, color:T.text3 }}>{fmt$(row.target)}</div>}
                         </div>
@@ -619,10 +619,10 @@ export default function ReportsView() {
                       <tr key={p.id} style={{ borderBottom:`1px solid ${T.border}` }}>
                         <td style={{ padding:"9px 10px", fontSize:13, fontWeight:500 }}>{p.name}</td>
                         <td style={{ padding:"9px 10px" }}><span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:T.accentDim, color:T.accent }}>{(p.current_stage||"").replace(/_/g," ")}</span></td>
-                        <td style={{ padding:"9px 10px" }}><span style={{ fontSize:10, fontWeight:700, color:{critical:"#ef4444",high:"#f97316",medium:"#eab308",low:"#22c55e"}[p.priority]||T.text3 }}>{p.priority||"—"}</span></td>
-                        <td style={{ padding:"9px 10px", fontSize:12, color:p.target_gross_margin_pct?"#22c55e":T.text3, fontWeight:600 }}>{p.target_gross_margin_pct?p.target_gross_margin_pct+"%":"—"}</td>
-                        <td style={{ padding:"9px 10px", fontSize:11, color:T.text3 }}>{(p.target_markets_v2||[]).join(", ")||"—"}</td>
-                        <td style={{ padding:"9px 10px", fontSize:11, color:T.text3 }}>{p.target_launch_date||"—"}</td>
+                        <td style={{ padding:"9px 10px" }}><span style={{ fontSize:10, fontWeight:700, color:{critical:"#ef4444",high:"#f97316",medium:"#eab308",low:"#22c55e"}[p.priority]||T.text3 }}>{p.priority||"-"}</span></td>
+                        <td style={{ padding:"9px 10px", fontSize:12, color:p.target_gross_margin_pct?"#22c55e":T.text3, fontWeight:600 }}>{p.target_gross_margin_pct?p.target_gross_margin_pct+"%":"-"}</td>
+                        <td style={{ padding:"9px 10px", fontSize:11, color:T.text3 }}>{(p.target_markets_v2||[]).join(", ")||"-"}</td>
+                        <td style={{ padding:"9px 10px", fontSize:11, color:T.text3 }}>{p.target_launch_date||"-"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -663,7 +663,7 @@ export default function ReportsView() {
                     <div style={{ width:80, height:8, borderRadius:8, background:T.surface3, overflow:"hidden" }}>
                       <div style={{ width:`${m.hitPct||0}%`, height:"100%", borderRadius:8, background:m.hitPct>=80?"#22c55e":m.hitPct>=60?"#eab308":"#ef4444" }} />
                     </div>
-                    <span style={{ fontSize:11, fontWeight:700, color:m.hitPct>=80?"#22c55e":m.hitPct>=60?"#eab308":m.hitPct!=null?"#ef4444":T.text3, minWidth:36, textAlign:"right" }}>{m.hitPct!=null?m.hitPct+"%":"—"}</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:m.hitPct>=80?"#22c55e":m.hitPct>=60?"#eab308":m.hitPct!=null?"#ef4444":T.text3, minWidth:36, textAlign:"right" }}>{m.hitPct!=null?m.hitPct+"%":"-"}</span>
                   </div>
                 ))}
                 {metricHits.length===0&&<div style={{ fontSize:12, color:T.text3 }}>Add scorecard metrics to see hit rates</div>}

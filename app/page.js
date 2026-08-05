@@ -183,7 +183,7 @@ export default function HelmApp() {
           }
         }
       } else {
-        // No org_membership — check if this is an external collaborator
+        // No org_membership - check if this is an external collaborator
         const { data: profileRow } = await supabase.from("profiles").select("is_external").eq("id", user.id).maybeSingle();
         if (profileRow?.is_external) {
           // External collaborator: only Projects allowed.
@@ -423,7 +423,7 @@ export default function HelmApp() {
       <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", background: T.bg }}>
         {/* Mobile sidebar backdrop */}
         {isMobile && sidebarOpen && <div className="sidebar-mobile-backdrop" onClick={() => setSidebarOpen(false)} />}
-        {/* Sidebar — hidden on mobile unless toggled */}
+        {/* Sidebar - hidden on mobile unless toggled */}
         {(!isMobile || sidebarOpen) && (
           <div className={isMobile ? "sidebar-mobile-overlay" : ""}>
             <Sidebar active={active} setActive={(v) => { setActive(v); if (isMobile) setSidebarOpen(false); }} expanded={isMobile ? true : expanded} setExpanded={isMobile ? () => setSidebarOpen(false) : setExpanded} badges={badges} profile={profile} allowedModules={allowedModules} isAdmin={isAdmin} isExternal={isExternal} orgId={orgId} orgs={orgs} switchOrg={switchOrg} />

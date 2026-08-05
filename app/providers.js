@@ -7,7 +7,7 @@ import { getFirebaseAuth } from "./lib/firebase";
 if (typeof window !== "undefined") {
   const auth = getFirebaseAuth();
   window.__firebaseAuth__ = auth; // diagnostic handle + prevents tree-shake
-  console.log("[helm-app] Firebase init:", auth ? "ok" : "FAILED — check NEXT_PUBLIC_FIREBASE_API_KEY");
+  console.log("[helm-app] Firebase init:", auth ? "ok" : "FAILED - check NEXT_PUBLIC_FIREBASE_API_KEY");
 }
 import "./lib/fetchIntercept";
 import { AuthProvider } from "./lib/auth";

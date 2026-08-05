@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
-<title>Earth Breeze — US Parcel Network RFP</title>
+<title>Earth Breeze - US Parcel Network RFP</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -152,7 +152,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
           <a id="fwd-mailto" href="#" style="font-weight:600">✉ Open email draft</a>
           <a href="#" onclick="copyAccessLink(this);return false" style="font-weight:600">Copy signing link</a>
         </div>
-        <div style="color:var(--ink2);font-size:12px;margin-top:8px">This page stays available at the same link until the NDA is signed — whoever signs it below unlocks access for your team's link.</div>
+        <div style="color:var(--ink2);font-size:12px;margin-top:8px">This page stays available at the same link until the NDA is signed - whoever signs it below unlocks access for your team's link.</div>
       </div>
     </div>
     <div class="frow">
@@ -180,7 +180,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 </header>
 <nav><div class="wrap" id="c-nav"></div></nav>
 <main class="wrap" id="c-main"></main>
-<footer><div class="wrap">Earth Breeze, Inc. · RFP EB-2026-PARCEL-01 · Confidential — covered by your signed NDA. This portal does not constitute a commitment to purchase; volumes are indicative and not guaranteed.</div></footer>
+<footer><div class="wrap">Earth Breeze, Inc. · RFP EB-2026-PARCEL-01 · Confidential - covered by your signed NDA. This portal does not constitute a commitment to purchase; volumes are indicative and not guaranteed.</div></footer>
 </div>
 
 <script>
@@ -212,7 +212,7 @@ async function brandGate(){
   try {
     const m = await rpc('rfp_portal_meta', {p_code: RFP_CODE});
     if (!m.ok) { document.querySelector('#scr-request h1').textContent = 'RFP not available'; document.querySelector('#scr-request p').textContent = 'This RFP is not open for access requests. Check the link in your invitation or contact Earth Breeze.'; document.getElementById('req-btn').disabled = true; return; }
-    document.title = 'Earth Breeze — ' + m.title;
+    document.title = 'Earth Breeze - ' + m.title;
     document.querySelector('#scr-request h1').textContent = m.title;
     document.querySelector('#scr-request p').innerHTML = 'RFP No. ' + m.code + ' · Confidential. Access is granted to invited ' + (m.type === 'cm' ? 'manufacturers' : 'carriers') + ' after approval and a signed NDA. Request access below.';
   } catch(e) {}
@@ -243,7 +243,7 @@ async function requestAccess(){
     if (!res.ok) throw new Error('invalid');
     setTok(res.token);
     boot();
-  } catch(e) { err.textContent='Request failed — please try again.'; err.style.display='block'; }
+  } catch(e) { err.textContent='Request failed - please try again.'; err.style.display='block'; }
   $('req-btn').disabled = false; $('req-btn').textContent = 'Request access';
 }
 
@@ -278,13 +278,13 @@ async function signNDA(){
     const res = await rpc('rfp_sign_nda', {p_token: getTok(), p_name: name, p_title: title, p_company_legal: companyLegal, p_entity: entity, p_address: address, p_signer_email: signerEmail});
     if (!res.ok) throw new Error(res.error||'failed');
     await enter(getTok());
-  } catch(e) { err.textContent='Could not record signature — please retry.'; err.style.display='block'; $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
+  } catch(e) { err.textContent='Could not record signature - please retry.'; err.style.display='block'; $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
 }
 
 function toggleFwd(){ const f=$('fwd-form'); f.style.display = f.style.display==='none'?'block':'none'; }
 function buildMailto(name, email, company){
   const link = location.origin + location.pathname + '?token=' + getTok();
-  const subject = encodeURIComponent('NDA signature needed \u2014 Earth Breeze Parcel RFP');
+  const subject = encodeURIComponent('NDA signature needed - Earth Breeze Parcel RFP');
   const body = encodeURIComponent('Hi ' + (name||'') + ',\n\nEarth Breeze requires a mutual NDA before ' + (company||'we') + ' can access their US parcel RFP portal. Please review and sign here (takes two minutes):\n\n' + link + '\n\nOnce signed, our access link unlocks the full RFP, data tables, and downloads.\n\nThanks');
   $('fwd-mailto').href = 'mailto:' + email + '?subject=' + subject + '&body=' + body;
 }
@@ -303,10 +303,10 @@ async function delegateNDA(){
     if (!res.ok) throw new Error(res.error||'failed');
     $('fwd-form').style.display='none'; $('fwd-toggle').style.display='none';
     $('nda-name').value = name; $('nda-email').value = email;
-    $('fwd-done-msg').textContent = 'Send ' + name + ' the signing link below \u2014 the NDA form is pre-filled for them.';
+    $('fwd-done-msg').textContent = 'Send ' + name + ' the signing link below - the NDA form is pre-filled for them.';
     buildMailto(name, email, $('nda-company').value.trim());
     $('fwd-done').style.display='block';
-  } catch(e){ err.textContent='Could not save \u2014 please retry.'; err.style.display='block'; }
+  } catch(e){ err.textContent='Could not save - please retry.'; err.style.display='block'; }
   $('fwd-btn').disabled=false; $('fwd-btn').textContent='Prepare handoff';
 }
 
@@ -408,17 +408,17 @@ async function enter(t){
     S.push(['overview','Overview', '<p class="lead">'+(c.overview_lead||'')+'</p>'+listHTML(c.overview_bullets)]);
     S.push(['profile','Business profile', tblHTML(['Metric','Value'], c.profile_rows||[], {max:1})]);
     const mrows = (p.monthly||[]).filter(r=>String(r[0]).toLowerCase()!=='total');
-    let d = '<h3>Volume trend — orders &amp; order lines</h3>';
+    let d = '<h3>Volume trend - orders &amp; order lines</h3>';
     d += barLineChart(mrows.map(r=>[r[0], r[1], r[2]]), {barLabel:'Orders', lineLabel:'Order lines'});
     d += '<p class="tbl-note">'+esc(p.growth_note)+'</p>';
-    d += '<h3>Basket depth — lines per order</h3>';
+    d += '<h3>Basket depth - lines per order</h3>';
     d += lineChart(mrows.map(r=>[r[0], r[4]]), {dec:1, color:'#C9772F'});
     d += '<p class="tbl-note">'+esc(p.depth_note)+'</p>';
     d += '<h3>Monthly orders, lines &amp; units</h3>'+tblHTML(['Month','Orders','Order lines','Units','Lines/order'], p.monthly||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.monthly_note)+'</p>';
-    d += '<h3>Pick profile \u2014 lines per order</h3>'+tblHTML(['Lines','Orders','% of orders','Units'], p.line_bands||[], {numeric:1, max:1});
-    d += '<h3>Pick profile \u2014 units per order</h3>'+tblHTML(['Units','Orders','% of orders'], p.unit_bands||[], {numeric:1, max:1});
+    d += '<h3>Pick profile - lines per order</h3>'+tblHTML(['Lines','Orders','% of orders','Units'], p.line_bands||[], {numeric:1, max:1});
+    d += '<h3>Pick profile - units per order</h3>'+tblHTML(['Units','Orders','% of orders'], p.unit_bands||[], {numeric:1, max:1});
     d += hBarChart((p.line_bands||[]).map(r=>[r[0], r[1], r[2]]), {suffix:1});
-    d += '<p class="tbl-note">62.4% of orders are a single line and 47.7% a single unit \u2014 a shallow-basket profile. Price the per-order rate and incremental line/unit rates against these distributions.</p>';
+    d += '<p class="tbl-note">62.4% of orders are a single line and 47.7% a single unit - a shallow-basket profile. Price the per-order rate and incremental line/unit rates against these distributions.</p>';
     d += '<h3>SKU velocity (top 15 by units)</h3>'+tblHTML(['SKU','Orders','Lines','Units'], p.top_sku||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.sku_note)+'</p>';
     d += '<h3>Destination states (top 20)</h3>'+hBarChart((p.states||[]).slice(0,12).map(r=>[r[0], r[1], r[2]]), {suffix:1})+tblHTML(['State','Orders','% of orders'], p.states||[], {numeric:1, max:1});
     d += '<h3>Destination ZIP3 (top 25)</h3>'+tblHTML(['ZIP3','Orders','Order lines','Units'], p.zip3||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.geo_note)+'</p>';
@@ -451,7 +451,7 @@ async function enter(t){
       '<div class="grid2">'+
       (c.download_docx?'<a class="dl" href="'+esc(c.download_docx)+'" download><div class="ic">RFP</div><div><b>Full RFP document</b><span>Word</span></div></a>':'')+
       (c.download_xlsx?'<a class="dl" href="'+esc(c.download_xlsx)+'" download><div class="ic">XLS</div><div><b>Bidder dataset</b><span>Excel \u00b7 monthly volumes, pick profile, SKU velocity, all 908 ZIP3s, 29,064 ZIP detail, day-of-week</span></div></a>':'')+
-      '</div><p class="tbl-note" style="margin-top:14px">The dataset workbook contains the full underlying aggregates so you can model your own cost-to-serve. Read the <b>Read Me</b> tab first \u2014 it documents the bulk-transfer SKUs that must be excluded from pick-labour modelling.</p>']);
+      '</div><p class="tbl-note" style="margin-top:14px">The dataset workbook contains the full underlying aggregates so you can model your own cost-to-serve. Read the <b>Read Me</b> tab first - it documents the bulk-transfer SKUs that must be excluded from pick-labour modelling.</p>']);
     S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
     const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',scope:'Scope',network:'Network',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',submit:'Submit'};
     $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navFF[id]+'</a>').join('');
@@ -530,7 +530,7 @@ async function uploadFiles(){
   const tok=getTok()||'anon'; const out=[];
   for(let i=0;i<files.length;i++){
     const f=files[i];
-    if(f.size>26214400) throw new Error('"'+f.name+'" is larger than 25 MB — please share it as a link instead.');
+    if(f.size>26214400) throw new Error('"'+f.name+'" is larger than 25 MB - please share it as a link instead.');
     $('f-btn').textContent='Uploading '+(i+1)+' of '+files.length+'…';
     const safe=f.name.replace(/[^A-Za-z0-9._-]/g,'_').slice(-120);
     const path=RFP_CODE+'/'+tok+'/'+Date.now()+'_'+safe;
@@ -598,13 +598,13 @@ boot();
 <!-- submission form template (injected into Submit section post-access) -->
 <template id="tpl-submit">
   <span class="pill" style="margin:0 0 10px;display:inline-block">Intent · Question · Proposal</span>
-  <div id="form-ok"><h3>Received — thank you.</h3><p>Your submission is logged with the Earth Breeze procurement team. Answers to questions are distributed to all bidders; proposal confirmations come by email.</p></div>
+  <div id="form-ok"><h3>Received - thank you.</h3><p>Your submission is logged with the Earth Breeze procurement team. Answers to questions are distributed to all bidders; proposal confirmations come by email.</p></div>
   <form id="rfp-form" class="rfp" onsubmit="return submitRFP(event)">
     <div class="frow">
       <div><label>Submission type</label>
         <select id="f-type"><option value="intent">Intent to bid</option><option value="question">Question</option><option value="proposal" selected>Proposal</option></select></div>
       <div id="f-origins-wrap"><label>Origins bid</label>
-        <select id="f-origins"><option>Both</option><option>Kentucky (40330) only</option><option>Oregon (97503) only</option><option value="">N/A — question only</option></select></div>
+        <select id="f-origins"><option>Both</option><option>Kentucky (40330) only</option><option>Oregon (97503) only</option><option value="">N/A - question only</option></select></div>
     </div>
     <div class="frow">
       <div><label>Company</label><input id="f-company" required maxlength="200" placeholder="Carrier name"></div>
@@ -616,7 +616,7 @@ boot();
     </div>
     <div id="cm-fields" style="display:none">
       <div class="frow">
-        <div><label>Manufacturing facility location(s)</label><input id="f-facilities" maxlength="300" placeholder="City, State — per facility"></div>
+        <div><label>Manufacturing facility location(s)</label><input id="f-facilities" maxlength="300" placeholder="City, State - per facility"></div>
         <div><label>MOQ per variant</label><input id="f-moq" maxlength="120" placeholder="e.g. 10,000 kg / run"></div>
       </div>
       <div class="frow">
@@ -629,7 +629,7 @@ boot();
       <div><label id="f-rates-label">Rate workbook link <span class="opt">(or attach the file below)</span></label><input id="f-rates" type="url" placeholder="https://…"></div>
       <div><label>Full proposal link <span class="opt">(optional)</span></label><input id="f-prop" type="url" placeholder="https://…"></div>
     </div>
-    <label>Attach files <span class="opt">(PDF, Excel, Word, PowerPoint, CSV, ZIP or images — up to 25 MB each)</span></label>
+    <label>Attach files <span class="opt">(PDF, Excel, Word, PowerPoint, CSV, ZIP or images - up to 25 MB each)</span></label>
     <input id="f-files" type="file" multiple style="padding:8px 10px;background:#fff">
     <div id="f-filelist" style="font-size:12.5px;color:var(--ink2);margin-top:6px"></div>
     <label>Executive summary / notes</label>

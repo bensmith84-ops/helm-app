@@ -9,7 +9,7 @@ import { notifySlack, notifySlackUpdate } from "../lib/slack";
 import { getBudgetSnapshot } from "../lib/budgetSnapshot";
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FINANCE MODULE — ApproveFlow merged into Helm
+// FINANCE MODULE - ApproveFlow merged into Helm
 // Spend requests, budgets, departments, rules engine, integrations
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -120,7 +120,7 @@ const ApprovalChain = ({ req, members }) => {
   );
 };
 
-// Searchable picker for GL codes — replacement for native <select> when the list is long.
+// Searchable picker for GL codes - replacement for native <select> when the list is long.
 // Props mirror a basic select: value (the code string), onChange (receives the code),
 // codes (array of { code, name }), placeholder, style (applied to the trigger button).
 const GLCodePicker = ({ value, onChange, codes, placeholder = "Select GL code…", style = {}, disabled = false }) => {
@@ -317,7 +317,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {}, p
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Left nav — desktop only, hidden when embedded in ERP */}
+      {/* Left nav - desktop only, hidden when embedded in ERP */}
       {!embedded && !isMobile && (
         <div style={{ width: 180, borderRight: `1px solid ${T.border}`, padding: "12px 8px", flexShrink: 0, overflow: "auto" }}>
           {NAV.map(n => (
@@ -332,7 +332,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {}, p
 
       {/* Content column */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* Mobile tab bar — hidden when embedded */}
+        {/* Mobile tab bar - hidden when embedded */}
         {!embedded && isMobile && (
           <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0, background: T.bg, WebkitOverflowScrolling: "touch" }}>
             {NAV.map(n => (
@@ -368,7 +368,7 @@ export default function FinanceView({ initialView, embedded, modulePerms = {}, p
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// REVENUE ANALYTICS — Revenue by channel, trending monthly
+// REVENUE ANALYTICS - Revenue by channel, trending monthly
 // ═══════════════════════════════════════════════════════════════════════════════
 function RevenueAnalytics({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
@@ -387,7 +387,7 @@ function RevenueAnalytics({ isMobile }) {
       // qbo_pl_ytd is a server-side view that aggregates qbo_pl_monthly to
       // YTD totals. We use it instead of the legacy qbo_pl table because
       // qbo_pl is no longer kept current by the QBO sync (frozen at Jan 2026
-      // for Earth Breeze) — qbo_pl_monthly is the live source.
+      // for Earth Breeze) - qbo_pl_monthly is the live source.
       const [r1, r2] = await Promise.all([
         supabase.from("qbo_pl_ytd").select("*").eq("org_id", orgId).eq("classification", "Revenue"),
         supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).eq("classification", "Revenue").order("period_month"),
@@ -499,7 +499,7 @@ function RevenueAnalytics({ isMobile }) {
         </div>
         {months.some(m => isOpenMonth(m)) && (
           <div style={{ marginTop: 8, padding: "8px 12px", background: T.yellow + "10", borderRadius: 6, border: `1px solid ${T.yellow}20`, fontSize: 11, color: T.yellow }}>
-            ⚠ Open month — Shopify and Amazon revenue typically posts after bank reconciliation. March revenue will update automatically when booked in QuickBooks.
+            ⚠ Open month - Shopify and Amazon revenue typically posts after bank reconciliation. March revenue will update automatically when booked in QuickBooks.
           </div>
         )}
       </div>
@@ -530,7 +530,7 @@ function RevenueAnalytics({ isMobile }) {
                   {months.map((m, mi) => (
                     <div key={m} style={{ flex: 1, textAlign: "center" }}>
                       <div style={{ fontSize: 8, color: T.text3 }}>{new Date(m + "-15").toLocaleDateString("en-US", { month: "short" })}</div>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: ch.monthly[mi] > 0 ? T.text2 : T.text3 }}>{ch.monthly[mi] > 0 ? fmtK(ch.monthly[mi]) : "—"}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: ch.monthly[mi] > 0 ? T.text2 : T.text3 }}>{ch.monthly[mi] > 0 ? fmtK(ch.monthly[mi]) : "-"}</div>
                     </div>
                   ))}
                 </div>
@@ -560,7 +560,7 @@ function RevenueAnalytics({ isMobile }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TRANSACTION SEARCH — Search all financial transactions
+// TRANSACTION SEARCH - Search all financial transactions
 // ═══════════════════════════════════════════════════════════════════════════════
 function TransactionSearch({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
@@ -581,7 +581,7 @@ function TransactionSearch({ isMobile }) {
 
   useEffect(() => {
     (async () => {
-      // Load all data — purchases can exceed default 1000 row limit
+      // Load all data - purchases can exceed default 1000 row limit
       const fetchAll = async (table, select, order) => {
         const all = [];
         let from = 0;
@@ -742,7 +742,7 @@ function TransactionSearch({ isMobile }) {
                     <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: cfg.bg, color: cfg.color, whiteSpace: "nowrap" }}>{cfg.label}</span>
                   </td>
                   <td style={{ padding: "6px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>
-                    {t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                    {t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}
                   </td>
                   <td style={{ padding: "6px 10px", fontSize: 11, whiteSpace: "nowrap" }}>
                     {t.due_date ? (() => {
@@ -751,16 +751,16 @@ function TransactionSearch({ isMobile }) {
                         {new Date(t.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                         {overdue && <span style={{ fontSize: 8, marginLeft: 3, padding: "1px 3px", borderRadius: 3, background: T.red + "18", color: T.red, fontWeight: 700 }}>!</span>}
                       </span>;
-                    })() : <span style={{ color: T.text3 }}>—</span>}
+                    })() : <span style={{ color: T.text3 }}>-</span>}
                   </td>
                   <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {t.entity || "—"}
+                    {t.entity || "-"}
                   </td>
                   <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {(t.memo || "—").slice(0, 60)}
+                    {(t.memo || "-").slice(0, 60)}
                   </td>
                   <td style={{ padding: "6px 10px", fontSize: 10, color: T.accent, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {(t.gl_accounts || "—").split(",")[0]}
+                    {(t.gl_accounts || "-").split(",")[0]}
                   </td>
                   <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, textAlign: "right", color: t.direction === "in" ? T.green : t.direction === "out" ? T.text : T.text2 }}>
                     {t.direction === "in" ? "+" : t.direction === "out" ? "" : ""}{fmt(Number(t.total_amount))}
@@ -778,10 +778,10 @@ function TransactionSearch({ isMobile }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AP AGING — Bills by age bucket + cash needed timeline
+// AP AGING - Bills by age bucket + cash needed timeline
 // ═══════════════════════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════════════════════
-// AP / AR AGING — Payables + Receivables with aging buckets — v3 expandable vendors
+// AP / AR AGING - Payables + Receivables with aging buckets - v3 expandable vendors
 // ═══════════════════════════════════════════════════════════════════════════════
 function APAgingView({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
@@ -1120,7 +1120,7 @@ function APAgingView({ isMobile }) {
         <div style={{ display: "flex", gap: isMobile ? 4 : 12, alignItems: "flex-end", height: 120 }}>
           {bucketData.map(bk => (
             <div key={bk.key} onClick={() => setExpandedBucket(expandedBucket === bk.key ? null : bk.key)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer" }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: bk.color }}>{bk.count > 0 ? fmtK(bk.total) : "—"}</div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: bk.color }}>{bk.count > 0 ? fmtK(bk.total) : "-"}</div>
               <div style={{ width: "100%", maxWidth: 60, height: Math.max((bk.total / maxBucket) * 100, 4), background: bk.color, borderRadius: "6px 6px 0 0", opacity: expandedBucket === bk.key ? 1 : 0.7 }} />
               <div style={{ fontSize: 10, fontWeight: 600, color: T.text3 }}>{bk.label}</div>
               <div style={{ fontSize: 8, color: T.text3 }}>{bk.count}</div>
@@ -1132,11 +1132,11 @@ function APAgingView({ isMobile }) {
           if (!bk || bk.items.length === 0) return <div style={{ marginTop: 12, fontSize: 11, color: T.text3 }}>No items in this bucket</div>;
           return (
             <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: bk.color, marginBottom: 6 }}>{bk.label} — {bk.range} ({bk.count}, {fmtK(bk.total)})</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: bk.color, marginBottom: 6 }}>{bk.label} - {bk.range} ({bk.count}, {fmtK(bk.total)})</div>
               {bk.items.sort((a, b) => Number(b.balance) - Number(a.balance)).slice(0, 15).map(b => (
                 <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 11, borderBottom: `1px solid ${T.border}08` }}>
-                  <span style={{ fontWeight: 600, color: T.text, flex: 1 }}>{b[entityField] || "—"}</span>
-                  <span style={{ fontSize: 10, color: T.text3, marginRight: 10 }}>Due {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span>
+                  <span style={{ fontWeight: 600, color: T.text, flex: 1 }}>{b[entityField] || "-"}</span>
+                  <span style={{ fontSize: 10, color: T.text3, marginRight: 10 }}>Due {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}</span>
                   <span style={{ fontWeight: 700, color: bk.color, minWidth: 60, textAlign: "right" }}>{fmt(Number(b.balance))}</span>
                 </div>
               ))}
@@ -1217,7 +1217,7 @@ function APAgingView({ isMobile }) {
                 <div style={{ fontSize: 20 }}>🚨</div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.red }}>{overdueUnapproved.length} overdue bills need approval</div>
-                  <div style={{ fontSize: 10, color: T.text3 }}>{fmtK(overdueUnapproved.reduce((s, b) => s + Number(b.balance), 0))} total — payment delayed</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{fmtK(overdueUnapproved.reduce((s, b) => s + Number(b.balance), 0))} total - payment delayed</div>
                 </div>
               </div>
             )}
@@ -1225,7 +1225,7 @@ function APAgingView({ isMobile }) {
               <div style={{ flex: 1, minWidth: 200, padding: "10px 14px", background: T.yellow + "08", border: `1px solid ${T.yellow}20`, borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ fontSize: 20 }}>⏰</div>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.yellow }}>{unapprovedDueSoon.length} bills due this week — not yet approved</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.yellow }}>{unapprovedDueSoon.length} bills due this week - not yet approved</div>
                   <div style={{ fontSize: 10, color: T.text3 }}>{fmtK(totalUnapprovedDue)} needs approval to avoid late payment</div>
                 </div>
               </div>
@@ -1234,7 +1234,7 @@ function APAgingView({ isMobile }) {
         );
       })()}
 
-      {/* Spending Insights — Top Vendors */}
+      {/* Spending Insights - Top Vendors */}
       {tab === "ap" && (() => {
         const vendorSpend = {};
         items.forEach(b => {
@@ -1335,7 +1335,7 @@ function APAgingView({ isMobile }) {
         </div>
       )}
 
-      {/* Bills table — group by vendor, date, status, or show all */}
+      {/* Bills table - group by vendor, date, status, or show all */}
       {selectedBills.size > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 8, borderRadius: 8, background: T.accent + "18", border: `1px solid ${T.accent}`, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: T.accent }}>{selectedBills.size} selected</span>
@@ -1419,13 +1419,13 @@ function APAgingView({ isMobile }) {
                     }}
                     style={{ cursor: "pointer", width: 14, height: 14 }} />
                 </td>
-                {showVendor && <td style={{ padding: "7px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b[entityField] || "—"}</td>}
-                <td style={{ padding: "7px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || b.gl_accounts || "—"}</td>
+                {showVendor && <td style={{ padding: "7px 10px", fontSize: 11, fontWeight: 600, color: T.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b[entityField] || "-"}</td>}
+                <td style={{ padding: "7px 10px", fontSize: 11, color: T.text3, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.memo || b.gl_accounts || "-"}</td>
                 <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{fmt(Number(b.balance || b.total_amount))}</td>
-                <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
+                <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2, whiteSpace: "nowrap" }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}</td>
                 <td style={{ padding: "7px 10px", fontSize: 11, whiteSpace: "nowrap" }}>
                   <span style={{ fontWeight: overdue ? 700 : 400, color: overdue ? T.red : daysUntil != null && daysUntil <= 7 ? T.yellow : T.text2 }}>
-                    {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}
+                    {b.due_date ? new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}
                   </span>
                   {overdue && <span style={{ fontSize: 8, marginLeft: 4, padding: "1px 4px", borderRadius: 3, background: T.red + "18", color: T.red, fontWeight: 700 }}>{daysDiff(b.due_date)}d</span>}
                   {!overdue && daysUntil != null && daysUntil <= 14 && daysUntil >= 0 && <span style={{ fontSize: 8, marginLeft: 4, color: T.yellow }}>{daysUntil}d</span>}
@@ -1462,7 +1462,7 @@ function APAgingView({ isMobile }) {
                       onChange={e => { if (e.target.value) updateBill(b.id, { scheduled_payment_date: e.target.value, scheduled_at: new Date().toISOString() }); }}
                       style={{ padding: "2px 4px", fontSize: 10, borderRadius: 4, border: `1px solid ${T.accent}`, background: T.accent + "08", color: T.accent, cursor: "pointer", width: 115 }} />
                   ) : (
-                    <span style={{ fontSize: 10, color: T.text3 }}>—</span>
+                    <span style={{ fontSize: 10, color: T.text3 }}>-</span>
                   )}
                 </td>
                 <td style={{ padding: "7px 6px", textAlign: "center" }}>
@@ -1470,7 +1470,7 @@ function APAgingView({ isMobile }) {
                     <a href={b.attachment_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                       style={{ fontSize: 13, textDecoration: "none" }} title={b.attachment_name || "View Invoice"}>📄</a>
                   ) : (
-                    <span style={{ fontSize: 10, color: T.text3 }}>—</span>
+                    <span style={{ fontSize: 10, color: T.text3 }}>-</span>
                   )}
                 </td>
                 <td style={{ padding: "7px 6px", textAlign: "center" }}>
@@ -1771,7 +1771,7 @@ function APAgingView({ isMobile }) {
                   const res = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_connections", org_id: orgId }) });
                   const data = await res.json();
                   if (data.connections?.length > 0) { setGmailConn(data.connections[0]); return; }
-                  // No connection — start OAuth
+                  // No connection - start OAuth
                   const authRes = await fetch(supabase.supabaseUrl + "/functions/v1/gmail-scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "auth_url", org_id: orgId }) });
                   const authData = await authRes.json();
                   if (authData.auth_url) window.open(authData.auth_url, "gmail_connect", "width=600,height=700");
@@ -1839,7 +1839,7 @@ function APAgingView({ isMobile }) {
             <div style={{ padding: 40, textAlign: "center" }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>No invoices in inbox</div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Upload a vendor invoice PDF or image — AI will extract all the details automatically.</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>Upload a vendor invoice PDF or image - AI will extract all the details automatically.</div>
             </div>
           ) : (
             <div>
@@ -1895,12 +1895,12 @@ function APAgingView({ isMobile }) {
                         </td>
                         <td style={{ padding: "7px 10px" }}><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: sc.bg, color: sc.c }}>{(inv.status || "pending").toUpperCase()}</span></td>
                         <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 600, color: T.text }}>{inv.vendor_name || <span style={{ color: T.text3, fontStyle: "italic" }}>Extracting…</span>}</td>
-                        <td style={{ padding: "7px 10px", fontSize: 11, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number || "—"}</td>
-                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2 }}>{inv.invoice_date ? new Date(inv.invoice_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
-                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2 }}>{inv.due_date ? new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—"}</td>
-                        <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{inv.total_amount ? fmt(Number(inv.total_amount)) : "—"}</td>
-                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.accent }}>{inv.gl_account || "—"}</td>
-                        <td style={{ padding: "7px 10px" }}>{conf != null ? <span style={{ fontSize: 10, fontWeight: 600, color: conf >= 0.9 ? T.green : conf >= 0.7 ? T.yellow : T.red }}>{Math.round(conf * 100)}%</span> : "—"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 11, fontFamily: "monospace", color: T.accent }}>{inv.invoice_number || "-"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2 }}>{inv.invoice_date ? new Date(inv.invoice_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.text2 }}>{inv.due_date ? new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: T.text, textAlign: "right", fontFamily: "monospace" }}>{inv.total_amount ? fmt(Number(inv.total_amount)) : "-"}</td>
+                        <td style={{ padding: "7px 10px", fontSize: 11, color: T.accent }}>{inv.gl_account || "-"}</td>
+                        <td style={{ padding: "7px 10px" }}>{conf != null ? <span style={{ fontSize: 10, fontWeight: 600, color: conf >= 0.9 ? T.green : conf >= 0.7 ? T.yellow : T.red }}>{Math.round(conf * 100)}%</span> : "-"}</td>
                         <td style={{ padding: "7px 10px" }} onClick={e => e.stopPropagation()}>
                           <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                             {inv.file_url && <a href={inv.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, textDecoration: "none" }} title="View file">📄</a>}
@@ -1957,7 +1957,7 @@ function APAgingView({ isMobile }) {
                                 {[
                                   { l: "Vendor", v: inv.vendor_name }, { l: "Invoice #", v: inv.invoice_number },
                                   { l: "Invoice Date", v: inv.invoice_date }, { l: "Due Date", v: inv.due_date },
-                                  { l: "Total", v: inv.total_amount ? fmt(Number(inv.total_amount)) : "—" }, { l: "GL Account", v: inv.gl_account },
+                                  { l: "Total", v: inv.total_amount ? fmt(Number(inv.total_amount)) : "-" }, { l: "GL Account", v: inv.gl_account },
                                   { l: "Payment Terms", v: inv.extracted_data?.payment_terms }, { l: "Currency", v: inv.currency },
                                   { l: "Memo", v: inv.memo }, { l: "PO #", v: inv.extracted_data?.po_number },
                                 ].map(d => d.v ? (
@@ -1978,11 +1978,11 @@ function APAgingView({ isMobile }) {
                                     <tbody>
                                       {lineItems.map((li, idx) => (
                                         <tr key={idx} style={{ borderBottom: `1px solid ${T.border}08` }}>
-                                          <td style={{ padding: "4px 6px", color: T.text }}>{li.description || "—"}</td>
-                                          <td style={{ padding: "4px 6px", color: T.text2, textAlign: "right" }}>{li.quantity || "—"}</td>
-                                          <td style={{ padding: "4px 6px", color: T.text2, textAlign: "right", fontFamily: "monospace" }}>{li.unit_price ? fmt(Number(li.unit_price)) : "—"}</td>
-                                          <td style={{ padding: "4px 6px", color: T.text, fontWeight: 600, textAlign: "right", fontFamily: "monospace" }}>{li.amount ? fmt(Number(li.amount)) : "—"}</td>
-                                          <td style={{ padding: "4px 6px", color: T.accent, fontSize: 10 }}>{li.gl_account || "—"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.text }}>{li.description || "-"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.text2, textAlign: "right" }}>{li.quantity || "-"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.text2, textAlign: "right", fontFamily: "monospace" }}>{li.unit_price ? fmt(Number(li.unit_price)) : "-"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.text, fontWeight: 600, textAlign: "right", fontFamily: "monospace" }}>{li.amount ? fmt(Number(li.amount)) : "-"}</td>
+                                          <td style={{ padding: "4px 6px", color: T.accent, fontSize: 10 }}>{li.gl_account || "-"}</td>
                                         </tr>
                                       ))}
                                     </tbody>
@@ -2021,7 +2021,7 @@ function APAgingView({ isMobile }) {
         </div>
       )}
 
-      {/* Expenses Tab — Employee expense submissions */}
+      {/* Expenses Tab - Employee expense submissions */}
       {tab === "expenses" && (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
@@ -2100,7 +2100,7 @@ function APAgingView({ isMobile }) {
                     await supabase.from("notifications").insert({
                       org_id: orgId,
                       user_id: "32cad5dd-9e94-4095-a16d-b4521391b050",
-                      type: "expense_submitted", title: `Expense: ${expForm.merchant_name} — $${parseFloat(expForm.amount).toFixed(2)}`,
+                      type: "expense_submitted", title: `Expense: ${expForm.merchant_name} - $${parseFloat(expForm.amount).toFixed(2)}`,
                       body: `${profile?.display_name || "Team member"} submitted an expense for reimbursement`,
                       entity_type: "expense", entity_id: data.id, category: "finance", link: "/finance/ap-ar",
                     });
@@ -2172,7 +2172,7 @@ function APAgingView({ isMobile }) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VENDOR INTELLIGENCE — Every vendor, one view
+// VENDOR INTELLIGENCE - Every vendor, one view
 // ═══════════════════════════════════════════════════════════════════════════════
 function VendorIntelligence({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
@@ -2446,7 +2446,7 @@ function VendorIntelligence({ isMobile }) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 3, background: t.type === "bill" ? T.yellow + "20" : T.accent + "15", color: t.type === "bill" ? T.yellow : T.accent }}>{t.type === "bill" ? "BILL" : "CARD"}</span>
-                        <span style={{ fontSize: 10, color: T.text3 }}>{t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span>
+                        <span style={{ fontSize: 10, color: T.text3 }}>{t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}</span>
                       </div>
                       {t.memo && <div style={{ fontSize: 9, color: T.text3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.memo.slice(0, 60)}</div>}
                     </div>
@@ -2467,7 +2467,7 @@ function VendorIntelligence({ isMobile }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CASH FLOW VIEW — Weekly/Monthly cash in vs out
+// CASH FLOW VIEW - Weekly/Monthly cash in vs out
 // ═══════════════════════════════════════════════════════════════════════════════
 function CashFlowView({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
@@ -2485,11 +2485,11 @@ function CashFlowView({ isMobile }) {
   const [bills, setBills] = useState([]);
   // Inventory snapshot: two buckets pulled from qbo_balance_sheet on the most
   // recent report date.
-  //  • inventoryRows — every Data row in the QBO 'Inventory' group (Finished
+  //  • inventoryRows - every Data row in the QBO 'Inventory' group (Finished
   //    Goods US/UK/OFS, Raw Materials, WIP, Packaging, Tariffs, Allowance,
   //    Donation, Inventory in Transit, Other Inventory, etc.). Sums to the
   //    QBO 'Total Inventory' subtotal exactly.
-  //  • ginrRows — Goods Invoiced Not Received accounts. Lives in QBO under
+  //  • ginrRows - Goods Invoiced Not Received accounts. Lives in QBO under
   //    'Other Current Assets', but it's inventory we've been billed for and
   //    not yet received, so we treat it as inventory-in-flight here.
   // Both refresh daily with the QBO sync.
@@ -2522,7 +2522,7 @@ function CashFlowView({ isMobile }) {
         const latestRows = bs.filter(r => r.report_date === latest);
         // Inventory bucket: every Data row whose group_name is the QBO
         // 'Inventory' parent (Earth Breeze's chart calls it "10200 Inventory").
-        // This captures Finished Goods, Raw Materials, WIP, Packaging, etc. —
+        // This captures Finished Goods, Raw Materials, WIP, Packaging, etc. -
         // the full inventory roll-up that adds to the QBO 'Total Inventory'
         // summary row, not just accounts whose name happens to contain the
         // word 'inventory'.
@@ -2607,14 +2607,14 @@ function CashFlowView({ isMobile }) {
         </div>
       </div>
 
-      {/* KPIs — 5 cards on desktop, 2 cols on mobile */}
+      {/* KPIs - 5 cards on desktop, 2 cols on mobile */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10 }}>
         <KPI label="Total Cash In" value={fmtK(totalIn)} color={T.green} sub={`${deposits.length + payments.filter(p => p.payment_type === "received").length} inflows`} />
         <KPI label="Total Cash Out" value={fmtK(totalOut)} color={T.red} sub={`${purchases.length + payments.filter(p => p.payment_type === "made").length} outflows`} />
         <KPI label="Net Cash Flow" value={fmtK(netFlow)} color={netFlow >= 0 ? T.green : T.red} sub={netFlow >= 0 ? "Net positive YTD" : "Net negative YTD"} />
         <KPI label="Avg Monthly Burn" value={fmtK(periods.length > 0 ? totalOut / periods.length : 0)} color={T.yellow} sub={`across ${periods.length} ${period === "weekly" ? "weeks" : "months"}`} />
         {/* Inventory value tile. Shows the QBO 'Total Inventory' roll-up
-            ($3.6M for Earth Breeze — Finished Goods, Raw Materials, WIP,
+            ($3.6M for Earth Breeze - Finished Goods, Raw Materials, WIP,
             Packaging, etc.) PLUS Goods Invoiced Not Received ($4.1M of
             inventory billed but not yet received). Total ~= $7.7M. Matches
             the QBO BS report exactly account-for-account. Updates daily. */}
@@ -2626,7 +2626,7 @@ function CashFlowView({ isMobile }) {
           return (
             <KPI
               label="Inventory Value"
-              value={hasData ? fmtK(grand) : "—"}
+              value={hasData ? fmtK(grand) : "-"}
               color={T.accent}
               sub={inventoryAsOf
                 ? `${fmtK(invTotal)} on hand · ${fmtK(ginrTotal)} in flight`
@@ -2636,12 +2636,12 @@ function CashFlowView({ isMobile }) {
         })()}
       </div>
 
-      {/* Inventory breakdown — split into two groups so the user can see
+      {/* Inventory breakdown - split into two groups so the user can see
           how the headline figure decomposes:
             • On Hand: the QBO 'Total Inventory' group (Finished Goods,
               Raw Materials, WIP, Packaging, etc.). Sums to QBO's
               'Total 10200 Inventory' subtotal.
-            • In Flight: Goods Invoiced Not Received — billed but not
+            • In Flight: Goods Invoiced Not Received - billed but not
               physically arrived yet. Lives in QBO under 'Other Current
               Assets' but is logically part of the inventory pipeline.
           Hidden until the sync has loaded data. */}
@@ -2713,7 +2713,7 @@ function CashFlowView({ isMobile }) {
 
       {/* Bar chart */}
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 20 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Cash In vs Cash Out — {period === "weekly" ? "Weekly" : "Monthly"}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Cash In vs Cash Out - {period === "weekly" ? "Weekly" : "Monthly"}</div>
         <div style={{ display: "flex", gap: isMobile ? 2 : 8, alignItems: "flex-end", height: 180 }}>
           {periods.map(p => {
             const inH = (p.cashIn / maxBar) * 160;
@@ -2771,7 +2771,7 @@ function CashFlowView({ isMobile }) {
                       <div style={{ background: T.surface2, padding: "12px 16px", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                         {/* Cash In breakdown */}
                         <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 6 }}>CASH IN — {fmtK(p.cashIn)}</div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 6 }}>CASH IN - {fmtK(p.cashIn)}</div>
                           {p.deposits.length > 0 && <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 2 }}>Deposits ({p.deposits.length})</div>}
                           {p.deposits.sort((a, b) => Number(b.total_amount) - Number(a.total_amount)).slice(0, 8).map((d, i) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 10, borderBottom: `1px solid ${T.border}08` }}>
@@ -2789,7 +2789,7 @@ function CashFlowView({ isMobile }) {
                         </div>
                         {/* Cash Out breakdown */}
                         <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: T.red, marginBottom: 6 }}>CASH OUT — {fmtK(p.cashOut)}</div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.red, marginBottom: 6 }}>CASH OUT - {fmtK(p.cashOut)}</div>
                           {p.pmtsMade.length > 0 && <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 2 }}>Bill Payments ({p.pmtsMade.length})</div>}
                           {p.pmtsMade.sort((a, b) => Number(b.total_amount) - Number(a.total_amount)).slice(0, 5).map((r, i) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 10 }}>
@@ -2834,7 +2834,7 @@ function CashFlowView({ isMobile }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// P&L EXPLORER — Monthly drill-down
+// P&L EXPLORER - Monthly drill-down
 // ═══════════════════════════════════════════════════════════════════════════════
 function ClearingPending({ T, orgId, fmt }) {
   const [rows, setRows] = useState(null);
@@ -2865,7 +2865,7 @@ function ClearingPending({ T, orgId, fmt }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>Pending revenue recognition</div>
-          <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Cash collected into payment-clearing accounts, not yet booked to revenue — a leading signal of open-month revenue still to post.</div>
+          <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Cash collected into payment-clearing accounts, not yet booked to revenue - a leading signal of open-month revenue still to post.</div>
         </div>
         <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: T.accent }}>{fmt(total)}</div>
@@ -3015,7 +3015,7 @@ function PLExplorer({ isMobile }) {
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 14px", background: "#F59E0B14", border: `1px solid #F59E0B45`, borderRadius: 10, fontSize: 12, color: T.text2, lineHeight: 1.45 }}>
             <span style={{ fontSize: 14, lineHeight: "18px" }}>⚠️</span>
             <div>
-              <span style={{ fontWeight: 700, color: T.text }}>{monthLabels[oi]} is the current open month — revenue is incomplete.</span>{" "}
+              <span style={{ fontWeight: 700, color: T.text }}>{monthLabels[oi]} is the current open month - revenue is incomplete.</span>{" "}
               Shopify and Amazon revenue posts to QuickBooks after month-end reconciliation, so the latest month often shows only refunds and trade deductions (and can read negative) until gross sales are booked. It updates automatically once QuickBooks has them.{pendingClearing > 0 ? <><br /><span style={{ fontWeight: 600 }}>≈ {fmtK(pendingClearing)} is already collected and sitting in payment-clearing accounts, not yet booked to revenue.</span></> : null}
             </div>
           </div>
@@ -3044,7 +3044,7 @@ function PLExplorer({ isMobile }) {
                     <td style={{ padding: "8px 8px", fontSize: 12, fontWeight: 800, color: section.color, position: "sticky", left: 0, background: T.surface2, zIndex: 1 }}>{section.label}</td>
                     {months.map(m => {
                       const partial = section.label === "Revenue" && isOpenMonth(m);
-                      return <td key={m} title={partial ? "Open month — gross sales not yet booked to revenue" : undefined} style={{ ...TD, fontWeight: 700, color: partial ? T.text3 : section.color, opacity: partial ? 0.55 : 1, background: T.surface2 }}>{fmtK(getSectionMonthTotal(section.accounts, m))}{partial ? "*" : ""}</td>;
+                      return <td key={m} title={partial ? "Open month - gross sales not yet booked to revenue" : undefined} style={{ ...TD, fontWeight: 700, color: partial ? T.text3 : section.color, opacity: partial ? 0.55 : 1, background: T.surface2 }}>{fmtK(getSectionMonthTotal(section.accounts, m))}{partial ? "*" : ""}</td>;
                     })}
                     <td style={{ ...TD, fontWeight: 800, color: section.color, background: T.surface2 }}>{fmtK(getSectionYTDTotal(section.accounts))}</td>
                   </tr>
@@ -3063,7 +3063,7 @@ function PLExplorer({ isMobile }) {
                           </td>
                           {months.map(m => {
                             const val = getMonthAmt(acct, m);
-                            return <td key={m} style={{ ...TD, color: val === 0 ? T.text3 + "60" : T.text2 }}>{val === 0 ? "—" : fmtK(val)}</td>;
+                            return <td key={m} style={{ ...TD, color: val === 0 ? T.text3 + "60" : T.text2 }}>{val === 0 ? "-" : fmtK(val)}</td>;
                           })}
                           <td style={{ ...TD, fontWeight: 600, color: T.text }}>{fmtK(ytd)}</td>
                         </tr>
@@ -3080,8 +3080,8 @@ function PLExplorer({ isMobile }) {
                                     {txns.map((t, i) => (
                                       <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
                                         <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 8, alignItems: "center" }}>
-                                          <span style={{ fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>{t.vendor_name || "—"}</span>
-                                          {t.memo && <span style={{ color: T.text3, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>— {t.memo.slice(0, 50)}</span>}
+                                          <span style={{ fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>{t.vendor_name || "-"}</span>
+                                          {t.memo && <span style={{ color: T.text3, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>- {t.memo.slice(0, 50)}</span>}
                                         </div>
                                         <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
                                           <span style={{ fontSize: 10, color: T.text3 }}>{t.txn_date ? new Date(t.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
@@ -3109,7 +3109,7 @@ function PLExplorer({ isMobile }) {
                 {months.map((m, i) => {
                   const net = revMonthly[i] - expMonthly[i];
                   const partial = isOpenMonth(m);
-                  return <td key={m} title={partial ? "Open month — revenue not fully booked; net income is not meaningful until close" : undefined} style={{ ...TD, fontSize: 12, fontWeight: 900, color: partial ? T.text3 : (net >= 0 ? T.green : T.red), opacity: partial ? 0.5 : 1 }}>{fmtK(net)}{partial ? "*" : ""}</td>;
+                  return <td key={m} title={partial ? "Open month - revenue not fully booked; net income is not meaningful until close" : undefined} style={{ ...TD, fontSize: 12, fontWeight: 900, color: partial ? T.text3 : (net >= 0 ? T.green : T.red), opacity: partial ? 0.5 : 1 }}>{fmtK(net)}{partial ? "*" : ""}</td>;
                 })}
                 <td style={{ ...TD, fontSize: 13, fontWeight: 900, color: revYTD - expYTD >= 0 ? T.green : T.red }}>{fmtK(revYTD - expYTD)}</td>
               </tr>
@@ -3215,7 +3215,7 @@ function PLExplorer({ isMobile }) {
                   revRow.push(revRow.slice(2).reduce((s, v) => s + v, 0));
                   // Sum expense actuals across all expense accounts for each
                   // bucket. The earlier draft of this line referenced `a`
-                  // without it being declared in scope — and since `a` is
+                  // without it being declared in scope - and since `a` is
                   // also `const`-declared later in this same handler (the
                   // CSV download anchor), the reference fell into the TDZ
                   // and crashed the click with "Cannot access 'a' before
@@ -3251,7 +3251,7 @@ function PLExplorer({ isMobile }) {
                   });
                 }
 
-                // Transaction detail — add each transaction as a row
+                // Transaction detail - add each transaction as a row
                 if (detail === "transactions") {
                   rows.length = 0;
                   rows.push(["Date", "Vendor", "GL Account", "Amount", "Type", "Memo"]);
@@ -3276,7 +3276,7 @@ function PLExplorer({ isMobile }) {
                 const blob = new Blob([csv], { type: "text/csv" });
                 const url = URL.createObjectURL(blob);
                 // Use a distinct name (anchor) so a stray reference to `a`
-                // earlier in this handler can't fall into TDZ — that bit us
+                // earlier in this handler can't fall into TDZ - that bit us
                 // once already with the Total Expenses row above.
                 const anchor = document.createElement("a");
                 anchor.href = url;
@@ -3297,7 +3297,7 @@ function PLExplorer({ isMobile }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CFO DASHBOARD — Executive Financial Overview
+// CFO DASHBOARD - Executive Financial Overview
 // ═══════════════════════════════════════════════════════════════════════════════
 function CFODashboard({ isMobile }) {
   const T = typeof window !== "undefined" && document.body.dataset.theme === "dark"
@@ -3326,7 +3326,7 @@ function CFODashboard({ isMobile }) {
     (async () => {
       const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12] = await Promise.all([
         // qbo_pl_ytd: live YTD aggregate of qbo_pl_monthly. Replaces qbo_pl
-        // which was frozen at Jan 2026 — Revenue/Expense/Net Income tiles
+        // which was frozen at Jan 2026 - Revenue/Expense/Net Income tiles
         // were showing only ~\$5K when the real YTD is \$29M revenue.
         supabase.from("qbo_pl_ytd").select("*").eq("org_id", orgId),
         supabase.from("qbo_pl_monthly").select("*").eq("org_id", orgId).order("period_month"),
@@ -3406,7 +3406,7 @@ function CFODashboard({ isMobile }) {
   const pmtsReceived = payments.filter(p => p.payment_type === "received").reduce((s, p) => s + Number(p.total_amount), 0);
   const pmtsMade = payments.filter(p => p.payment_type === "made").reduce((s, p) => s + Number(p.total_amount), 0);
 
-  // Monthly P&L trend — exclude partial current month if data is clearly incomplete
+  // Monthly P&L trend - exclude partial current month if data is clearly incomplete
   const currentMo = new Date().toISOString().slice(0, 7);
   const months = [...new Set(plMonthly.map(r => r.period_month))].sort();
   const isOpenMo = (m) => m >= currentMo;
@@ -3450,8 +3450,8 @@ function CFODashboard({ isMobile }) {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>Earth Breeze — Financial Overview</div>
-          <div style={{ fontSize: 12, color: T.text3 }}>2026 YTD · Last synced {conn?.last_synced_at ? new Date(conn.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>Earth Breeze - Financial Overview</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>2026 YTD · Last synced {conn?.last_synced_at ? new Date(conn.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "-"}</div>
         </div>
       </div>
 
@@ -3469,8 +3469,8 @@ function CFODashboard({ isMobile }) {
         <KPI icon="📋" label="AP Outstanding" value={fmtK(apOpen)} color={T.yellow} sub={`${bills.filter(b => b.payment_status === "open").length} open bills`} />
         <KPI icon="💳" label="Card Spend YTD" value={fmtK(totalPurchasesYTD)} sub={`${purchases.length} transactions`} />
         <KPI icon="📥" label="Deposits YTD" value={fmtK(totalDepositsYTD)} sub={`${deposits.length} deposits`} color={T.green} />
-        <KPI icon="🛍️" label="DTC Orders Today" value={shopifyOrderStats?.todayOrders ?? "—"} color="#95BF47" sub={shopifyOrderStats?.todayRevenue ? fmtK(shopifyOrderStats.todayRevenue) + " revenue" : shopifyOrderStats?.totalOrders ? `${shopifyOrderStats.totalOrders.toLocaleString()} total synced` : "Sync Shopify"} />
-        <KPI icon="👥" label="DTC Customers" value={shopifyOrderStats?.totalCustomers ? shopifyOrderStats.totalCustomers.toLocaleString() : "—"} sub={shopifyOrderStats?.totalOrders ? `${shopifyOrderStats.totalOrders.toLocaleString()} lifetime orders` : ""} />
+        <KPI icon="🛍️" label="DTC Orders Today" value={shopifyOrderStats?.todayOrders ?? "-"} color="#95BF47" sub={shopifyOrderStats?.todayRevenue ? fmtK(shopifyOrderStats.todayRevenue) + " revenue" : shopifyOrderStats?.totalOrders ? `${shopifyOrderStats.totalOrders.toLocaleString()} total synced` : "Sync Shopify"} />
+        <KPI icon="👥" label="DTC Customers" value={shopifyOrderStats?.totalCustomers ? shopifyOrderStats.totalCustomers.toLocaleString() : "-"} sub={shopifyOrderStats?.totalOrders ? `${shopifyOrderStats.totalOrders.toLocaleString()} lifetime orders` : ""} />
       </div>
 
       {/* BANK ACCOUNTS */}
@@ -3486,7 +3486,7 @@ function CFODashboard({ isMobile }) {
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 10, color: T.text3, marginTop: 8 }}>Balances from QuickBooks · Last synced {conn?.last_synced_at ? new Date(conn.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"} · Auto-syncs every 4 hours</div>
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 8 }}>Balances from QuickBooks · Last synced {conn?.last_synced_at ? new Date(conn.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "-"} · Auto-syncs every 4 hours</div>
         </div>
       )}
 
@@ -3554,10 +3554,10 @@ function CFODashboard({ isMobile }) {
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
         {/* Revenue by channel.
             Splits revenue accounts into gross-revenue (positive) and contra-
-            revenue (negative — refunds, discounts, rebates). Percentages are
+            revenue (negative - refunds, discounts, rebates). Percentages are
             computed against gross revenue only, so a CFO reads "Shopify =
             73% of gross revenue" instead of the previous "Shopify = 86% of
-            net revenue, and Shopify Discounts = -11% of net revenue" —
+            net revenue, and Shopify Discounts = -11% of net revenue" -
             negatives-against-net produced wonky numbers that summed to
             well over 100% on the positives and meaningless negatives on
             the discounts. */}
@@ -3594,7 +3594,7 @@ function CFODashboard({ isMobile }) {
                   <>
                     <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 12, marginBottom: 4 }}>Contra-Revenue</div>
                     {contra.map(r => {
-                      // % of gross — useful for "discounts are 13% of gross."
+                      // % of gross - useful for "discounts are 13% of gross."
                       // Stays positive because we're sizing impact, not net share.
                       const pctVal = grossTotal > 0 ? (Math.abs(Number(r.amount)) / grossTotal * 100) : 0;
                       return (
@@ -3612,14 +3612,14 @@ function CFODashboard({ isMobile }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0 0", borderTop: `1px solid ${T.border}`, marginTop: 6, fontSize: 12, fontWeight: 800, color: T.text }}>
                   <div style={{ flex: 1 }}>Net Revenue</div>
                   <span style={{ minWidth: 55, textAlign: "right" }}>{fmtK(grossTotal + contraTotal)}</span>
-                  <span style={{ fontSize: 10, color: T.text3, minWidth: 40, textAlign: "right" }}>{grossTotal > 0 ? `${((grossTotal + contraTotal) / grossTotal * 100).toFixed(1)}%` : "—"}</span>
+                  <span style={{ fontSize: 10, color: T.text3, minWidth: 40, textAlign: "right" }}>{grossTotal > 0 ? `${((grossTotal + contraTotal) / grossTotal * 100).toFixed(1)}%` : "-"}</span>
                 </div>
               </>
             );
           })()}
         </div>
 
-        {/* Balance Sheet Summary — section totals come from QBO Summary rows
+        {/* Balance Sheet Summary - section totals come from QBO Summary rows
             (already loaded into totalAssets / totalLiabilities / totalEquity
             with correct signs). Per-account list excludes Summary rows so the
             'Total ...' rows aren't shown as if they were accounts. */}
@@ -3659,7 +3659,7 @@ function CFODashboard({ isMobile }) {
       {/* CASH FLOW SUMMARY */}
       {(deposits.length > 0 || payments.length > 0) && (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: isMobile ? 12 : 18 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Cash Flow Summary — 2026 YTD</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Cash Flow Summary - 2026 YTD</div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 6 }}>CASH IN</div>
@@ -3693,7 +3693,7 @@ function CFODashboard({ isMobile }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BALANCE SHEET VIEW — sectioned view of the latest QBO BS snapshot.
+// BALANCE SHEET VIEW - sectioned view of the latest QBO BS snapshot.
 // Sources from qbo_balance_sheet, refreshed daily by the qbo-sync edge function.
 // Shows Assets / Liabilities / Equity with per-account amounts, share-of-section
 // percentages, and a footer that flags any imbalance (Assets ≠ Liabilities + Equity)
@@ -3737,7 +3737,7 @@ function BalanceSheetView({ isMobile }) {
   const summaryRows = rows.filter(r => r.is_summary);
 
   // Resolve QBO's pre-signed section totals by name. These ARE the numbers
-  // QBO would print on the actual report — already net of any contra rows.
+  // QBO would print on the actual report - already net of any contra rows.
   const findSummary = (predicate) => summaryRows.find(r => predicate((r.account_name || "")));
   const totalAssetsRow  = findSummary(n => /^total assets$/i.test(n));
   const totalLiabsRow   = findSummary(n => /^total liabilities$/i.test(n));
@@ -3828,7 +3828,7 @@ function BalanceSheetView({ isMobile }) {
         <div>
           <div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>Balance Sheet</div>
           <div style={{ fontSize: 12, color: T.text3 }}>
-            From QuickBooks Online · as of {reportDate ? new Date(reportDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}
+            From QuickBooks Online · as of {reportDate ? new Date(reportDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "-"}
             {" · "}{dataRows.length} accounts
           </div>
         </div>
@@ -3871,7 +3871,7 @@ function BalanceSheetView({ isMobile }) {
           <span style={{ fontSize: 16 }}>⚠️</span>
           <div style={{ flex: 1 }}>
             <strong style={{ color: T.text }}>Balance sheet doesn't balance by {fmt(Math.abs(imbalance))}.</strong>{" "}
-            QBO's own subtotals usually agree exactly. If you see this, the most likely cause is a stale BS snapshot — run a QBO sync.
+            QBO's own subtotals usually agree exactly. If you see this, the most likely cause is a stale BS snapshot - run a QBO sync.
           </div>
         </div>
       )}
@@ -3990,7 +3990,7 @@ function DashboardView({ requests, members, isMobile, departments, glCategories,
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// REQUESTS VIEW — Full approval workflow
+// REQUESTS VIEW - Full approval workflow
 // ═══════════════════════════════════════════════════════════════════════════════
 function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteRequest, members, departments, glCodes, glCategories, rules, activeBudget, myMembership, mySpendLimit, isAdmin, isApprover, user, profile, addAuditEntry, getDeptSpend }) {
   const [showNew, setShowNew] = useState(false);
@@ -4007,7 +4007,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   // much room they have in the parent bucket before clicking Approve.
   const [budgetSnap, setBudgetSnap] = useState(null);
   const [budgetSnapLoading, setBudgetSnapLoading] = useState(false);
-  // Form-side snapshot — same data, loaded as the requester is filling out the
+  // Form-side snapshot - same data, loaded as the requester is filling out the
   // form so they see live pacing the moment they pick a GL.
   const [formBudgetSnap, setFormBudgetSnap] = useState(null);
   const [formBudgetSnapLoading, setFormBudgetSnapLoading] = useState(false);
@@ -4104,7 +4104,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     return () => { cancelled = true; };
   }, [selReq?.id, selReq?.fulfillment_status]);
 
-  // Confirm a candidate as the actual match — appends it to matched_actuals
+  // Confirm a candidate as the actual match - appends it to matched_actuals
   // and bumps fulfillment_status. Mirrors what fin_run_match_pass would do
   // for an auto-match, but driven by user click on a suggested candidate.
   const confirmMatch = async (candidate) => {
@@ -4158,11 +4158,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       matched_amount: newTotal,
       fulfillment_status: newStatus,
     });
-    addAuditEntry("Spend match removed", `"${selReq.title}" — match removed manually`, selReq.id);
+    addAuditEntry("Spend match removed", `"${selReq.title}" - match removed manually`, selReq.id);
   };
 
   // Load the budget snapshot whenever a different request is selected.
-  // Only run when we actually have a GL code — otherwise the helper would
+  // Only run when we actually have a GL code - otherwise the helper would
   // return hasPlan: false anyway. The request being reviewed is excluded
   // from the "approved" totals so we don't double-count it.
   useEffect(() => {
@@ -4185,7 +4185,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 
   // Live budget snapshot for the *new request* form. Fires whenever the user
   // picks a different GL so they see pacing context immediately. Debounced
-  // by react's render cycle — the lookup itself is fast (sub-second) and we
+  // by react's render cycle - the lookup itself is fast (sub-second) and we
   // cache results per glCode so re-picks reuse the response.
   useEffect(() => {
     const orgId = profile?.org_id;
@@ -4196,7 +4196,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
       glCode: form.gl_code,
       orgId,
       atDate: new Date().toISOString().slice(0, 10),
-      // No requestId — this snapshot is for an unsaved request, so nothing to exclude.
+      // No requestId - this snapshot is for an unsaved request, so nothing to exclude.
     }).then(snap => {
       if (!cancelled) { setFormBudgetSnap(snap); setFormBudgetSnapLoading(false); }
     }).catch(() => {
@@ -4285,7 +4285,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           if (st.type === "c_level" && !ids.length) {
             // COO catch-all: anyone without a department Chief above them (e.g. teams
             // reporting straight to the CEO) and the C-level execs themselves route to
-            // the COO for travel — never to the CEO.
+            // the COO for travel - never to the CEO.
             const COO_FALLBACK = "32cad5dd-9e94-4095-a16d-b4521391b050";
             let curId = user?.id; const seen = new Set(); let found = null;
             while (curId && !seen.has(curId)) {
@@ -4338,7 +4338,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     const isAuto = !ruleRequiresApproval && amt <= mySpendLimit;
 
     if (editMode && editMode !== true) {
-      // Editing existing request — update it and reset to pending
+      // Editing existing request - update it and reset to pending
       const patch = {
         title: form.title, amount: amt, gl_code: form.gl_code,
         budget_category_id: glEntry?.budget_category_id || null,
@@ -4390,20 +4390,20 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         fulfillment_status: isAuto ? "awaiting_payment" : null,
       };
       const data = await addRequest(req);
-      addAuditEntry("Request submitted", `"${form.title}" for ${fmt(amt)}${matchedRule ? ` — rule: ${matchedRule.name}` : ""}`, data?.id);
-      // Slack notification — DM to admin/CFO when an approval is needed,
+      addAuditEntry("Request submitted", `"${form.title}" for ${fmt(amt)}${matchedRule ? ` - rule: ${matchedRule.name}` : ""}`, data?.id);
+      // Slack notification - DM to admin/CFO when an approval is needed,
       // or a confirmation when the request was auto-approved within the user's limit.
       const requesterName = profile?.display_name || profile?.email || "Someone";
       const fields = [
         { label: "Requester", value: requesterName },
         { label: "Amount", value: fmt(amt) + (form.cost_type === "recurring" ? ` /${form.recurring_frequency}` : "") },
-        { label: "Department", value: form.department || "—" },
-        { label: "GL Code", value: form.gl_code ? `${form.gl_code} · ${glEntry?.name || ""}`.trim() : "—" },
+        { label: "Department", value: form.department || "-" },
+        { label: "GL Code", value: form.gl_code ? `${form.gl_code} · ${glEntry?.name || ""}`.trim() : "-" },
       ];
       if (matchedRule) fields.push({ label: "Rule Applied", value: `⚡ ${matchedRule.name}` });
       if (form.description) fields.push({ label: "Description", value: form.description.slice(0, 240) });
       let budgetContext = null;
-      // Budget impact for the parent category — best-effort, don't block submit if it fails.
+      // Budget impact for the parent category - best-effort, don't block submit if it fails.
       // Format mirrors the in-form pacing card: a status line ("on track" /
       // "off track after this") plus the same YTD vs annual-budget comparison
       // and year-elapsed % so the approver can read pace at a glance.
@@ -4436,12 +4436,12 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               const overBudgetYtd = (snap.ytdRemaining - amt) < 0;
 
               const statusLine = (overBudgetMonth || overBudgetYtd)
-                ? `🚨 *Over budget* — this request would exceed the ${overBudgetYtd ? "YTD" : "monthly"} cap`
+                ? `🚨 *Over budget* - this request would exceed the ${overBudgetYtd ? "YTD" : "monthly"} cap`
                 : onTrackAfter
                   ? `✅ *On track* after this request`
                   : onTrackBefore
-                    ? `⚠️ *Off track* after this request — ${overspendPP}pp ahead of year pace`
-                    : `⚠️ *Off track* — already ${overspendPP}pp ahead of year pace`;
+                    ? `⚠️ *Off track* after this request - ${overspendPP}pp ahead of year pace`
+                    : `⚠️ *Off track* - already ${overspendPP}pp ahead of year pace`;
 
               const ytdAfter = ytdSpent + amt;
               const ytdPctAfter = ytdBudget > 0 ? Math.round((ytdAfter / ytdBudget) * 100) : null;
@@ -4464,7 +4464,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           type: "finance",
           channel: "ben",
           title: "Spend auto-approved ✅",
-          message: `*${form.title}* — auto-approved within ${requesterName}'s spend limit.`,
+          message: `*${form.title}* - auto-approved within ${requesterName}'s spend limit.`,
           fields,
           budget_context: budgetContext,
           url: "https://helm-app-six.vercel.app",
@@ -4481,7 +4481,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
           ...(requirePersonId
             ? { approver_user_ids: [requirePersonId] }
             : { channel: "ben" }),
-          title: requirePersonName ? `Spend approval needed — assigned to ${requirePersonName}` : "Spend approval needed",
+          title: requirePersonName ? `Spend approval needed - assigned to ${requirePersonName}` : "Spend approval needed",
           message: `*${form.title}* submitted by ${requesterName}.`,
           fields,
           budget_context: budgetContext,
@@ -4514,8 +4514,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     const fields = [
       { label: "Requester", value: requesterName },
       { label: "Amount", value: fmt(req.amount) + (req.cost_type === "recurring" && req.recurring_frequency ? ` /${req.recurring_frequency}` : "") },
-      { label: "Department", value: req.department || "—" },
-      { label: "GL Code", value: gl ? `${gl.code} · ${gl.name}` : (req.gl_code || "—") },
+      { label: "Department", value: req.department || "-" },
+      { label: "GL Code", value: gl ? `${gl.code} · ${gl.name}` : (req.gl_code || "-") },
     ];
     if (req.matched_rule_name) fields.push({ label: "Rule Applied", value: `⚡ ${req.matched_rule_name}` });
     fields.push({ label: "Action by", value: actorName });
@@ -4603,7 +4603,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     notifyStatusChange(selReq, {
       type: done ? "finance" : "approval",
       title: done ? "Spend approved ✅" : `Approval step ${newStep} completed`,
-      message: done ? `*${selReq.title}* has been fully approved.` : `*${selReq.title}* — moved to next approval step.`,
+      message: done ? `*${selReq.title}* has been fully approved.` : `*${selReq.title}* - moved to next approval step.`,
     });
     setSelected(null);
   };
@@ -4611,7 +4611,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   const doReject = async () => {
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "rejected", rejection_note: rejectNote, rejected_by: user.id, rejected_at: new Date().toISOString().slice(0, 10) });
-    addAuditEntry("Request rejected", `"${selReq.title}" — ${rejectNote || "no reason"}`, selReq.id);
+    addAuditEntry("Request rejected", `"${selReq.title}" - ${rejectNote || "no reason"}`, selReq.id);
     updateSlackMessage(selReq, "rejected", rejectNote);
     notifyStatusChange(selReq, {
       type: "alert",
@@ -4625,7 +4625,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   const doConditional = async () => {
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "conditionally_approved", conditional_note: conditionalNote, conditional_by: user.id, conditional_at: new Date().toISOString().slice(0, 10) });
-    addAuditEntry("Additional info required", `"${selReq.title}" — ${conditionalNote}`, selReq.id);
+    addAuditEntry("Additional info required", `"${selReq.title}" - ${conditionalNote}`, selReq.id);
     updateSlackMessage(selReq, "conditionally_approved", conditionalNote);
     notifyStatusChange(selReq, {
       type: "approval",
@@ -4640,10 +4640,10 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     if (!selReq || !resubEdits.added_info?.trim()) return;
     const patch = { status: "conditionally_approved_info_added", added_info: resubEdits.added_info, resubmitted_at: new Date().toISOString().slice(0, 10), title: resubEdits.title || selReq.title, amount: resubEdits.amount ? parseFloat(resubEdits.amount) : selReq.amount, gl_code: resubEdits.gl_code || selReq.gl_code, description: resubEdits.description ?? selReq.description, department: resubEdits.department || selReq.department };
     await updateRequest(selReq.id, patch);
-    addAuditEntry("Info added — resubmitted", `"${selReq.title}"`, selReq.id);
+    addAuditEntry("Info added - resubmitted", `"${selReq.title}"`, selReq.id);
     notifyStatusChange({ ...selReq, ...patch }, {
       type: "approval",
-      title: "Info submitted — ready to review 👀",
+      title: "Info submitted - ready to review 👀",
       message: `Additional info was provided on *${patch.title}*.`,
       extraFields: [{ label: "Info added", value: resubEdits.added_info.slice(0, 240) }],
       withApprovalButtons: true,
@@ -4666,7 +4666,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   const doRequestRemoval = async () => {
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "removal_requested", removal_reason: removalReason, removal_requested_by: user.id, removal_requested_at: new Date().toISOString().slice(0, 10) });
-    addAuditEntry("Removal requested", `"${selReq.title}" — ${removalReason || "no reason"}`, selReq.id);
+    addAuditEntry("Removal requested", `"${selReq.title}" - ${removalReason || "no reason"}`, selReq.id);
     notifyStatusChange(selReq, {
       type: "approval",
       title: "Removal requested 🗑️",
@@ -4679,11 +4679,11 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
   const doApproveRemoval = async () => {
     if (!selReq) return;
     await updateRequest(selReq.id, { status: "removed", removed_by: user.id, removed_at: new Date().toISOString().slice(0, 10) });
-    addAuditEntry("Removal approved", `"${selReq.title}" removed — budget reversed`, selReq.id);
+    addAuditEntry("Removal approved", `"${selReq.title}" removed - budget reversed`, selReq.id);
     notifyStatusChange(selReq, {
       type: "alert",
       title: "Spend removed 🗑️",
-      message: `*${selReq.title}* has been removed — budget reversed.`,
+      message: `*${selReq.title}* has been removed - budget reversed.`,
     });
     setSelected(null);
   };
@@ -4695,7 +4695,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
     notifyStatusChange(selReq, {
       type: "approval",
       title: "Removal denied",
-      message: `*${selReq.title}* stays approved — removal denied.`,
+      message: `*${selReq.title}* stays approved - removal denied.`,
     });
     setSelected(null);
   };
@@ -4710,7 +4710,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
         <button onClick={() => setShowNew(true)} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Request</button>
       </div>
 
-      {/* Status filters — Awaiting Fulfillment surfaces approved requests
+      {/* Status filters - Awaiting Fulfillment surfaces approved requests
           we haven't yet seen actual spend for. The matcher runs nightly;
           users can also click 'Run match' below to run it on demand. */}
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
@@ -4861,7 +4861,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 </div>
               </div>
 
-              {/* Vendor — used at fulfillment-match time to pair this approval
+              {/* Vendor - used at fulfillment-match time to pair this approval
                   with a fin_vendor_spend row. Optional today (legacy requests
                   don't have it) but strongly encouraged for new ones. */}
               <div>
@@ -4873,7 +4873,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                   style={{ width: "100%", padding: "8px 12px", fontSize: 13, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, outline: "none", boxSizing: "border-box" }} />
               </div>
 
-              {/* Live pacing card — surfaces the moment a GL is picked so the
+              {/* Live pacing card - surfaces the moment a GL is picked so the
                   requester knows whether they're on/off-track for the year.
                   Off-track means we're spending FASTER than time-of-year would
                   suggest; under-pace is fine and shown as on track. */}
@@ -4968,19 +4968,19 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 );
               })()}
 
-              {/* Is this already in the budget? — surfaced next to live pacing so it's answered in context */}
+              {/* Is this already in the budget? - surfaced next to live pacing so it's answered in context */}
               {form.gl_code && (
               <div style={{ background: form.budget_accounted_for === "no" ? "#F59E0B10" : T.surface2, border: `1px solid ${form.budget_accounted_for === "no" ? "#F59E0B60" : (!form.budget_accounted_for ? T.accent + "60" : T.border)}`, borderRadius: 10, padding: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 4 }}>📋 Is this already in the budget?</div>
                 <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>Whether this cost is already in the approved annual budget for this GL, or it's net-new spend on top of it.</div>
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 6 }}>
-                  {[["yes_exact","✓ Yes — at this cost"],["yes_lower","↑ Yes — but higher than budgeted"],["yes_higher","↓ Yes — lower than budgeted"],["no","✗ No — net-new / not budgeted"],["unsure","? Unsure"]].map(([v,l]) => (
+                  {[["yes_exact","✓ Yes - at this cost"],["yes_lower","↑ Yes - but higher than budgeted"],["yes_higher","↓ Yes - lower than budgeted"],["no","✗ No - net-new / not budgeted"],["unsure","? Unsure"]].map(([v,l]) => (
                     <button key={v} type="button" onClick={() => setForm(f => ({ ...f, budget_accounted_for: v }))}
                       style={{ padding: "8px 10px", borderRadius: 8, border: `2px solid ${form.budget_accounted_for === v ? T.accent : T.border}`, background: form.budget_accounted_for === v ? T.accent + "15" : "transparent", color: form.budget_accounted_for === v ? T.accent : T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>{l}</button>
                   ))}
                 </div>
-                {form.budget_accounted_for === "no" && <div style={{ fontSize: 10, color: "#B45309", marginTop: 8, lineHeight: 1.5 }}>⚠️ Net-new spend — not in the current budget. It'll be flagged as requesting additional budget, and the pacing above already adds it on top of what's been spent this year.</div>}
-                {form.budget_accounted_for === "yes_lower" && <div style={{ fontSize: 10, color: "#B45309", marginTop: 8, lineHeight: 1.5 }}>⚠️ Costs more than budgeted — the amount above plan is effectively additional spend.</div>}
+                {form.budget_accounted_for === "no" && <div style={{ fontSize: 10, color: "#B45309", marginTop: 8, lineHeight: 1.5 }}>⚠️ Net-new spend - not in the current budget. It'll be flagged as requesting additional budget, and the pacing above already adds it on top of what's been spent this year.</div>}
+                {form.budget_accounted_for === "yes_lower" && <div style={{ fontSize: 10, color: "#B45309", marginTop: 8, lineHeight: 1.5 }}>⚠️ Costs more than budgeted - the amount above plan is effectively additional spend.</div>}
               </div>
               )}
 
@@ -5065,8 +5065,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 const hit = ruleHits[0];
                 const isAuto = !hit && amt <= mySpendLimit;
                 const msg = hit?.action === "block" ? `⛔ Rule "${hit.name}" will block this`
-                  : hit ? `⚡ Rule: "${hit.name}" — ${hit.action.replace(/_/g, " ")}`
-                  : isAuto ? `✓ Within your limit (${fmt(mySpendLimit)}) — auto-approved`
+                  : hit ? `⚡ Rule: "${hit.name}" - ${hit.action.replace(/_/g, " ")}`
+                  : isAuto ? `✓ Within your limit (${fmt(mySpendLimit)}) - auto-approved`
                   : `⚠ Requires ${amt > 10000 ? "high-value chain (3-step)" : "standard chain (2-step)"}`;
                 const bg = hit?.action === "block" ? "#FEE2E220" : isAuto ? "#D1FAE520" : "#FEF3C720";
                 return <div style={{ padding: "10px 14px", borderRadius: 8, background: bg, fontSize: 12, fontWeight: 600, color: T.text2 }}>{msg}</div>;
@@ -5135,8 +5135,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               const ytdPctAfter = budgetSnap.ytdBudget > 0 ? (budgetSnap.ytdSpent + reqAmt) / budgetSnap.ytdBudget : null;
               const wouldOverMonth = monthAfter < 0;
               const wouldOverYtd = ytdAfter < 0;
-              const monthPctText = monthPctAfter != null ? `${Math.round(monthPctAfter * 100)}%` : "—";
-              const ytdPctText = ytdPctAfter != null ? `${Math.round(ytdPctAfter * 100)}%` : "—";
+              const monthPctText = monthPctAfter != null ? `${Math.round(monthPctAfter * 100)}%` : "-";
+              const ytdPctText = ytdPctAfter != null ? `${Math.round(ytdPctAfter * 100)}%` : "-";
               const Bar = ({ pct, danger }) => {
                 if (pct == null) return null;
                 const w = Math.min(100, Math.max(0, pct * 100));
@@ -5159,7 +5159,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                       <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 2 }}>THIS MONTH</div>
                       <div style={{ fontSize: 12, color: T.text }}>
                         {fmt(budgetSnap.monthSpent)} of {fmt(budgetSnap.monthBudget)}
-                        <span style={{ color: T.text3, marginLeft: 4 }}>({budgetSnap.monthPct != null ? Math.round(budgetSnap.monthPct * 100) : "—"}%)</span>
+                        <span style={{ color: T.text3, marginLeft: 4 }}>({budgetSnap.monthPct != null ? Math.round(budgetSnap.monthPct * 100) : "-"}%)</span>
                       </div>
                       <Bar pct={budgetSnap.monthPct} />
                       <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
@@ -5171,7 +5171,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                       <div style={{ fontSize: 10, fontWeight: 600, color: T.text3, marginBottom: 2 }}>YTD</div>
                       <div style={{ fontSize: 12, color: T.text }}>
                         {fmt(budgetSnap.ytdSpent)} of {fmt(budgetSnap.ytdBudget)}
-                        <span style={{ color: T.text3, marginLeft: 4 }}>({budgetSnap.ytdPct != null ? Math.round(budgetSnap.ytdPct * 100) : "—"}%)</span>
+                        <span style={{ color: T.text3, marginLeft: 4 }}>({budgetSnap.ytdPct != null ? Math.round(budgetSnap.ytdPct * 100) : "-"}%)</span>
                       </div>
                       <Bar pct={budgetSnap.ytdPct} />
                       <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
@@ -5190,7 +5190,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                     const overAnnual = annualBudget > 0 && (budgetSnap.ytdSpent + total) > annualBudget;
                     return (
                       <div style={{ fontSize: 10, color: T.text3, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-                        ↻ Recurring — full-year commitment <strong style={{ color: T.text }}>{fmt(total)}</strong>
+                        ↻ Recurring - full-year commitment <strong style={{ color: T.text }}>{fmt(total)}</strong>
                         {annualBudget > 0 && <> vs annual budget <strong style={{ color: T.text }}>{fmt(annualBudget)}</strong>{overAnnual && <span style={{ color: "#EF4444", fontWeight: 700 }}> · exceeds annual budget</span>}</>}
                       </div>
                     );
@@ -5199,7 +5199,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               );
             })()}
 
-            {/* Fulfillment Match — only for approved requests. Shows already-
+            {/* Fulfillment Match - only for approved requests. Shows already-
                 matched actuals (with unmatch button), suggested candidates
                 (with confirm/dismiss), and a summary of variance vs approved. */}
             {selReq.status === "approved" && (
@@ -5280,7 +5280,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                             </button>
                             <button onClick={() => dismissCandidate(c)}
                               style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, borderRadius: 5, cursor: "pointer" }}
-                              title="Not this one — don't suggest again">
+                              title="Not this one - don't suggest again">
                               ✕
                             </button>
                           </span>
@@ -5302,7 +5302,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
               {[
                 { l: "Amount", v: fmt(selReq.amount) },
-                { l: "GL", v: glCodes.find(g => g.code === selReq.gl_code)?.name || selReq.gl_code || "—" },
+                { l: "GL", v: glCodes.find(g => g.code === selReq.gl_code)?.name || selReq.gl_code || "-" },
                 { l: "Type", v: selReq.cost_type === "recurring" ? `↻ ${selReq.recurring_frequency}` : "One-time" },
               ].map(f => (
                 <div key={f.l} style={{ background: T.surface2, borderRadius: 8, padding: "10px 12px" }}>
@@ -5329,8 +5329,8 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                 <div style={{ fontSize: 12, color: T.text }}>{selReq.quotes_obtained === "yes" ? `✅ ${(selReq.quotes || []).length} quote(s) obtained` : "❌ No quotes obtained"}</div>
                 {(selReq.quotes || []).map((q, i) => (
                   <div key={i} style={{ marginTop: 6, padding: "6px 8px", background: T.surface, borderRadius: 6, fontSize: 11, display: "flex", justifyContent: "space-between" }}>
-                    <span><strong>{q.supplier || "Vendor"}</strong>{q.notes ? ` — ${q.notes}` : ""}</span>
-                    <span style={{ fontWeight: 700 }}>{q.amount ? fmt(parseFloat(q.amount)) : "—"}</span>
+                    <span><strong>{q.supplier || "Vendor"}</strong>{q.notes ? ` - ${q.notes}` : ""}</span>
+                    <span style={{ fontWeight: 700 }}>{q.amount ? fmt(parseFloat(q.amount)) : "-"}</span>
                   </div>
                 ))}
               </div>
@@ -5389,7 +5389,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
               </div>
             )}
 
-            {/* Approver actions — only show if you're NOT the requester */}
+            {/* Approver actions - only show if you're NOT the requester */}
             {isApprover && !isMyRequest && (selReq.status === "pending" || selReq.status === "conditionally_approved_info_added") && (
               <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
                 {!showReject && !showConditional ? (
@@ -5441,7 +5441,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
                       <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Department</div><select value={resubEdits.department || ""} onChange={e => setResubEdits(p => ({ ...p, department: e.target.value }))} style={{ width: "100%", padding: "6px 8px", fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, boxSizing: "border-box" }}><option value="">Select…</option>{departments.filter(d => !d.parent_id).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></div>
                     </div>
                     <div><div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Description</div><textarea value={resubEdits.description || ""} onChange={e => setResubEdits(p => ({ ...p, description: e.target.value }))} rows={2} style={{ width: "100%", padding: "6px 8px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }} /></div>
-                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginBottom: 2 }}>Note to approver — what changed? *</div><textarea value={resubEdits.added_info || ""} onChange={e => setResubEdits(p => ({ ...p, added_info: e.target.value }))} rows={3} placeholder="Explain what you updated…" style={{ width: "100%", padding: "6px 8px", border: `1px solid ${resubEdits.added_info?.trim() ? T.accent : "#FECACA"}`, borderRadius: 6, fontSize: 12, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box", background: T.surface }} /></div>
+                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginBottom: 2 }}>Note to approver - what changed? *</div><textarea value={resubEdits.added_info || ""} onChange={e => setResubEdits(p => ({ ...p, added_info: e.target.value }))} rows={3} placeholder="Explain what you updated…" style={{ width: "100%", padding: "6px 8px", border: `1px solid ${resubEdits.added_info?.trim() ? T.accent : "#FECACA"}`, borderRadius: 6, fontSize: 12, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box", background: T.surface }} /></div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={doResubmit} disabled={!resubEdits.added_info?.trim()} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: !resubEdits.added_info?.trim() ? 0.5 : 1 }}>↑ Resubmit</button>
                       <button onClick={() => { setShowResubmit(false); setResubEdits({}); }} style={{ padding: "7px 14px", fontSize: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>Cancel</button>
@@ -5489,10 +5489,10 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
             {/* Approver: approve or deny removal */}
             {isApprover && selReq.status === "removal_requested" && (
               <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Removal Request — Action Required</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 8 }}>Removal Request - Action Required</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={doApproveRemoval} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, background: "#BE185D", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>✓ Approve Removal</button>
-                  <button onClick={doDenyRemoval} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>✗ Deny — Keep Approved</button>
+                  <button onClick={doDenyRemoval} style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text3, cursor: "pointer" }}>✗ Deny - Keep Approved</button>
                 </div>
               </div>
             )}
@@ -5546,7 +5546,7 @@ function RequestsView({ requests, isMobile, addRequest, updateRequest, deleteReq
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BUDGETS VIEW — G&A category budgets with department allocations
+// BUDGETS VIEW - G&A category budgets with department allocations
 // ═══════════════════════════════════════════════════════════════════════════════
 function BudgetsView({ isMobile, glCategories, requests, departments, activeBudget, setActiveBudget, activeBudgetName, setActiveBudgetName, budgetVersions, setBudgetVersions, user, modulePerms = {} }) {
   const { orgId, orgs } = useAuth();
@@ -5631,7 +5631,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     })();
   }, [orgId]);
 
-  // Map QBO accounts to GA categories — filtered by selected budget year
+  // Map QBO accounts to GA categories - filtered by selected budget year
   const qboByCategory = {};
   const qboPLYear = String(budgetYear);
   qboPL.forEach(r => {
@@ -5643,7 +5643,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       qboByCategory[cat] += Number(r.amount) || 0;
     }
   });
-  // Normalize category names for matching (case/whitespace tolerance only —
+  // Normalize category names for matching (case/whitespace tolerance only -
   // the canonical names in af_gl_categories now match QBO's ga_category exactly).
   const normalizeCat = (name) => (name || "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "").trim();
   // Historically Helm's display names (e.g. "Travel & Entertainment") differed
@@ -5677,7 +5677,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     }).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
   };
 
-  // Get vendors for a given budget category — matches bills AND purchases via GL codes + names
+  // Get vendors for a given budget category - matches bills AND purchases via GL codes + names
   const getVendorsForCat = (catName) => {
     const reverseMap = {};
     Object.entries(QBO_TO_BUDGET_MAP).forEach(([qbo, budget]) => { reverseMap[budget] = qbo; });
@@ -6080,7 +6080,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     }
   };
 
-  // Handle paste from spreadsheet — accepts tab or newline separated values
+  // Handle paste from spreadsheet - accepts tab or newline separated values
   const handleMonthlyPaste = async (e, glAccountName, categoryName, months) => {
     const text = e.clipboardData?.getData("text");
     if (!text) return;
@@ -6091,13 +6091,13 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
     // Also handle mixed: take first row if multi-row paste
     let rawValues;
     if (rawText.includes("\t")) {
-      // Row paste — take first line, split by tab
+      // Row paste - take first line, split by tab
       rawValues = rawText.split("\n")[0].split("\t");
     } else if (rawText.includes("\n")) {
       // Column paste
       rawValues = rawText.split("\n");
     } else {
-      // Single value — just let normal input handling take it
+      // Single value - just let normal input handling take it
       return;
     }
     e.preventDefault();
@@ -6108,8 +6108,8 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
       if (cleaned.startsWith("(") && cleaned.endsWith(")")) {
         cleaned = "-" + cleaned.slice(1, -1);
       }
-      // Handle "$ -" or "-" or "—" as zero
-      if (cleaned === "" || cleaned === "-" || cleaned === "—" || cleaned === "0") return 0;
+      // Handle "$ -" or "-" or "-" as zero
+      if (cleaned === "" || cleaned === "-" || cleaned === "-" || cleaned === "0") return 0;
       return Number(cleaned) || 0;
     });
     if (values.length === 0) return;
@@ -6255,7 +6255,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
         // For 2026+: actuals come from QBO
         const getMonthCatActual = (catName, month) => {
           if (budgetYear === 2025) {
-            // 2025 budget data IS the actuals — return budget line amounts
+            // 2025 budget data IS the actuals - return budget line amounts
             return getCatMonthBudget(catName, month);
           }
           // For other years, pull from QBO
@@ -6311,7 +6311,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                           <span style={{ marginRight: 6 }}>{cat.icon}</span>{cat.name}
                           {catLines.length > 0 && <span style={{ fontSize: 9, color: T.text3, marginLeft: 4 }}>({catLines.length})</span>}
                         </td>
-                        <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: budgetYTD ? T.text : T.text3 }}>{budgetYTD ? fmtK(budgetYTD) : "—"}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 600, color: budgetYTD ? T.text : T.text3 }}>{budgetYTD ? fmtK(budgetYTD) : "-"}</td>
                         {months.map(m => {
                           const actual = getMonthCatActual(cat.name, m);
                           const budget = getCatMonthBudget(cat.name, m);
@@ -6321,7 +6321,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                             <td key={m} style={{ padding: "4px 6px", textAlign: "right", fontSize: 10, verticalAlign: "top" }}>
                               {hasBudget && <div style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 600 }}>{fmtK(budget)}</div>}
                               <div style={{ fontWeight: actual > 0 ? 600 : 400, color: actual === 0 ? T.text3 + "40" : overBudget ? "#ef4444" : isFuture(m) ? T.text3 : T.text2 }}>
-                                {actual === 0 ? "—" : fmtK(actual)}
+                                {actual === 0 ? "-" : fmtK(actual)}
                               </div>
                               {hasBudget && actual > 0 && (
                                 <div style={{ fontSize: 8, color: actual <= budget ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
@@ -6331,9 +6331,9 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                             </td>
                           );
                         })}
-                        <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: T.accent }}>{qboYTD > 0 ? fmtK(qboYTD) : "—"}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: T.accent }}>{qboYTD > 0 ? fmtK(qboYTD) : "-"}</td>
                         <td style={{ padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: budgetYTD === 0 ? T.text3 : variance >= 0 ? T.green : T.red }}>
-                          {budgetYTD === 0 ? "—" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
+                          {budgetYTD === 0 ? "-" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
                         </td>
                       </tr>
                       {/* Expanded GL line rows */}
@@ -6347,7 +6347,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                               {line.gl_account_name}
                             </td>
                             <td style={{ padding: "4px 10px", textAlign: "right", fontSize: 10, fontWeight: 500, color: lineAnnual > 0 ? T.text2 : T.text3 }}>
-                              {lineAnnual > 0 ? fmtK(lineAnnual) : "—"}
+                              {lineAnnual > 0 ? fmtK(lineAnnual) : "-"}
                             </td>
                             {months.map((m, mi) => {
                               const val = line.monthly_amounts?.[m] ?? "";
@@ -6357,7 +6357,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                                     <input
                                       type="text"
                                       defaultValue={val === 0 ? "" : (typeof val === "number" ? val.toLocaleString() : val)}
-                                      placeholder="—"
+                                      placeholder="-"
                                       data-month-idx={mi}
                                       data-gl={line.gl_account_name}
                                       onPaste={e => handleMonthlyPaste(e, line.gl_account_name, cat.name, months)}
@@ -6386,7 +6386,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                               );
                             })}
                             <td style={{ padding: "4px 10px", textAlign: "right", fontSize: 10, color: T.text3 }}>
-                              {lineAnnual > 0 ? fmtK(lineAnnual) : "—"}
+                              {lineAnnual > 0 ? fmtK(lineAnnual) : "-"}
                             </td>
                             <td style={{ padding: "4px 10px" }}></td>
                           </tr>
@@ -6402,11 +6402,11 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                   {months.map((m, i) => (
                     <td key={m} style={{ padding: "4px 6px", textAlign: "right", verticalAlign: "top" }}>
                       {monthlyBudgetTotals[i] > 0 && <div style={{ fontSize: 9, fontWeight: 700, color: "#8b5cf6" }}>{fmtK(monthlyBudgetTotals[i])}</div>}
-                      <div style={{ fontSize: 11, fontWeight: 900, color: T.text }}>{monthlyActualTotals[i] > 0 ? fmtK(monthlyActualTotals[i]) : "—"}</div>
+                      <div style={{ fontSize: 11, fontWeight: 900, color: T.text }}>{monthlyActualTotals[i] > 0 ? fmtK(monthlyActualTotals[i]) : "-"}</div>
                     </td>
                   ))}
                   <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: T.accent }}>{fmtK(monthlyActualTotals.reduce((s, v) => s + v, 0))}</td>
-                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0) >= 0 ? T.green : T.red }}>{totalBudget > 0 ? `${totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0) >= 0 ? "+" : ""}${fmtK(totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0))}` : "—"}</td>
+                  <td style={{ padding: "10px 10px", textAlign: "right", fontSize: 12, fontWeight: 900, color: totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0) >= 0 ? T.green : T.red }}>{totalBudget > 0 ? `${totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0) >= 0 ? "+" : ""}${fmtK(totalBudget - monthlyActualTotals.reduce((s, v) => s + v, 0))}` : "-"}</td>
                 </tr>
               </tbody>
             </table>
@@ -6468,11 +6468,11 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                 ) : (
                   <div onClick={() => { if (canEdit) { setEditingCat(cat); setCompanyAmt(cat.companyBudget || 0); } }}
                     style={{ fontSize: 16, fontWeight: 800, color: cat.companyBudget ? T.text : T.text3, cursor: canEdit ? "pointer" : "default" }}>
-                    {cat.companyBudget ? fmt(cat.companyBudget) : (canEdit ? "Click to set" : "—")}{canEdit && cat.companyBudget > 0 && <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>✎</span>}
+                    {cat.companyBudget ? fmt(cat.companyBudget) : (canEdit ? "Click to set" : "-")}{canEdit && cat.companyBudget > 0 && <span style={{ fontSize: 10, color: T.text3, marginLeft: 4 }}>✎</span>}
                   </div>
                 )}
                 </>) : (
-                  /* No amount access — show % only */
+                  /* No amount access - show % only */
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>Budget Usage</div>
                     <div style={{ fontSize: 18, fontWeight: 800, color: utilPct > 100 ? "#EF4444" : utilPct > 80 ? "#F59E0B" : T.green }}>{utilPct}%</div>
@@ -6535,7 +6535,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                           </div>
                           {canEdit && activeFinBudgetId && (
                             <div style={{ width: 90, flexShrink: 0 }}>
-                              <input type="number" defaultValue={lineBudget ?? ""} placeholder="—"
+                              <input type="number" defaultValue={lineBudget ?? ""} placeholder="-"
                                 onBlur={e => {
                                   const val = e.target.value === "" ? 0 : Number(e.target.value);
                                   if (val !== (lineBudget ?? 0)) upsertBudgetLine(r.account_name, val, cat.name);
@@ -6547,7 +6547,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                           {canViewAmounts && <span style={{ fontSize: 11, fontWeight: 600, color: T.text, minWidth: 70, textAlign: "right", flexShrink: 0 }}>{fmt(actual)}</span>}
                           {canEdit && activeFinBudgetId && (
                             <span style={{ fontSize: 10, fontWeight: 600, minWidth: 60, textAlign: "right", flexShrink: 0, color: variance == null ? T.text3 : variance >= 0 ? "#22c55e" : "#ef4444" }}>
-                              {variance == null ? "—" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
+                              {variance == null ? "-" : `${variance >= 0 ? "+" : ""}${fmtK(variance)}`}
                             </span>
                           )}
                           <span style={{ fontSize: 9, color: T.text3, minWidth: 32, textAlign: "right", flexShrink: 0 }}>{acctPct.toFixed(0)}%</span>
@@ -6738,7 +6738,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
                         }}
                           style={{ padding: "3px 6px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text2, minWidth: 140 }}>
                           {budgetCategoryNames.map(c => <option key={c} value={c}>{c}</option>)}
-                          <option value="__remove__">— Remove mapping —</option>
+                          <option value="__remove__">- Remove mapping -</option>
                         </select>
                       </div>
                     );
@@ -6935,7 +6935,7 @@ function BudgetsView({ isMobile, glCategories, requests, departments, activeBudg
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DEPARTMENTS VIEW — CRUD with hierarchy
+// DEPARTMENTS VIEW - CRUD with hierarchy
 // ═══════════════════════════════════════════════════════════════════════════════
 function DepartmentsView({ isMobile, departments, setDepartments, members, requests, getDeptSpend }) {
   const [showNew, setShowNew] = useState(false);
@@ -7047,7 +7047,7 @@ function DepartmentsView({ isMobile, departments, setDepartments, members, reque
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// RULES ENGINE — IF/THEN approval routing
+// RULES ENGINE - IF/THEN approval routing
 // ═══════════════════════════════════════════════════════════════════════════════
 function RulesView({ isMobile, rules, setRules, glCodes, departments = [], members, user }) {
   const [showNew, setShowNew] = useState(false);
@@ -7300,7 +7300,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                         <option value="is">is</option><option value="is_not">is not</option><option value="starts_with">starts with</option>
                       </select>
                     )}
-                    {/* Value input — varies by field + operator */}
+                    {/* Value input - varies by field + operator */}
                     {cond.field === "amount" && (
                       <input type="number" value={cond.value} onChange={e => updCond(idx, "value", e.target.value)} placeholder="0.00"
                         style={{ flex: 1, minWidth: 120, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, background: T.surface2, color: T.text, outline: "none" }} />
@@ -7344,10 +7344,10 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                 </select>
               </div>
 
-              {/* Approver chain builder — sequential approvers, each with an optional amount threshold */}
+              {/* Approver chain builder - sequential approvers, each with an optional amount threshold */}
               {form.action === "chain" && (
                 <div>
-                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Approvers — in order</div>
+                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Approvers - in order</div>
                   <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>Each approver must sign off before it moves to the next. Add a threshold to only involve someone when the amount is over a set value (e.g. Manager always, then CFO if over $5,000).</div>
                   {(form.approver_steps || []).map((step, idx) => (
                     <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
@@ -7362,7 +7362,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                           {(step.approver_ids || []).map((aid, ai) => (
                             <span key={aid} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#EDE9FE", color: "#5B21B6", borderRadius: 12, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>
-                              {(step.approver_names || [])[ai] || "—"}
+                              {(step.approver_names || [])[ai] || "-"}
                               <span onClick={() => remStepApprover(idx, ai)} style={{ cursor: "pointer", fontWeight: 800 }}>×</span>
                             </span>
                           ))}
@@ -7372,7 +7372,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
                             {(members || []).filter(m => !(step.approver_ids || []).includes(m.user_id)).map(m => <option key={m.user_id} value={m.user_id}>{m.profiles?.display_name || m.profiles?.email || m.user_id}</option>)}
                           </select>
                         </div>
-                        {!(step.approver_ids || []).length && <span style={{ fontSize: 9, color: T.text3 }}>{step.type === "person" ? "Required: pick who approves this step" : "Optional — leave blank to allow any approver, or lock to specific people"}</span>}
+                        {!(step.approver_ids || []).length && <span style={{ fontSize: 9, color: T.text3 }}>{step.type === "person" ? "Required: pick who approves this step" : "Optional - leave blank to allow any approver, or lock to specific people"}</span>}
                       </div>
                       )}
                       <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -7403,7 +7403,7 @@ function RulesView({ isMobile, rules, setRules, glCodes, departments = [], membe
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// REPORTS VIEW — Spend analysis
+// REPORTS VIEW - Spend analysis
 // ═══════════════════════════════════════════════════════════════════════════════
 function ReportsView({ isMobile, requests, members, departments, glCodes, glCategories }) {
   const approved = requests.filter(r => r.status === "approved");
@@ -7536,7 +7536,7 @@ function AuditLogView({ isMobile, auditLog }) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VENDOR SPEND VIEW — January 2026 closed book detail
+// VENDOR SPEND VIEW - January 2026 closed book detail
 // ═══════════════════════════════════════════════════════════════════════════════
 function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
   const { orgId } = useAuth();
@@ -7711,7 +7711,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
   // Edit team for a vendor
   const updateVendorTeam = async (vendorName, newTeam) => {
     setData(p => p.map(r => r.vendor_name === vendorName ? { ...r, team: newTeam } : r));
-    // Apply team tag across every period row for this vendor — team
+    // Apply team tag across every period row for this vendor - team
     // attribution is a vendor-level property, not a per-month one.
     await supabase.from("fin_vendor_spend").update({ team: newTeam }).eq("org_id", orgId).eq("vendor_name", vendorName);
     setEditingTeam(null);
@@ -7720,7 +7720,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
   // Edit G&A category for a vendor
   const updateVendorGA = async (vendorName, newGA) => {
     setData(p => p.map(r => r.vendor_name === vendorName ? { ...r, ga_category: newGA } : r));
-    // Same reasoning as updateVendorTeam — apply across all periods.
+    // Same reasoning as updateVendorTeam - apply across all periods.
     await supabase.from("fin_vendor_spend").update({ ga_category: newGA }).eq("org_id", orgId).eq("vendor_name", vendorName);
     setEditingGA(null);
   };
@@ -7731,7 +7731,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
     <div style={{ padding: isMobile ? 12 : 20 }}>
       {/* Header */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>January 2026 — Vendor Spend</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: T.text }}>January 2026 - Vendor Spend</div>
         <div style={{ fontSize: 12, color: T.text3 }}>Closed book detail · {data.length} line items · {Object.keys(byVendor).length} vendors · Linked to GL & Approval System</div>
       </div>
 
@@ -7823,7 +7823,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
         </div>
       )}
 
-      {/* QBO ACTUALS — P&L mapped to budget categories */}
+      {/* QBO ACTUALS - P&L mapped to budget categories */}
       {subView === "qbo_actuals" && (() => {
         const plExpenses = qboPL.filter(r => r.classification === "Expense");
         const mapped = plExpenses.map(r => ({ ...r, ga_category: mapToGA(r.account_name) }));
@@ -7898,8 +7898,8 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
                                     {relatedBills.slice(0, 50).map(b => (
                                       <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                          <span style={{ fontWeight: 600, color: T.text }}>{b.vendor_name || "—"}</span>
-                                          {b.memo && <span style={{ color: T.text3, marginLeft: 6, fontSize: 10 }}>— {b.memo.slice(0, 60)}</span>}
+                                          <span style={{ fontWeight: 600, color: T.text }}>{b.vendor_name || "-"}</span>
+                                          {b.memo && <span style={{ color: T.text3, marginLeft: 6, fontSize: 10 }}>- {b.memo.slice(0, 60)}</span>}
                                         </div>
                                         <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
                                           <span style={{ fontSize: 10, color: T.text3 }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
@@ -7924,7 +7924,7 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
                 {/* Unmatched section */}
                 {unmatched.length > 0 && (
                   <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#EF4444", marginBottom: 8 }}>⚠ Unmatched Accounts — Assign a Category ({unmatched.length})</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#EF4444", marginBottom: 8 }}>⚠ Unmatched Accounts - Assign a Category ({unmatched.length})</div>
                     <div style={{ background: T.surface, border: `1px solid #EF444430`, borderRadius: 8, padding: 12 }}>
                       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr auto auto", gap: 0 }}>
                         <div style={{ padding: "6px 8px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", borderBottom: `2px solid ${T.border}` }}>Account</div>
@@ -7963,8 +7963,8 @@ function VendorSpendView({ isMobile, glCodes, glCategories, departments }) {
                                     {relBills.slice(0, 50).map(b => (
                                       <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: 11, borderBottom: `1px solid ${T.border}10` }}>
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                          <span style={{ fontWeight: 600, color: T.text }}>{b.vendor_name || "—"}</span>
-                                          {b.memo && <span style={{ color: T.text3, marginLeft: 6, fontSize: 10 }}>— {b.memo.slice(0, 60)}</span>}
+                                          <span style={{ fontWeight: 600, color: T.text }}>{b.vendor_name || "-"}</span>
+                                          {b.memo && <span style={{ color: T.text3, marginLeft: 6, fontSize: 10 }}>- {b.memo.slice(0, 60)}</span>}
                                         </div>
                                         <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
                                           <span style={{ fontSize: 10, color: T.text3 }}>{b.txn_date ? new Date(b.txn_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>

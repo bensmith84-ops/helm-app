@@ -1,4 +1,4 @@
-// POST /metabase-sync — STUB ROUTE
+// POST /metabase-sync - STUB ROUTE
 //
 // The EDM warehouse (Metabase) was decommissioned 2025-06-01. The Scoreboard
 // component still tries to sync chunks via this endpoint when the user clicks

@@ -1,5 +1,5 @@
 
-// POST /fin-analyze — port of supabase/functions/fin-analyze
+// POST /fin-analyze - port of supabase/functions/fin-analyze
 // AI-powered Q1 P&L analyzer with reclassify capability.
 const Anthropic = require('@anthropic-ai/sdk');
 const DEFAULT_ORG_ID = 'a0000000-0000-0000-0000-000000000001';

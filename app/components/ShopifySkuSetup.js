@@ -236,9 +236,9 @@ export default function ShopifySkuSetup({ onClose }) {
                     </td>
                     <td style={{ padding: "4px 8px", fontFamily: "monospace", fontSize: 11, fontWeight: 600, color: T.accent }}>{s.sku}</td>
                     <td style={{ padding: "4px 8px", color: T.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.product_title}</td>
-                    <td style={{ padding: "4px 8px", color: T.text3 }}>{s.variant_title || "—"}</td>
+                    <td style={{ padding: "4px 8px", color: T.text3 }}>{s.variant_title || "-"}</td>
                     <td style={{ padding: "4px 8px" }}>
-                      <input defaultValue={cfg.display_name || ""} placeholder="—"
+                      <input defaultValue={cfg.display_name || ""} placeholder="-"
                         onBlur={e => updateDisplayName(s.sku, e.target.value)}
                         style={{ width: "100%", padding: "3px 6px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
                     </td>
@@ -248,7 +248,7 @@ export default function ShopifySkuSetup({ onClose }) {
                         style={{ width: 50, padding: "3px 4px", fontSize: 11, textAlign: "center", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
                     </td>
                     <td style={{ padding: "4px 8px" }}>
-                      <input defaultValue={cfg.category || ""} placeholder="—"
+                      <input defaultValue={cfg.category || ""} placeholder="-"
                         onBlur={e => updateCategory(s.sku, e.target.value)}
                         style={{ width: "100%", padding: "3px 6px", fontSize: 11, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text, outline: "none" }} />
                     </td>
@@ -365,7 +365,7 @@ export default function ShopifySkuSetup({ onClose }) {
                           return (
                             <tr key={m.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                               <td style={{ padding: "6px 8px", fontFamily: "monospace", fontSize: 11, fontWeight: 600, color: T.accent }}>{m.sku}</td>
-                              <td style={{ padding: "6px 8px", color: T.text }}>{skuInfo?.product_title || "—"} {skuInfo?.variant_title ? `(${skuInfo.variant_title})` : ""}</td>
+                              <td style={{ padding: "6px 8px", color: T.text }}>{skuInfo?.product_title || "-"} {skuInfo?.variant_title ? `(${skuInfo.variant_title})` : ""}</td>
                               <td style={{ padding: "6px 8px", textAlign: "center" }}>
                                 <input type="number" defaultValue={m.unit_multiplier} min="0.1" step="0.5"
                                   onBlur={e => updateMemberMultiplier(m.id, e.target.value)}
@@ -398,7 +398,7 @@ export default function ShopifySkuSetup({ onClose }) {
                         <span style={{ marginLeft: "auto", fontSize: 10, color: T.accent, fontWeight: 600 }}>+ Add</span>
                       </div>
                     ))}
-                    {filteredAvailable.length > 30 && <div style={{ padding: "8px 12px", fontSize: 11, color: T.text3, textAlign: "center" }}>Showing 30 of {filteredAvailable.length} — refine your search</div>}
+                    {filteredAvailable.length > 30 && <div style={{ padding: "8px 12px", fontSize: 11, color: T.text3, textAlign: "center" }}>Showing 30 of {filteredAvailable.length} - refine your search</div>}
                     {filteredAvailable.length === 0 && <div style={{ padding: "16px 12px", fontSize: 11, color: T.text3, textAlign: "center" }}>No matching SKUs available</div>}
                   </div>
                 </div>

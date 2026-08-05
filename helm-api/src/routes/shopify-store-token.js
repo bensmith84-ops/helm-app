@@ -1,5 +1,5 @@
 
-// POST /shopify-store-token — port of supabase/functions/shopify-store-token
+// POST /shopify-store-token - port of supabase/functions/shopify-store-token
 // Stores manually-entered Shopify access token, verifies via shop.json, upserts integrations row.
 module.exports = function(app, { pool }) {
   app.post('/shopify-store-token', async (req, res) => {

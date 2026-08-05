@@ -23,7 +23,7 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user || null);
       if (session?.user) {
-        // Detect invite/recovery flow — user needs to set password
+        // Detect invite/recovery flow - user needs to set password
         if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
           const providers = session.user.app_metadata?.providers || [];
           const hasPassword = providers.includes("email");

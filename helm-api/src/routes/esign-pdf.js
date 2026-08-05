@@ -1,5 +1,5 @@
 
-// POST /esign-pdf — port of supabase/functions/esign-pdf
+// POST /esign-pdf - port of supabase/functions/esign-pdf
 // Generates completed PDF + certificate of completion. Uses pdf-lib.
 // Uploads to Supabase Storage via wrapper.
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');

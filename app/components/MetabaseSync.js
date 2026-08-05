@@ -17,7 +17,7 @@ async function mb(action, extra = {}) {
       const res = await fetch(MB_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }) });
       const transient = res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
       if (transient && attempt < MAX_RETRIES - 1) {
-        console.warn(`[Sync] mb(${action}) attempt ${attempt + 1} returned ${res.status} — retrying after backoff`);
+        console.warn(`[Sync] mb(${action}) attempt ${attempt + 1} returned ${res.status} - retrying after backoff`);
         await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
         continue;
       }
@@ -31,7 +31,7 @@ async function mb(action, extra = {}) {
       // Network-level failure (CORS, DNS, connection refused, etc.)
       lastErr = e;
       if (attempt < MAX_RETRIES - 1) {
-        console.warn(`[Sync] mb(${action}) attempt ${attempt + 1} threw "${e.message}" — retrying after backoff`);
+        console.warn(`[Sync] mb(${action}) attempt ${attempt + 1} threw "${e.message}" - retrying after backoff`);
         await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
         continue;
       }
@@ -40,14 +40,14 @@ async function mb(action, extra = {}) {
   return { error: lastErr ? `network: ${lastErr.message}` : "exhausted retries" };
 }
 
-// Dashboard 56 — Demand Planning — card-to-table mapping
+// Dashboard 56 - Demand Planning - card-to-table mapping
 const DASHBOARD_SYNC_MAP = [
   { card_id: 526, table: "dp_daily_sales", label: "Daily Unit Sales", icon: "📈" },
   { card_id: 527, table: "dp_sku_master", label: "SKU Master", icon: "📦" },
   { card_id: 528, table: "dp_inventory", label: "Inventory", icon: "🏭" },
   { card_id: 529, table: "dp_offer_performance", label: "Offer Performance", icon: "🎯" },
   { card_id: 530, table: "dp_subscription_cohorts", label: "Subscription Cohorts", icon: "🔄" },
-  // The next two cards do not yet exist in Metabase — set card_id to null so the
+  // The next two cards do not yet exist in Metabase - set card_id to null so the
   // UI prompts the user to browse-and-pick a card whose shape matches. When a
   // suitable card is authored, replace null with its ID for one-click sync.
   { card_id: 587, table: "dp_daily_sales_by_warehouse", label: "Daily Sales × Warehouse", icon: "📍" },
@@ -229,7 +229,7 @@ export default function MetabaseSync({ onClose }) {
           {/* Step 1: Select target table */}
           {step === "select_target" && !loading && (
             <div>
-              {/* Last sync — populated from metabase_sync_log (cron + manual) */}
+              {/* Last sync - populated from metabase_sync_log (cron + manual) */}
               {lastSync && (() => {
                 const ts = new Date(lastSync.started_at);
                 const ageMs = Date.now() - ts.getTime();
@@ -355,7 +355,7 @@ export default function MetabaseSync({ onClose }) {
                             chunkLog.push({ ...w, rows: chunkRows.length });
                           }
                           r = { data: allData, columns, row_count: allData.length, chunks: chunkLog };
-                          console.log(`[Sync] ${mapping.label}: chunked fetch — ${chunkLog.length} chunks, ${allData.length} total rows`);
+                          console.log(`[Sync] ${mapping.label}: chunked fetch - ${chunkLog.length} chunks, ${allData.length} total rows`);
                           console.log(`[Sync] Chunk breakdown:`, chunkLog);
                         } else {
                           r = await mb("run_question", { question_id: mapping.card_id });
@@ -369,7 +369,7 @@ export default function MetabaseSync({ onClose }) {
                         const COL_RENAMES = { churn: "churned" };
                         const cleanCol = (c) => { const l = c.toLowerCase().replace(/[^a-z0-9_]/g, "_"); return COL_RENAMES[l] || l; };
 
-                        // Known columns per table — strip anything not in this list
+                        // Known columns per table - strip anything not in this list
                         const TABLE_COLUMNS = {
                           dp_daily_sales: ["org_id","sale_date","sku","product_title","variant_title","base_product","units_sold","gross_revenue","net_revenue","orders_count","channel","country","is_subscription","units_per_sku","imported_at"],
                           dp_weekly_sales: ["org_id","week_start","sku","product_title","variant_title","units_sold","gross_revenue","net_revenue","orders_count","channel","country","is_subscription","base_product","units_per_sku","imported_at"],
@@ -419,7 +419,7 @@ export default function MetabaseSync({ onClose }) {
                         }
 
                         // Drop rows where the unique-key dimension that would matter is missing.
-                        // SKU master with no SKU is useless data — keeping them would all collapse to "UNKNOWN"
+                        // SKU master with no SKU is useless data - keeping them would all collapse to "UNKNOWN"
                         // and cause unique constraint conflicts.
                         if (mapping.table === "dp_sku_master") {
                           const before = data.length;
@@ -429,7 +429,7 @@ export default function MetabaseSync({ onClose }) {
                           }
                         }
 
-                        // Natural-key dedupe (matches DB unique constraints) — last write wins,
+                        // Natural-key dedupe (matches DB unique constraints) - last write wins,
                         // but prefer the row with the most informative product_title (longest non-empty)
                         const NATURAL_KEYS = {
                           dp_daily_sales: ["org_id","sale_date","sku","channel","country","is_subscription"],
@@ -463,7 +463,7 @@ export default function MetabaseSync({ onClose }) {
                           }
                         }
 
-                        // Upsert (no need to delete first — onConflict handles it)
+                        // Upsert (no need to delete first - onConflict handles it)
                         const onConflict = natKey ? natKey.join(",") : undefined;
 
                         // Batch upsert from client (no edge function timeout)
@@ -480,10 +480,10 @@ export default function MetabaseSync({ onClose }) {
                           if (insErr) {
                             console.error(`[Sync] Batch error for ${mapping.table}:`, insErr.message);
                             syncErrors.push(insErr.message);
-                            // Structural errors won't resolve row-by-row — abort this table
+                            // Structural errors won't resolve row-by-row - abort this table
                             const isFatalErr = /schema cache|column .* does not exist|violates not-null|invalid input syntax|duplicate key value|violates unique constraint|violates check constraint/i.test(insErr.message || "");
                             if (isFatalErr) {
-                              console.error(`[Sync] Aborting ${mapping.table} — fatal error, will not retry rows`);
+                              console.error(`[Sync] Aborting ${mapping.table} - fatal error, will not retry rows`);
                               aborted = true;
                               break;
                             }
@@ -536,13 +536,13 @@ export default function MetabaseSync({ onClose }) {
                           md.setUTCDate(md.getUTCDate() - SMART_SYNC_OVERLAP_DAYS);
                           startStr = md.toISOString().split("T")[0];
                         } else {
-                          // No data yet — pull a 4-week starter window so the chart isn't empty
+                          // No data yet - pull a 4-week starter window so the chart isn't empty
                           const fallback = new Date();
                           fallback.setDate(fallback.getDate() - 28);
                           startStr = fallback.toISOString().split("T")[0];
                         }
                         if (startStr > today) {
-                          // Nothing new to fetch — local data already includes today.
+                          // Nothing new to fetch - local data already includes today.
                           results.push({ ...mapping, rows: 0, total: 0, status: "skipped", note: `Up to date (max ${maxDate})` });
                           continue;
                         }
@@ -574,7 +574,7 @@ export default function MetabaseSync({ onClose }) {
                             if (cr.error) { errs.push(`${w.start}: ${cr.error}`); }
                             else { totalSynced += (cr.synced || 0); }
                           } else {
-                            // dp_daily_sales path — same as Sync All but with the narrow date window
+                            // dp_daily_sales path - same as Sync All but with the narrow date window
                             const cr = await mb("run_question", { question_id: mapping.card_id, start_date: w.start, end_date: w.end });
                             if (cr.error) { errs.push(`${w.start}: ${cr.error}`); continue; }
                             const rows = (cr.data || []).map(row => {
@@ -607,7 +607,7 @@ export default function MetabaseSync({ onClose }) {
                       }
                     }
 
-                    // 2) Reference tables (no date column) — small, full-refresh each time.
+                    // 2) Reference tables (no date column) - small, full-refresh each time.
                     //    These don't accumulate row-by-row; the Metabase card returns the full
                     //    current state. Still much cheaper than re-syncing months of sales.
                     for (const mapping of DASHBOARD_SYNC_MAP) {
@@ -770,7 +770,7 @@ export default function MetabaseSync({ onClose }) {
                       <span key={col + "_arr"} style={{ color: T.text3 }}>→</span>
                       <select key={col + "_dest"} value={columnMapping[col] || ""} onChange={e => setColumnMapping(m => ({ ...m, [col]: e.target.value }))}
                         style={{ padding: "4px 8px", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface2, color: columnMapping[col] ? T.text : T.text3, cursor: "pointer" }}>
-                        <option value="">— skip —</option>
+                        <option value="">- skip -</option>
                         {target.fields.split(", ").map(f => f.split("/")[0].trim()).map(f => (
                           <option key={f} value={f}>{f}</option>
                         ))}
@@ -811,7 +811,7 @@ export default function MetabaseSync({ onClose }) {
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, marginBottom: 4, background: T.surface }}>
                       <span style={{ fontSize: 12, color: T.text }}>{r.icon} {r.label}</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: r.status === "ok" ? "#22c55e" : r.status === "empty" ? T.text3 : "#ef4444" }}>
-                        {r.status === "ok" ? `✅ ${r.rows}${r.total && r.total !== r.rows ? `/${r.total}` : ""} rows` : r.status === "empty" ? "— empty" : `❌ ${r.error?.substring(0, 60)}`}
+                        {r.status === "ok" ? `✅ ${r.rows}${r.total && r.total !== r.rows ? `/${r.total}` : ""} rows` : r.status === "empty" ? "- empty" : `❌ ${r.error?.substring(0, 60)}`}
                       </span>
                     </div>
                   ))}

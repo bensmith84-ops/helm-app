@@ -333,7 +333,7 @@ export default function MessagesView() {
                     style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, cursor: "pointer", boxSizing: "border-box" }} />
                 </div>
               </div>
-              {/* Section picker — only when project is selected and has sections */}
+              {/* Section picker - only when project is selected and has sections */}
               {taskProject && sections.filter(s => s.project_id === taskProject).length > 0 && (
                 <div style={{ marginBottom: 12 }}>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Section</label>

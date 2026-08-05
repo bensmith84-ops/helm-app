@@ -1,5 +1,5 @@
 
-// POST /google-docs-sync — port of supabase/functions/google-docs-sync
+// POST /google-docs-sync - port of supabase/functions/google-docs-sync
 // 7 actions: auth-url, callback, list-docs, link-doc, sync-doc, unlink-doc, disconnect.
 // Uses 3-legged OAuth (not service account). Action passed in ?action= query param.
 const ORG_ID_DEFAULT = 'a0000000-0000-0000-0000-000000000001';

@@ -266,7 +266,7 @@ export default function LearningView({ modulePerms = {} }) {
   /* ─── simple markdown renderer ─── */
   const renderContent = (text) => {
     if (!text) return null;
-    // Strip the first H1 line — lesson title is already shown above
+    // Strip the first H1 line - lesson title is already shown above
     let cleaned = text;
     const firstLine = text.split("\n")[0];
     if (firstLine.startsWith("# ")) cleaned = text.slice(firstLine.length).replace(/^\n+/, "");
@@ -332,7 +332,7 @@ export default function LearningView({ modulePerms = {} }) {
       } else if (line.trim() === "") {
         elements.push(<div key={i} style={{ height:8 }} />);
       } else {
-        // Regular paragraph — handle inline bold
+        // Regular paragraph - handle inline bold
         const parts = line.replace(/\*\*([^*]+)\*\*/g, "⟨b⟩$1⟨/b⟩").split(/⟨\/?b⟩/);
         const hasBold = line.includes("**");
         elements.push(
@@ -578,7 +578,7 @@ export default function LearningView({ modulePerms = {} }) {
                   <div style={{ width:100, height:100, borderRadius:50, background:quizResult.passed?G.greenDim:G.redDim, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", fontSize:40 }}>{quizResult.passed?"🎉":"😔"}</div>
                   <div style={{ fontSize:36, fontWeight:900, color:quizResult.passed?G.green:G.red }}>{quizResult.score}%</div>
                   <div style={{ fontSize:14, color:G.text2, marginTop:4 }}>{quizResult.correct}/{quizResult.total} correct</div>
-                  <div style={{ fontSize:13, color:quizResult.passed?G.green:G.red, marginTop:12, fontWeight:600, padding:"8px 16px", background:quizResult.passed?G.greenDim:G.redDim, borderRadius:8, display:"inline-block" }}>{quizResult.passed?"🎓 Congratulations — you passed!":`Need ${showQuiz.passing_score||70}% to pass`}</div>
+                  <div style={{ fontSize:13, color:quizResult.passed?G.green:G.red, marginTop:12, fontWeight:600, padding:"8px 16px", background:quizResult.passed?G.greenDim:G.redDim, borderRadius:8, display:"inline-block" }}>{quizResult.passed?"🎓 Congratulations - you passed!":`Need ${showQuiz.passing_score||70}% to pass`}</div>
                   <div style={{ marginTop:20 }}><button onClick={()=>{setShowQuiz(null);setQuizResult(null);}} style={{ padding:"10px 28px", fontSize:13, fontWeight:700, background:G.gradient, color:"#fff", border:"none", borderRadius:10, cursor:"pointer" }}>Close</button></div>
                 </div>
               ) : (
@@ -1116,9 +1116,9 @@ export default function LearningView({ modulePerms = {} }) {
           <div onClick={e=>e.stopPropagation()} style={{ width:"min(420px,95vw)", background:G.surface, borderRadius:20, padding:28, border:`1px solid ${G.border}` }}>
             <div style={{ fontSize:18, fontWeight:800, color:G.text, marginBottom:18 }}>Assign Course</div>
             <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-              <div><div style={{ fontSize:11, fontWeight:600, color:G.text3, marginBottom:4 }}>Person</div><select value={assignForm.user_id} onChange={e=>setAssignForm(p=>({...p,user_id:e.target.value,team_id:""}))} style={inp}><option value="">—</option>{members.map(m=><option key={m.id} value={m.id}>{m.display_name||m.email}</option>)}</select></div>
-              <div style={{ textAlign:"center", fontSize:10, color:G.text3 }}>— or —</div>
-              <div><div style={{ fontSize:11, fontWeight:600, color:G.text3, marginBottom:4 }}>Team</div><select value={assignForm.team_id} onChange={e=>setAssignForm(p=>({...p,team_id:e.target.value,user_id:""}))} style={inp}><option value="">—</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
+              <div><div style={{ fontSize:11, fontWeight:600, color:G.text3, marginBottom:4 }}>Person</div><select value={assignForm.user_id} onChange={e=>setAssignForm(p=>({...p,user_id:e.target.value,team_id:""}))} style={inp}><option value="">-</option>{members.map(m=><option key={m.id} value={m.id}>{m.display_name||m.email}</option>)}</select></div>
+              <div style={{ textAlign:"center", fontSize:10, color:G.text3 }}>- or -</div>
+              <div><div style={{ fontSize:11, fontWeight:600, color:G.text3, marginBottom:4 }}>Team</div><select value={assignForm.team_id} onChange={e=>setAssignForm(p=>({...p,team_id:e.target.value,user_id:""}))} style={inp}><option value="">-</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
               <input type="date" value={assignForm.due_date} onChange={e=>setAssignForm(p=>({...p,due_date:e.target.value}))} style={inp} />
               <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:G.text2 }}><input type="checkbox" checked={assignForm.is_mandatory} onChange={e=>setAssignForm(p=>({...p,is_mandatory:e.target.checked}))} style={{accentColor:G.accent}} /> Mandatory</label>
               <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>

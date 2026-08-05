@@ -1,5 +1,5 @@
 
-// POST /ai-chat — Anthropic streaming proxy
+// POST /ai-chat - Anthropic streaming proxy
 // Frontend sends { model, max_tokens, system, messages, stream } and gets SSE back.
 
 module.exports = function(app, { requireAuth }) {

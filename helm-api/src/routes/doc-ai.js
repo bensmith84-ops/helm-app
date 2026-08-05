@@ -1,5 +1,5 @@
 
-// POST /doc-ai — port of supabase/functions/doc-ai
+// POST /doc-ai - port of supabase/functions/doc-ai
 // AI assistant for the document editor (Notion-like). Multiple action types each
 // with a specific system prompt. Logs AI sessions for analytics.
 const Anthropic = require('@anthropic-ai/sdk');
@@ -9,19 +9,19 @@ const MODEL = 'claude-sonnet-4-5-20250929';
 const SYSTEM_PROMPTS = {
   write: `You are an expert writing assistant embedded in a Notion-like document editor called Helm.
 Generate well-structured content based on the user's prompt. Use markdown formatting.
-Return ONLY the content — no preamble, no explanation, no wrapping.`,
+Return ONLY the content - no preamble, no explanation, no wrapping.`,
   continue: `You are a writing assistant. Continue writing from where the user left off.
-Match the existing tone, style, and format. Return ONLY the continuation — no preamble.`,
+Match the existing tone, style, and format. Return ONLY the continuation - no preamble.`,
   edit: `You are an editing assistant. Rewrite the provided text according to the user's instructions.
-Return ONLY the edited text — no explanation of changes.`,
+Return ONLY the edited text - no explanation of changes.`,
   summarize: `You are a summarization assistant. Provide a concise summary of the given content.
-Return ONLY the summary — no preamble like "Here is a summary:".`,
+Return ONLY the summary - no preamble like "Here is a summary:".`,
   expand: `You are a writing assistant. Expand the given content with more detail, examples, and depth.
 Maintain the same tone and style. Return ONLY the expanded content.`,
   shorten: `You are an editing assistant. Condense the given content while preserving all key information.
 Return ONLY the shortened version.`,
   translate: `You are a translation assistant. Translate the given text to the specified language.
-Return ONLY the translation — no notes about the translation.`,
+Return ONLY the translation - no notes about the translation.`,
   fix_grammar: `You are a proofreading assistant. Fix all grammar, spelling, and punctuation errors.
 Return ONLY the corrected text. Do not explain the corrections.`,
   change_tone: `You are a writing assistant. Rewrite the text in the requested tone.
@@ -29,7 +29,7 @@ Return ONLY the rewritten text.`,
   explain: `You are an explanation assistant. Explain the given concept or text clearly.
 Return ONLY the explanation.`,
   brainstorm: `You are a creative brainstorming assistant. Generate ideas based on the user's topic.
-Return a bulleted list of ideas — no preamble.`,
+Return a bulleted list of ideas - no preamble.`,
   outline: `You are a document planning assistant. Create a structured outline for the requested topic.
 Use hierarchical headings and bullet points. Return ONLY the outline.`,
   draft: `You are a professional writing assistant. Draft a complete document based on the user's requirements.
@@ -40,7 +40,7 @@ Return ONLY the action items list.`,
   generate_from_template: `You are a document generation assistant. Fill in the given template with relevant, professional content based on the user's context.
 Replace placeholder text with substantive content. Return ONLY the filled template.`,
   custom_prompt: `You are a versatile AI writing assistant embedded in a document editor called Helm.
-Follow the user's instructions precisely. Return ONLY the requested content — no preamble or explanation.`,
+Follow the user's instructions precisely. Return ONLY the requested content - no preamble or explanation.`,
 };
 
 // ── Markdown → blocks converter (preserved verbatim from edge function) ──

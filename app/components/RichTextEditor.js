@@ -43,7 +43,7 @@ export default function RichTextEditor({ value, onChange, placeholder = "Add a d
   const [empty, setEmpty] = useState(true);
 
   // Initialize once on mount (component is keyed per-task by the parent, so it
-  // re-mounts on task switch and stays uncontrolled while editing — no cursor bounce).
+  // re-mounts on task switch and stays uncontrolled while editing - no cursor bounce).
   useEffect(() => {
     if (ref.current) {
       ref.current.innerHTML = toHtml(value);

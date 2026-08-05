@@ -1,5 +1,5 @@
 
-// POST /shopify-auto-sync — port of supabase/functions/shopify-auto-sync
+// POST /shopify-auto-sync - port of supabase/functions/shopify-auto-sync
 // Orchestrator: triggers today + yesterday day_sync. Uses SELF_URL for self-calls.
 module.exports = function(app) {
   app.post('/shopify-auto-sync', async (req, res) => {

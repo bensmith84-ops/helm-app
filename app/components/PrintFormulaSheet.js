@@ -85,12 +85,12 @@ export default function PrintFormulaSheet({ formulationId, onClose }) {
                 <tr key={item.id}>
                   <td style={{ ...tdStyle, fontSize: 10, color: "#999", textAlign: "center" }}>{idx + 1}</td>
                   <td style={{ ...tdStyle, fontSize: 11, fontWeight: 500 }}>
-                    {item.ingredient_name || "—"}
+                    {item.ingredient_name || "-"}
                     {item.supplier && <span style={{ fontSize: 9, color: "#999", marginLeft: 6 }}>({item.supplier})</span>}
                   </td>
-                  <td style={{ ...tdStyle, fontSize: 11, textAlign: "right", fontWeight: 600 }}>{item.unit === "%" ? parseFloat(item.quantity || 0).toFixed(2) + "%" : (item.quantity || "—")}</td>
-                  {formula.target_batch_size && <td style={{ ...tdStyle, fontSize: 11, textAlign: "right" }}>{batchQty ? `${batchQty} ${formula.batch_size_unit || "kg"}` : "—"}</td>}
-                  <td style={{ ...tdStyle, fontSize: 10, color: "#666" }}>{item.function_role || "—"}</td>
+                  <td style={{ ...tdStyle, fontSize: 11, textAlign: "right", fontWeight: 600 }}>{item.unit === "%" ? parseFloat(item.quantity || 0).toFixed(2) + "%" : (item.quantity || "-")}</td>
+                  {formula.target_batch_size && <td style={{ ...tdStyle, fontSize: 11, textAlign: "right" }}>{batchQty ? `${batchQty} ${formula.batch_size_unit || "kg"}` : "-"}</td>}
+                  <td style={{ ...tdStyle, fontSize: 10, color: "#666" }}>{item.function_role || "-"}</td>
                   <td style={{ ...tdStyle, textAlign: "center" }}><div style={fillLine} /></td>
                   <td style={{ ...tdStyle, textAlign: "center" }}><div style={fillLine} /></td>
                 </tr>
@@ -117,7 +117,7 @@ export default function PrintFormulaSheet({ formulationId, onClose }) {
       {/* Non-printable toolbar */}
       <div className="no-print" style={{ position: "sticky", top: 0, background: "#1a1a2e", padding: "10px 24px", display: "flex", alignItems: "center", gap: 12, zIndex: 10 }}>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>← Back</button>
-        <div style={{ flex: 1, color: "#fff", fontSize: 14, fontWeight: 600 }}>Formula Sheet — {formula.name} {formula.version}</div>
+        <div style={{ flex: 1, color: "#fff", fontSize: 14, fontWeight: 600 }}>Formula Sheet - {formula.name} {formula.version}</div>
         <button onClick={handlePrint} style={{ padding: "8px 20px", fontSize: 13, fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>
           🖨 Print / Save PDF
         </button>
@@ -131,7 +131,7 @@ export default function PrintFormulaSheet({ formulationId, onClose }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5 }}>STANDARD FORMULA</div>
-              <div style={{ fontSize: 14, color: "#666", marginTop: 2 }}>{program?.brand || "Earth Breeze"} · {program?.name || "—"}</div>
+              <div style={{ fontSize: 14, color: "#666", marginTop: 2 }}>{program?.brand || "Earth Breeze"} · {program?.name || "-"}</div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 12, color: "#666" }}>Document Date</div>
@@ -147,26 +147,26 @@ export default function PrintFormulaSheet({ formulationId, onClose }) {
               <td style={cellLabel}>Formula Name</td>
               <td style={cellValue}><strong>{formula.name}</strong></td>
               <td style={cellLabel}>Version</td>
-              <td style={cellValue}>{formula.version || "—"}</td>
+              <td style={cellValue}>{formula.version || "-"}</td>
             </tr>
             <tr>
               <td style={cellLabel}>Status</td>
               <td style={cellValue}><span style={{ textTransform: "capitalize" }}>{(formula.status || "draft").replace(/_/g, " ")}</span></td>
               <td style={cellLabel}>Form Type</td>
-              <td style={cellValue}><span style={{ textTransform: "capitalize" }}>{formula.form_type || "—"}</span></td>
+              <td style={cellValue}><span style={{ textTransform: "capitalize" }}>{formula.form_type || "-"}</span></td>
             </tr>
             <tr>
               <td style={cellLabel}>Program</td>
-              <td style={cellValue}>{program?.name || "—"}{program?.code ? ` (${program.code})` : ""}</td>
+              <td style={cellValue}>{program?.name || "-"}{program?.code ? ` (${program.code})` : ""}</td>
               <td style={cellLabel}>Category</td>
-              <td style={cellValue}><span style={{ textTransform: "capitalize" }}>{program?.category || "—"}</span></td>
+              <td style={cellValue}><span style={{ textTransform: "capitalize" }}>{program?.category || "-"}</span></td>
             </tr>
             {formula.target_batch_size && (
               <tr>
                 <td style={cellLabel}>Batch Size</td>
                 <td style={cellValue}><strong>{formula.target_batch_size} {formula.batch_size_unit || "kg"}</strong></td>
                 <td style={cellLabel}>Target pH</td>
-                <td style={cellValue}>{formula.target_ph || "—"}</td>
+                <td style={cellValue}>{formula.target_ph || "-"}</td>
               </tr>
             )}
           </tbody>
@@ -224,11 +224,11 @@ export default function PrintFormulaSheet({ formulationId, onClose }) {
         {/* Footer */}
         <div style={{ borderTop: "1px solid #ccc", paddingTop: 8, fontSize: 10, color: "#999", display: "flex", justifyContent: "space-between" }}>
           <span>{program?.brand || "Earth Breeze"} · {formula.name} {formula.version}</span>
-          <span>Confidential — Do Not Distribute</span>
+          <span>Confidential - Do Not Distribute</span>
         </div>
       </div>
 
-      {/* Print styles — global CSS in page.js handles visibility */}
+      {/* Print styles - global CSS in page.js handles visibility */}
       <style>{`
         @media print {
           @page { margin: 0.6in 0.5in; size: letter; }

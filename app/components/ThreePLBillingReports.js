@@ -1,9 +1,9 @@
-// 3PL Billing — Interactive Reports & Analysis (rich edition)
+// 3PL Billing - Interactive Reports & Analysis (rich edition)
 //
 // Deep analytics view backed by wms_3pl_billing_report RPC. Single-page,
 // sticky filter bar with date quick-chips, sparkline-enhanced KPIs with
 // period-over-period deltas, gradient SVG charts, and a hover tooltip that
-// surfaces precise numbers. Everything is custom SVG / HTML — no chart libs.
+// surfaces precise numbers. Everything is custom SVG / HTML - no chart libs.
 
 "use client";
 
@@ -43,7 +43,7 @@ const fmtCompact = (n) => {
   if (Math.abs(x) >= 1_000) return (x / 1e3).toFixed(1) + "k";
   return x.toLocaleString();
 };
-// Currency context — sub-components read the active currency via useFmt().
+// Currency context - sub-components read the active currency via useFmt().
 const CCY_SYM = { USD: "$", GBP: "£", AUD: "A$", EUR: "€", CAD: "C$" };
 const CcyCtx = createContext("USD");
 const useFmt = () => {
@@ -63,7 +63,7 @@ const fmtMonth = (s) => {
   return d.toLocaleString(undefined, { month: "short", year: "2-digit" });
 };
 const fmtPct = (n, withSign = true) => {
-  if (n == null || isNaN(n)) return "—";
+  if (n == null || isNaN(n)) return "-";
   const x = Number(n);
   const sign = withSign && x > 0 ? "+" : "";
   return sign + x.toFixed(1) + "%";
@@ -123,7 +123,7 @@ function Sparkline({ values, color = "#3B82F6", w = 80, h = 26, fill = true }) {
 function KpiTile({ T, label, value, sub, delta, deltaInverse = false, sparkline, sparkColor, accent }) {
   const deltaColor = delta == null ? T.text3
     : (deltaInverse ? (delta < 0 ? "#10B981" : "#EF4444") : (delta > 0 ? "#10B981" : "#EF4444"));
-  const deltaArrow = delta == null ? "" : (delta > 0 ? "▲" : delta < 0 ? "▼" : "—");
+  const deltaArrow = delta == null ? "" : (delta > 0 ? "▲" : delta < 0 ? "▼" : "-");
   return (
     <div style={{
       flex: "1 1 0", minWidth: 165,
@@ -776,7 +776,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
   // Locally-computed formatters for this component's own JSX. Sub-components
-  // access these through CcyCtx.Provider via useFmt() — no prop-drilling needed.
+  // access these through CcyCtx.Provider via useFmt() - no prop-drilling needed.
   const { fmt$, fmt$Full } = useMemo(() => {
     const sym = CCY_SYM[selectedCurrency] || "$";
     return {
@@ -894,7 +894,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
               sub={kpis.orders_shipped > 0 ? `${fmt$Full(kpis.total_spend / kpis.orders_shipped, 2)}/order` : ""}
               delta={deltas?.orders?.delta_pct}
               sparkline={sparks.orders} sparkColor="#A855F7" accent="#A855F7" />
-            <KpiTile T={T} label="$/Shipment" value={kpis.shipment_count > 0 ? fmt$Full(kpis.total_spend / kpis.shipment_count, 2) : "—"}
+            <KpiTile T={T} label="$/Shipment" value={kpis.shipment_count > 0 ? fmt$Full(kpis.total_spend / kpis.shipment_count, 2) : "-"}
               sub="Last 6 months"
               delta={deltas?.cost_per_shipment?.delta_pct} deltaInverse
               sparkline={sparks.cps} sparkColor="#06B6D4" accent="#06B6D4" />
@@ -940,7 +940,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
           </div>
 
           {report.top_movers?.length > 0 && (
-            <Section T={T} accent="#EC4899" title="Top movers" subtitle="Biggest absolute spend changes vs prior month — red rises, green declines">
+            <Section T={T} accent="#EC4899" title="Top movers" subtitle="Biggest absolute spend changes vs prior month - red rises, green declines">
               <TopMovers data={report.top_movers} T={T} setTip={setTip} />
             </Section>
           )}
@@ -970,8 +970,8 @@ export default function ThreePLBillingReports({ goToDetail }) {
                   <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 90px", gap: 6, padding: "4px 0", fontFamily: '"SF Mono", Monaco, monospace', fontSize: 10.5 }}>
                     <div style={{ fontWeight: 600, color: T.text2 }}>{w.warehouse}</div>
                     <div style={{ textAlign: "right" }}>{fmt$(w.spend)}</div>
-                    <div style={{ textAlign: "right", color: T.text3 }}>{w.cost_per_unit ? fmt$Full(w.cost_per_unit, 3) : "—"}</div>
-                    <div style={{ textAlign: "right", color: T.text3 }}>{w.cost_per_order ? fmt$Full(w.cost_per_order, 2) : "—"}</div>
+                    <div style={{ textAlign: "right", color: T.text3 }}>{w.cost_per_unit ? fmt$Full(w.cost_per_unit, 3) : "-"}</div>
+                    <div style={{ textAlign: "right", color: T.text3 }}>{w.cost_per_order ? fmt$Full(w.cost_per_order, 2) : "-"}</div>
                   </div>
                 ))}
               </div>
@@ -979,7 +979,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
           </div>
 
           <Section T={T} accent="#3B82F6" title="Freight cost distribution"
-            subtitle="Per-parcel charge distribution — how do most of your shipments price out?">
+            subtitle="Per-parcel charge distribution - how do most of your shipments price out?">
             <Histogram data={report.freight_histogram || []} T={T} setTip={setTip} color="#3B82F6" />
           </Section>
 
@@ -987,7 +987,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
             <div style={{ display: "grid", gridTemplateColumns: (report.zone_breakdown?.length > 0 && report.weight_distribution?.length > 0) ? "1fr 1fr" : "1fr", gap: 14, marginBottom: 14 }}>
               {report.zone_breakdown?.length > 0 && (
                 <Section T={T} accent="#A855F7" title="Shipping zones"
-                  subtitle="Cost & volume per Stord zone — higher zones = farther destinations">
+                  subtitle="Cost & volume per Stord zone - higher zones = farther destinations">
                   <HBarList data={report.zone_breakdown || []} T={T} setTip={setTip}
                     labelKey="zone" valueKey="cost"
                     secondaryKey="shipments" secondaryLabel="parcels"
@@ -1013,7 +1013,7 @@ export default function ThreePLBillingReports({ goToDetail }) {
 
           {report.daily_cadence?.length > 0 && (
             <Section T={T} accent="#10B981" title="Shipping cadence"
-              subtitle="Daily shipment volume — darker = more parcels that day">
+              subtitle="Daily shipment volume - darker = more parcels that day">
               <DailyHeatmap data={report.daily_cadence} T={T} setTip={setTip} />
             </Section>
           )}
@@ -1081,11 +1081,11 @@ export default function ThreePLBillingReports({ goToDetail }) {
                       <td style={{ padding: "6px 10px", fontFamily: '"SF Mono", Monaco, monospace', color: T.text2, fontWeight: 600 }}>{inv.invoice_number}</td>
                       <td style={{ padding: "6px 10px", fontSize: 10.5 }}>{inv.provider_code}</td>
                       <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3 }}>{inv.source}</td>
-                      <td style={{ padding: "6px 10px", fontWeight: 600 }}>{inv.warehouse || "—"}</td>
+                      <td style={{ padding: "6px 10px", fontWeight: 600 }}>{inv.warehouse || "-"}</td>
                       <td style={{ padding: "6px 10px", fontSize: 10, color: T.text3, fontFamily: '"SF Mono", Monaco, monospace' }}>{inv.period_start} → {inv.period_end}</td>
                       <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', fontWeight: 700 }}>{fmt$Full(inv.total)}</td>
-                      <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{inv.units ? fmtNum(inv.units) : "—"}</td>
-                      <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{inv.orders ? fmtNum(inv.orders) : "—"}</td>
+                      <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{inv.units ? fmtNum(inv.units) : "-"}</td>
+                      <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: '"SF Mono", Monaco, monospace', color: T.text3 }}>{inv.orders ? fmtNum(inv.orders) : "-"}</td>
                     </tr>
                   ))}
                 </tbody>

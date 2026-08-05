@@ -1,5 +1,5 @@
 
-// /gmail-scan — port of supabase/functions/gmail-scan
+// /gmail-scan - port of supabase/functions/gmail-scan
 // GET and POST. Actions: auth_url, callback (HTML response), list_connections, scan.
 // Uses supabase-storage wrapper for attachments. Self-calls /invoice-ai for extraction.
 const { uploadToStorage } = require('../lib/supabase-storage');
@@ -265,7 +265,7 @@ module.exports = function(app, { pool }) {
              VALUES ($1, $2, 'gmail_scan_complete', $3, $4, 'invoice_inbox', 'finance', '/finance/ap-ar')`,
             [ORG_ID, BEN_ID,
              `Gmail scan: ${imported} invoices imported`,
-             `Scanned ${conn.email} — ${imported} new invoices imported, ${skipped} already imported`]
+             `Scanned ${conn.email} - ${imported} new invoices imported, ${skipped} already imported`]
           );
         }
 

@@ -1,5 +1,5 @@
 
-// helmApi — typed-ish fetch wrapper for the helm-api Cloud Run service.
+// helmApi - typed-ish fetch wrapper for the helm-api Cloud Run service.
 // Auto-attaches Firebase ID token. Falls back to throwing if not signed in
 // (caller decides whether to surface that to the user or retry after login).
 "use client";
@@ -8,7 +8,7 @@ import { getCurrentIdToken } from "./firebase";
 
 const BASE = process.env.NEXT_PUBLIC_HELM_API_URL || "https://helm-api-qp7o2dcl5a-uc.a.run.app";
 
-// Feature flag — set NEXT_PUBLIC_USE_HELM_API=true to route calls to helm-api.
+// Feature flag - set NEXT_PUBLIC_USE_HELM_API=true to route calls to helm-api.
 // When false, callers should fall back to direct Supabase. This lets us migrate one
 // caller at a time without breaking the live app.
 export const USE_HELM_API = process.env.NEXT_PUBLIC_USE_HELM_API === "true";
@@ -19,7 +19,7 @@ async function buildHeaders(extra = {}, requireToken = true) {
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   } else if (requireToken) {
-    throw new Error("Not signed in — Firebase ID token unavailable");
+    throw new Error("Not signed in - Firebase ID token unavailable");
   }
   return headers;
 }

@@ -6,7 +6,7 @@ import { useAuth } from "../lib/auth";
 import { useResponsive } from "../lib/responsive";
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WMS — Warehouse Management System (Mobile-first)
+// WMS - Warehouse Management System (Mobile-first)
 // Receive, Put-away, Pick, Pack, Count, Transfer, Returns
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -139,7 +139,7 @@ export default function WMSView() {
         </div>
       </div>
 
-      {/* Scan bar — always visible */}
+      {/* Scan bar - always visible */}
       <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface2, flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 8 }}>
           <input ref={scanRef} value={scanInput} onChange={e => setScanInput(e.target.value)}
@@ -152,7 +152,7 @@ export default function WMSView() {
         {workflowData.lastScan && (
           <div style={{ marginTop: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ color: workflowData.scanType === "unknown" ? "#EF4444" : "#10B981", fontWeight: 700 }}>
-              {workflowData.scanType === "variant" ? `✓ SKU: ${workflowData.scannedVariant.sku} — ${workflowData.scannedVariant.name}` :
+              {workflowData.scanType === "variant" ? `✓ SKU: ${workflowData.scannedVariant.sku} - ${workflowData.scannedVariant.name}` :
                workflowData.scanType === "lot" ? `✓ Lot: ${workflowData.scannedLot.lot_number}` :
                workflowData.scanType === "bin" ? `✓ Bin: ${workflowData.scannedBin.code} (${workflowData.scannedBin.zone})` :
                `✗ Not found: ${workflowData.lastScan}`}
@@ -559,7 +559,7 @@ export default function WMSView() {
                     const lot = lots.find(l => l.id === inv.lot_id);
                     return (
                       <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${T.border}`, fontSize: 12 }}>
-                        <div><span style={{ fontWeight: 600 }}>{inv.bin_location || "—"}</span>{lot && <span style={{ color: T.text3, marginLeft: 6 }}>Lot: {lot.lot_number}</span>}</div>
+                        <div><span style={{ fontWeight: 600 }}>{inv.bin_location || "-"}</span>{lot && <span style={{ color: T.text3, marginLeft: 6 }}>Lot: {lot.lot_number}</span>}</div>
                         <span style={{ fontWeight: 700, color: T.text }}>{fmtN(inv.quantity)}</span>
                       </div>
                     );

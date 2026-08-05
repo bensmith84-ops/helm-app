@@ -338,7 +338,7 @@ export default function SupportView() {
     if (filter.status.length && !filter.status.includes(t.status)) return false;
     // Brand filter from the admin row. activeBrandId is null when "All brands"
     // is selected. Tickets without a brand_id show up when filtered by any
-    // brand only if you're on "All" — keeps legacy unbranded tickets visible
+    // brand only if you're on "All" - keeps legacy unbranded tickets visible
     // until they're explicitly tagged.
     if (activeBrandId && t.brand_id !== activeBrandId) return false;
     if (filter.search) {
@@ -763,7 +763,7 @@ export default function SupportView() {
   };
 
   // ─── Competitor tracking (Phase 3b) ───
-  // Add a competitor. handles is a jsonb keyed by platform — we build it
+  // Add a competitor. handles is a jsonb keyed by platform - we build it
   // from per-platform inputs in the modal form.
   const addCompetitor = async () => {
     if (!newCompetitorForm.name.trim()) return;
@@ -818,7 +818,7 @@ export default function SupportView() {
       });
       const data = await res.json();
       if (data.error) { alert(`Drafter: ${data.error}`); }
-      // Refresh the queue regardless — partial successes still show progress.
+      // Refresh the queue regardless - partial successes still show progress.
       const { data: refreshed } = await supabase.from("cx_appreciation_drafts")
         .select("*").eq("org_id", orgId).in("status", ["queued", "approved"])
         .order("created_at", { ascending: false }).limit(50);
@@ -827,7 +827,7 @@ export default function SupportView() {
     setAppreciationLoading(false);
   };
 
-  // Approve a draft. Doesn't auto-send — Mandy specifically wanted human-eyeball
+  // Approve a draft. Doesn't auto-send - Mandy specifically wanted human-eyeball
   // on every appreciation email. Status flips to 'approved' so it's clear who
   // signed off, then the agent can hit Send when ready.
   const approveAppreciationDraft = async (id) => {
@@ -863,7 +863,7 @@ export default function SupportView() {
     if (draft.contact_id) {
       await supabase.from("cx_contacts").update({ last_outreach_at: nowIso }).eq("id", draft.contact_id);
     }
-    // Actual email send — fire-and-forget; not blocking. If cx-email isn't
+    // Actual email send - fire-and-forget; not blocking. If cx-email isn't
     // configured for outbound this will quietly no-op.
     try {
       await fetch(`${EFN_BASE}/cx-email`, {
@@ -900,7 +900,7 @@ export default function SupportView() {
   };
 
   // Tone check on the current draft. Fires cx-tone-check. Doesn't block
-  // anything — the agent always retains the choice to send. Useful as a
+  // anything - the agent always retains the choice to send. Useful as a
   // last-look on tricky replies (refunds denied, frustrated customers).
   const runToneCheck = async () => {
     if (!selected || !replyText.trim()) return;
@@ -919,7 +919,7 @@ export default function SupportView() {
     setToneCheckLoading(false);
   };
 
-  // Clear tone-check whenever the draft changes — the warning is for the
+  // Clear tone-check whenever the draft changes - the warning is for the
   // text that was checked, not for what the agent typed afterward.
   useEffect(() => { if (toneCheck) setToneCheck(null); }, [replyText]);
 
@@ -992,7 +992,7 @@ export default function SupportView() {
           <span style={{ fontSize: 16 }}>🚨</span>
           <div style={{ flex: 1, fontSize: 12 }}>
             <strong>CRISIS MODE ACTIVE</strong>
-            {crisisMode.reason && <span> — {crisisMode.reason}</span>}
+            {crisisMode.reason && <span> - {crisisMode.reason}</span>}
             {crisisMode.public_statement && <div style={{ fontSize: 11, marginTop: 2, opacity: 0.9 }}>Holding statement: {crisisMode.public_statement}</div>}
           </div>
           <button onClick={() => toggleCrisisMode(false)} style={{ padding: "5px 12px", background: "rgba(255,255,255,0.2)", color: "#fff", border: "1px solid rgba(255,255,255,0.4)", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Deactivate</button>
@@ -1198,7 +1198,7 @@ export default function SupportView() {
                   style={{ padding: "4px 10px", background: agentAssist ? T.accentDim : T.surface2, color: agentAssist ? T.accent : T.text2, border: `1px solid ${agentAssist ? T.accent : T.border}40`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: agentAssistLoading ? "wait" : "pointer" }}>
                   {agentAssistLoading ? "..." : agentAssist ? "🪄 Assist ready" : "🪄 Agent assist"}
                 </button>
-                {/* Revenue attribution — opens modal pre-populated with what's already on the ticket */}
+                {/* Revenue attribution - opens modal pre-populated with what's already on the ticket */}
                 <button onClick={() => {
                   setRevenueForm({
                     amount_cents: selected.revenue_attributed_cents ? (Number(selected.revenue_attributed_cents) / 100).toFixed(2) : "",
@@ -1209,7 +1209,7 @@ export default function SupportView() {
                   style={{ padding: "4px 10px", background: Number(selected.revenue_attributed_cents) > 0 ? "#22c55e15" : T.surface2, color: Number(selected.revenue_attributed_cents) > 0 ? "#22c55e" : T.text2, border: `1px solid ${Number(selected.revenue_attributed_cents) > 0 ? "#22c55e40" : T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                   💵 {Number(selected.revenue_attributed_cents) > 0 ? `$${(Number(selected.revenue_attributed_cents) / 100).toFixed(0)} attributed` : "Log revenue"}
                 </button>
-                {/* QA scoring — only meaningful if there's an assigned agent and the ticket is resolved/closed */}
+                {/* QA scoring - only meaningful if there's an assigned agent and the ticket is resolved/closed */}
                 {selected.assigned_to && (selected.status === "resolved" || selected.status === "closed") && (
                   <button onClick={() => setShowQaModal(true)}
                     style={{ padding: "4px 10px", background: T.surface2, color: T.text2, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
@@ -1238,7 +1238,7 @@ export default function SupportView() {
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>🪄 Agent assist</span>
                     {agentAssist.vip_score >= 50 && (
                       <span style={{ padding: "2px 8px", borderRadius: 4, background: "#f59e0b20", color: "#f59e0b", fontWeight: 700, fontSize: 10 }}>
-                        VIP {agentAssist.vip_score}/100 — {(agentAssist.vip_reasons || []).join(", ")}
+                        VIP {agentAssist.vip_score}/100 - {(agentAssist.vip_reasons || []).join(", ")}
                       </span>
                     )}
                     <button onClick={() => runAgentAssist(true)} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, fontSize: 11, cursor: "pointer" }}>↻ Refresh</button>
@@ -1301,7 +1301,7 @@ export default function SupportView() {
                   {sideConversations.map(sc => (
                     <button key={sc.id} onClick={() => openSideConv(sc)}
                       style={{ padding: "3px 9px", borderRadius: 4, background: sc.status === "closed" ? T.surface3 : T.surface2, color: T.text2, border: `1px solid ${T.border}`, fontSize: 10, cursor: "pointer" }}>
-                      💬 {sc.participant_name || sc.participant_email} — {sc.subject}
+                      💬 {sc.participant_name || sc.participant_email} - {sc.subject}
                     </button>
                   ))}
                 </div>
@@ -1354,7 +1354,7 @@ export default function SupportView() {
               {selected.csat_score && (
                 <div style={{ padding: "6px 16px", borderTop: `1px solid ${T.border}`, background: selected.csat_score >= 4 ? "#22c55e08" : "#f59e0b08", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   <span style={{ fontSize: 11, color: T.text2 }}>CSAT: {["😟","😟","😐","😊","🤩"][selected.csat_score - 1]} {selected.csat_score}/5</span>
-                  {selected.csat_comment && <span style={{ fontSize: 10, color: T.text3 }}>— "{selected.csat_comment}"</span>}
+                  {selected.csat_comment && <span style={{ fontSize: 10, color: T.text3 }}>- "{selected.csat_comment}"</span>}
                 </div>
               )}
 
@@ -1389,7 +1389,7 @@ export default function SupportView() {
                     ))}
                   </div>
                 )}
-                {/* Tone-check warning panel — only renders when there are flags.
+                {/* Tone-check warning panel - only renders when there are flags.
                     Clears automatically when the draft changes (see useEffect
                     above). Doesn't block sending; the agent always decides. */}
                 {toneCheck && (toneCheck.severity !== "ok" || (toneCheck.flags || []).length > 0) && (() => {
@@ -1549,7 +1549,7 @@ export default function SupportView() {
                     </button>
                   )}
                   <span style={{ fontSize: 10, color: T.text3 }}>
-                    {aiConfig?.brand_id ? "Brand-specific" : "Default — applies to brands without an override"}
+                    {aiConfig?.brand_id ? "Brand-specific" : "Default - applies to brands without an override"}
                   </span>
                 </div>
               )}
@@ -1679,7 +1679,7 @@ export default function SupportView() {
                 {S("Escalation Triggers", "Keywords or phrases that automatically escalate to a human",
                   <TagInput T={T} values={aiConfig.escalation_triggers} onChange={v => updateAiConfig("escalation_triggers", v)} />
                 )}
-                {S("Restricted Topics", "Topics the AI should never discuss — it will escalate instead",
+                {S("Restricted Topics", "Topics the AI should never discuss - it will escalate instead",
                   <TagInput T={T} values={aiConfig.restricted_topics} onChange={v => updateAiConfig("restricted_topics", v)} />
                 )}
                 {S("Languages", "Languages the agent can respond in",
@@ -1862,10 +1862,10 @@ export default function SupportView() {
                 <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>📈 Agent Performance</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
                   {[
-                    { label: "AI Resolution Rate", value: stats.ai_resolved > 0 ? Math.round(stats.ai_resolved / Math.max(1, tickets.length) * 100) + "%" : "—", target: ">60%", icon: "🤖" },
-                    { label: "Avg Response Time", value: stats.avg_response > 0 ? stats.avg_response + "m" : "—", target: "<2 min", icon: "⚡" },
-                    { label: "Customer Satisfaction", value: stats.csat > 0 ? stats.csat.toFixed(1) : "—", target: ">4.5", icon: "⭐" },
-                    { label: "Escalation Rate", value: tickets.filter(t => t.status === "escalated").length > 0 ? Math.round(tickets.filter(t => t.status === "escalated").length / Math.max(1, tickets.length) * 100) + "%" : "—", target: "<15%", icon: "🔄" },
+                    { label: "AI Resolution Rate", value: stats.ai_resolved > 0 ? Math.round(stats.ai_resolved / Math.max(1, tickets.length) * 100) + "%" : "-", target: ">60%", icon: "🤖" },
+                    { label: "Avg Response Time", value: stats.avg_response > 0 ? stats.avg_response + "m" : "-", target: "<2 min", icon: "⚡" },
+                    { label: "Customer Satisfaction", value: stats.csat > 0 ? stats.csat.toFixed(1) : "-", target: ">4.5", icon: "⭐" },
+                    { label: "Escalation Rate", value: tickets.filter(t => t.status === "escalated").length > 0 ? Math.round(tickets.filter(t => t.status === "escalated").length / Math.max(1, tickets.length) * 100) + "%" : "-", target: "<15%", icon: "🔄" },
                     { label: "Tickets Handled", value: String(tickets.length), target: "", icon: "🎫" },
                     { label: "Mentions Moderated", value: String(socialMentions.filter(m => m.moderation_status === "reviewed" || m.moderation_status === "flagged").length), target: "", icon: "🛡" },
                   ].map(k => (
@@ -1890,11 +1890,11 @@ export default function SupportView() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     {S("Classification Model", "Used for risk analysis & sentiment detection",
                       <Sel value={aiConfig.classification_model || "haiku"} onChange={v => updateAiConfig("classification_model", v)}
-                        options={[{value:"haiku",label:"⚡ Haiku ($1/M) — fast + cheap"},{value:"sonnet",label:"🧠 Sonnet ($3/M) — more accurate"}]} />
+                        options={[{value:"haiku",label:"⚡ Haiku ($1/M) - fast + cheap"},{value:"sonnet",label:"🧠 Sonnet ($3/M) - more accurate"}]} />
                     )}
                     {S("Reply Model", "Used for generating customer-facing replies",
                       <Sel value={aiConfig.reply_model || "sonnet"} onChange={v => updateAiConfig("reply_model", v)}
-                        options={[{value:"sonnet",label:"🧠 Sonnet ($3/$15M) — best quality"},{value:"haiku",label:"⚡ Haiku ($1/$5M) — faster + cheaper"}]} />
+                        options={[{value:"sonnet",label:"🧠 Sonnet ($3/$15M) - best quality"},{value:"haiku",label:"⚡ Haiku ($1/$5M) - faster + cheaper"}]} />
                     )}
                   </div>
                   <div style={{ fontSize: 9, color: T.text3, marginTop: 4 }}>
@@ -1934,7 +1934,7 @@ export default function SupportView() {
                 {/* Status summary */}
                 <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: aiConfig?.auto_reply_enabled ? "#22c55e08" : T.surface, border: `1px solid ${aiConfig?.auto_reply_enabled ? "#22c55e30" : T.border}` }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: aiConfig.auto_reply_enabled ? "#22c55e" : T.text }}>
-                    {aiConfig.auto_reply_enabled ? "🟢 FULLY AUTOMATIC — " : "🟡 SEMI-AUTOMATIC — "}
+                    {aiConfig.auto_reply_enabled ? "🟢 FULLY AUTOMATIC - " : "🟡 SEMI-AUTOMATIC - "}
                     {aiConfig.auto_reply_enabled ? "AI will classify, generate, and post replies for selected comment types." : "AI classifies and drafts replies. You review and send manually."}
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
@@ -1970,7 +1970,7 @@ export default function SupportView() {
                 }} style={{ padding: "4px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>+</button>
               </div>
 
-              {/* Gap report bar — shows when there are open gap findings */}
+              {/* Gap report bar - shows when there are open gap findings */}
               {kbGapReports.length > 0 && (
                 <div style={{ padding: 10, borderBottom: `1px solid ${T.border}`, background: T.surface2, fontSize: 11, maxHeight: 280, overflow: "auto" }}>
                   <div style={{ fontWeight: 700, color: T.text, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1978,7 +1978,7 @@ export default function SupportView() {
                     <span style={{ fontSize: 9, color: T.text3 }}>{kbGapReports.filter(g => !g.has_kb_coverage).length} gaps</span>
                   </div>
                   {kbGapReports.slice(0, 6).map(g => (
-                    <div key={g.id} title={g.has_kb_coverage ? "Covered by an existing article" : "Gap — no matching KB article. Click to draft."}
+                    <div key={g.id} title={g.has_kb_coverage ? "Covered by an existing article" : "Gap - no matching KB article. Click to draft."}
                       style={{ padding: "5px 7px", marginBottom: 4, background: g.has_kb_coverage ? T.surface : "#f59e0b15", borderRadius: 4, borderLeft: `3px solid ${g.has_kb_coverage ? "#22c55e" : "#f59e0b"}`, cursor: g.has_kb_coverage ? "default" : "pointer" }}
                       onClick={async () => {
                         if (g.has_kb_coverage) return;
@@ -2259,7 +2259,7 @@ export default function SupportView() {
                   <option value="all">All Sentiment</option><option value="positive">😊 Positive</option>
                   <option value="neutral">😐 Neutral</option><option value="negative">😠 Negative</option>
                 </select>
-                {/* Competitor filter — hides or focuses on mentions that named a tracked competitor.
+                {/* Competitor filter - hides or focuses on mentions that named a tracked competitor.
                     Only renders when there's at least one active competitor configured. */}
                 {competitors.some(c => c.is_active) && (
                   <select value={socialFilter.competitor || "all"} onChange={e => setSocialFilter(f => ({ ...f, competitor: e.target.value }))}
@@ -2304,7 +2304,7 @@ export default function SupportView() {
                   .filter(m => (socialFilter.status === "all" || m.status === socialFilter.status))
                   .filter(m => (socialFilter.sentiment === "all" || m.sentiment === socialFilter.sentiment))
                   .filter(m => {
-                    // Competitor filter — only applies when explicitly selected
+                    // Competitor filter - only applies when explicitly selected
                     if (!socialFilter.competitor || socialFilter.competitor === "all") return true;
                     if (socialFilter.competitor === "hide") return !m.is_competitor_mention;
                     if (socialFilter.competitor === "only") return !!m.is_competitor_mention;
@@ -2340,7 +2340,7 @@ export default function SupportView() {
                         <div style={{ fontSize: 12, color: m.is_hidden ? T.text3 : T.text, lineHeight: 1.5, marginBottom: 6, textDecoration: m.is_hidden ? "line-through" : "none" }}>
                           {m.content}
                         </div>
-                        {/* Row 3: Status badges — always visible */}
+                        {/* Row 3: Status badges - always visible */}
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                           <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: stb.bg, color: stb.color, textTransform: "uppercase" }}>{stb.label}</span>
                           {m.is_competitor_mention && (() => {
@@ -2359,7 +2359,7 @@ export default function SupportView() {
                           {m.ai_reply_draft && !m.auto_responded && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: "#a855f715", color: "#a855f7" }}>✨ Draft ready</span>}
                           {m.moderation_status === "pending" && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: T.surface2, color: T.text3 }}>⏳ Unmoderated</span>}
                         </div>
-                        {/* Row 4: AI draft preview — show first line without expanding */}
+                        {/* Row 4: AI draft preview - show first line without expanding */}
                         {m.ai_reply_draft && !isExpanded && (
                           <div style={{ marginTop: 6, padding: "4px 8px", background: "#a855f706", borderRadius: 4, borderLeft: `2px solid #a855f730`, fontSize: 11, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             💬 {m.ai_reply_draft}
@@ -2574,7 +2574,7 @@ export default function SupportView() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
               {[
                 { label: "Active Breaches", value: tickets.filter(t => t.sla_breached && t.status !== "resolved" && t.status !== "closed").length, color: "#ef4444" },
-                { label: "Avg First Response", value: (() => { const responded = tickets.filter(t => t.first_response_at && t.created_at); if (!responded.length) return "—"; const avg = responded.reduce((s, t) => s + (new Date(t.first_response_at) - new Date(t.created_at)) / 60000, 0) / responded.length; return avg < 60 ? Math.round(avg) + "m" : (avg / 60).toFixed(1) + "h"; })(), color: T.accent },
+                { label: "Avg First Response", value: (() => { const responded = tickets.filter(t => t.first_response_at && t.created_at); if (!responded.length) return "-"; const avg = responded.reduce((s, t) => s + (new Date(t.first_response_at) - new Date(t.created_at)) / 60000, 0) / responded.length; return avg < 60 ? Math.round(avg) + "m" : (avg / 60).toFixed(1) + "h"; })(), color: T.accent },
                 { label: "Active Policies", value: slaPolicies.filter(p => p.is_active).length, color: "#22c55e" },
               ].map(k => (
                 <div key={k.label} style={{ padding: 14, borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, textAlign: "center" }}>
@@ -2660,7 +2660,7 @@ export default function SupportView() {
             {/* Preset automations */}
             {automations.length === 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 8 }}>Quick Start — click to add:</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 8 }}>Quick Start - click to add:</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {[
                     { name: "Escalate urgent tickets", trigger: "ticket_created", conditions: { match: "all", rules: [{ field: "priority", operator: "equals", value: "urgent" }] }, actions: { type: "notify", value: "Urgent ticket needs attention" } },
@@ -2713,7 +2713,7 @@ export default function SupportView() {
                         <option value="sla_breach">SLA About to Breach</option>
                       </select>
                       <div style={{ fontSize: 10, color: T.text3, fontStyle: "italic" }}>
-                        Conditions: {auto.conditions?.rules?.length || 0} rule(s) — {auto.conditions?.match || "any"} match
+                        Conditions: {auto.conditions?.rules?.length || 0} rule(s) - {auto.conditions?.match || "any"} match
                       </div>
                     </div>
                     <div>
@@ -2745,7 +2745,7 @@ export default function SupportView() {
               <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>📣 Ads &amp; Posts</h2>
               <div style={{ fontSize: 11, color: T.text3 }}>Sorted by attention · {socialPosts.length} posts</div>
             </div>
-            {/* Post type filter — distinguish organic feed posts from paid /
+            {/* Post type filter - distinguish organic feed posts from paid /
                 boosted / dark (ad-only) creative. Comments on dark posts often
                 need different moderation policy. */}
             <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
@@ -2797,7 +2797,7 @@ export default function SupportView() {
                           }[post.post_type];
                           if (!TYPE_BADGE) return null;
                           return (
-                            <span title={post.post_type === "dark" ? "Ad-only post — never appeared on the organic feed" : post.post_type === "boosted" ? "Organic post that was boosted with ad spend" : "Regular post on the brand feed"} style={{ padding: "1px 6px", borderRadius: 3, background: TYPE_BADGE.bg, color: TYPE_BADGE.color, fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>
+                            <span title={post.post_type === "dark" ? "Ad-only post - never appeared on the organic feed" : post.post_type === "boosted" ? "Organic post that was boosted with ad spend" : "Regular post on the brand feed"} style={{ padding: "1px 6px", borderRadius: 3, background: TYPE_BADGE.bg, color: TYPE_BADGE.color, fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>
                               {TYPE_BADGE.icon} {TYPE_BADGE.label}
                             </span>
                           );
@@ -2908,7 +2908,7 @@ export default function SupportView() {
               </div>
             </div>
 
-            {/* Config banner — visible when feature is off */}
+            {/* Config banner - visible when feature is off */}
             {appreciationConfig && !appreciationConfig.is_enabled && (
               <div style={{ padding: 12, background: "#f59e0b15", border: `1px solid #f59e0b40`, borderRadius: 8, marginBottom: 16, fontSize: 12, color: "#f59e0b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>⚠️ Weekly auto-drafting is paused. You can still generate drafts manually with the button above.</span>
@@ -3053,7 +3053,7 @@ export default function SupportView() {
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {gaps.slice(0, 8).map(g => (
                       <span key={`${g.dow}-${g.hour}`} style={{ padding: "3px 9px", fontSize: 10, fontWeight: 600, background: "#ef444420", color: "#ef4444", borderRadius: 4 }}>
-                        {g.label} — {g.incoming} item{g.incoming === 1 ? "" : "s"} unhandled
+                        {g.label} - {g.incoming} item{g.incoming === 1 ? "" : "s"} unhandled
                       </span>
                     ))}
                   </div>
@@ -3190,7 +3190,7 @@ export default function SupportView() {
                   </div>
                   {rows.map((r, i) => {
                     const pct = totalRev > 0 ? (r.revenue_cents / totalRev) * 100 : 0;
-                    const avgCsat = r.csat_count > 0 ? (r.csat_sum / r.csat_count).toFixed(1) : "—";
+                    const avgCsat = r.csat_count > 0 ? (r.csat_sum / r.csat_count).toFixed(1) : "-";
                     return (
                       <div key={r.agent_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: i < rows.length - 1 ? `1px solid ${T.border}30` : "none" }}>
                         <span style={{ width: 18, fontSize: 11, fontWeight: 700, color: i < 3 ? T.accent : T.text3, textAlign: "center" }}>{i + 1}</span>
@@ -3441,7 +3441,7 @@ export default function SupportView() {
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.text3, display: "block", marginBottom: 4 }}>Reason (sent to Shopify)</label>
                   <select value={shopifyActionForm.reason} onChange={e => setShopifyActionForm(f => ({ ...f, reason: e.target.value }))}
                     style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text }}>
-                    <option value="">— select —</option>
+                    <option value="">- select -</option>
                     <option value="customer">Customer request</option>
                     <option value="declined">Payment declined</option>
                     <option value="fraud">Fraud</option>
@@ -3595,7 +3595,7 @@ export default function SupportView() {
             <label style={{ fontSize: 11, fontWeight: 600, color: T.text3 }}>Holding macro</label>
             <select value={crisisForm.holding_macro_id || ""} onChange={e => setCrisisForm(f => ({ ...f, holding_macro_id: e.target.value || null }))}
               style={{ width: "100%", marginTop: 4, padding: "8px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface2, color: T.text, outline: "none" }}>
-              <option value="">— None —</option>
+              <option value="">- None -</option>
               {macros.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
@@ -3701,7 +3701,7 @@ export default function SupportView() {
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }} onClick={() => setShowTagsModal(false)}>
           <div onClick={e => e.stopPropagation()} style={{ width: 560, maxHeight: "85vh", overflow: "auto", background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, padding: 22 }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 4 }}>🏷️ Manage tags</div>
-            <div style={{ fontSize: 11, color: T.text3, marginBottom: 14 }}>Organize tags hierarchically. Parent tags can have children — e.g., "Refund" with children "Damaged", "Wrong item", "Late delivery".</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 14 }}>Organize tags hierarchically. Parent tags can have children - e.g., "Refund" with children "Damaged", "Wrong item", "Late delivery".</div>
 
             {/* Add tag form */}
             <div style={{ padding: 12, background: T.surface2, borderRadius: 8, marginBottom: 14, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
@@ -3720,7 +3720,7 @@ export default function SupportView() {
                 <label style={{ fontSize: 10, fontWeight: 600, color: T.text3, display: "block", marginBottom: 3 }}>Parent (optional)</label>
                 <select value={newTagForm.parent_id || ""} onChange={e => setNewTagForm(f => ({ ...f, parent_id: e.target.value || null }))}
                   style={{ width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, outline: "none" }}>
-                  <option value="">— Top level —</option>
+                  <option value="">- Top level -</option>
                   {tags.filter(t => !t.parent_id).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
@@ -3898,7 +3898,7 @@ export default function SupportView() {
                           <span>🔤 {(c.keywords || []).join(", ")}</span>
                         )}
                         {handleEntries.length === 0 && (c.keywords || []).length === 0 && (
-                          <span style={{ fontStyle: "italic" }}>No handles or keywords — won't match anything yet</span>
+                          <span style={{ fontStyle: "italic" }}>No handles or keywords - won't match anything yet</span>
                         )}
                       </div>
                     </div>
@@ -3958,7 +3958,7 @@ export default function SupportView() {
               <div style={{ width: 40, height: 40, borderRadius: 10, background: T.accent + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📨</div>
               <div>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: T.text }}>Simulate Inbound Email</h3>
-                <div style={{ fontSize: 11, color: T.text3 }}>Test the full support flow — ticket creation, AI auto-draft, and agent response</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>Test the full support flow - ticket creation, AI auto-draft, and agent response</div>
               </div>
             </div>
             <form onSubmit={async e => {

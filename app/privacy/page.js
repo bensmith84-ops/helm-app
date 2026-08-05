@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Privacy Policy — Helm Business OS",
+  title: "Privacy Policy - Helm Business OS",
   description: "Privacy Policy for Helm Business OS",
 };
 
@@ -106,7 +106,7 @@ export default function PrivacyPage() {
               <li>We access your QuickBooks data only with your explicit authorization via OAuth 2.0</li>
               <li>Data retrieved includes accounting records you choose to sync (P&L, chart of accounts, vendors, bills, customers, and invoices)</li>
               <li>This data is stored in our secure database and displayed within your Helm workspace</li>
-              <li>We do not modify or write data back to your QuickBooks account — Helm is read-only with respect to QuickBooks</li>
+              <li>We do not modify or write data back to your QuickBooks account - Helm is read-only with respect to QuickBooks</li>
               <li>You may disconnect the QuickBooks integration at any time from Settings → Integrations, which will revoke our access</li>
               <li>OAuth tokens are stored encrypted and refreshed automatically per Intuit's token lifecycle</li>
             </ul>

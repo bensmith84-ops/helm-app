@@ -1,5 +1,5 @@
 
-// POST /accept-invite — port of supabase/functions/accept-invite
+// POST /accept-invite - port of supabase/functions/accept-invite
 // Validates invitation token, creates org_membership + team_memberships + channel_memberships.
 // Requires authenticated user (req.user.helm_user.uid via Firebase middleware).
 

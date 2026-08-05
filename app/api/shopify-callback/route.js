@@ -98,7 +98,7 @@ export async function GET(request) {
         });
       }
     } else {
-      // No service key — use edge function
+      // No service key - use edge function
       await fetch(`${SUPABASE_URL}/functions/v1/shopify-store-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

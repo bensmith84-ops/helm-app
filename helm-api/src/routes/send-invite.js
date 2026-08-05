@@ -1,5 +1,5 @@
 
-// POST /send-invite — port of supabase/functions/send-invite
+// POST /send-invite - port of supabase/functions/send-invite
 // Pure DB: saves attendees + generates iCal for the caller to send via email.
 // No auth admin calls. Resend/SendGrid delivery is up to the caller.
 

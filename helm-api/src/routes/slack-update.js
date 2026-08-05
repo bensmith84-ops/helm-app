@@ -18,7 +18,7 @@ module.exports = function(app) {
       if (!slackToken) return res.status(500).json({ error: 'SLACK_BOT_TOKEN not configured' });
 
       const label = STATUS_LABELS[status] || status;
-      const headerLine = `${label} \u2014 ${title || 'Spend request'}`;
+      const headerLine = `${label} - ${title || 'Spend request'}`;
       const bodyLines = [];
       if (actor_name) bodyLines.push(`_by ${actor_name}_`);
       if (note) bodyLines.push(`> ${note}`);

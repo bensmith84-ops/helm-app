@@ -10,14 +10,14 @@ const FLAGS   = { stord_us: "🇺🇸", next3pl_uk: "🇬🇧", next3pl_au: "�
 const PAGE_SIZE = 100;
 
 const fmtMoney = (n, ccy = "USD", frac = 2) => {
-  if (n == null || n === "") return "—";
+  if (n == null || n === "") return "-";
   const sym = CCY_SYM[ccy] || "$";
   const v = Number(n);
   return (v < 0 ? "-" : "") + sym + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac });
 };
-const fmtNum = (n) => (n == null || n === "") ? "—" : Number(n).toLocaleString();
-const fmtWeight = (n) => (n == null || n === "") ? "—" : Number(n).toFixed(2) + " kg";
-const fmtDate = (s) => s || "—";
+const fmtNum = (n) => (n == null || n === "") ? "-" : Number(n).toLocaleString();
+const fmtWeight = (n) => (n == null || n === "") ? "-" : Number(n).toFixed(2) + " kg";
+const fmtDate = (s) => s || "-";
 const truncate = (s, n) => !s ? "" : (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
 // CSV escape
@@ -148,7 +148,7 @@ export default function ThreePLOrderDetail({ goBack, initialInvoiceId = null }) 
     }
   }, [orgId, buildQuery, sortCol, sortDir, exporting]);
 
-  // Page-level summary (just the current page totals — cheap and meaningful)
+  // Page-level summary (just the current page totals - cheap and meaningful)
   const pageSummary = useMemo(() => {
     const tot = rows.reduce((s, r) => s + (Number(r.total_cost) || 0), 0);
     const wt  = rows.reduce((s, r) => s + (Number(r.weight_kg)  || 0), 0);
@@ -254,23 +254,23 @@ export default function ThreePLOrderDetail({ goBack, initialInvoiceId = null }) 
               <tr key={r.shipment_id} style={{ background: r.is_adjustment ? "#FEF3C720" : "transparent" }}>
                 <td style={td}>{FLAGS[r.provider_code]} {r.provider_code?.replace("_", " ")}</td>
                 <td style={tdMono} title={r.invoice_number}>{truncate(r.invoice_number, 14)}</td>
-                <td style={tdMono} title={r.shopify_order_id || r.external_order_no}>{r.external_order_no || "—"}</td>
+                <td style={tdMono} title={r.shopify_order_id || r.external_order_no}>{r.external_order_no || "-"}</td>
                 <td style={td}>{fmtDate(r.shipment_date)}</td>
-                <td style={td}>{r.carrier || "—"}</td>
-                <td style={td} title={r.service_level}>{truncate(r.service_level, 24) || "—"}</td>
-                <td style={td}>{r.zone || "—"}</td>
+                <td style={td}>{r.carrier || "-"}</td>
+                <td style={td} title={r.service_level}>{truncate(r.service_level, 24) || "-"}</td>
+                <td style={td}>{r.zone || "-"}</td>
                 <td style={tdNum}>{fmtWeight(r.weight_kg)}</td>
                 <td style={td}>
-                  {[r.recipient_city, r.recipient_region, r.recipient_postal, r.recipient_country].filter(Boolean).join(", ") || "—"}
+                  {[r.recipient_city, r.recipient_region, r.recipient_postal, r.recipient_country].filter(Boolean).join(", ") || "-"}
                 </td>
-                <td style={tdNum}>{r.units_shipped > 0 ? fmtNum(r.units_shipped) : "—"}</td>
-                <td style={tdNum}>{r.sku_count > 0 ? fmtNum(r.sku_count) : "—"}</td>
+                <td style={tdNum}>{r.units_shipped > 0 ? fmtNum(r.units_shipped) : "-"}</td>
+                <td style={tdNum}>{r.sku_count > 0 ? fmtNum(r.sku_count) : "-"}</td>
                 <td style={tdNum}>{fmtMoney(r.freight_cost, r.currency)}</td>
-                <td style={tdNum}>{Number(r.fuel_surcharge) > 0 ? fmtMoney(r.fuel_surcharge, r.currency) : "—"}</td>
-                <td style={tdNum}>{Number(r.other_surcharges) > 0 ? fmtMoney(r.other_surcharges, r.currency) : "—"}</td>
+                <td style={tdNum}>{Number(r.fuel_surcharge) > 0 ? fmtMoney(r.fuel_surcharge, r.currency) : "-"}</td>
+                <td style={tdNum}>{Number(r.other_surcharges) > 0 ? fmtMoney(r.other_surcharges, r.currency) : "-"}</td>
                 <td style={{ ...tdNum, fontWeight: 700, color: T.text }}>{fmtMoney(r.total_cost, r.currency)}</td>
-                <td style={tdNum}>{r.cost_per_unit != null ? fmtMoney(r.cost_per_unit, r.currency, 3) : "—"}</td>
-                <td style={tdMono} title={r.tracking_number}>{truncate(r.tracking_number, 16) || "—"}</td>
+                <td style={tdNum}>{r.cost_per_unit != null ? fmtMoney(r.cost_per_unit, r.currency, 3) : "-"}</td>
+                <td style={tdMono} title={r.tracking_number}>{truncate(r.tracking_number, 16) || "-"}</td>
               </tr>
             ))}
           </tbody>
@@ -280,7 +280,7 @@ export default function ThreePLOrderDetail({ goBack, initialInvoiceId = null }) 
       {/* ── Pagination ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontSize: 11, color: T.text3 }}>
-          {totalRows === 0 ? "—" : `Showing ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, totalRows)} of ${totalRows.toLocaleString()}`}
+          {totalRows === 0 ? "-" : `Showing ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, totalRows)} of ${totalRows.toLocaleString()}`}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => setPage(0)} disabled={page === 0} style={{ ...btn, opacity: page === 0 ? 0.5 : 1 }}>« First</button>

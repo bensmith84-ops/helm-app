@@ -63,8 +63,8 @@ export const MESSAGES = {
     { id: "m1", user: "u1", text: "Welcome to Helm! This is where we build the future of work. 🚀", time: "9:00 AM", reactions: [{ emoji: "🔥", count: 4 }] },
     { id: "m2", user: "u3", text: "Just finished the competitive analysis. We have a real shot at disrupting the market.", time: "9:15 AM", reactions: [] },
     { id: "m3", user: "u2", text: "Schema migration is 90% done. Auth tables are ready. Starting on RLS policies today.", time: "9:42 AM", reactions: [{ emoji: "👍", count: 2 }] },
-    { id: "m4", user: "u4", text: "Design system tokens are locked in. Dark mode first — we're building for builders.", time: "10:05 AM", reactions: [{ emoji: "🎨", count: 3 }] },
-    { id: "m5", user: "u5", text: "WebSocket layer performing well — 50ms average message delivery. Real-time will feel instant.", time: "10:30 AM", reactions: [{ emoji: "⚡", count: 5 }] },
+    { id: "m4", user: "u4", text: "Design system tokens are locked in. Dark mode first - we're building for builders.", time: "10:05 AM", reactions: [{ emoji: "🎨", count: 3 }] },
+    { id: "m5", user: "u5", text: "WebSocket layer performing well - 50ms average message delivery. Real-time will feel instant.", time: "10:30 AM", reactions: [{ emoji: "⚡", count: 5 }] },
   ],
   ch2: [
     { id: "m6", user: "u2", text: "Sprint planning: Prioritize auth flow and messaging POC this week.", time: "8:30 AM", reactions: [] },

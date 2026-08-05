@@ -1,5 +1,5 @@
 
-// POST /remove-user — port of supabase/functions/remove-user
+// POST /remove-user - port of supabase/functions/remove-user
 // Calls remove_user_cascade Postgres fn + Firebase Admin auth.deleteUser.
 // Requires Firebase Admin SDK initialized in src/index.js.
 

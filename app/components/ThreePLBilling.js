@@ -28,7 +28,7 @@ function loadSheetJS() {
 }
 
 // ─── Canonical fee taxonomy ────────────────────────────────────────────────
-// canonical_category values used in reports. Keep stable — schema constraint.
+// canonical_category values used in reports. Keep stable - schema constraint.
 const CATEGORIES = [
   { key: "inbound_unloading",  label: "Inbound: Unloading",   color: "#8B5CF6" },
   { key: "inbound_receiving",  label: "Inbound: Receiving",   color: "#A78BFA" },
@@ -102,7 +102,7 @@ const toDate = (v) => {
   const iso = (y, m, d) => `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
   const validMD = (m, d) => m >= 1 && m <= 12 && d >= 1 && d <= 31;
 
-  // Native Date object — common when SheetJS reads cells with cellDates: true.
+  // Native Date object - common when SheetJS reads cells with cellDates: true.
   if (v instanceof Date) {
     if (isNaN(v.getTime())) return null;
     const y = v.getUTCFullYear();
@@ -141,7 +141,7 @@ const toDate = (v) => {
     return null;
   }
 
-  // 3) Pure numeric — treat as Excel serial day count (epoch Dec 30 1899).
+  // 3) Pure numeric - treat as Excel serial day count (epoch Dec 30 1899).
   if (/^\d+(?:\.\d+)?$/.test(s)) {
     const n = parseFloat(s);
     if (n > 1 && n < 100000) {
@@ -154,7 +154,7 @@ const toDate = (v) => {
     return null;
   }
 
-  // 4) Last-ditch JS Date.parse — only accept if year is sensible.
+  // 4) Last-ditch JS Date.parse - only accept if year is sensible.
   const fallback = new Date(s);
   if (!isNaN(fallback.getTime()) && yearOK(fallback.getUTCFullYear())) {
     return fallback.toISOString().split("T")[0];
@@ -312,7 +312,7 @@ function detectFormat(workbook, filename = "", _xlsxRef = null) {
     const warehouse = (whFromHeader?.[1] || whFromFile?.[1] || "").toUpperCase() || null;
     return { format: "stord_customer", provider: "stord_us", warehouse, stordHit };
   }
-  // Next3PL family — has "Warehouse Invoice" + "Warehouse Rates"
+  // Next3PL family - has "Warehouse Invoice" + "Warehouse Rates"
   if (sheets.some(s => s.includes("warehouse rates")) && sheets.some(s => s.includes("warehouse invoice"))) {
     // Sub-distinguish UK monthly vs AU weekly vs CA weekly
     // UK: "Monthly Tracking" sheet, monthly billing period
@@ -321,10 +321,10 @@ function detectFormat(workbook, filename = "", _xlsxRef = null) {
     if (sheets.includes("monthly tracking")) return { format: "next3pl_uk_monthly", provider: "next3pl_uk" };
     if (sheets.includes("datasheet")) return { format: "next3pl_au_warehouse", provider: "next3pl_au" };
     if (sheets.includes("spend tracking")) return { format: "next3pl_ca_weekly", provider: "next3pl_ca" };
-    // Fallback: ambiguous Next3PL — let user pick
+    // Fallback: ambiguous Next3PL - let user pick
     return { format: "next3pl_unknown", provider: null };
   }
-  // Next3PL UK Dispatch / Freight Report — detect by column content rather than
+  // Next3PL UK Dispatch / Freight Report - detect by column content rather than
   // sheet name. Sheet names vary across exports: the manifest sheet may be "Raw" or
   // "Sheet1" (Dispatch) or "Non FedEx" / "Freight" (Freight Report); the FedEx detail
   // sheet may be "FedEx", "FedEx.", or absent. The Freight Report variant adds a "£"
@@ -360,7 +360,7 @@ function sheetToRows(ws, xlsx) {
   return xlsx.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
 }
 
-// Parse Next3PL UK monthly / AU warehouse / CA weekly — all share the same
+// Parse Next3PL UK monthly / AU warehouse / CA weekly - all share the same
 // Warehouse Rates structure. Section headers in column D (4th col) trigger
 // canonical_category changes; subsequent rows are line items.
 function parseNext3PL(workbook, xlsx, hint = {}) {
@@ -383,7 +383,7 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
       const row = rows[r] || [];
       const cells = row.map(c => c == null ? "" : String(c).trim());
       const joined = cells.join(" | ");
-      // Invoice number — pattern like N3PL0244-1012608 or L491607 or F491749
+      // Invoice number - pattern like N3PL0244-1012608 or L491607 or F491749
       const invMatch = joined.match(/\b([NLFA]\w*\d{4,}[-\d]*)\b/);
       if (invMatch && !result.header.invoice_number) result.header.invoice_number = invMatch[1];
       // Dates
@@ -445,7 +445,7 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
       if (periodMatch) {
         // Try to parse the month name into period_start/period_end
         // Captured group can include neighboring cell text like "  Week Number: 03"
-        // when the row joins to a single string — strip it before date parsing.
+        // when the row joins to a single string - strip it before date parsing.
         const periodStr = periodMatch[1].trim().replace(/\s+(?:Week|Month)\s+Number[:\s].*$/i, "").trim();
         // Month format: accept full ("March-2026", "March 2026") or abbreviated ("Mar 2026", "Jan 2026").
         const mMatch = periodStr.match(/^(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s-]+(\d{2,4})/i);
@@ -516,7 +516,7 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
     }
   }
 
-  // ── Freight from "Transport" sheet (if present — UK monthly & CA weekly include it) ─────
+  // ── Freight from "Transport" sheet (if present - UK monthly & CA weekly include it) ─────
   const wsTransport = workbook.Sheets[workbook.SheetNames.find(s => /^transport$/i.test(s) || /freight charges/i.test(s))];
   if (wsTransport) {
     const rows = sheetToRows(wsTransport, xlsx);
@@ -706,9 +706,9 @@ function parseNext3PL(workbook, xlsx, hint = {}) {
   return result;
 }
 
-// Parse Next3PL UK Dispatch — single "Raw" sheet with per-product-within-shipment rows.
+// Parse Next3PL UK Dispatch - single "Raw" sheet with per-product-within-shipment rows.
 // One row per SKU line; multi-product orders have multiple rows sharing the same Delivery Number.
-// File has NO cost data — purely a shipment manifest. Used to populate per-shipment detail
+// File has NO cost data - purely a shipment manifest. Used to populate per-shipment detail
 // (tracking, weight, carrier, recipient region) that the monthly invoice file does not contain.
 function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
   const result = {
@@ -716,7 +716,7 @@ function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
     lines: [], shipments: [], orderLines: [],
     detected_format: hint.format || "next3pl_uk_dispatch",
   };
-  // Find the manifest sheet by columns — sheet name varies (Raw, Sheet1, …).
+  // Find the manifest sheet by columns - sheet name varies (Raw, Sheet1, …).
   let wsRaw = null;
   for (const sn of workbook.SheetNames) {
     const ws = workbook.Sheets[sn];
@@ -748,7 +748,7 @@ function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
     productDesc: header.indexOf("Product Description"),
   };
   if (idx.delivery < 0) return result;
-  // Group rows by Delivery Number — multi-product shipments dedupe to one shipment row.
+  // Group rows by Delivery Number - multi-product shipments dedupe to one shipment row.
   const shipMap = new Map();
   let earliest = null, latest = null;
   for (let r = 1; r < rows.length; r++) {
@@ -814,11 +814,11 @@ function parseNext3PLUKDispatch(workbook, xlsx, hint = {}) {
   result.header.invoice_number = `${baseSlug}-DISPATCH`;
   result.header.units_shipped = result.shipments.reduce((a, s) => a + (s.units_shipped || 0), 0);
   result.header.orders_shipped = result.shipments.length;
-  // total stays 0 — this file carries no cost data, so it does not inflate any spend KPI.
+  // total stays 0 - this file carries no cost data, so it does not inflate any spend KPI.
   return result;
 }
 
-// Parse Next3PL UK Freight Report — sheets "Non FedEx" + "FedEx" with per-shipment freight cost.
+// Parse Next3PL UK Freight Report - sheets "Non FedEx" + "FedEx" with per-shipment freight cost.
 // The Non FedEx sheet duplicates the Dispatch schema and adds Carriage Method + 4 cost-bucket
 // columns (Domestic / Intl Large Letter / Intl Parcels / Fedex) + a £ total per row. The same
 // freight cost appears on every product-line within a multi-product shipment, so we dedupe by
@@ -830,7 +830,7 @@ function parseNext3PLUKFreightReport(workbook, xlsx, hint = {}) {
     lines: [], shipments: [], orderLines: [],
     detected_format: hint.format || "next3pl_uk_freight_report",
   };
-  // Find the two sheets by columns — sheet names vary (main: "Non FedEx" or
+  // Find the two sheets by columns - sheet names vary (main: "Non FedEx" or
   // "Freight"; FedEx: "FedEx" or "FedEx." with trailing dot/whitespace).
   let wsNonFedex = null, wsFedex = null;
   for (const sn of workbook.SheetNames) {
@@ -1008,7 +1008,7 @@ function parseNext3PLUKFreightReport(workbook, xlsx, hint = {}) {
   return result;
 }
 
-// Parse Stord _CUSTOMER.xlsx — main warehouse billing
+// Parse Stord _CUSTOMER.xlsx - main warehouse billing
 function parseStordCustomer(workbook, xlsx, hint = {}) {
   const result = {
     header: { invoice_number: null, invoice_date: null, period_start: null, period_end: null, total: 0, subtotal: 0, currency: "USD", warehouse_code: hint.warehouse || null, raw_summary: {} },
@@ -1088,7 +1088,7 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
       for (let i = cols.headerAt + 1; i < rows.length; i++) {
         const row = rows[i] || [];
         const cells = row.map(c => c == null ? "" : String(c).trim());
-        // INVOICE TOTAL or final "TOTAL" marker — pick the first sizable number from the row
+        // INVOICE TOTAL or final "TOTAL" marker - pick the first sizable number from the row
         const looksLikeTotal = cells.some(c => /^(invoice\s+)?total$/i.test(c));
         if (looksLikeTotal) {
           for (const c of row) {
@@ -1108,7 +1108,7 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
         result.lines.push({
           line_no: lineNo,
           canonical_category: classifyRaw(item),
-          raw_category: item.split(/\s*[-—]\s*/)[0],
+          raw_category: item.split(/\s*[-]\s*/)[0],
           description: item,
           uom: uom || null,
           rate, quantity: qty, amount: total,
@@ -1124,7 +1124,7 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
     result.header.invoice_number = hint.invoice_number_from_filename || null;
   }
 
-  // OB Lines — per-order shipments + order lines
+  // OB Lines - per-order shipments + order lines
   const wsOB = workbook.Sheets[workbook.SheetNames.find(s => /^ob lines$/i.test(s))];
   if (wsOB) {
     const rows = sheetToRows(wsOB, xlsx);
@@ -1157,7 +1157,7 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
           quantity_shipped: qty,
           warehouse_code: warehouseFromBld || hint.warehouse || null,
         });
-        // Shipments — dedupe by order, sum quantities + SKUs
+        // Shipments - dedupe by order, sum quantities + SKUs
         if (!seenOrders.has(orderNo)) {
           seenOrders.set(orderNo, {
             shipment_date: shipDate,
@@ -1181,7 +1181,7 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
     }
   }
 
-  // ── LPN sheet (inbound receiving data — D1RT variant) ──
+  // ── LPN sheet (inbound receiving data - D1RT variant) ──
   // We don''t treat LPN rows as outbound shipments. If we still don''t have
   // a warehouse_code, pull it from the LPN "Building Name" column.
   if (!result.header.warehouse_code) {
@@ -1215,7 +1215,7 @@ function parseStordCustomer(workbook, xlsx, hint = {}) {
   return result;
 }
 
-// Parse Stord consolidated-transaction-report.xlsx — parcel/freight detail
+// Parse Stord consolidated-transaction-report.xlsx - parcel/freight detail
 function parseStordConsolidated(workbook, xlsx, hint = {}) {
   const result = {
     header: { invoice_number: null, invoice_date: null, period_start: null, period_end: null, total: 0, subtotal: 0, currency: "USD", warehouse_code: hint.warehouse || null, raw_summary: { source: "consolidated-transaction-report" } },
@@ -1223,7 +1223,7 @@ function parseStordConsolidated(workbook, xlsx, hint = {}) {
     detected_format: "stord_consolidated",
   };
 
-  // Parcel Backup Report — per-shipment detail
+  // Parcel Backup Report - per-shipment detail
   const wsBackup = workbook.Sheets[workbook.SheetNames.find(s => /parcel backup report/i.test(s))];
   if (wsBackup) {
     const rows = sheetToRows(wsBackup, xlsx);
@@ -1333,7 +1333,7 @@ function parseStordConsolidated(workbook, xlsx, hint = {}) {
     }
   }
 
-  // Parcel Backup Summary — rolls up to billing lines (one line per service level)
+  // Parcel Backup Summary - rolls up to billing lines (one line per service level)
   const wsSummary = workbook.Sheets[workbook.SheetNames.find(s => /parcel backup summary/i.test(s))];
   if (wsSummary) {
     const rows = sheetToRows(wsSummary, xlsx);
@@ -1357,7 +1357,7 @@ function parseStordConsolidated(workbook, xlsx, hint = {}) {
           line_no: lineNo,
           canonical_category: adj ? "adjustment" : "freight",
           raw_category: adj ? "Parcel Adjustment" : "Parcel",
-          description: `${adj ? "Adjustment — " : ""}${svc}`,
+          description: `${adj ? "Adjustment - " : ""}${svc}`,
           uom: "Per Shipment",
           rate: cnt > 0 ? total / cnt : 0,
           quantity: cnt,
@@ -1411,7 +1411,7 @@ function parseStordTransactionHistory(workbook, xlsx, hint = {}) {
 
   // Rolled-up billing lines: key = "item|codeName|rate|isVoided"
   // (Voids are tracked separately so users can audit them but they don''t
-  // affect the invoice total — voided parcels still appear in the file but
+  // affect the invoice total - voided parcels still appear in the file but
   // contribute $0; we include them as adjustment lines for transparency.)
   const lineGroups = new Map();
   const orderUnits = new Map();          // external_order_no → units for header counts
@@ -1467,7 +1467,7 @@ function parseStordTransactionHistory(workbook, xlsx, hint = {}) {
       line_no: lineNo,
       canonical_category: g.is_voided ? "adjustment" : (classifyRaw(g.code_name || g.billing_item) || "freight"),
       raw_category: g.is_voided ? `${g.billing_item} (voided)` : (g.code_name || g.billing_item),
-      description: `${g.billing_item}${g.code_name && g.code_name !== g.billing_item ? ` — ${g.code_name}` : ""}${g.is_voided ? " — VOIDED" : ""}`,
+      description: `${g.billing_item}${g.code_name && g.code_name !== g.billing_item ? ` - ${g.code_name}` : ""}${g.is_voided ? " - VOIDED" : ""}`,
       uom: "Per Shipment",
       rate: g.rate, quantity: g.qty || g.count, amount: g.amount,
       notes: g.is_voided ? `${g.count} voided parcels` : `${g.count} parcels`,
@@ -1552,7 +1552,7 @@ function parseStordParcelBackup(workbook, xlsx, hint = {}) {
           line_no: lineNo,
           canonical_category: isAdj ? "adjustment" : "freight",
           raw_category: isAdj ? "Parcel Adjustment" : "Parcel",
-          description: `${isAdj ? "Adjustment — " : ""}${svc}`,
+          description: `${isAdj ? "Adjustment - " : ""}${svc}`,
           uom: "Per Shipment",
           rate: cnt > 0 ? total / cnt : 0,
           quantity: cnt,
@@ -1676,7 +1676,7 @@ function parseStordRTS(workbook, xlsx, hint = {}) {
     const row = rows[i] || [];
     const bld = idxBld >= 0 && row[idxBld] ? String(row[idxBld]).trim() : "";
     const ord = idxOrd >= 0 && row[idxOrd] ? String(row[idxOrd]).trim() : "";
-    // Skip subtotal / grand total footers — they put "Count N" or "GRAND TOTAL"
+    // Skip subtotal / grand total footers - they put "Count N" or "GRAND TOTAL"
     // in cells where we expect real data.
     if (/^grand\s+total/i.test(bld)) break;
     if (/^count\s/i.test(ord) || /to$/i.test(bld) && /count/i.test(String(row[idxShip] || ""))) continue;
@@ -1720,7 +1720,7 @@ function parseStordRTS(workbook, xlsx, hint = {}) {
       line_no: 1,
       canonical_category: "returns",
       raw_category: "Return To Sender",
-      description: `Return To Sender — ${orderSet.size} parcel${orderSet.size === 1 ? "" : "s"}`,
+      description: `Return To Sender - ${orderSet.size} parcel${orderSet.size === 1 ? "" : "s"}`,
       uom: "Per Shipment",
       rate: orderSet.size > 0 ? totalPostage / orderSet.size : 0,
       quantity: orderSet.size,
@@ -1731,7 +1731,7 @@ function parseStordRTS(workbook, xlsx, hint = {}) {
   }
 
   // Derive period: prefer Received At min/max, fall back to filename suffix
-  // (filename pattern: ..._RTS_YYYYMMDD.xlsx — that date is the report end)
+  // (filename pattern: ..._RTS_YYYYMMDD.xlsx - that date is the report end)
   if (earliest && latest) {
     result.header.period_start = earliest;
     result.header.period_end = latest;
@@ -1767,7 +1767,7 @@ function parseInvoice(workbook, xlsx, filename) {
   if (detection.format === "stord_transaction_history") return parseStordTransactionHistory(workbook, xlsx, hint);
   if (detection.format === "stord_parcel_backup") return parseStordParcelBackup(workbook, xlsx, hint);
   if (detection.format === "stord_rts") return parseStordRTS(workbook, xlsx, hint);
-  // Next3PL AU transport — freight-only file
+  // Next3PL AU transport - freight-only file
   if (detection.format === "next3pl_au_transport") {
     // Treat like Next3PL but only Transport sheet
     return parseNext3PL(workbook, xlsx, hint);
@@ -1788,13 +1788,13 @@ export default function ThreePLBilling() {
   const [detailShipments, setDetailShipments] = useState([]);
   const [detailTab, setDetailTab] = useState("lines");
 
-  // Upload + review state — queue-based to support multi-file + folder imports
+  // Upload + review state - queue-based to support multi-file + folder imports
   // Each queue item:
   //   { id, file, name, status: "parsing"|"ready"|"error"|"saving"|"saved"|"skipped",
   //     header, lines, shipments, orderLines, detected_format,
   //     overrideProvider, error, savedInvoiceId, progress }
   // Existing-invoice lookup for auto-skip-duplicates.
-  // Keys: `<provider_id>::<invoice_number>` (case-sensitive — invoice numbers
+  // Keys: `<provider_id>::<invoice_number>` (case-sensitive - invoice numbers
   // are user-/vendor-supplied identifiers and we treat them verbatim).
   // Value: the existing invoice row (so we can show period + saved date in UI).
   const existingInvoiceMap = useMemo(() => {
@@ -1855,7 +1855,7 @@ export default function ThreePLBilling() {
   };
 
   // Filter for spreadsheet files we know how to parse. Anything else is silently
-  // dropped — folders frequently contain PDFs, READMEs, .DS_Store, etc.
+  // dropped - folders frequently contain PDFs, READMEs, .DS_Store, etc.
   const isParseableFile = (file) => {
     if (!file || !file.name) return false;
     const ext = file.name.toLowerCase().split(".").pop();
@@ -1891,7 +1891,7 @@ export default function ThreePLBilling() {
     return [];
   };
 
-  // Extract files from a DragEvent — supports both individual files and folders.
+  // Extract files from a DragEvent - supports both individual files and folders.
   const filesFromDropEvent = async (e) => {
     const items = e.dataTransfer?.items;
     if (items && items.length && items[0].webkitGetAsEntry) {
@@ -1920,7 +1920,7 @@ export default function ThreePLBilling() {
       if (result.error) throw new Error(result.error);
       const provGuess = PROV_BY_FMT[result.detected_format] || null;
       const providerId = provGuess ? providers.find(p => p.code === provGuess)?.id : null;
-      // Duplicate check — only meaningful when both provider AND invoice number
+      // Duplicate check - only meaningful when both provider AND invoice number
       // were resolved at parse time.
       let isDuplicate = false, existing = null;
       if (providerId && result.header?.invoice_number) {
@@ -1986,7 +1986,7 @@ export default function ThreePLBilling() {
   const saveOne = async (item) => {
     if (!item || item.status === "saved" || item.status === "skipped") return true;
     if (!item.overrideProvider) {
-      patchQueueItem(item.id, { error: "Provider not selected — pick one before saving." });
+      patchQueueItem(item.id, { error: "Provider not selected - pick one before saving." });
       return false;
     }
     const provider = providers.find(p => p.code === item.overrideProvider);
@@ -2039,7 +2039,7 @@ export default function ThreePLBilling() {
       await supabase.from("wms_3pl_invoice_order_lines").delete().eq("invoice_id", invoiceId);
       await supabase.from("wms_3pl_invoice_shipments").delete().eq("invoice_id", invoiceId);
 
-      // 4. Insert lines (small — usually <50)
+      // 4. Insert lines (small - usually <50)
       patchQueueItem(item.id, { progress: `Saving ${item.lines.length} line items…` });
       if (item.lines.length > 0) {
         const payload = item.lines.map(l => ({ ...l, org_id: orgId, invoice_id: invoiceId }));
@@ -2047,7 +2047,7 @@ export default function ThreePLBilling() {
         if (error) throw new Error("Lines: " + error.message);
       }
 
-      // 5. Insert shipments (batched — up to a few hundred typically)
+      // 5. Insert shipments (batched - up to a few hundred typically)
       const shipmentIdByOrder = new Map();
       if (item.shipments.length > 0) {
         const total = item.shipments.length;
@@ -2064,7 +2064,7 @@ export default function ThreePLBilling() {
         }
       }
 
-      // 6. Insert order lines (potentially large — up to ~100K for Stord). Batch hard.
+      // 6. Insert order lines (potentially large - up to ~100K for Stord). Batch hard.
       if (item.orderLines.length > 0) {
         const total = item.orderLines.length;
         const BATCH = 500;
@@ -2104,7 +2104,7 @@ export default function ThreePLBilling() {
     }
     setSavingAll(false);
     // Refresh the shipment-level rollup so the Reports view reflects new data immediately.
-    // We swallow errors — the rollup will still get refreshed by future calls and isn't
+    // We swallow errors - the rollup will still get refreshed by future calls and isn't
     // critical for the immediate save flow.
     try { await supabase.rpc("wms_3pl_refresh_rollup"); } catch {}
     await loadData();
@@ -2157,7 +2157,7 @@ export default function ThreePLBilling() {
 
   // Filter invoices
   // Group "detail" file imports (-TXN, -DISPATCH, -FREIGHT) under their base
-  // invoice number. Detail files carry the same total as the base — they exist
+  // invoice number. Detail files carry the same total as the base - they exist
   // for line-item granularity, not as separate financial events. Hide them by
   // default and show a small badge on the base row instead.
   const DETAIL_SUFFIX_RE = /-(TXN|DISPATCH|FREIGHT)$/;
@@ -2304,7 +2304,7 @@ export default function ThreePLBilling() {
                       <tr key={inv.id} onClick={() => openInvoice(inv)} style={{ borderBottom: `1px solid ${T.border}25`, cursor: "pointer" }}
                         onMouseEnter={e => e.currentTarget.style.background = T.surface2 + "60"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600 }}>{meta?.flag} {prov?.name || "—"}</td>
+                        <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600 }}>{meta?.flag} {prov?.name || "-"}</td>
                         <td style={{ padding: "10px 12px", fontSize: 12, fontFamily: "monospace" }}>
                           {inv.invoice_number}
                           {(() => {
@@ -2321,9 +2321,9 @@ export default function ThreePLBilling() {
                         <td style={{ padding: "10px 12px", fontSize: 12, color: T.text2 }}>{inv.period_start} → {inv.period_end}</td>
                         <td style={{ padding: "10px 12px", fontSize: 11, color: T.text3 }}>{inv.currency}</td>
                         <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 700, fontFamily: "monospace" }}>{fmtCurrency(Number(inv.total), inv.currency)}</td>
-                        <td style={{ padding: "10px 12px", fontSize: 12, color: T.text2, fontFamily: "monospace" }}>{inv.units_shipped?.toLocaleString() || "—"}</td>
-                        <td style={{ padding: "10px 12px", fontSize: 12, color: T.text2, fontFamily: "monospace" }}>{inv.orders_shipped?.toLocaleString() || "—"}</td>
-                        <td style={{ padding: "10px 12px", fontSize: 12, color: T.text2, fontFamily: "monospace" }}>{cpu ? fmtCurrency(cpu, inv.currency) : "—"}</td>
+                        <td style={{ padding: "10px 12px", fontSize: 12, color: T.text2, fontFamily: "monospace" }}>{inv.units_shipped?.toLocaleString() || "-"}</td>
+                        <td style={{ padding: "10px 12px", fontSize: 12, color: T.text2, fontFamily: "monospace" }}>{inv.orders_shipped?.toLocaleString() || "-"}</td>
+                        <td style={{ padding: "10px 12px", fontSize: 12, color: T.text2, fontFamily: "monospace" }}>{cpu ? fmtCurrency(cpu, inv.currency) : "-"}</td>
                         <td style={{ padding: "10px 12px" }}>
                           <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: (statusColors[inv.status] || T.text3) + "20", color: statusColors[inv.status] || T.text3, textTransform: "uppercase" }}>{inv.status}</span>
                         </td>
@@ -2396,7 +2396,7 @@ export default function ThreePLBilling() {
                         if (dupes) parts.push(`${dupes} duplicate${dupes === 1 ? "" : "s"} skipped`);
                         if (errored) parts.push(`${errored} error`);
                         if (skipped) parts.push(`${skipped} skipped`);
-                        return parts.length ? ` — ${parts.join(" · ")}` : "";
+                        return parts.length ? ` - ${parts.join(" · ")}` : "";
                       })()}
                     </div>
                     <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Click a file to review its line items. Save All processes every "ready" invoice in sequence.</div>
@@ -2440,18 +2440,18 @@ export default function ThreePLBilling() {
                       onClick={() => { if (it.status === "ready" || it.status === "saved") setActiveQueueId(isActive ? null : it.id); }}
                       style={{ borderBottom: `1px solid ${T.border}25`, cursor: (it.status === "ready" || it.status === "saved") ? "pointer" : "default", background: isActive ? T.accent + "10" : "transparent" }}>
                       <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.name}>{it.name}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 10, color: T.text3 }}>{it.detected_format || "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 10, color: T.text3 }}>{it.detected_format || "-"}</td>
                       <td style={{ padding: "8px 10px" }} onClick={(e) => e.stopPropagation()}>
                         <select value={it.overrideProvider || ""}
                           onChange={(e) => patchQueueItem(it.id, { overrideProvider: e.target.value || null })}
                           disabled={it.status === "saving" || it.status === "saved"}
                           style={{ padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 11 }}>
-                          <option value="">— select —</option>
+                          <option value="">- select -</option>
                           {providers.map(p => <option key={p.code} value={p.code}>{PROVIDERS_META[p.code]?.flag} {p.name}</option>)}
                         </select>
                       </td>
-                      <td style={{ padding: "8px 10px", fontSize: 10, color: T.text3 }}>{it.header.period_start || "—"}{it.header.period_end ? ` → ${it.header.period_end}` : ""}</td>
-                      <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", fontWeight: 700 }}>{it.header.total ? fmtCurrency(it.header.total, it.header.currency) : "—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 10, color: T.text3 }}>{it.header.period_start || "-"}{it.header.period_end ? ` → ${it.header.period_end}` : ""}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", fontWeight: 700 }}>{it.header.total ? fmtCurrency(it.header.total, it.header.currency) : "-"}</td>
                       <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", color: T.text2 }}>{it.lines.length}</td>
                       <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", color: T.text2 }}>{it.shipments.length.toLocaleString()}</td>
                       <td style={{ padding: "8px 10px", fontSize: 11, fontFamily: "monospace", color: T.text2 }}>{it.orderLines.length.toLocaleString()}</td>
@@ -2495,7 +2495,7 @@ export default function ThreePLBilling() {
             )}
           </div>
 
-          {/* Active item detail — line items review */}
+          {/* Active item detail - line items review */}
           {(() => {
             const active = parsedQueue.find(it => it.id === activeQueueId);
             if (!active) return null;
@@ -2528,7 +2528,7 @@ export default function ThreePLBilling() {
                               {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
                             </select>
                           </td>
-                          <td style={{ padding: "5px 10px", fontSize: 11 }}>{l.description}{l.notes ? <span style={{ color: T.text3, fontSize: 10 }}> — {l.notes}</span> : ""}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 11 }}>{l.description}{l.notes ? <span style={{ color: T.text3, fontSize: 10 }}> - {l.notes}</span> : ""}</td>
                           <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{(l.rate || 0).toFixed(4)}</td>
                           <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{(l.quantity || 0).toLocaleString()}</td>
                           <td style={{ padding: "5px 10px", fontSize: 11, textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmtCurrency(l.amount, active.header.currency)}</td>
@@ -2624,7 +2624,7 @@ export default function ThreePLBilling() {
                       return (
                         <tr key={l.id} style={{ borderBottom: `1px solid ${T.border}15` }}>
                           <td style={{ padding: "7px 12px" }}><span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: (meta?.color || T.text3) + "20", color: meta?.color || T.text3, fontWeight: 700 }}>{meta?.label || l.canonical_category}</span></td>
-                          <td style={{ padding: "7px 12px", fontSize: 12 }}>{l.description}{l.notes ? <span style={{ color: T.text3, fontSize: 10 }}> — {l.notes}</span> : ""}</td>
+                          <td style={{ padding: "7px 12px", fontSize: 12 }}>{l.description}{l.notes ? <span style={{ color: T.text3, fontSize: 10 }}> - {l.notes}</span> : ""}</td>
                           <td style={{ padding: "7px 12px", fontSize: 11, color: T.text3 }}>{l.uom}</td>
                           <td style={{ padding: "7px 12px", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{Number(l.rate || 0).toFixed(4)}</td>
                           <td style={{ padding: "7px 12px", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{Number(l.quantity || 0).toLocaleString()}</td>
@@ -2655,7 +2655,7 @@ export default function ThreePLBilling() {
                         <td style={{ padding: "6px 12px", fontSize: 11 }}>{s.carrier}</td>
                         <td style={{ padding: "6px 12px", fontSize: 11, color: T.text3 }}>{s.service_level}</td>
                         <td style={{ padding: "6px 12px", fontSize: 11, color: T.text3 }}>{s.zone}</td>
-                        <td style={{ padding: "6px 12px", fontSize: 11, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{s.weight_kg ? Number(s.weight_kg).toFixed(3) : "—"}</td>
+                        <td style={{ padding: "6px 12px", fontSize: 11, textAlign: "right", fontFamily: "monospace", color: T.text3 }}>{s.weight_kg ? Number(s.weight_kg).toFixed(3) : "-"}</td>
                         <td style={{ padding: "6px 12px", fontSize: 11, color: T.text3 }}>{[s.recipient_region, s.recipient_country].filter(Boolean).join(", ")}</td>
                         <td style={{ padding: "6px 12px", fontSize: 11, textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmtCurrency(Number(s.freight_cost || 0), selectedInvoice.currency)}</td>
                       </tr>

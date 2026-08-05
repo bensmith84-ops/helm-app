@@ -1,5 +1,5 @@
 
-// POST /ar-reminders — port of supabase/functions/ar-reminders
+// POST /ar-reminders - port of supabase/functions/ar-reminders
 // 4 actions: generate_reminders (overdue invoice scan + AI drafts), send_reminder,
 // list, update. System-fired (cron) so no auth required on the endpoint.
 const Anthropic = require('@anthropic-ai/sdk');
@@ -51,7 +51,7 @@ module.exports = function(app, { pool }) {
           const totalOwed = invoices.reduce((s, i) => s + Number(i.balance), 0);
           const sortedByDate = [...invoices].sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
           const oldestDue = sortedByDate[0].due_date;
-          // due_date from PG is a Date object — normalize to YYYY-MM-DD string
+          // due_date from PG is a Date object - normalize to YYYY-MM-DD string
           const oldestDueStr = oldestDue instanceof Date
             ? oldestDue.toISOString().slice(0, 10)
             : String(oldestDue).slice(0, 10);
@@ -83,7 +83,7 @@ module.exports = function(app, { pool }) {
                 subject = parsed.subject;
                 emailBody = parsed.body;
               } catch (_) {
-                subject = `Payment reminder — $${totalOwed.toFixed(2)} outstanding`;
+                subject = `Payment reminder - $${totalOwed.toFixed(2)} outstanding`;
                 emailBody = text;
               }
             } catch (_) {
@@ -92,7 +92,7 @@ module.exports = function(app, { pool }) {
           }
 
           if (!subject) {
-            subject = `Payment reminder — $${totalOwed.toFixed(2)} outstanding`;
+            subject = `Payment reminder - $${totalOwed.toFixed(2)} outstanding`;
             emailBody = `Hi ${customerName.split(' ')[0]},\n\nThis is a friendly reminder that you have $${totalOwed.toFixed(2)} in outstanding invoices with Earth Breeze. Please arrange payment at your earliest convenience.\n\nThank you,\nEarth Breeze Team`;
           }
 

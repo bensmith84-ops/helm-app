@@ -1,5 +1,5 @@
 
-// POST /invoice-ai — port of supabase/functions/invoice-ai
+// POST /invoice-ai - port of supabase/functions/invoice-ai
 // 7 actions: extract (Claude vision over PDF/image), approve_step, deny_step,
 // approve, list, get_chain. Full AP workflow including vendor matching,
 // duplicate detection, PO matching, and approval chain.

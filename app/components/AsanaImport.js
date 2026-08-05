@@ -216,10 +216,10 @@ export default function AsanaImportModal({ onClose, onImported }) {
     for (let si = 0; si < subtasks.length; si++) {
       const st = subtasks[si];
       if (st.num_subtasks > 0) {
-        // Has deeper subtasks — fetch full detail to get them
+        // Has deeper subtasks - fetch full detail to get them
         count += await importTask(st.gid, projectId, sectionId, si, created.id, st);
       } else {
-        // Leaf subtask — insert from data we already have, plus fetch comments/attachments
+        // Leaf subtask - insert from data we already have, plus fetch comments/attachments
         const stTags = (st.tags || []).filter(t => t);
         const stCf = (st.custom_fields || []).reduce((acc, cf) => { if (cf.name && cf.value) acc[cf.name] = cf.value; return acc; }, {});
         const stAssigneeId = resolveAssignee(st.assignee_name, st.assignee_email);
@@ -367,7 +367,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
         const existingTask = (existingTasks || []).find(t => t.metadata?.asana_gid === taskGid);
         
         if (existingTask) {
-          // Update existing task — refresh assignee_id only if currently null,
+          // Update existing task - refresh assignee_id only if currently null,
           // so manual reassignments in Helm aren't overwritten by re-syncs.
           const updatePatch = {
             title: task.name, description: task.notes || "",
@@ -481,7 +481,7 @@ export default function AsanaImportModal({ onClose, onImported }) {
   };
 
   const filtered = asanaProjects.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
-  // Count tasks — preview data is flat with num_subtasks count, not nested
+  // Count tasks - preview data is flat with num_subtasks count, not nested
   const countTasks = (tasks) => (tasks || []).reduce((s, t) => s + 1 + (t.num_subtasks || 0), 0);
   const totalPreviewTasks = (projectDetail?.sections || []).reduce((s, sec) => s + countTasks(sec.tasks), 0);
 

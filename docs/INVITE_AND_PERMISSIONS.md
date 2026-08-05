@@ -1,4 +1,4 @@
-# Invites & Permissions — How It All Works
+# Invites & Permissions - How It All Works
 
 There are **two distinct user types** in Helm:
 
@@ -15,11 +15,11 @@ There are **two distinct user types** in Helm:
 
 Three paths:
 
-1. **People → Add Member (preferred)** — admin opens the invite modal, enters email + name + role, and **must explicitly check the modules** the new user gets access to. Sends a Supabase magic-link invite email. Default = no modules; user can only see Dashboard + Settings until granted more.
+1. **People → Add Member (preferred)** - admin opens the invite modal, enters email + name + role, and **must explicitly check the modules** the new user gets access to. Sends a Supabase magic-link invite email. Default = no modules; user can only see Dashboard + Settings until granted more.
 
-2. **invite-user edge function (programmatic)** — same logic as above, callable directly. Accepts `module_permissions` in the request body. If omitted, defaults to `{ _default_deny: true }`.
+2. **invite-user edge function (programmatic)** - same logic as above, callable directly. Accepts `module_permissions` in the request body. If omitted, defaults to `{ _default_deny: true }`.
 
-3. **Auto-create on first login (fallback)** — only happens if someone signs up directly without an invite. Profile + membership created with `_default_deny`. Admin must grant modules manually after the fact.
+3. **Auto-create on first login (fallback)** - only happens if someone signs up directly without an invite. Profile + membership created with `_default_deny`. Admin must grant modules manually after the fact.
 
 ### What gets created
 
@@ -29,10 +29,10 @@ Three paths:
 
 ### What they see
 
-- **Dashboard** — always visible (app-level guard)
-- **Settings** — always visible (app-level guard)
-- **Modules with `perms[key] === true`** — visible in sidebar + accessible
-- **Everything else** — hidden in sidebar, blocked by `renderView` if URL-navigated
+- **Dashboard** - always visible (app-level guard)
+- **Settings** - always visible (app-level guard)
+- **Modules with `perms[key] === true`** - visible in sidebar + accessible
+- **Everything else** - hidden in sidebar, blocked by `renderView` if URL-navigated
 
 ### How to grant/revoke modules later
 
@@ -44,7 +44,7 @@ Go to **People → click member → Permissions tab → toggle module switches**
 
 - **Admin / Owner** roles bypass module permissions entirely (full access)
 - **Email matches `ben.smith@earthbreeze`** is a hard-coded admin fallback in `page.js`
-- **`role` change** doesn't reset permissions — they persist across role changes
+- **`role` change** doesn't reset permissions - they persist across role changes
 
 ---
 
@@ -75,7 +75,7 @@ Calls `invite-external-collaborator` edge function which:
 
 - No Finance, OKRs, Scoreboard, or any other org module
 - No projects they aren't explicitly added to
-- No org-wide data via RLS — `active_org()` returns NULL for them
+- No org-wide data via RLS - `active_org()` returns NULL for them
 
 ### How to remove them from a project
 
@@ -87,9 +87,9 @@ To fully delete: separate flow needed (currently has to be done via SQL or by de
 
 ## Re-inviting
 
-- **Existing user, internal** — re-running invite-user with `resend=true` will either resend the magic link (if unconfirmed) or send a password reset (if confirmed). Module permissions are NOT overwritten if already set.
-- **Existing user, external** — re-running invite-external-collaborator with the same email + project just updates their role + access_scope on the existing `project_members` row. Idempotent.
-- **Cross-type promotion** — an external user can be added to `org_memberships` to become internal. Set `profiles.is_external = false` at the same time (no UI for this yet — SQL only).
+- **Existing user, internal** - re-running invite-user with `resend=true` will either resend the magic link (if unconfirmed) or send a password reset (if confirmed). Module permissions are NOT overwritten if already set.
+- **Existing user, external** - re-running invite-external-collaborator with the same email + project just updates their role + access_scope on the existing `project_members` row. Idempotent.
+- **Cross-type promotion** - an external user can be added to `org_memberships` to become internal. Set `profiles.is_external = false` at the same time (no UI for this yet - SQL only).
 
 ---
 

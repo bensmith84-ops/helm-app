@@ -1,5 +1,5 @@
 
-// POST /metabase-debug — port of supabase/functions/metabase-debug
+// POST /metabase-debug - port of supabase/functions/metabase-debug
 // Uncomments date-filter blocks in a Metabase card via the Metabase API.
 module.exports = function(app) {
   app.post('/metabase-debug', async (req, res) => {

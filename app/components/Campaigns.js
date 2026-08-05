@@ -25,9 +25,9 @@ const CHANNELS = [
 ];
 const fmtK = (n) => { const v = Number(n) || 0; return v >= 1e6 ? (v/1e6).toFixed(1)+"M" : v >= 1e3 ? (v/1e3).toFixed(0)+"K" : String(v); };
 const fmt$ = (n) => { const v = Number(n) || 0; return v >= 1e6 ? "$"+(v/1e6).toFixed(1)+"M" : v >= 1e3 ? "$"+(v/1e3).toFixed(0)+"K" : "$"+v.toLocaleString(); };
-const roas = (rev, spend) => spend > 0 ? (Number(rev)/Number(spend)).toFixed(1)+"x" : "—";
-const cpa  = (spend, conv) => conv > 0 ? "$"+(Number(spend)/Number(conv)).toFixed(0) : "—";
-const cvr  = (clicks, conv) => clicks > 0 ? ((Number(conv)/Number(clicks))*100).toFixed(1)+"%" : "—";
+const roas = (rev, spend) => spend > 0 ? (Number(rev)/Number(spend)).toFixed(1)+"x" : "-";
+const cpa  = (spend, conv) => conv > 0 ? "$"+(Number(spend)/Number(conv)).toFixed(0) : "-";
+const cvr  = (clicks, conv) => clicks > 0 ? ((Number(conv)/Number(clicks))*100).toFixed(1)+"%" : "-";
 
 export default function CampaignsView() {
   const { user, profile, orgId } = useAuth();
@@ -254,9 +254,9 @@ export default function CampaignsView() {
                   <div style={{ background:T.surface2, borderRadius:10, padding:14 }}>
                     <div style={{ fontSize:11, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Computed</div>
                     {[
-                      { l:"CTR",      v: selected.impressions>0 ? ((Number(selected.clicks||0)/Number(selected.impressions))*100).toFixed(2)+"%" : "—" },
+                      { l:"CTR",      v: selected.impressions>0 ? ((Number(selected.clicks||0)/Number(selected.impressions))*100).toFixed(2)+"%" : "-" },
                       { l:"CVR",      v: cvr(selected.clicks, selected.conversions) },
-                      { l:"CPC",      v: selected.clicks>0 ? "$"+(Number(selected.spent||0)/Number(selected.clicks)).toFixed(2) : "—" },
+                      { l:"CPC",      v: selected.clicks>0 ? "$"+(Number(selected.spent||0)/Number(selected.clicks)).toFixed(2) : "-" },
                       { l:"CPA",      v: cpa(selected.spent, selected.conversions) },
                       { l:"ROAS",     v: roas(selected.revenue, selected.spent) },
                     ].map(m => (

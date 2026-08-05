@@ -26,11 +26,11 @@ OFS Tracker uses this same single-service pattern (`ofs-tracker-api`). Cheaper, 
    - `Deno.env.get('FOO')` → `process.env.FOO`
    - `await req.json()` → `req.body` (express.json middleware already parsed it)
    - `new Response(JSON.stringify(d), {...})` → `res.status(...).json(d)`
-   - CORS headers — handled by global `cors()` middleware, drop the per-function CORS code
+   - CORS headers - handled by global `cors()` middleware, drop the per-function CORS code
    - `import "jsr:@supabase/functions-js/edge-runtime.d.ts"` → delete
 4. Translate Supabase admin client usage:
    - `createClient(SUPABASE_URL, SERVICE_ROLE_KEY)` → use the `pool` from helpers, or `withAuthedClient(req.jwtClaims, async client => { ... })` for RLS-enforced reads
-   - Many edge functions called `supabase.from('table').select()` — that becomes `client.query('SELECT ... FROM table WHERE ...')`
+   - Many edge functions called `supabase.from('table').select()` - that becomes `client.query('SELECT ... FROM table WHERE ...')`
 5. Add `require('./routes/<slug>')(app, helpers)` to `src/index.js`
 6. Secrets the function uses → add to `cloudbuild.yaml` under `--set-secrets`
 

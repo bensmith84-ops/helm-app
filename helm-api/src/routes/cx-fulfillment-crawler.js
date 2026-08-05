@@ -1,5 +1,5 @@
 
-// POST /cx-fulfillment-crawler — port of supabase/functions/cx-fulfillment-crawler
+// POST /cx-fulfillment-crawler - port of supabase/functions/cx-fulfillment-crawler
 // Scans for unfulfilled Shopify orders past SLA thresholds and creates/resolves alerts.
 const SLA_WARNING_DAYS = 3;
 const SLA_CRITICAL_DAYS = 7;

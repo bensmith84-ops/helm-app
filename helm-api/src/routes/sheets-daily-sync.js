@@ -1,5 +1,5 @@
 
-// POST /sheets-daily-sync — port of supabase/functions/sheets-daily-sync
+// POST /sheets-daily-sync - port of supabase/functions/sheets-daily-sync
 // Daily scoreboard pull. METRIC_MAP defines header → metric_key mapping.
 // COMPOSITES roll up multi-column metrics (gwp_cpa, sub_rate, etc.).
 // Calls upsert_scoreboard_daily RPC.

@@ -50,7 +50,7 @@ export async function POST(req) {
         fileContentType = file.type || "application/pdf";
         fileBuffer = Buffer.from(await file.arrayBuffer());
       } else {
-        // No attachment — store the email body for reference but still create inbox item
+        // No attachment - store the email body for reference but still create inbox item
         fileName = null;
       }
     }
@@ -177,7 +177,7 @@ export async function POST(req) {
   }
 }
 
-// GET — health check / info
+// GET - health check / info
 export async function GET() {
   return NextResponse.json({
     service: "Helm Invoice Inbox",

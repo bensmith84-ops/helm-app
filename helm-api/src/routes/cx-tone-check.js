@@ -1,5 +1,5 @@
 
-// POST /cx-tone-check — port of supabase/functions/cx-tone-check
+// POST /cx-tone-check - port of supabase/functions/cx-tone-check
 // Pre-send AI review of CX draft replies. Returns severity/flags/summary as JSON.
 const Anthropic = require('@anthropic-ai/sdk');
 const MODEL = 'claude-sonnet-4-20250514';
@@ -46,7 +46,7 @@ Writing style: ${aiCfg.writing_style || 'conversational, concise'}
 Emoji usage: ${aiCfg.emoji_usage || 'minimal'}
 Response length: ${aiCfg.response_length || 'medium'}
 
-Return ONLY a JSON object with this exact shape — no markdown fences, no preamble:
+Return ONLY a JSON object with this exact shape - no markdown fences, no preamble:
 {
   "severity": "ok" | "warning" | "block_suggested",
   "flags": [
@@ -59,9 +59,9 @@ Return ONLY a JSON object with this exact shape — no markdown fences, no pream
 }
 
 Severity rules:
-- "ok" — no notable issues; reply is solid as written
-- "warning" — worth a quick look but not catastrophic
-- "block_suggested" — something is clearly wrong (factual error, defensive tone, missed core question, policy violation). The UI will hard-warn but still let the agent send.
+- "ok" - no notable issues; reply is solid as written
+- "warning" - worth a quick look but not catastrophic
+- "block_suggested" - something is clearly wrong (factual error, defensive tone, missed core question, policy violation). The UI will hard-warn but still let the agent send.
 
 Do NOT rewrite the draft. Only flag issues. Be sparing: a clean reply should return "ok" with empty flags.`;
 

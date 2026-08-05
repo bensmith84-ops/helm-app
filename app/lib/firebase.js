@@ -14,12 +14,12 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Singleton init — Next dev HMR re-imports modules; getApps() avoids "already initialized" errors
+// Singleton init - Next dev HMR re-imports modules; getApps() avoids "already initialized" errors
 function getFirebaseApp() {
   if (typeof window === "undefined") return null; // SSR no-op
   if (getApps().length > 0) return getApp();
   if (!firebaseConfig.apiKey) {
-    console.warn("[firebase] NEXT_PUBLIC_FIREBASE_API_KEY not set — Firebase auth disabled");
+    console.warn("[firebase] NEXT_PUBLIC_FIREBASE_API_KEY not set - Firebase auth disabled");
     return null;
   }
   return initializeApp(firebaseConfig);

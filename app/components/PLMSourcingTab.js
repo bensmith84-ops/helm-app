@@ -24,7 +24,7 @@ const STATUS_COLORS = {
   cancelled:       { bg: "#ef444415", color: "#ef4444", label: "Cancelled" },
 };
 
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString(undefined, { month:"short", day:"numeric", year:"numeric" }) : "—";
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString(undefined, { month:"short", day:"numeric", year:"numeric" }) : "-";
 
 export default function PLMSourcingTab({ program }) {
   const { orgId } = useAuth();
@@ -203,7 +203,7 @@ export default function PLMSourcingTab({ program }) {
         </SectionHeader>
         {Object.keys(portalMap).length > 0 && (
           <div style={{ marginBottom: 12, padding: "12px 14px", background: T.surface2, border: "1px solid " + T.border, borderRadius: 8 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text, marginBottom: 8 }}>🌐 External RFP Portals <span style={{ fontWeight: 400, color: T.text3 }}>— gated manufacturer sites (access requests → MNDA → RFP → submissions)</span></div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text, marginBottom: 8 }}>🌐 External RFP Portals <span style={{ fontWeight: 400, color: T.text3 }}>- gated manufacturer sites (access requests → MNDA → RFP → submissions)</span></div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {rfps.filter(r => portalMap[r.id]).map(r => {
                 const p = portalMap[r.id];
@@ -312,8 +312,8 @@ export default function PLMSourcingTab({ program }) {
               {aiChat.length === 0 && (
                 <div style={{ padding: 10, fontSize: 11, color: T.text3, fontStyle: "italic", lineHeight: 1.5, background: T.surface, borderRadius: 6 }}>
                   {selectedAgent === "sourcing_expert"
-                    ? "Hi — I find specialized contract manufacturers and boutique suppliers, not the big CPG conglomerates. Tell me what you're sourcing and the region, and I'll suggest CMs in the LAW Chemical / HNW Manufacturing tier."
-                    : "Hi — I write RFPs that get you the best terms even when you don't know your volume yet. Tell me what you're sourcing and I'll start with tier-pricing structure, MOQ flexibility, and ramp commitments."}
+                    ? "Hi - I find specialized contract manufacturers and boutique suppliers, not the big CPG conglomerates. Tell me what you're sourcing and the region, and I'll suggest CMs in the LAW Chemical / HNW Manufacturing tier."
+                    : "Hi - I write RFPs that get you the best terms even when you don't know your volume yet. Tell me what you're sourcing and I'll start with tier-pricing structure, MOQ flexibility, and ramp commitments."}
                 </div>
               )}
               {aiChat.map((m, i) => (
@@ -389,7 +389,7 @@ function NewRFPModal({ program, items, onClose, onCreated }) {
   };
 
   return (
-    <Modal onClose={onClose} title={`New RFP — step ${step} of 2`}>
+    <Modal onClose={onClose} title={`New RFP - step ${step} of 2`}>
       {step === 1 ? (
         <>
           <Field label="RFP name" value={name} onChange={setName} placeholder="e.g. Citrus-derived surfactant for SS24 launch" fullWidth autoFocus />

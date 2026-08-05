@@ -1,5 +1,5 @@
 
-// GET /health/detailed — verifies every dependency without leaking secrets.
+// GET /health/detailed - verifies every dependency without leaking secrets.
 // Returns: { env: {secret_name: {present, length, prefix}}, db: {ok, version}, firebase: {ok} }
 const admin = require('firebase-admin');
 

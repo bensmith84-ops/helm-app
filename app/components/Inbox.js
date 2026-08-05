@@ -142,7 +142,7 @@ export default function InboxView({ setActive }) {
     const taskItem = (t, mode) => {
       const p = projectById[t.project_id];
       return {
-        key: mode + t.id, kind: "task", taskId: t.id, projectId: t.project_id, projectName: p?.name || "—",
+        key: mode + t.id, kind: "task", taskId: t.id, projectId: t.project_id, projectName: p?.name || "-",
         icon: mode === "to_me" ? "👤" : "➦", color: "#3b82f6",
         title: t.title, sub: mode === "to_me" ? "Assigned to you" : `You assigned this to ${uname(t.assignee_id)}`,
         due: t.due_date ? new Date(t.due_date).getTime() : null, dueStr: t.due_date,
@@ -266,7 +266,7 @@ export default function InboxView({ setActive }) {
             <select value={sort} onChange={e => setSort(e.target.value)} style={{ fontSize: 12, padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, cursor: "pointer", outline: "none", fontWeight: 600 }}>
               {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
-            <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")} title={sortDir === "asc" ? "Ascending — click to reverse" : "Descending — click to reverse"} style={{ fontSize: 13, padding: "5px 9px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, cursor: "pointer", fontWeight: 700, lineHeight: 1 }}>{sortDir === "asc" ? "↑" : "↓"}</button>
+            <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")} title={sortDir === "asc" ? "Ascending - click to reverse" : "Descending - click to reverse"} style={{ fontSize: 13, padding: "5px 9px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, cursor: "pointer", fontWeight: 700, lineHeight: 1 }}>{sortDir === "asc" ? "↑" : "↓"}</button>
           </div>
         </div>
       </div>

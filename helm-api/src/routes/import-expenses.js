@@ -1,5 +1,5 @@
 
-// POST /import-expenses — port of supabase/functions/import-expenses
+// POST /import-expenses - port of supabase/functions/import-expenses
 // 2 import types: txn_detail (QBO Transaction Detail by Account) and pivot (vendor-aggregated).
 const ORG_ID = 'a0000000-0000-0000-0000-000000000001';
 
@@ -99,7 +99,7 @@ module.exports = function(app, { pool }) {
               : t.date;
             allItems.push({
               report_id: reportId, date: isoDate, category: 'other',
-              description: [t.name, t.memo].filter(Boolean).join(' \u2014 ').substring(0, 500) || `${acct} \u2014 ${t.date}`,
+              description: [t.name, t.memo].filter(Boolean).join(' - ').substring(0, 500) || `${acct} - ${t.date}`,
               amount: t.amount || 0,
               vendor_name: t.name || '',
               account_id: accountId,
@@ -176,7 +176,7 @@ module.exports = function(app, { pool }) {
         if (!reportId) continue;
         for (const e of items) {
           allItems.push([reportId, e.date, 'other',
-            `${e.vendor_name} \u2014 ${e.date}`, e.amount, e.vendor_name]);
+            `${e.vendor_name} - ${e.date}`, e.amount, e.vendor_name]);
         }
       }
 

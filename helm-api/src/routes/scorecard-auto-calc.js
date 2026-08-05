@@ -1,5 +1,5 @@
 
-// POST /scorecard-auto-calc — recomputes weekly scorecard entries from daily data.
+// POST /scorecard-auto-calc - recomputes weekly scorecard entries from daily data.
 // System-fired (cron via Cloud Scheduler), no user auth required.
 // Uses pool directly with admin privileges since this writes across the org.
 

@@ -1,5 +1,5 @@
 
-// POST /cx-export-runner — port of supabase/functions/cx-export-runner
+// POST /cx-export-runner - port of supabase/functions/cx-export-runner
 // Processes queued CX export jobs. CSV via RFC 4180, upload via supabase-storage wrapper.
 const { uploadToStorage } = require('../lib/supabase-storage');
 

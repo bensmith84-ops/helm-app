@@ -1,4 +1,4 @@
-# Helm GCP Migration — Status Tracker
+# Helm GCP Migration - Status Tracker
 
 Single source of truth for the migration. Update each stage as it completes.
 
@@ -24,7 +24,7 @@ Cloud Run: helm-app (us-central1)
 
 ## Stages
 
-### Stage 1 — BigQuery offload for dp_orders + dp_daily_sales_by_warehouse
+### Stage 1 - BigQuery offload for dp_orders + dp_daily_sales_by_warehouse
 
 **Why first:** dp_orders alone is 86% of Supabase DB (946 MB / 1.1 GB). Moving it to BigQuery solves the capacity alert immediately and gives us our first GCP-resident piece without risking production.
 
@@ -32,7 +32,7 @@ Cloud Run: helm-app (us-central1)
 - BigQuery view DDL: `gcp-migration/phase1-bigquery-proxy/bigquery/`
 - Cloud Run proxy service: `gcp-migration/phase1-bigquery-proxy/cloud-run/`
 - Deploy/verify scripts
-- Helm frontend has `useProxy` feature flag — falls back to Supabase if env vars unset
+- Helm frontend has `useProxy` feature flag - falls back to Supabase if env vars unset
 
 **What's pending (requires gcloud):**
 - Run `phase1-bigquery-proxy/RUNBOOK.md` once from Cloud Shell
@@ -43,7 +43,7 @@ Cloud Run: helm-app (us-central1)
 
 ---
 
-### Stage 2 — Cloud Run hosting (replaces Vercel)
+### Stage 2 - Cloud Run hosting (replaces Vercel)
 
 **Why next:** Once GitHub → Cloud Build → Cloud Run works, every code change deploys to GCP automatically. Same workflow as Vercel today. Vercel stays running in parallel until verified.
 
@@ -73,7 +73,7 @@ Cloud Run: helm-app (us-central1)
 
 ---
 
-### Stage 3 — Migrate remaining analytical tables to BigQuery
+### Stage 3 - Migrate remaining analytical tables to BigQuery
 
 Tables in scope (in order of size):
 - `scoreboard_daily` (13 MB)
@@ -89,7 +89,7 @@ Same pattern as Stage 1: BigQuery view + add endpoint to helm-bq-proxy + switch 
 
 ---
 
-### Stage 4 — Cloud SQL Postgres (replaces Supabase Postgres)
+### Stage 4 - Cloud SQL Postgres (replaces Supabase Postgres)
 
 The hard one. Includes:
 - pg_dump → pg_restore the remaining ~140 tables
@@ -99,11 +99,11 @@ The hard one. Includes:
 - Migrate ~70 edge functions to Cloud Run services
 - Identity Platform migration for users + JWT
 
-**Status:** 📋 Planned — multi-week project, plan separately
+**Status:** 📋 Planned - multi-week project, plan separately
 
 ---
 
-### Stage 5 — Cleanup
+### Stage 5 - Cleanup
 
 - Delete Supabase project
 - Delete Vercel project

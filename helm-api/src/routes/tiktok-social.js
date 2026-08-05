@@ -1,5 +1,5 @@
 
-// POST /tiktok-social — port of supabase/functions/tiktok-social
+// POST /tiktok-social - port of supabase/functions/tiktok-social
 // 4 actions: get_oauth_url, oauth_callback, sync_comments, reply_comment.
 const crypto = require('crypto');
 

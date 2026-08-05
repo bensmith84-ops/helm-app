@@ -1,5 +1,5 @@
 
-// invokeFunction — drop-in replacement for supabase.functions.invoke().
+// invokeFunction - drop-in replacement for supabase.functions.invoke().
 // Behind a feature flag (NEXT_PUBLIC_USE_HELM_API), routes calls to helm-api.
 // When the flag is false (default), falls back to Supabase Functions.
 //
@@ -16,7 +16,7 @@ import { helmPost, USE_HELM_API } from "./helmApi";
 import { supabase } from "./supabase";
 
 /**
- * Invoke a serverless function — Supabase Edge Function or helm-api route.
+ * Invoke a serverless function - Supabase Edge Function or helm-api route.
  * @param {string} name - Function name (e.g. 'scoreboard-chat'). Becomes /name on helm-api.
  * @param {object} opts - { body, headers, method }
  * @returns {Promise<{ data: any, error: { message, status, body } | null }>}

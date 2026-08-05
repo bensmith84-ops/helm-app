@@ -1,5 +1,5 @@
 
-// POST /sheets-sync — port of supabase/functions/sheets-sync
+// POST /sheets-sync - port of supabase/functions/sheets-sync
 // Monthly P&L roll-up. Detects year boundaries (months reset Dec → Jan).
 // Upserts okr_financial_metrics + okr_financial_monthly.
 const { getGoogleAccessToken, loadServiceAccount } = require('../lib/google-jwt');

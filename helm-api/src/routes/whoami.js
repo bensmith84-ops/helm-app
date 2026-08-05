@@ -1,5 +1,5 @@
 
-// GET /whoami — returns the authenticated user's profile (via RLS)
+// GET /whoami - returns the authenticated user's profile (via RLS)
 module.exports = function(app, { requireAuth, withAuthedClient }) {
   app.get('/whoami', requireAuth, async (req, res) => {
     try {

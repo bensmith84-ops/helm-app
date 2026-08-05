@@ -38,7 +38,7 @@ export default function AuthPage() {
       },
     });
     if (err) { setError(err.message); setLoading(false); }
-    // If successful, browser redirects to Google — no need to setLoading(false)
+    // If successful, browser redirects to Google - no need to setLoading(false)
   };
 
   const dividerStyle = { display: "flex", alignItems: "center", gap: 12, margin: "20px 0" };

@@ -1,5 +1,5 @@
 
-// POST /auth/bind — bind a Firebase UID to an existing Helm profile by email.
+// POST /auth/bind - bind a Firebase UID to an existing Helm profile by email.
 // Called by the frontend immediately after a user's first Firebase sign-in.
 //
 // Flow:
@@ -83,7 +83,7 @@ module.exports = function(app, { pool, requireAuth }) {
     }
   });
 
-  // GET /auth/migration-status — admin-friendly summary of pending migrations
+  // GET /auth/migration-status - admin-friendly summary of pending migrations
   app.get('/auth/migration-status', requireAuth, async (req, res) => {
     try {
       // Only org admins should see this

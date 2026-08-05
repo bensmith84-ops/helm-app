@@ -1,5 +1,5 @@
 
-// POST /scoreboard-chat — port of supabase/functions/scoreboard-chat
+// POST /scoreboard-chat - port of supabase/functions/scoreboard-chat
 // Anthropic-powered scoreboard analyst. No DB access; pure AI call.
 const Anthropic = require('@anthropic-ai/sdk');
 

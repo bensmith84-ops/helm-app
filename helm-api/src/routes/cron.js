@@ -1,5 +1,5 @@
 
-// POST /cron — dispatcher for Cloud Scheduler jobs.
+// POST /cron - dispatcher for Cloud Scheduler jobs.
 // Replaces 8 pg_cron jobs that called Supabase edge fns via net.http_post.
 //
 // Cloud Scheduler config:
@@ -26,7 +26,7 @@ const JOBS = {
   'sheets-monthly-sync':      { path: '/sheets-sync',              body: {} },
   // dp-daily-sync was a Postgres fn (dp_daily_sync_fire_all) that internally
   // http_posted to multiple Supabase fns. After cutover, this becomes a
-  // sequence of helm-api calls — adding here so Cloud Scheduler can fire it.
+  // sequence of helm-api calls - adding here so Cloud Scheduler can fire it.
   // For now this is a no-op until we port dp_daily_sync_fire_all to a route.
 };
 
@@ -56,7 +56,7 @@ module.exports = function(app, { pool }) {
 
       // Fire-and-forget so Cloud Scheduler gets a quick 200 even if the actual
       // sync takes minutes. Errors are logged but don't fail the scheduler call.
-      // For long syncs (qbo-auto-sync, shopify-auto-sync) this is essential —
+      // For long syncs (qbo-auto-sync, shopify-auto-sync) this is essential -
       // Cloud Scheduler times out at 30 mins but expects quick acks.
       fetch(`${SELF_URL}${def.path}`, {
         method: 'POST',
@@ -67,7 +67,7 @@ module.exports = function(app, { pool }) {
         .then(({ status, text }) => {
           console.log(`[cron] ${job} → ${def.path} returned ${status}: ${text.slice(0, 200)}`);
 
-          // Audit log (optional — only insert if table exists, swallow errors)
+          // Audit log (optional - only insert if table exists, swallow errors)
           pool.query(
             `INSERT INTO cron_run_log (job, path, status_code, response_snippet, started_at, finished_at)
              VALUES ($1, $2, $3, $4, $5, NOW())
@@ -84,7 +84,7 @@ module.exports = function(app, { pool }) {
     }
   });
 
-  // GET /cron — health check, lists registered jobs
+  // GET /cron - health check, lists registered jobs
   app.get('/cron', (req, res) => {
     res.json({
       ok: true,

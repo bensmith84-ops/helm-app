@@ -101,7 +101,7 @@ export default function OKRsView() {
     return "list";
   });
   const okrGrid = "3fr 2fr 2fr 1fr 60px";
-  // Resize handles removed — using proportional fr units now
+  // Resize handles removed - using proportional fr units now
   const [loading, setLoading] = useState(true);
   // Milestone form
   const [msForm, setMsForm] = useState(null); // { objectiveId, title, start_date, end_date, color }
@@ -484,7 +484,7 @@ export default function OKRsView() {
   // ROADMAP TIMELINE VIEW
   // ============================
   const RoadmapView = () => {
-    // Calculate date range — expand to cover all KR dates, not just cycle
+    // Calculate date range - expand to cover all KR dates, not just cycle
     const cycleStart = cycle?.start_date ? new Date(cycle.start_date + "T00:00:00") : new Date();
     const cycleEnd = cycle?.end_date ? new Date(cycle.end_date + "T00:00:00") : new Date(cycleStart.getTime() + 90 * 86400000);
 
@@ -581,7 +581,7 @@ export default function OKRsView() {
           const timelineW = months.length * monthPx;
           const totalW = leftColW + krColW + timelineW;
 
-          // Pixel-based positioning (not percentage — avoids rounding gaps at edges)
+          // Pixel-based positioning (not percentage - avoids rounding gaps at edges)
           const dayPx = timelineW / Math.max(1, totalDays);
           const posBarPx = (sd, ed) => {
             const s = new Date(sd + "T00:00:00");
@@ -712,7 +712,7 @@ export default function OKRsView() {
                     while (wk <= endDate) { wlines.push((wk - startDate) / 86400000 * dayPx); wk.setDate(wk.getDate() + 7); }
                     return wlines.map((px, i) => <div key={`w${i}`} style={{ position: "absolute", left: px, top: 0, bottom: 0, width: 1, background: `${T.text3}15`, zIndex: 0 }} />);
                   })()}
-                  {/* Milestone status bars — grouped by KR */}
+                  {/* Milestone status bars - grouped by KR */}
                   {(() => {
                     // KR-linked milestones grouped under their KR
                     const krLinked = {};
@@ -755,7 +755,7 @@ export default function OKRsView() {
                                 </div>
                               </div>
                             </div>}
-                            {/* Milestone segments — single row since they're sequential */}
+                            {/* Milestone segments - single row since they're sequential */}
                             <div style={{ position: "relative", height: 20, zIndex: 1 }}>
                               {krMs.map(ms => {
                                 const bar = posBar(ms.start_date, ms.end_date);
@@ -986,7 +986,7 @@ export default function OKRsView() {
                   ))}
                 </div>
                 {mode === "milestones" && <div style={{ marginTop: 8, fontSize: 11, color: T.text3 }}>
-                  {linkedMS.length > 0 ? `${linkedMS.length} linked milestone${linkedMS.length > 1 ? "s" : ""} → ${autoProgress}% avg` : "No milestones linked yet — edit milestones and link them to this KR"}
+                  {linkedMS.length > 0 ? `${linkedMS.length} linked milestone${linkedMS.length > 1 ? "s" : ""} → ${autoProgress}% avg` : "No milestones linked yet - edit milestones and link them to this KR"}
                 </div>}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -1151,7 +1151,7 @@ export default function OKRsView() {
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             <span style={{ fontSize: 10, color: T.text3, minWidth: 90 }}>{u.period_start} →<br />{u.period_end}</span>
                             <span onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ fontSize: 13, fontWeight: 700, color: T.accent, minWidth: 50, cursor: "pointer", borderBottom: `1px dashed ${T.accent}40` }}>+{u.value}</span>
-                            <span onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ fontSize: 11, color: T.text3, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{u.note || "—"}</span>
+                            <span onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ fontSize: 11, color: T.text3, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{u.note || "-"}</span>
                             <button onClick={() => { editSet("_editingUpdate", u.id); editSet("_editUpdateData", { ...u }); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 9, opacity: 0.4, padding: "2px 4px" }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>✎</button>
                             <button onClick={async () => {
                               await supabase.from("milestone_updates").delete().eq("org_id", orgId).eq("id", u.id);
@@ -1171,13 +1171,13 @@ export default function OKRsView() {
                     <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, paddingTop: 6, borderTop: `1px solid ${T.border}`, marginTop: 4 }}>Cumulative: {cumulative} {d.unit || ""}</div>
                   </div>
                 ) : (
-                  <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>No updates yet — add your first progress update above</div>
+                  <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>No updates yet - add your first progress update above</div>
                 )}
               </div>
 
               {/* Linked KR */}
               <div style={{ marginBottom: 12 }}>
-                <label style={_elbl}>Linked Key Result <span style={{ fontWeight: 400, color: T.text3 }}>(optional — rolls progress into KR)</span></label>
+                <label style={_elbl}>Linked Key Result <span style={{ fontWeight: 400, color: T.text3 }}>(optional - rolls progress into KR)</span></label>
                 <select value={d.key_result_id || ""} onChange={e => editSet("key_result_id", e.target.value || null)} style={{ ..._einp, cursor: "pointer" }}>
                   <option value="">None</option>
                   {objKRs.map(kr => <option key={kr.id} value={kr.id}>{kr.title}</option>)}
@@ -1374,8 +1374,8 @@ export default function OKRsView() {
           </div>
           {/* YTD summary */}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ fontSize: 11, color: T.text3 }}>YTD Actual: <strong style={{ color: T.text }}>{fmtMoney(ytdA) || "—"}</strong></div>
-            <div style={{ fontSize: 11, color: T.text3 }}>YTD Target: <strong style={{ color: T.text }}>{fmtMoney(ytdT) || "—"}</strong></div>
+            <div style={{ fontSize: 11, color: T.text3 }}>YTD Actual: <strong style={{ color: T.text }}>{fmtMoney(ytdA) || "-"}</strong></div>
+            <div style={{ fontSize: 11, color: T.text3 }}>YTD Target: <strong style={{ color: T.text }}>{fmtMoney(ytdT) || "-"}</strong></div>
             {pct != null && (
               <div style={{ fontSize: 11, fontWeight: 700, color, background: color+"18", padding: "2px 8px", borderRadius: 4 }}>{pct}%</div>
             )}
@@ -1414,7 +1414,7 @@ export default function OKRsView() {
                 ) : (
                   <div onClick={() => { setFinEditing({key:editKey,field:"actual"}); setFinEditVal(actVal != null ? String(actVal) : ""); }}
                     style={{ fontSize: 11, fontWeight: 700, color: cellColor, cursor: "pointer", lineHeight: 1.3, minHeight: 14 }}>
-                    {actVal != null ? fmtMoney(actVal) : (isPast || isCur ? <span style={{color:T.border}}>—</span> : "")}
+                    {actVal != null ? fmtMoney(actVal) : (isPast || isCur ? <span style={{color:T.border}}>-</span> : "")}
                   </div>
                 )}
                 {/* Target */}
@@ -1671,12 +1671,12 @@ export default function OKRsView() {
                 rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
             </div>
 
-            {/* Celebration — show when on track */}
+            {/* Celebration - show when on track */}
             {(form.health === "on_track" && form.sentiment !== "blocked" && form.sentiment !== "concerned") && (
               <div style={{ marginBottom: 20 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#22c55e", display: "block", marginBottom: 6 }}>🎉 Any wins to celebrate? <span style={{ color: T.text3, fontWeight: 400 }}>(optional)</span></label>
                 <textarea value={form.celebration || ""} onChange={e => setForm(p => ({ ...p, celebration: e.target.value }))}
-                  placeholder="Share a win — even small ones matter!"
+                  placeholder="Share a win - even small ones matter!"
                   rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #22c55e40", background: "#22c55e08", color: T.text, fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
               </div>
             )}
@@ -1813,7 +1813,7 @@ export default function OKRsView() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
             <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>OKR Updates</h3>
-            <p style={{ fontSize: 13, color: T.text3, margin: "4px 0 0" }}>Weekly status updates — what's moving, what's blocked, what's next.</p>
+            <p style={{ fontSize: 13, color: T.text3, margin: "4px 0 0" }}>Weekly status updates - what's moving, what's blocked, what's next.</p>
           </div>
           <button onClick={() => setShowForm(v => !v)} style={{ padding: "9px 18px", borderRadius: 8, background: showForm ? T.surface3 : T.accent, color: showForm ? T.text2 : "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             {showForm ? "Cancel" : "+ Post Update"}

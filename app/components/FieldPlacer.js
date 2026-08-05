@@ -129,7 +129,7 @@ export default function FieldPlacer({ documentUrl, signers = [], initialFields =
       </div>
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* Left sidebar — Field palette */}
+        {/* Left sidebar - Field palette */}
         <div style={{ width: 220, borderRight: `1px solid ${T.border}`, background: T.surface, overflow: "auto", padding: "12px" }}>
           {/* Signer selector */}
           <div style={{ marginBottom: 12 }}>
@@ -190,7 +190,7 @@ export default function FieldPlacer({ documentUrl, signers = [], initialFields =
           </div>
         </div>
 
-        {/* Center — Document with field overlays */}
+        {/* Center - Document with field overlays */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {/* Page navigation */}
           <div style={{ padding: "8px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
@@ -232,7 +232,7 @@ export default function FieldPlacer({ documentUrl, signers = [], initialFields =
                 />
               ) : (
                 <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8f8fc", color: "#999", fontSize: 14 }}>
-                  No document uploaded — fields will still be saved
+                  No document uploaded - fields will still be saved
                 </div>
               )}
 
@@ -302,7 +302,7 @@ export default function FieldPlacer({ documentUrl, signers = [], initialFields =
           </div>
         </div>
 
-        {/* Right sidebar — Field properties */}
+        {/* Right sidebar - Field properties */}
         <div style={{ width: 200, borderLeft: `1px solid ${T.border}`, background: T.surface, overflow: "auto", padding: "12px" }}>
           {selectedField ? (() => {
             const f = fields.find(x => x.id === selectedField);

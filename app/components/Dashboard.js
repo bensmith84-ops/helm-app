@@ -12,7 +12,7 @@ const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length-1)%AVATAR_CO
 const HEALTH = { on_track:{label:"On Track",color:"#22c55e"}, at_risk:{label:"At Risk",color:"#eab308"}, off_track:{label:"Off Track",color:"#ef4444"} };
 
 const fmt$ = (v) => {
-  if (v == null) return "—";
+  if (v == null) return "-";
   const abs = Math.abs(v);
   const s = v < 0 ? "-" : "";
   if (abs >= 1_000_000) return s + "$" + (abs/1_000_000).toFixed(1) + "M";
@@ -68,7 +68,7 @@ function Card({ children, style={} }) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   TODAY'S FOCUS — Enhanced with + Add Focus Item
+   TODAY'S FOCUS - Enhanced with + Add Focus Item
    ═══════════════════════════════════════════════════════ */
 function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, setActive, profile, onOpenTask }) {
   const [addMode, setAddMode] = useState(null); // null | "custom" | "task"
@@ -275,7 +275,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
 
       {totalItems === 0 && addMode === null && !collapsed && (
         <div style={{ textAlign:"center", padding:"12px 0", color:T.text3, fontSize:12 }}>
-          No focus items yet — add something to keep your day on track
+          No focus items yet - add something to keep your day on track
         </div>
       )}
     </div>
@@ -283,7 +283,7 @@ function TodaysFocus({ tasks, projects, focusItems, setFocusItems, todayStr, set
 }
 
 /* ═══════════════════════════════════════════════════════
-   TODAY'S CALENDAR SIDEBAR — Collapsible right panel
+   TODAY'S CALENDAR SIDEBAR - Collapsible right panel
    ═══════════════════════════════════════════════════════ */
 function TodaysCalendar({ profile, collapsed, setCollapsed }) {
   const { isMobile } = useResponsive();
@@ -687,7 +687,7 @@ function TodaysCalendar({ profile, collapsed, setCollapsed }) {
                         {cal.calendar_type === "ical" && (
                           <div style={{ fontSize:8, color:T.text3, marginTop:2, marginLeft:22 }}>
                             {cal.last_synced_at ? `Synced ${new Date(cal.last_synced_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}` : "Not synced yet"}
-                            {!cal.last_synced_at && <span style={{ color:"#f97316", marginLeft:4 }}>— check URL?</span>}
+                            {!cal.last_synced_at && <span style={{ color:"#f97316", marginLeft:4 }}>- check URL?</span>}
                           </div>
                         )}
                       </div>
@@ -1018,14 +1018,14 @@ export default function DashboardView({ setActive }) {
         return false;
       }).map(r => ({
         id: r.id, entity_name: r.title, entity_type: "Spend Request",
-        amount: r.amount, description: `${r.department || "—"} · ${r.gl_code || "—"}`,
+        amount: r.amount, description: `${r.department || "-"} · ${r.gl_code || "-"}`,
         module: "finance", created_at: r.created_at, _type: "spend",
         requester_id: r.requester_id,
         requester_name: profMap[r.requester_id]?.display_name || "Unknown",
         matched_rule_name: r.matched_rule_name || null,
         approvals: r.approvals || [],
       }));
-      // Also filter general approval_requests — exclude own
+      // Also filter general approval_requests - exclude own
       const myApprovals = (approvals || []).filter(r => r.requester_id !== profile?.id).map(r => ({
         ...r,
         requester_name: profMap[r.requester_id]?.display_name || "Unknown",
@@ -1103,7 +1103,7 @@ export default function DashboardView({ setActive }) {
   const myTasks      = openTasks.filter(t => t.assignee_id === profile?.id && !t.parent_task_id)
     .sort((a,b) => { if(!a.due_date&&!b.due_date) return 0; if(!a.due_date) return 1; if(!b.due_date) return -1; return a.due_date.localeCompare(b.due_date); }).slice(0, 6);
 
-  // YTD from QuickBooks P&L (qbo_pl_monthly via RPC) — net = revenue − expense.
+  // YTD from QuickBooks P&L (qbo_pl_monthly via RPC) - net = revenue − expense.
   // Exclude the current calendar month: it's still open / being reconciled in QBO
   // (Shopify & Amazon revenue post via month-end journal entries), so including it
   // would badly understate net. We report YTD through the last closed month.
@@ -1132,7 +1132,7 @@ export default function DashboardView({ setActive }) {
   const amzYTD = ytdRows.reduce((s, r) => s + (Number(r.amazon) || 0), 0);
   const retailYTD = ytdRev != null ? ytdRev - shopYTD - amzYTD : null;
 
-  // "Not yet booked" — current open month. Retail from QuickBooks (booked monthly), Shopify &
+  // "Not yet booked" - current open month. Retail from QuickBooks (booked monthly), Shopify &
   // Amazon from the Daily Scoreboard (QBO only books marketplace at month-end via journal entries).
   const openRow = qboPL.find(r => String(r.period_month) === `${curYear}-${String(curMonth).padStart(2, "0")}`);
   const retailOpen = openRow ? (Number(openRow.revenue) || 0) - (Number(openRow.shopify) || 0) - (Number(openRow.amazon) || 0) : 0;
@@ -1186,7 +1186,7 @@ export default function DashboardView({ setActive }) {
               {greet}, {profile?.display_name?.split(" ")[0] || "there"} 👋
             </h1>
             <p style={{ color:T.text3, fontSize:13 }}>
-              {dateStr}{activeCycle ? ` · ${activeCycle.name} — ${daysLeft} days left` : ""}
+              {dateStr}{activeCycle ? ` · ${activeCycle.name} - ${daysLeft} days left` : ""}
             </p>
           </div>
           {pendingApprovals.length > 0 && (
@@ -1272,7 +1272,7 @@ export default function DashboardView({ setActive }) {
                 </div>
               </div>
               <div style={{ padding:"14px 24px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8, justifyContent:"space-between", alignItems:"center" }}>
-                <div style={{ fontSize:11, color:T.text3 }}>{newTaskForm.project_id ? "Will be added to project" : "Personal task — appears in My Tasks"}</div>
+                <div style={{ fontSize:11, color:T.text3 }}>{newTaskForm.project_id ? "Will be added to project" : "Personal task - appears in My Tasks"}</div>
                 <div style={{ display:"flex", gap:8 }}>
                   <button onClick={() => setShowNewTask(false)} style={{ padding:"8px 16px", borderRadius:8, background:T.surface3, color:T.text2, border:"none", fontSize:13, cursor:"pointer" }}>Cancel</button>
                   <button id="dash-create-task-btn" onClick={async () => {
@@ -1310,10 +1310,10 @@ export default function DashboardView({ setActive }) {
 
         {/* ── KPI Row ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginBottom:24 }}>
-          <KPICard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"—"}
+          <KPICard icon="📈" label="YTD Revenue" value={ytdRev!=null?fmt$(ytdRev):"-"}
             sub={ytdRev!=null ? `Shopify ${fmt$(shopYTD)} · Amazon ${fmt$(amzYTD)} · Retail ${fmt$(retailYTD)}` : "Connect QuickBooks in ERP"}
             color="#22c55e" onClick={() => setActive("erp", "pl_explorer")} />
-          <KPICard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"—"}
+          <KPICard icon="💵" label="YTD Net $" value={ytdNet!=null?fmt$(ytdNet):"-"}
             sub={ytdMargin!=null ? `${ytdMargin.toFixed(1)}% net margin` : ""}
             color={ytdNet!=null&&ytdNet>=0?"#22c55e":"#ef4444"} onClick={() => setActive("erp", "pl_explorer")} />
           {hasOpenData && <KPICard icon="⏳" label="Not Yet Booked" value={fmt$(notYetBooked)}
@@ -1330,7 +1330,7 @@ export default function DashboardView({ setActive }) {
             color={T.accent} onClick={() => setActive("plm")} />
         </div>
 
-        {/* ── My Tasks + Inbox — TOP POSITION ── */}
+        {/* ── My Tasks + Inbox - TOP POSITION ── */}
         <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:20, marginBottom:20 }}>
           <Card>
             <SectionHeader title="My Tasks" icon="👤" action={
@@ -1350,7 +1350,7 @@ export default function DashboardView({ setActive }) {
                     <div key={t.id} onClick={() => openTask(t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, background:T.surface2, cursor:"pointer", borderLeft:`3px solid ${isOverdue?"#ef4444":priColor}` }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
-                        <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{proj?.name || "—"}</div>
+                        <div style={{ fontSize:10, color:T.text3, marginTop:2 }}>{proj?.name || "-"}</div>
                       </div>
                       {t.due_date && (
                         <span style={{ fontSize:10, fontWeight:600, padding:"2px 7px", borderRadius:4, flexShrink:0,
@@ -1459,9 +1459,9 @@ export default function DashboardView({ setActive }) {
                   <div><div style={{ fontSize:24, fontWeight:800, color:"#22c55e" }}>{fmt$(ytdRev)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Revenue (QuickBooks)</div></div>
                   {ytdNet!=null&&<div><div style={{ fontSize:24, fontWeight:800, color:ytdNet>=0?"#22c55e":"#ef4444" }}>{fmt$(ytdNet)}</div><div style={{ fontSize:11, color:T.text3 }}>YTD Net $</div></div>}
                   <div><div style={{ fontSize:16, fontWeight:700, color:T.text2 }}>{fmt$(ytdExp)}</div><div style={{ fontSize:10, color:T.text3 }}>Expenses</div></div>
-                  <div><div style={{ fontSize:16, fontWeight:700, color:ytdMargin!=null&&ytdMargin>=0?"#22c55e":"#ef4444" }}>{ytdMargin!=null?ytdMargin.toFixed(1)+"%":"—"}</div><div style={{ fontSize:10, color:T.text3 }}>Net margin</div></div>
+                  <div><div style={{ fontSize:16, fontWeight:700, color:ytdMargin!=null&&ytdMargin>=0?"#22c55e":"#ef4444" }}>{ytdMargin!=null?ytdMargin.toFixed(1)+"%":"-"}</div><div style={{ fontSize:10, color:T.text3 }}>Net margin</div></div>
                 </div>
-                {openMonthExcluded && <div style={{ fontSize:10, color:T.text3, marginBottom:8 }}>YTD through {ytdThrough} — {openMonthExcluded} still open in QuickBooks, excluded</div>}
+                {openMonthExcluded && <div style={{ fontSize:10, color:T.text3, marginBottom:8 }}>YTD through {ytdThrough} - {openMonthExcluded} still open in QuickBooks, excluded</div>}
                 <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:8, flexWrap:"wrap" }}>
                   {[["Shopify",CH.shopify],["Amazon",CH.amazon],["Retail",CH.retail]].map(([lbl,c])=>(
                     <div key={lbl} style={{ display:"flex", alignItems:"center", gap:5 }}>
@@ -1754,7 +1754,7 @@ export default function DashboardView({ setActive }) {
             {pendingApprovals.length === 0 ? (
               <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"24px 0" }}>
                 <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
-                No pending approvals — you're all caught up!
+                No pending approvals - you're all caught up!
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>

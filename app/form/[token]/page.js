@@ -7,7 +7,7 @@ const SUPA_URL = "https://upbjdmnykheubxkuknuj.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwYmpkbW55a2hldWJ4a3VrbnVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDI3OTcsImV4cCI6MjA4NzcxODc5N30.pvTTkiZWNDPuo-Fdzm54uy8w1mlx0AjB5jtFm3MeGq4";
 
 const PRIORITY_OPTS = [
-  { v: "", l: "—" },
+  { v: "", l: "-" },
   { v: "low", l: "Low" },
   { v: "medium", l: "Medium" },
   { v: "high", l: "High" },
@@ -111,7 +111,7 @@ export default function PublicFormPage() {
       <div style={{ ...card, padding: 44, textAlign: "center" }}>
         <div style={{ width: 56, height: 56, borderRadius: 28, background: "#dcfce7", color: "#16a34a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, margin: "0 auto 16px" }}>✓</div>
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Submitted</div>
-        <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 20 }}>Thanks — your request has been received.</div>
+        <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 20 }}>Thanks - your request has been received.</div>
         <button onClick={() => { const init = {}; (form.fields || []).forEach((f) => { init[f.id] = f.maps_to === "multi_select" || f.maps_to === "attachments" ? [] : ""; }); setValues(init); setState("ready"); }}
           style={{ padding: "9px 18px", borderRadius: 8, border: "1px solid #d6dae1", background: "#fff", color: "#3a4150", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           Submit another response

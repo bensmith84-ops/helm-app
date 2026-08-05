@@ -1,5 +1,5 @@
 
-// POST /shopify-sync — port of supabase/functions/shopify-sync
+// POST /shopify-sync - port of supabase/functions/shopify-sync
 // 4 actions: products, customers, orders/day_sync, full.
 // Cursor pagination via Link header (Shopify REST 2024-01).
 const API_VERSION = '2024-01';

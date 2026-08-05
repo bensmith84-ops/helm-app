@@ -1,5 +1,5 @@
 
-// POST /cx-shopify-actions — port of supabase/functions/cx-shopify-actions
+// POST /cx-shopify-actions - port of supabase/functions/cx-shopify-actions
 // 3 actions: lookup_order, refund_order, cancel_order. Full audit logging.
 const API_VERSION = '2024-01';
 

@@ -17,7 +17,7 @@ async function ensureBound(firebaseUser) {
     await helmPost("/auth/bind", {});
     sessionStorage.setItem(key, "1");
   } catch (e) {
-    // Non-fatal — surface in console but don't block UI. requireAuth will
+    // Non-fatal - surface in console but don't block UI. requireAuth will
     // 401 anyway if there's no profile, and the user can retry by refreshing.
     console.warn("[useAuth] /auth/bind failed:", e?.message || e);
   }

@@ -13,7 +13,7 @@ const PrintAIChat = lazy(() => import("./PrintAIChat"));
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 const STAGES = [
-  { key: "ideation",     label: "Ideation",     color: "#8b5cf6", desc: "Capturing new product ideas from market trends, customer feedback, internal brainstorms, and competitive analysis. Open exploration — no commitment yet, just building the idea backlog." },
+  { key: "ideation",     label: "Ideation",     color: "#8b5cf6", desc: "Capturing new product ideas from market trends, customer feedback, internal brainstorms, and competitive analysis. Open exploration - no commitment yet, just building the idea backlog." },
   { key: "concept",      label: "Concept",      color: "#6366f1", desc: "Defining the product opportunity. Formalizing the idea into a product brief with target consumer, positioning, high-level requirements, and initial business case. Answering: 'Should we pursue this?'" },
   { key: "feasibility",  label: "Feasibility",  color: "#3b82f6", desc: "Evaluating technical and commercial viability. Preliminary formulations, rough cost estimates, initial supplier research, and regulatory screening. Answering: 'Can we make this within our constraints?'" },
   { key: "development",  label: "Development",  color: "#0ea5e9", desc: "Active formulation and product development. Lab-scale work, iterative testing, packaging development, and initial stability studies. Building and refining the actual product." },
@@ -21,7 +21,7 @@ const STAGES = [
   { key: "validation",   label: "Validation",   color: "#10b981", desc: "Final confirmation before launch. Production-scale validation runs, final quality testing, regulatory compliance sign-off, claims substantiation complete, packaging artwork approved, supply chain readiness confirmed." },
   { key: "scale_up",     label: "Scale-Up",     color: "#84cc16", desc: "Transitioning from validated product to full production volume. Setting up production lines, qualifying contract manufacturers, establishing quality control procedures, and building initial inventory for launch." },
   { key: "regulatory",   label: "Regulatory",   color: "#eab308", desc: "Securing all regulatory approvals and compliance certifications. Filing with relevant agencies, completing labeling requirements, obtaining market-specific certifications, and ensuring full legal compliance for all target markets." },
-  { key: "launch_ready", label: "Launch Ready", color: "#f97316", desc: "All gates passed — product is ready to ship. Final go/no-go review, marketing materials finalized, sales channels activated, inventory positioned, distribution confirmed. Awaiting launch date." },
+  { key: "launch_ready", label: "Launch Ready", color: "#f97316", desc: "All gates passed - product is ready to ship. Final go/no-go review, marketing materials finalized, sales channels activated, inventory positioned, distribution confirmed. Awaiting launch date." },
   { key: "launched",     label: "Launched",     color: "#22c55e", desc: "Product is live in market. Monitoring initial sales performance, collecting customer feedback, tracking quality metrics, managing post-launch optimizations, and feeding learnings back into the pipeline." },
 ];
 const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]));
@@ -56,7 +56,7 @@ function StageBadge({ stage }) {
 }
 function PriorityBadge({ priority }) {
   const color = PRIORITY_COLORS[priority] || "#8b93a8";
-  return <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:color+"22", color, letterSpacing:0.3 }}>{(priority||"—").toUpperCase()}</span>;
+  return <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:4, background:color+"22", color, letterSpacing:0.3 }}>{(priority||"-").toUpperCase()}</span>;
 }
 // Shared: render manufacturing instructions with markdown formatting
 function FormatMfgInstructions({ text }) {
@@ -115,7 +115,7 @@ function InlineField({ label, value, onChange, onBlur, type="text", placeholder,
       {label && <div style={{ fontSize:11, color:T.text3, marginBottom:4, fontWeight:600 }}>{label}</div>}
       {options ? (
         <select value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur} disabled={readOnly} style={{ ...base, cursor:readOnly?"default":"pointer" }}>
-          <option value="">—</option>
+          <option value="">-</option>
           {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
         </select>
       ) : multiline ? (
@@ -284,7 +284,7 @@ function FormulaItemRow({ item, onUpdate, onDelete }) {
       <td style={{...td,width:80}}><input value={vals.input_qty||""} onChange={e=>handleChange("input_qty",e.target.value)} onBlur={handleBlur} style={{...inp,textAlign:"right"}} type="number" placeholder="0" /></td>
       <td style={{...td,width:75}}>
         <select value={vals.input_uom||""} onChange={e=>handleChange("input_uom",e.target.value)} onBlur={handleBlur} style={sel}>
-          <option value="">—</option>
+          <option value="">-</option>
           {FORMULA_UOM.map(u=><option key={u} value={u}>{u}</option>)}
         </select>
       </td>
@@ -408,7 +408,7 @@ function SourcingItemCard({ item, onUpdate, onDelete }) {
               <div style={{ fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:1 }}>Purchase Volume Tiers</div>
               <AddBtn onClick={()=>saveTiers([...tiers,{min_qty:"",max_qty:"",unit:"units",unit_price:"",total_cost:""}])} label="Add Tier" />
             </div>
-            {tiers.length===0 ? <div style={{ fontSize:12,color:T.text3,fontStyle:"italic" }}>No tiers yet — add tiers to enable GM% scenario modeling</div> : (
+            {tiers.length===0 ? <div style={{ fontSize:12,color:T.text3,fontStyle:"italic" }}>No tiers yet - add tiers to enable GM% scenario modeling</div> : (
               <table style={{ width:"100%",borderCollapse:"collapse" }}>
                 <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Min Qty","Max Qty","UOM","Unit Price ($)","Total Cost ($)",""].map(h=><th key={h} style={{ padding:"4px 6px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>{h}</th>)}</tr></thead>
                 <tbody>{tiers.map((tier,idx)=><VolumeTierRow key={idx} tier={tier} idx={idx} onChange={changeTier} onDelete={i=>saveTiers(tiers.filter((_,ti)=>ti!==i))} uom={vals.moq_unit} />)}</tbody>
@@ -520,7 +520,7 @@ function ClaimsSubstantiationTab({ program, onUpdate }) {
       <div>
         <Section title="Desired Claim Statements">
           <div style={{ background:T.surface2,border:"1px solid "+T.border,borderRadius:8,padding:"10px 12px",marginBottom:12 }}>
-            <div style={{ fontSize:12,color:T.text3,lineHeight:1.6 }}>List every marketing or regulatory claim you intend to make. The AI advisor will cross-reference these against your formulation, ingredients, test data, and substantiation docs — flagging gaps and suggesting what evidence is needed to defend each claim.</div>
+            <div style={{ fontSize:12,color:T.text3,lineHeight:1.6 }}>List every marketing or regulatory claim you intend to make. The AI advisor will cross-reference these against your formulation, ingredients, test data, and substantiation docs - flagging gaps and suggesting what evidence is needed to defend each claim.</div>
           </div>
           {claims.map((claim,idx)=>(
             <div key={idx} style={{ display:"flex",gap:8,marginBottom:8,alignItems:"flex-start" }}>
@@ -533,13 +533,13 @@ function ClaimsSubstantiationTab({ program, onUpdate }) {
             <input value={newClaim} onChange={e=>setNewClaim(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addClaim()} placeholder="e.g. Clinically proven to reduce fine lines by 30%…" style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"7px 10px",outline:"none" }} />
             <button onClick={addClaim} style={{ padding:"7px 14px",fontSize:12,fontWeight:600,background:T.accentDim,color:T.accent,border:"1px solid "+T.accent+"40",borderRadius:6,cursor:"pointer" }}>Add</button>
           </div>
-          {claims.length===0&&<div style={{ marginTop:8,fontSize:12,color:T.text3,fontStyle:"italic" }}>No claims yet — add your desired marketing and regulatory claims above.</div>}
+          {claims.length===0&&<div style={{ marginTop:8,fontSize:12,color:T.text3,fontStyle:"italic" }}>No claims yet - add your desired marketing and regulatory claims above.</div>}
         </Section>
       </div>
       <div>
         <Section title="Claims Substantiation" action={<AddBtn onClick={()=>setShowDocForm(true)} label="Add Document" />}>
           <div style={{ background:T.surface2,border:"1px solid "+T.border,borderRadius:8,padding:"10px 12px",marginBottom:12 }}>
-            <div style={{ fontSize:12,color:T.text3,lineHeight:1.6 }}>Attach supporting evidence — studies, lab reports, regulatory filings, or links — that substantiate your claim statements.</div>
+            <div style={{ fontSize:12,color:T.text3,lineHeight:1.6 }}>Attach supporting evidence - studies, lab reports, regulatory filings, or links - that substantiate your claim statements.</div>
           </div>
           {showDocForm&&(
             <div style={{ background:T.surface2,border:"1px solid "+T.accent+"40",borderRadius:8,padding:14,marginBottom:14 }}>
@@ -625,7 +625,7 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
             }
           });
       });
-  }, [ingredientName]); // deliberately exclude `value` — we only want this to run on name change
+  }, [ingredientName]); // deliberately exclude `value` - we only want this to run on name change
 
   // If value is set but doesn't match any library supplier, show it in "custom" mode
   const isLibrarySupplier = libSuppliers.some(s => s.supplier_name === value);
@@ -634,7 +634,7 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
   // Keep custom input in sync when parent clears value
   useEffect(() => { if (effectiveMode === "custom") setCustom(value || ""); }, [value]);
 
-  // Still loading library — show the current value as read-only hint with spinner
+  // Still loading library - show the current value as read-only hint with spinner
   if (loading) {
     return (
       <div style={{ display:"flex",gap:6,alignItems:"center" }}>
@@ -645,7 +645,7 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
     );
   }
 
-  // No library match — plain text input
+  // No library match - plain text input
   if (!libSuppliers.length) {
     return (
       <input value={value||""} onChange={e=>onChange(e.target.value)} onBlur={onBlur}
@@ -675,7 +675,7 @@ function SupplierPicker({ ingredientName, value, onChange, onBlur }) {
     <div style={{ display:"flex",gap:6 }}>
       <select value={value||""} onChange={e=>{ onChange(e.target.value); onBlur&&onBlur(); }}
         style={{ flex:1,fontSize:13,color:T.text,background:T.surface2,border:"1px solid "+T.border,borderRadius:6,padding:"6px 10px",outline:"none",fontFamily:"inherit",cursor:"pointer" }}>
-        <option value="">— Select supplier —</option>
+        <option value="">- Select supplier -</option>
         {libSuppliers.map(s => (
           <option key={s.id} value={s.supplier_name}>
             {s.is_preferred?"⭐ ":""}{s.supplier_name}{s.bestPrice ? " · $"+Number(s.bestPrice.unit_price).toFixed(2)+"/"+s.bestPrice.uom : ""}
@@ -1018,11 +1018,11 @@ Respond ONLY with a JSON array:
                           {s.moq_kg && <div style={{ fontSize: 10, color: T.text3 }}>MOQ: {s.moq_kg}kg</div>}
                         </td>
                         <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: T.text, fontVariantNumeric: "tabular-nums" }}>
-                          {s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "—"}
+                          {s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "-"}
                         </td>
                         <td style={{ padding: "8px 10px", textAlign: "center" }}>
                           <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>
-                            {s.ai_fit_score || "—"}
+                            {s.ai_fit_score || "-"}
                           </span>
                         </td>
                         <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 240, lineHeight: 1.5 }}>{s.ai_reasoning}</td>
@@ -1178,7 +1178,7 @@ JSON array only:
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>Ingredient Sourcing</div>
-          <div style={{ fontSize: 12, color: T.text3 }}>Find ingredients by name, function, or desired outcome — AI suggests options considering claims and restrictions</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>Find ingredients by name, function, or desired outcome - AI suggests options considering claims and restrictions</div>
         </div>
         <button onClick={() => setShowNew(true)} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 600, background: T.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>+ New Search</button>
       </div>
@@ -1231,7 +1231,7 @@ JSON array only:
             </div>
           )}
 
-          {/* Claims & restrictions — compact */}
+          {/* Claims & restrictions - compact */}
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div>
               <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 6 }}>Must be compatible with:</div>
@@ -1259,7 +1259,7 @@ JSON array only:
         <div className="plm-grid">
           {/* Left: request list */}
           <div style={{ borderRight: "1px solid " + T.border, paddingRight: 12 }}>
-            {requests.length === 0 && <EmptyState icon="🧪" text="No ingredient searches yet — click + New Search" />}
+            {requests.length === 0 && <EmptyState icon="🧪" text="No ingredient searches yet - click + New Search" />}
             {requests.map(r => (
               <div key={r.id} onClick={() => setSelected(r)}
                 style={{ padding: "10px 12px", borderRadius: 8, marginBottom: 4, cursor: "pointer", border: "1px solid " + (selected?.id === r.id ? T.accent : "transparent"), background: selected?.id === r.id ? T.accentDim : "transparent" }}>
@@ -1333,9 +1333,9 @@ JSON array only:
                           {s.origin_country && <div style={{ fontSize: 10, color: T.text3 }}>📍 {s.origin_country}</div>}
                           {s.moq_kg && <div style={{ fontSize: 10, color: T.text3 }}>MOQ: {s.moq_kg}kg</div>}
                         </td>
-                        <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: T.text }}>{s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "—"}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: T.text }}>{s.price_per_kg ? "$" + Number(s.price_per_kg).toFixed(2) : "-"}</td>
                         <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>{s.ai_fit_score || "—"}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 700, background: (s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444") + "20", color: s.ai_fit_score >= 80 ? "#22c55e" : s.ai_fit_score >= 60 ? "#f59e0b" : "#ef4444" }}>{s.ai_fit_score || "-"}</span>
                         </td>
                         <td style={{ padding: "8px 10px", fontSize: 11, color: T.text2, maxWidth: 240, lineHeight: 1.5 }}>{s.ai_reasoning}</td>
                       </tr>
@@ -1344,7 +1344,7 @@ JSON array only:
                 ) : selected.status === "draft" ? (
                   <div style={{ padding: "24px 16px", borderRadius: 10, border: "2px dashed " + T.border, textAlign: "center" }}>
                     <div style={{ fontSize: 24, marginBottom: 6 }}>🤖</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text3 }}>Ready to search — click AI Search above</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text3 }}>Ready to search - click AI Search above</div>
                   </div>
                 ) : <div style={{ color: T.text3, fontSize: 12 }}>No results yet</div>}
               </div>
@@ -1500,7 +1500,7 @@ function GMScenarioTab({ program }) {
 }
 
 // ─── INGREDIENT PICKER MODAL ─────────────────────────────────────────────────
-// Shown when clicking "+ Ingredient" — lets user search library or create custom
+// Shown when clicking "+ Ingredient" - lets user search library or create custom
 
 function IngredientPickerModal({ onPick, onClose }) {
   const [query, setQuery] = useState("");
@@ -1693,7 +1693,7 @@ function FormulationsTab({ programId }) {
               <thead><tr style={{ borderBottom:"1px solid "+T.border }}>{["Name","Type","Formula %","Unit","Input Qty","UOM","Function",""].map(h=><th key={h} style={{ padding:"4px 6px",textAlign:"left",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase" }}>{h}</th>)}</tr></thead>
               <tbody>{items.map(item=><FormulaItemRow key={item.id} item={item} onUpdate={u=>setItems(p=>p.map(x=>x.id===u.id?u:x))} onDelete={async()=>{await supabase.from("plm_formula_items").delete().eq("org_id", orgId).eq("id",item.id);setItems(p=>p.filter(x=>x.id!==item.id));}} />)}</tbody>
             </table>
-            {items.length===0&&<EmptyState icon="🧪" text="No ingredients — click + Ingredient to add from library or type your own" />}
+            {items.length===0&&<EmptyState icon="🧪" text="No ingredients - click + Ingredient to add from library or type your own" />}
             
             {/* ── Making Instructions ────────────────────────────── */}
             <div style={{ marginTop: 20, borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
@@ -1852,7 +1852,7 @@ function ExperimentsTab({ programId }) {
           <AddBtn onClick={add} label="New" />
         </div>
         {experiments.length===0&&<EmptyState icon="🔬" text="No experiments yet" />}
-        {experiments.map(e=><div key={e.id} onClick={()=>{setSelected(e);setActiveSubTab("design");}} style={{ padding:"8px 10px",borderRadius:6,cursor:"pointer",marginBottom:4,background:selected?.id===e.id?T.accentDim:T.surface2,border:"1px solid "+(selected?.id===e.id?T.accent+"60":T.border) }}><div style={{ fontSize:13,fontWeight:500,color:T.text }}>{e.name}</div><div style={{ fontSize:11,color:T.text3,marginTop:2 }}><StatusDot status={e.status} />{e.experiment_type||"—"}</div></div>)}
+        {experiments.map(e=><div key={e.id} onClick={()=>{setSelected(e);setActiveSubTab("design");}} style={{ padding:"8px 10px",borderRadius:6,cursor:"pointer",marginBottom:4,background:selected?.id===e.id?T.accentDim:T.surface2,border:"1px solid "+(selected?.id===e.id?T.accent+"60":T.border) }}><div style={{ fontSize:13,fontWeight:500,color:T.text }}>{e.name}</div><div style={{ fontSize:11,color:T.text3,marginTop:2 }}><StatusDot status={e.status} />{e.experiment_type||"-"}</div></div>)}
       </div>
       <div>
         {!selected?<EmptyState icon="🔬" text="Select an experiment to view details" />:(
@@ -1867,14 +1867,14 @@ function ExperimentsTab({ programId }) {
               <InlineField label="Status" value={selected.status} onChange={v=>update("status",v)} options={["planning","in_progress","completed","analyzing","concluded","cancelled"].map(s=>({value:s,label:s}))} />
               <InlineField label="DOE Design" value={selected.doe_design} onChange={v=>update("doe_design",v)} options={["full_factorial","fractional_factorial","central_composite","box_behnken","taguchi","one_factor","custom","screening","response_surface","mixture","none"].map(s=>({value:s,label:s.replace(/_/g," ")}))} />
             </div>
-            <InlineField label="Hypothesis" value={selected.hypothesis} onChange={v=>update("hypothesis",v)} multiline placeholder="State your hypothesis — what do you expect to learn?" />
+            <InlineField label="Hypothesis" value={selected.hypothesis} onChange={v=>update("hypothesis",v)} multiline placeholder="State your hypothesis - what do you expect to learn?" />
 
             {/* Sub-tabs */}
             <div style={{ display:"flex",gap:0,borderBottom:`1px solid ${T.border}`,marginBottom:16 }}>
               {subTabs.map(t => <button key={t} onClick={()=>setActiveSubTab(t)} style={{ padding:"8px 16px",fontSize:12,fontWeight:activeSubTab===t?700:400,color:activeSubTab===t?T.accent:T.text3,background:"none",border:"none",borderBottom:activeSubTab===t?`2px solid ${T.accent}`:"2px solid transparent",cursor:"pointer",textTransform:"capitalize" }}>{t}</button>)}
             </div>
 
-            {/* Design Tab — Factors & Responses */}
+            {/* Design Tab - Factors & Responses */}
             {activeSubTab === "design" && (
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:20 }}>
                 {/* Factors */}
@@ -1937,7 +1937,7 @@ function ExperimentsTab({ programId }) {
               </div>
             )}
 
-            {/* Matrix Tab — Run Matrix */}
+            {/* Matrix Tab - Run Matrix */}
             {activeSubTab === "matrix" && (
               <div>
                 <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
@@ -1964,7 +1964,7 @@ function ExperimentsTab({ programId }) {
                           <tr key={run.id} style={{ borderBottom:`1px solid ${T.border}` }}>
                             <td style={{ padding:"4px 8px",fontWeight:600,color:T.text3 }}>{run.run_number}</td>
                             {factors.map(f => <td key={f.id} style={{ padding:"4px 4px" }}><input value={run.factor_values?.[f.id]??""} onChange={e=>updateRunFactor(run.id,f.id,e.target.value)} style={{ width:"100%",padding:"3px 6px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>)}
-                            {responses.map(r => <td key={r.id} style={{ padding:"4px 4px" }}><input value={run.response_values?.[r.id]??""} onChange={e=>updateRunResponse(run.id,r.id,e.target.value)} placeholder="—" style={{ width:"100%",padding:"3px 6px",fontSize:12,background:"#22c55e08",border:`1px solid #22c55e30`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>)}
+                            {responses.map(r => <td key={r.id} style={{ padding:"4px 4px" }}><input value={run.response_values?.[r.id]??""} onChange={e=>updateRunResponse(run.id,r.id,e.target.value)} placeholder="-" style={{ width:"100%",padding:"3px 6px",fontSize:12,background:"#22c55e08",border:`1px solid #22c55e30`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>)}
                             <td style={{ padding:"4px 4px" }}><input value={run.notes||""} onChange={e=>updateRun(run.id,"notes",e.target.value)} placeholder="..." style={{ width:"100%",padding:"3px 6px",fontSize:12,background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,outline:"none",boxSizing:"border-box" }} /></td>
                             <td><button onClick={()=>removeRun(run.id)} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:11 }}>✕</button></td>
                           </tr>
@@ -2068,7 +2068,7 @@ function ExperimentsTab({ programId }) {
                                 return (
                                   <div style={{ marginBottom: 16 }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                      <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>⚗️ {hasFormula ? `Formula: ${trialFormula?.name || "—"}` : "Ingredient Table"}</span>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>⚗️ {hasFormula ? `Formula: ${trialFormula?.name || "-"}` : "Ingredient Table"}</span>
                                       {trialFormula?.version && <span style={{ fontSize: 10, color: T.text3 }}>{trialFormula.version}</span>}
                                       {trialFormula?.target_batch_size && <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>Batch: {trialFormula.target_batch_size} {trialFormula.batch_size_unit || "kg"}</span>}
                                       {hasFormula && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "#f9731620", color: "#f97316", fontWeight: 600 }}>🔸 = changed by DOE factors</span>}
@@ -2083,18 +2083,18 @@ function ExperimentsTab({ programId }) {
                                         <tbody>
                                           {trialFormulaItems.map((item, i) => {
                                             const affected = isAffected(item);
-                                            const wt = trialFormula?.target_batch_size ? (item.quantity / 100 * trialFormula.target_batch_size * 1000).toFixed(1) : "—";
+                                            const wt = trialFormula?.target_batch_size ? (item.quantity / 100 * trialFormula.target_batch_size * 1000).toFixed(1) : "-";
                                             return (
                                               <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}`, background: affected ? "#f9731608" : "transparent" }}>
                                                 <td style={{ padding: "5px 2px", width: 8 }}>{affected && <span style={{ color: "#f97316", fontSize: 12 }}>🔸</span>}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.addition_order || i + 1}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: affected ? 700 : 500, color: affected ? "#f97316" : T.text }}>{item.ingredient_name}</td>
-                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.function_in_formula || "—"}</td>
-                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.phase || "—"}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.function_in_formula || "-"}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3 }}>{item.phase || "-"}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 12, color: affected ? T.text3 : T.text, textAlign: "right", textDecoration: affected ? "line-through" : "none" }}>{item.quantity}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 12, fontWeight: 700, color: affected ? "#f97316" : T.text, textAlign: "right" }}>{affected ? "→ see factors" : item.quantity}</td>
                                                 <td style={{ padding: "5px 8px", fontSize: 12, color: T.text2, textAlign: "right" }}>{wt}</td>
-                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3, textAlign: "right" }}>{item.addition_temp_c || "—"}</td>
+                                                <td style={{ padding: "5px 8px", fontSize: 11, color: T.text3, textAlign: "right" }}>{item.addition_temp_c || "-"}</td>
                                               </tr>
                                             );
                                           })}
@@ -2140,7 +2140,7 @@ function ExperimentsTab({ programId }) {
                                 );
                               })()}
 
-                              {/* Manufacturing Instructions — rendered with formatting */}
+                              {/* Manufacturing Instructions - rendered with formatting */}
                               <div style={{ marginBottom: 16 }}>
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                                   <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>📋 Manufacturing Instructions</span>
@@ -2159,7 +2159,7 @@ function ExperimentsTab({ programId }) {
                                     {<FormatMfgInstructions text={trialFormula.manufacturing_process} />}
                                   </div>
                                 ) : (
-                                  <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No instructions yet — click Edit to add</div>
+                                  <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No instructions yet - click Edit to add</div>
                                 )}
                                 <textarea id={`mfg-edit-${run.id}`} value={run.manufacturing_instructions || ""} onBlur={e => updateRun(run.id, "manufacturing_instructions", e.target.value)}
                                   onChange={e => setTrialRuns(p => p.map(r => r.id === run.id ? { ...r, manufacturing_instructions: e.target.value } : r))}
@@ -2435,10 +2435,10 @@ function TestResultsTab({ programId }) {
             <tr key={r.id} style={{ borderBottom:"1px solid "+T.border }}>
               <td style={{ padding:"8px 10px",fontSize:13,color:T.text,fontWeight:500 }}>{r.test_name}</td>
               <td style={{ padding:"8px 10px",fontSize:12,color:T.text2 }}>{r.test_category}</td>
-              <td style={{ padding:"8px 10px",fontSize:12,color:T.text3 }}>{r.specification||"—"}</td>
-              <td style={{ padding:"8px 10px",fontSize:12,color:T.text,fontWeight:600 }}>{r.result_value!=null?r.result_value+" "+(r.result_unit||""):r.result_text||"—"}</td>
+              <td style={{ padding:"8px 10px",fontSize:12,color:T.text3 }}>{r.specification||"-"}</td>
+              <td style={{ padding:"8px 10px",fontSize:12,color:T.text,fontWeight:600 }}>{r.result_value!=null?r.result_value+" "+(r.result_unit||""):r.result_text||"-"}</td>
               <td style={{ padding:"8px 10px" }}><span style={{ fontSize:10,fontWeight:700,color:sc,background:sc+"20",padding:"2px 7px",borderRadius:4 }}>{r.status?.toUpperCase()}</span></td>
-              <td style={{ padding:"8px 10px",fontSize:11,color:T.text3 }}>{r.tested_date||"—"}</td>
+              <td style={{ padding:"8px 10px",fontSize:11,color:T.text3 }}>{r.tested_date||"-"}</td>
             </tr>
           );})}
         </tbody>
@@ -2553,7 +2553,7 @@ function ShareDropdown({ conversationId, onClose }) {
                 onMouseEnter={e => e.currentTarget.style.background = T.surface2}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <div>
-                  <div style={{ color: T.text, fontWeight: 500 }}>{u.display_name || "—"}</div>
+                  <div style={{ color: T.text, fontWeight: 500 }}>{u.display_name || "-"}</div>
                   {u.email && <div style={{ fontSize: 10, color: T.text3 }}>{u.email}</div>}
                 </div>
                 <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>+ Share</span>
@@ -2566,7 +2566,7 @@ function ShareDropdown({ conversationId, onClose }) {
   );
 }
 
-// Markdown renderer for AI chat messages — handles tables, headers, bold, italic, code, lists
+// Markdown renderer for AI chat messages - handles tables, headers, bold, italic, code, lists
 function renderMarkdown(text) {
   if (!text) return null;
   const lines = text.split("\n");
@@ -2682,8 +2682,8 @@ function AIAgentTab({ program }) {
   const SUGGESTIONS = [
     "Our sheets aren't dissolving fully in cold water. What should we investigate?",
     "Source me Australian-based contract manufacturers for dishwasher tablets",
-    "Create a formula for a concentrated floor cleaner — safe for kids and pets",
-    "Find EPA Safer Choice approved surfactants — need 3 supplier options with pricing",
+    "Create a formula for a concentrated floor cleaner - safe for kids and pets",
+    "Find EPA Safer Choice approved surfactants - need 3 supplier options with pricing",
     "Help me design a DOE to optimize surfactant loading vs dissolution time",
     "Find powder-to-tablet compression manufacturers for our new tablet line",
     "How can we reduce COGS by 15% without hurting cleaning performance?",
@@ -2723,7 +2723,7 @@ function AIAgentTab({ program }) {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       if (!token) {
-        setMessages(p => [...p, { role: "assistant", text: "Session expired — please refresh the page and try again.", isError: true }]);
+        setMessages(p => [...p, { role: "assistant", text: "Session expired - please refresh the page and try again.", isError: true }]);
         setLoading(false);
         return;
       }
@@ -2768,7 +2768,7 @@ function AIAgentTab({ program }) {
     if (activeConvId === id) startNew();
   };
 
-  const activeMode = { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, sourcing, manufacturing, troubleshooting, DOE, regulatory — all in one place", color: "#a855f7" };
+  const activeMode = { key: "advisor", icon: "🧪", label: "R&D Advisor", desc: "Formulation, sourcing, manufacturing, troubleshooting, DOE, regulatory - all in one place", color: "#a855f7" };
 
   if (printingChat) return (
     <Suspense fallback={<div style={{ padding: 40, color: T.text3 }}>Loading print view...</div>}>
@@ -2989,7 +2989,7 @@ function LinkedWorkTab({ programId, navigateTo, navigateToProject }) {
               <div style={{ fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{p.name}</div>
               {p.target_end_date && <div style={{ fontSize:11,color:T.text3 }}>Target: {p.target_end_date}</div>}
             </div>
-            {pill(PSTATUS[p.status] || ["#6b7280", p.status || "—"])}
+            {pill(PSTATUS[p.status] || ["#6b7280", p.status || "-"])}
             {navigateToProject && <span style={{ color:T.text3,fontSize:14 }}>→</span>}
           </div>
         ))}
@@ -3006,7 +3006,7 @@ function LinkedWorkTab({ programId, navigateTo, navigateToProject }) {
               <div style={{ fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.title}</div>
               {projMap[t.project_id] && <div style={{ fontSize:11,color:T.text3 }}>{projMap[t.project_id]}</div>}
             </div>
-            {pill(TSTATUS[t.status] || ["#6b7280", t.status || "—"])}
+            {pill(TSTATUS[t.status] || ["#6b7280", t.status || "-"])}
             {navigateTo && <span style={{ color:T.text3,fontSize:14 }}>→</span>}
           </div>
         ))}
@@ -3144,7 +3144,7 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
             <InlineField label="Brand" value={form.brand} onChange={v=>set("brand",v)} placeholder="Brand name" />
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
               <InlineField label="Priority" value={form.priority} onChange={v=>set("priority",v)} options={["critical","high","medium","low"].map(x=>({value:x,label:x}))} />
-              <InlineField label="Starting Stage" value={form.current_stage} onChange={v=>set("current_stage",v)} options={STAGES.map(s=>({value:s.key,label:`${s.label} — ${s.desc.split('.')[0]}`}))} />
+              <InlineField label="Starting Stage" value={form.current_stage} onChange={v=>set("current_stage",v)} options={STAGES.map(s=>({value:s.key,label:`${s.label} - ${s.desc.split('.')[0]}`}))} />
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
               <InlineField label="GM% Target" value={form.target_gross_margin_pct} onChange={v=>set("target_gross_margin_pct",v)} type="number" placeholder="e.g. 65" />
@@ -3169,7 +3169,7 @@ function NewProgramModal({ onClose, onCreated, orgId }) {
         {step===3&&(
           <div>
             <div style={{ marginBottom:12,padding:12,background:T.surface2,borderRadius:8,fontSize:12,color:T.text3,lineHeight:1.6,border:"1px solid "+T.border }}>
-              List every marketing or regulatory claim you intend to make. The AI advisor will later cross-reference these against your formulation, ingredients, test data, and substantiation documents — flagging gaps and suggesting what evidence is needed to defend each claim.
+              List every marketing or regulatory claim you intend to make. The AI advisor will later cross-reference these against your formulation, ingredients, test data, and substantiation documents - flagging gaps and suggesting what evidence is needed to defend each claim.
             </div>
             {form.desired_claims.map((claim,idx)=>(
               <div key={idx} style={{ display:"flex",gap:8,marginBottom:8,alignItems:"flex-start" }}>
@@ -3281,7 +3281,7 @@ function ProductRoadmap({ programs, allSkus, onSelectProgram, isMobile }) {
 
   const groups = [
     liveItems.length > 0 && { title: "Live Products", icon: "\uD83D\uDFE2", items: liveItems },
-    pipelineItems.length > 0 && { title: "Pipeline \u2014 Upcoming Launches", icon: "\uD83D\uDD37", items: pipelineItems },
+    pipelineItems.length > 0 && { title: "Pipeline - Upcoming Launches", icon: "\uD83D\uDD37", items: pipelineItems },
     skuItems.length > 0 && { title: "SKUs", icon: "\uD83D\uDCE6", items: skuItems },
   ].filter(Boolean);
 
@@ -3401,7 +3401,7 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
       ) : (
         <div style={{ flex:1,overflow:"auto",padding:"20px 24px" }}>
         {loading?<div style={{ color:T.text3,fontSize:13 }}>Loading programs…</div>
-        :filtered.length===0?<EmptyState icon="⬡" text={search?"No programs match your search":"No programs yet — create your first one"} />
+        :filtered.length===0?<EmptyState icon="⬡" text={search?"No programs match your search":"No programs yet - create your first one"} />
         :view==="pipeline"?(
           <div style={{ display:"flex",gap:12,overflowX:"auto",paddingBottom:16 }}>
             {STAGES.map(stage=>{
@@ -3444,10 +3444,10 @@ export default function PLMView({ navigateTo, navigateToProject } = {}) {
                   <td style={{ padding:"10px 12px",fontSize:12,color:T.text2 }}>{p.program_type?.replace(/_/g," ")}</td>
                   <td style={{ padding:"10px 12px" }}><StageBadge stage={p.current_stage} /></td>
                   <td style={{ padding:"10px 12px" }}><PriorityBadge priority={p.priority} /></td>
-                  <td style={{ padding:"10px 12px",fontSize:11,color:T.text3 }}>{(p.target_markets_v2||[]).join(", ")||"—"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:11,color:T.text3,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(p.channels_v2||[]).join(", ")||"—"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:12,fontWeight:600,color:p.target_gross_margin_pct?"#22c55e":T.text3 }}>{p.target_gross_margin_pct?p.target_gross_margin_pct+"%":"—"}</td>
-                  <td style={{ padding:"10px 12px",fontSize:12,color:T.text3 }}>{p.target_launch_date||"—"}</td>
+                  <td style={{ padding:"10px 12px",fontSize:11,color:T.text3 }}>{(p.target_markets_v2||[]).join(", ")||"-"}</td>
+                  <td style={{ padding:"10px 12px",fontSize:11,color:T.text3,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(p.channels_v2||[]).join(", ")||"-"}</td>
+                  <td style={{ padding:"10px 12px",fontSize:12,fontWeight:600,color:p.target_gross_margin_pct?"#22c55e":T.text3 }}>{p.target_gross_margin_pct?p.target_gross_margin_pct+"%":"-"}</td>
+                  <td style={{ padding:"10px 12px",fontSize:12,color:T.text3 }}>{p.target_launch_date||"-"}</td>
                   <td style={{ padding:"10px 12px" }}><button onClick={e=>{e.stopPropagation();if(confirm("Delete this program?"))deleteProgram(p.id);}} style={{ background:"none",border:"none",color:T.text3,cursor:"pointer",fontSize:11,opacity:0.6 }}>✕</button></td>
                 </tr>
               ))}

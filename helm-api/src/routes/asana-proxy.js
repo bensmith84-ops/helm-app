@@ -1,5 +1,5 @@
 
-// POST /asana-proxy — port of supabase/functions/asana-proxy
+// POST /asana-proxy - port of supabase/functions/asana-proxy
 // 3 actions: list_projects, get_project_detail, get_task_full.
 // Requires ASANA_PAT (Personal Access Token).
 

@@ -24,8 +24,8 @@ const STATUS = {
   accepted: { label: "Accepted", color: "#22c55e" },
 };
 
-const fmtMoney = (n, c = "USD") => n == null || n === "" ? "—" : ({USD:"$",GBP:"£",AUD:"A$",EUR:"€",CAD:"C$"}[c]||"$") + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4});
-const fmtQty = (n, unit) => n == null || n === "" ? "—" : Number(n).toLocaleString() + (unit ? " " + unit : "");
+const fmtMoney = (n, c = "USD") => n == null || n === "" ? "-" : ({USD:"$",GBP:"£",AUD:"A$",EUR:"€",CAD:"C$"}[c]||"$") + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4});
+const fmtQty = (n, unit) => n == null || n === "" ? "-" : Number(n).toLocaleString() + (unit ? " " + unit : "");
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PLMRFPSubmissions({ rfp, brief, providers, items }) {
@@ -181,7 +181,7 @@ function SubmissionRow({ sub, onEdit, onDelete }) {
     <div onClick={onEdit} style={{ padding: "10px 14px", borderTop: "1px solid " + T.border + "60", cursor: "pointer", display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr auto", gap: 12, alignItems: "center" }} onMouseEnter={e => e.currentTarget.style.background = T.surface} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
       <div>
         <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{sub.submission_name} {sub.variant_label && <span style={{ color: T.text3, fontWeight: 400 }}>· {sub.variant_label}</span>}</div>
-        <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{sub.manufacturing_location || "—"} · {sub.formulation_summary ? truncate(sub.formulation_summary, 60) : "no formulation summary"}</div>
+        <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{sub.manufacturing_location || "-"} · {sub.formulation_summary ? truncate(sub.formulation_summary, 60) : "no formulation summary"}</div>
       </div>
       <div>
         <div style={{ fontSize: 10, color: T.text3 }}>Base MOQ</div>
@@ -193,7 +193,7 @@ function SubmissionRow({ sub, onEdit, onDelete }) {
       </div>
       <div>
         <div style={{ fontSize: 10, color: T.text3 }}>Lead time</div>
-        <div style={{ fontSize: 12, color: T.text2 }}>{sub.lead_time_days ? sub.lead_time_days + " days" : "—"}</div>
+        <div style={{ fontSize: 12, color: T.text2 }}>{sub.lead_time_days ? sub.lead_time_days + " days" : "-"}</div>
       </div>
       <div>
         <div style={{ fontSize: 10, color: T.text3 }}>Status / AI</div>
@@ -332,7 +332,7 @@ function SubmissionModal({ sub, rfp, provider, items, onClose, onSaved }) {
                   <button onClick={addTier} style={ghostBtn}>+ Add tier</button>
                 </div>
                 {(form.volume_tiers || []).length === 0 ? (
-                  <div style={{ padding: 12, color: T.text3, fontSize: 11, textAlign: "center", background: T.surface2, borderRadius: 6, fontStyle: "italic" }}>No tiers — add the supplier&apos;s tiered pricing curve</div>
+                  <div style={{ padding: 12, color: T.text3, fontSize: 11, textAlign: "center", background: T.surface2, borderRadius: 6, fontStyle: "italic" }}>No tiers - add the supplier&apos;s tiered pricing curve</div>
                 ) : (
                   <table style={{ width: "100%", borderCollapse: "collapse", background: T.surface2, borderRadius: 6, overflow: "hidden" }}>
                     <thead><tr style={{ background: T.surface }}>{["Volume","Unit price","Notes",""].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
@@ -398,7 +398,7 @@ function SubmissionModal({ sub, rfp, provider, items, onClose, onSaved }) {
                 <button onClick={addTest} style={ghostBtn}>+ Add test</button>
               </div>
               {(form.test_results || []).length === 0 ? (
-                <div style={{ padding: 12, color: T.text3, fontSize: 11, textAlign: "center", background: T.surface2, borderRadius: 6, fontStyle: "italic" }}>No test results — add performance test data (SRI, foam height, viscosity, etc.)</div>
+                <div style={{ padding: 12, color: T.text3, fontSize: 11, textAlign: "center", background: T.surface2, borderRadius: 6, fontStyle: "italic" }}>No test results - add performance test data (SRI, foam height, viscosity, etc.)</div>
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse", background: T.surface2, borderRadius: 6, overflow: "hidden" }}>
                   <thead><tr style={{ background: T.surface }}>{["Test","Value","Unit","Target","Pass",""].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
@@ -411,7 +411,7 @@ function SubmissionModal({ sub, rfp, provider, items, onClose, onSaved }) {
                         <td style={td}><input value={t.target || ""} onChange={e => updateTest(i, "target", e.target.value)} placeholder="target" style={smallInp} /></td>
                         <td style={td}>
                           <select value={t.pass == null ? "" : (t.pass ? "yes" : "no")} onChange={e => updateTest(i, "pass", e.target.value === "" ? null : e.target.value === "yes")} style={{ ...smallInp, padding: "5px 7px" }}>
-                            <option value="">—</option><option value="yes">✓ Pass</option><option value="no">✕ Fail</option>
+                            <option value="">-</option><option value="yes">✓ Pass</option><option value="no">✕ Fail</option>
                           </select>
                         </td>
                         <td style={td}><button onClick={() => delTest(i)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 13 }}>✕</button></td>

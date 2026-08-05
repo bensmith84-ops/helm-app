@@ -1,5 +1,5 @@
 
-// POST /plm-advisor — port of supabase/functions/plm-advisor
+// POST /plm-advisor - port of supabase/functions/plm-advisor
 // Three advisor types for PLM programs: claims_review, gm_advisor, stage_readiness.
 // Gathers program context from 6 tables, calls Anthropic with specialized prompt.
 const Anthropic = require('@anthropic-ai/sdk');

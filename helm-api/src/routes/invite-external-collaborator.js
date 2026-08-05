@@ -1,5 +1,5 @@
 
-// POST /invite-external-collaborator — port of supabase/functions/invite-external-collaborator
+// POST /invite-external-collaborator - port of supabase/functions/invite-external-collaborator
 // 3 actions: remove (delete project_members row), update (role/access_scope), invite (default).
 // Uses Firebase Admin SDK for new user creation.
 
@@ -134,9 +134,9 @@ module.exports = function(app, { pool, admin }) {
           already_internal: alreadyInternal,
           existing_user: isExisting,
           message: alreadyInternal
-            ? `${email} is an existing team member — added to project`
+            ? `${email} is an existing team member - added to project`
             : isExisting
-              ? `${email} already has an account — added to project`
+              ? `${email} already has an account - added to project`
               : `Invite sent to ${email}`,
         });
       } catch (e) { return res.status(400).json({ error: e?.message }); }

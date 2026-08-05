@@ -1,5 +1,5 @@
 
-// POST /shopify-debug — port of supabase/functions/shopify-debug
+// POST /shopify-debug - port of supabase/functions/shopify-debug
 // Diagnostic: pings Shopify across multiple API versions to detect which work with the stored token.
 module.exports = function(app, { pool }) {
   app.post('/shopify-debug', async (req, res) => {

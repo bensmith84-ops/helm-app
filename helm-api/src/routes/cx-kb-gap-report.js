@@ -1,5 +1,5 @@
 
-// POST /cx-kb-gap-report — port of supabase/functions/cx-kb-gap-report
+// POST /cx-kb-gap-report - port of supabase/functions/cx-kb-gap-report
 // Scans last N days of CX tickets + social mentions, AI-clusters into topics,
 // matches against existing KB, persists gap report.
 const Anthropic = require('@anthropic-ai/sdk');
@@ -48,7 +48,7 @@ module.exports = function(app, { pool }) {
       const lines = [];
       for (const t of tickets) {
         const body = firstByTicket[t.id] || '';
-        const line = `[ticket ${t.channel}] ${t.subject || ''} \u2014 ${body.replace(/\s+/g, ' ')}`.slice(0, 240);
+        const line = `[ticket ${t.channel}] ${t.subject || ''} - ${body.replace(/\s+/g, ' ')}`.slice(0, 240);
         if (line.length > 10) lines.push(line);
       }
       for (const m of mentions) {
@@ -73,7 +73,7 @@ module.exports = function(app, { pool }) {
 
       const systemPrompt = `You analyze customer support messages to identify the most common topics customers are asking about, then match each topic to existing knowledge base articles. The goal is to surface KB gaps so the team can write new articles to deflect repeat questions.
 
-Return ONLY a JSON object with this shape — no markdown fences, no preamble:
+Return ONLY a JSON object with this shape - no markdown fences, no preamble:
 {
   "topics": [
     {

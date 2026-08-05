@@ -1,5 +1,5 @@
 
-// /meta-social — port of supabase/functions/meta-social
+// /meta-social - port of supabase/functions/meta-social
 // 8 actions: webhook GET verify, oauth_callback, get_oauth_url,
 // sync_ig_comments, sync_fb_comments, reply_ig/fb_comment, hide_comment,
 // webhook POST. Facebook Graph v19 wrapper.
@@ -10,7 +10,7 @@ async function metaGet(path, token) {
   return r.json();
 }
 
-// Self-call helper — call our own cx-moderate endpoint
+// Self-call helper - call our own cx-moderate endpoint
 async function moderate(payload) {
   const selfUrl = process.env.SELF_URL || 'http://localhost:8080';
   try {

@@ -22,7 +22,7 @@ const periodKey = (mIdx, year) => `${year}-${String(mIdx+1).padStart(2,"0")}`;
 
 // Clean a pasted value: strip $, commas, quotes, handle (1234) negatives, treat dashes as zero
 const cleanPastedValue = (str) => {
-  if (!str || str.trim() === "" || str.trim() === "-" || str.trim() === "—" || str.trim() === "$ -") return 0;
+  if (!str || str.trim() === "" || str.trim() === "-" || str.trim() === "-" || str.trim() === "$ -") return 0;
   let s = String(str).replace(/[$,"'\s]/g, "");
   // Handle accounting negatives: (1234) → -1234
   const parenMatch = s.match(/^\((.+)\)$/);
@@ -32,7 +32,7 @@ const cleanPastedValue = (str) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EditableCell — inline numeric editor with Tab, fill-forward, and paste
+// EditableCell - inline numeric editor with Tab, fill-forward, and paste
 // ─────────────────────────────────────────────────────────────────────────────
 function EditableCell({ value, onSave, isOver, isReadOnly, small, cellId, onFillForward, onPasteMulti, showFillForward }) {
   const [editing, setEditing] = useState(false);
@@ -137,7 +137,7 @@ function EditableCell({ value, onSave, isOver, isReadOnly, small, cellId, onFill
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Vendor row inside an expanded GL — shows actuals (read-only) and planned (editable)
+// Vendor row inside an expanded GL - shows actuals (read-only) and planned (editable)
 // ─────────────────────────────────────────────────────────────────────────────
 function VendorRow({ vendor, glId, plan, year, vendorPlans, actuals, savePlan, deletePlan, visibleMonths }) {
   // Get amount for this vendor across each visible month period
@@ -287,7 +287,7 @@ export default function BudgetPlanner() {
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year + 1}-01-01`;
 
-    // Paginated fetch — Supabase server default max is 1000 rows per request
+    // Paginated fetch - Supabase server default max is 1000 rows per request
     // Must use page size ≤ server max so we can detect when more rows exist
     const fetchAll = async (buildQuery) => {
       const PAGE = 1000;
@@ -347,7 +347,7 @@ export default function BudgetPlanner() {
     (plMonthly || []).forEach(row => {
       const code = extractGLCode(row.account_name);
       if (!code) return;
-      // Extract the suffix after "60520 " — e.g. "Software & Subscriptions" or "Direct Ad Spend:Google Ads"
+      // Extract the suffix after "60520 " - e.g. "Software & Subscriptions" or "Direct Ad Spend:Google Ads"
       const suffix = String(row.account_name).replace(/^\d{5}\s+/, "");
       if (suffix) {
         // Map both the full suffix and the leaf part
@@ -440,7 +440,7 @@ export default function BudgetPlanner() {
     // 2. qbo_bills (AP invoices)
     (bills || []).forEach(processTxn);
 
-    // 3. qbo_purchases (CC charges, bank debits — the big one)
+    // 3. qbo_purchases (CC charges, bank debits - the big one)
     (purchases || []).forEach(processTxn);
 
     const totalVendorEntries = Object.values(actMap).reduce((s, periods) => s + Object.values(periods).reduce((s2, vendors) => s2 + Object.keys(vendors).length, 0), 0);
@@ -1000,7 +1000,7 @@ export default function BudgetPlanner() {
                     position: "sticky", left: 0, background: T.surface, zIndex: 10,
                     borderBottom: `2px solid ${T.border}`,
                   }}>■ TOTAL BUDGET</td>
-                  <td style={{ borderBottom: `2px solid ${T.border}`, fontSize: 9, color: T.text3, textAlign: "center" }}>—</td>
+                  <td style={{ borderBottom: `2px solid ${T.border}`, fontSize: 9, color: T.text3, textAlign: "center" }}>-</td>
                   {visibleMonths.map(([label, start, end]) => {
                     const months = Array.from({length: end-start+1}, (_,k) => start+k);
                     const v = months.reduce((s,m) => s + (grandTotals[m]?.budget || 0), 0);
@@ -1142,7 +1142,7 @@ export default function BudgetPlanner() {
                                   <td key={label} onClick={e => e.stopPropagation()} style={{
                                     textAlign: "right", padding: "6px 6px", borderBottom: `1px solid ${T.border}`,
                                   }}>
-                                    {/* Budget cap — always editable */}
+                                    {/* Budget cap - always editable */}
                                     {singleMonth !== null ? (
                                       <EditableCell
                                         value={budget}
@@ -1166,11 +1166,11 @@ export default function BudgetPlanner() {
                                         color: overBudget ? T.red : T.text, padding: "3px 6px",
                                       }}>{fmt(budget)}</div>
                                     )}
-                                    {/* Actual spend from QBO — always show */}
+                                    {/* Actual spend from QBO - always show */}
                                     <div style={{ fontSize: 9, color: budget > 0 && actual > budget ? T.red : actual > 0 ? T.green : T.text3, marginTop: 1 }}>
                                       {fmt(actual)} spent
                                     </div>
-                                    {/* Vendor plan sum — show if any vendor plans exist for this GL */}
+                                    {/* Vendor plan sum - show if any vendor plans exist for this GL */}
                                     {hasVendorPlans && (
                                       <div style={{ fontSize: 9, color: budget > 0 && planned > budget ? T.red : planned > 0 ? T.purple : T.text3, marginTop: 1 }}>
                                         {fmt(planned)} planned
@@ -1304,7 +1304,7 @@ export default function BudgetPlanner() {
           }}>
             <span style={{ fontSize: 16 }}>🔒</span>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.red }}>Confidential — Owner Access Only</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.red }}>Confidential - Owner Access Only</div>
               <div style={{ fontSize: 10, color: T.text2 }}>Restricted by RLS to plan owners.</div>
             </div>
           </div>
@@ -1448,7 +1448,7 @@ export default function BudgetPlanner() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PeopleSection — confidential salary planning
+// PeopleSection - confidential salary planning
 // ─────────────────────────────────────────────────────────────────────────────
 function PeopleSection({ activePlan, people, setPeople, glCodes }) {
   const [editing, setEditing] = useState(null); // person id being edited
@@ -1580,8 +1580,8 @@ function PeopleSection({ activePlan, people, setPeople, glCodes }) {
           </div>
           <select value={form.gl_code_id} onChange={e => setForm({...form, gl_code_id: e.target.value})}
             style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text, padding: "6px 10px", borderRadius: 4, fontSize: 12, width: "100%", marginBottom: 8 }}>
-            <option value="">— Select Salary GL Code —</option>
-            {glCodes.map(g => <option key={g.id} value={g.id}>{g.code} — {g.name}</option>)}
+            <option value="">- Select Salary GL Code -</option>
+            {glCodes.map(g => <option key={g.id} value={g.id}>{g.code} - {g.name}</option>)}
           </select>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
             <input placeholder="Base/mo" type="number" value={form.base_salary} onChange={e => setForm({...form, base_salary: e.target.value})}

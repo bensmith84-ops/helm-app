@@ -1,5 +1,5 @@
 
-// POST /ramp-sync — port of supabase/functions/ramp-sync
+// POST /ramp-sync - port of supabase/functions/ramp-sync
 // 3 sync types: transactions, cards, departments. OAuth client_credentials flow.
 // Credentials from process.env.RAMP_CLIENT_ID / RAMP_CLIENT_SECRET (was hard-coded in original).
 const RAMP_API = 'https://api.ramp.com/developer/v1';

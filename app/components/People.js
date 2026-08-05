@@ -8,7 +8,7 @@ import { useResizableColumns } from "../lib/useResizableColumns";
 
 const AVATAR_COLORS = ["#3b82f6","#a855f7","#ec4899","#06b6d4","#f97316","#22c55e","#84cc16","#ef4444"];
 const acol = (uid) => uid ? AVATAR_COLORS[uid.charCodeAt(uid.length - 1) % AVATAR_COLORS.length] : T.text3;
-// Editable field — uses local state to avoid cursor bouncing, saves on blur/Enter
+// Editable field - uses local state to avoid cursor bouncing, saves on blur/Enter
 function EditableField({ value, onSave, placeholder, style: customStyle }) {
   const [editing, setEditing] = useState(false);
   const [localVal, setLocalVal] = useState(value);
@@ -167,7 +167,7 @@ export default function PeopleView() {
   const [inviteReportsOpen, setInviteReportsOpen] = useState(false);
   const [inviteEmploymentType, setInviteEmploymentType] = useState("full_time");
   const [invitePersonalEmail, setInvitePersonalEmail] = useState("");
-  // Module permissions to grant at invite time (default deny — empty allow list)
+  // Module permissions to grant at invite time (default deny - empty allow list)
   const [inviteAllowedModules, setInviteAllowedModules] = useState([]);
   const [tab, setTab] = useState("overview");
   const [reportsSearch, setReportsSearch] = useState("");
@@ -203,7 +203,7 @@ export default function PeopleView() {
 
   const [keyResults, setKeyResults] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
-  // External collaborators — invited via project members, not part of org_memberships.
+  // External collaborators - invited via project members, not part of org_memberships.
   // Their profile rows have org_id = NULL, so we resolve them by joining
   // project_members (which IS scoped to the org) → profiles by id.
   const [externals, setExternals] = useState([]); // [{ profile, projects: [{id, name, role, access_scope}] }]
@@ -316,7 +316,7 @@ export default function PeopleView() {
       setMembers(p => [...p.filter(m => m.id !== userId), newMember]);
       setMemberships(p => { const exists = p.find(m => m.user_id === userId); return exists ? p : [...p, { org_id: profile.org_id, user_id: userId, role: inviteRole, is_active: true, module_permissions: modulePerms }]; });
       setInviteEmail(""); setInviteName(""); setInviteRole("member"); setInviteTitle(""); setInviteDept(""); setInvitePhone(""); setInviteLocation(""); setInviteStartDate(""); setInviteReportsTo(""); setInviteEmploymentType("full_time"); setInvitePersonalEmail(""); setInviteAllowedModules([]); setShowInvite(false);
-      showToast(result.existing ? "User already exists — added to org" : "Invite sent to " + inviteEmail.trim(), "success");
+      showToast(result.existing ? "User already exists - added to org" : "Invite sent to " + inviteEmail.trim(), "success");
     } catch (e) {
       showToast("Failed: " + e.message);
     }
@@ -335,7 +335,7 @@ export default function PeopleView() {
       // Allow-list mode. The toggle shows whatever hasModuleAccess says, which
       // can include an inherited ON from a parent ancestor. So when the user
       // clicks, we have to flip the *displayed* state, not just the literal
-      // perms[mod] value — otherwise clicking a sub-toggle that's ON-via-
+      // perms[mod] value - otherwise clicking a sub-toggle that's ON-via-
       // ancestor does nothing visible (it just sets perms[mod]=true on top of
       // an already-true ancestor and the toggle re-renders in the same place).
       const literal = perms[mod];                  // true | false | undefined
@@ -343,7 +343,7 @@ export default function PeopleView() {
       updated = { ...perms };
       if (literal === true) {
         // Currently explicitly granted. Remove the grant. If an ancestor still
-        // grants it, hasModuleAccess will fall back to inherited ON — so to
+        // grants it, hasModuleAccess will fall back to inherited ON - so to
         // produce a visible flip we also set an explicit deny.
         delete updated[mod];
         // Walk ancestors to see if any explicit grant remains; if so, we need
@@ -523,7 +523,7 @@ export default function PeopleView() {
               {isMe && <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: `${T.accent}20`, color: T.accent }}>You</span>}
               {!active && <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: T.redDim, color: T.red }}>Inactive</span>}
             </div>
-            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{member.email || "—"}</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{member.email || "-"}</div>
           </div>
           {om?.role && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 8, background: (ROLE_COLORS[om.role] || T.text3) + "18", color: ROLE_COLORS[om.role] || T.text3, textTransform: "capitalize" }}>{om.role}</span>}
           {(() => { const pm = getPermMode(member.id); return pm ? (<span title={`Permission mode: ${pm.mode}`} style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: pm.color + "15", color: pm.color, fontWeight: 700, letterSpacing: 0.5 }}>{pm.label}</span>) : null; })()}
@@ -589,7 +589,7 @@ export default function PeopleView() {
               {(member.title || member.department) && <div style={{ fontSize: 10, color: T.text3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.title}{member.title && member.department ? " · " : ""}{member.department}{member.sub_department ? ` / ${member.sub_department}` : ""}</div>}
             </div>
           </div>
-          <div style={{ padding: "0 12px", fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.email || "—"}</div>
+          <div style={{ padding: "0 12px", fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.email || "-"}</div>
           <div style={{ padding: "0 12px" }}><select value={om?.role || "member"} onChange={e => { e.stopPropagation(); updateRole(member.id, e.target.value); }} onClick={e => e.stopPropagation()} disabled={isOwner && isMe} style={{ padding: "3px 6px", borderRadius: 5, border: "1px solid transparent", background: (ROLE_COLORS[om?.role] || T.text3) + "15", color: ROLE_COLORS[om?.role] || T.text3, fontSize: 11, fontWeight: 600, cursor: "pointer", outline: "none", textTransform: "capitalize", width: "100%" }}>{ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}</select></div>
           <div style={{ padding: "0 12px", fontSize: 12, fontWeight: 600, color: T.text2 }}>{stats.projs.length}</div>
           <div style={{ padding: "0 12px", fontSize: 12, fontWeight: 600, color: T.accent }}>{stats.total}</div>
@@ -723,7 +723,7 @@ export default function PeopleView() {
             <EditableField value={selected.email || ""} placeholder="Email address"
               style={{ fontSize: 12, color: T.text3, marginTop: 2, width: "100%" }}
               onSave={async (v) => {
-                // Update auth first — if that fails, we don't want a profile/auth
+                // Update auth first - if that fails, we don't want a profile/auth
                 // mismatch where profiles.email says one thing and auth.users
                 // says another. Both endpoints need the anon-key Authorization
                 // header (without it the edge-function gateway returns 400 even
@@ -739,7 +739,7 @@ export default function PeopleView() {
                 const result = await res.json().catch(() => ({ error: "Network error" }));
                 if (result.error) {
                   showToast("Email update failed: " + result.error);
-                  return; // bail — leave profile unchanged so it stays in sync with auth
+                  return; // bail - leave profile unchanged so it stays in sync with auth
                 }
                 await supabase.from("profiles").update({ email: v }).eq("org_id", orgId).eq("id", selected.id);
                 setSelected(s => ({ ...s, email: v }));
@@ -768,7 +768,7 @@ export default function PeopleView() {
                   onClick={() => { setReportsSearchOpen(true); setReportsSearch(""); }}>
                   {!reportsSearchOpen ? (
                     <span style={{ fontSize: 12, color: currentSup ? T.text : T.text3, flex: 1 }}>
-                      {currentSup ? currentSup.display_name || currentSup.email : "— No supervisor —"}
+                      {currentSup ? currentSup.display_name || currentSup.email : "- No supervisor -"}
                     </span>
                   ) : (
                     <input autoFocus value={reportsSearch} onChange={e => setReportsSearch(e.target.value)}
@@ -787,7 +787,7 @@ export default function PeopleView() {
                     <div onClick={async () => { await supabase.from("profiles").update({ reports_to: null }).eq("org_id", orgId).eq("id", selected.id); setMembers(p => p.map(m => m.id === selected.id ? { ...m, reports_to: null } : m)); setSelected(s => ({ ...s, reports_to: null })); setReportsSearchOpen(false); }}
                       style={{ padding: "7px 10px", fontSize: 12, color: T.text3, cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
                       onMouseEnter={e => e.currentTarget.style.background = T.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      — No supervisor —
+                      - No supervisor -
                     </div>
                     {filtered.slice(0, 20).map(m => (
                       <div key={m.id} onClick={async () => { await supabase.from("profiles").update({ reports_to: m.id }).eq("org_id", orgId).eq("id", selected.id); setMembers(p => p.map(x => x.id === selected.id ? { ...x, reports_to: m.id } : x)); setSelected(s => ({ ...s, reports_to: m.id })); setReportsSearchOpen(false); }}
@@ -802,7 +802,7 @@ export default function PeopleView() {
                       </div>
                     ))}
                     {filtered.length === 0 && <div style={{ padding: "12px 10px", fontSize: 11, color: T.text3, textAlign: "center" }}>No matches found</div>}
-                    {filtered.length > 20 && <div style={{ padding: "6px 10px", fontSize: 10, color: T.text3, textAlign: "center" }}>Showing first 20 — type to narrow</div>}
+                    {filtered.length > 20 && <div style={{ padding: "6px 10px", fontSize: 10, color: T.text3, textAlign: "center" }}>Showing first 20 - type to narrow</div>}
                   </div>
                 )}
               </div>
@@ -881,7 +881,7 @@ export default function PeopleView() {
           {memberTasks.length === 0 && <div style={{ fontSize: 12, color: T.text3, padding: 8 }}>No open tasks</div>}
           {memberTasks.map(t => { const proj = projects.find(p => p.id === t.project_id); const od = t.due_date && new Date(t.due_date) < new Date(); return (
             <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 6, background: T.surface2, marginBottom: 4, border: `1px solid ${T.border}` }}>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div><div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{proj?.name || "—"}</div></div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div><div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{proj?.name || "-"}</div></div>
               {t.due_date && <span style={{ fontSize: 10, fontWeight: 600, color: od ? T.red : T.text3, flexShrink: 0 }}>{new Date(t.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
             </div>); })}
 
@@ -940,7 +940,7 @@ export default function PeopleView() {
               ))}
             </div>
             <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
-              {om?.af_role === "admin" ? "Can approve any request, manage rules, and delete requests" : om?.af_role === "approver" ? "Can approve, reject, and request info on pending requests" : "Can only submit requests — approvals routed to approvers"}
+              {om?.af_role === "admin" ? "Can approve any request, manage rules, and delete requests" : om?.af_role === "approver" ? "Can approve, reject, and request info on pending requests" : "Can only submit requests - approvals routed to approvers"}
             </div>
           </div>
           {/* Spend Limit */}
@@ -1155,12 +1155,12 @@ export default function PeopleView() {
             )}
           </div>
         </div>
-        {/* Module Access — what this user will see */}
+        {/* Module Access - what this user will see */}
         <div style={{ marginBottom: 20, padding: 12, background: T.accent + "06", border: `1px solid ${T.accent}30`, borderRadius: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: T.text }}>Module Access</label>
             <span style={{ fontSize: 10, color: T.text3 }}>
-              {inviteAllowedModules.length === 0 ? "No modules — Dashboard + Settings only" : `${inviteAllowedModules.length} module${inviteAllowedModules.length === 1 ? "" : "s"} granted`}
+              {inviteAllowedModules.length === 0 ? "No modules - Dashboard + Settings only" : `${inviteAllowedModules.length} module${inviteAllowedModules.length === 1 ? "" : "s"} granted`}
             </span>
           </div>
           <div style={{ fontSize: 10, color: T.text3, marginBottom: 8 }}>
@@ -1599,7 +1599,7 @@ export default function PeopleView() {
           );
         })()}
 
-        {/* External collaborators — surfaced on cards/list view since they don't
+        {/* External collaborators - surfaced on cards/list view since they don't
             appear in the standard internal-team grid. Lets you adjust scope or
             remove without diving into individual project pages. */}
         {(viewMode === "cards" || viewMode === "list") && externals.length > 0 && (
@@ -1607,7 +1607,7 @@ export default function PeopleView() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.5 }}>External Collaborators</span>
               <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "#f59e0b15", color: "#f59e0b", fontWeight: 700, letterSpacing: 0.5 }}>{externals.length}</span>
-              <span style={{ fontSize: 11, color: T.text3 }}>People invited to specific projects only — no broader org access</span>
+              <span style={{ fontSize: 11, color: T.text3 }}>People invited to specific projects only - no broader org access</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {externals.map(({ profile: ep, projects: eprojects }) => (

@@ -7,7 +7,7 @@ import { useAuth } from "../lib/auth";
 const BLOCK_TYPES = {
   text: { icon: "¶", label: "Text" }, h1: { icon: "H1", label: "Heading 1" }, h2: { icon: "H2", label: "Heading 2" }, h3: { icon: "H3", label: "Heading 3" },
   bullet: { icon: "•", label: "Bulleted List" }, numbered: { icon: "1.", label: "Numbered List" }, todo: { icon: "☑", label: "To-do" },
-  quote: { icon: "❝", label: "Quote" }, callout: { icon: "💡", label: "Callout" }, divider: { icon: "—", label: "Divider" },
+  quote: { icon: "❝", label: "Quote" }, callout: { icon: "💡", label: "Callout" }, divider: { icon: "-", label: "Divider" },
   code: { icon: "</>", label: "Code Block" }, toggle: { icon: "▶", label: "Toggle" }, table: { icon: "⊞", label: "Table" },
 };
 const SLASH_CMDS = Object.entries(BLOCK_TYPES).map(([type, cfg]) => ({ type, ...cfg }));
@@ -34,7 +34,7 @@ const EditableBlock = memo(function EditableBlock({ blockId, initialContent, sty
   const ref = useRef(null);
   const contentRef = useRef(initialContent || "");
 
-  // Set content via ref after mount — only once per blockId
+  // Set content via ref after mount - only once per blockId
   const lastSetBlockId = useRef(null);
   useEffect(() => {
     if (ref.current && lastSetBlockId.current !== blockId) {
@@ -200,7 +200,7 @@ export default function DocsView({ setActive }) {
     }, 1000);
   }, [saveDoc, activeDoc, blocks]);
 
-  // Content change handler — does NOT trigger re-render
+  // Content change handler - does NOT trigger re-render
   const handleContentChange = useCallback((blockId, text) => {
     blockContents.current[blockId] = text;
     // While the menu is open for this block, mirror the text typed after "/" into the filter.
@@ -945,7 +945,7 @@ export default function DocsView({ setActive }) {
         </>}
       </div>
 
-      {/* SLASH MENU — keyboard navigable: up/down highlight, Enter/Tab select, Esc keeps the "/" */}
+      {/* SLASH MENU - keyboard navigable: up/down highlight, Enter/Tab select, Esc keeps the "/" */}
       {slashMenu && (() => {
         const filtered = SLASH_CMDS.filter(c => !slashMenu.filter || c.label.toLowerCase().includes(slashMenu.filter) || c.type.includes(slashMenu.filter));
         const activeIdx = Math.min(slashMenu.index || 0, Math.max(0, filtered.length - 1));

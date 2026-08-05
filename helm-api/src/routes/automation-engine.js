@@ -1,9 +1,9 @@
 
-// POST /automation-engine — port of supabase/functions/automation-engine
+// POST /automation-engine - port of supabase/functions/automation-engine
 // Rule-based workflow engine. Evaluates conditions and executes actions
 // (set_field, move_to_section, add_tag, remove_tag, add_comment, create_subtask,
 // create_task, send_notification, post_message, set_due_date, mark_complete, call_webhook).
-// Internal/system-fired — no user auth needed (rules already include org scoping).
+// Internal/system-fired - no user auth needed (rules already include org scoping).
 
 module.exports = function(app, { pool }) {
   app.post('/automation-engine', async (req, res) => {

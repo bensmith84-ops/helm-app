@@ -1,5 +1,5 @@
 
-// POST /sourcing-agent — port of supabase/functions/sourcing-agent
+// POST /sourcing-agent - port of supabase/functions/sourcing-agent
 // 2 actions: discover (AI + web_search finds real CMs), draft_outreach (AI drafts outbound email).
 const Anthropic = require('@anthropic-ai/sdk');
 const crypto = require('crypto');
@@ -18,7 +18,7 @@ module.exports = function(app, { pool }) {
       const auth = req.headers.authorization;
       if (auth?.startsWith('Bearer ')) {
         // We could decode the JWT here but the route is non-required-auth.
-        // Skip — sourcing functions are typically internal/admin.
+        // Skip - sourcing functions are typically internal/admin.
       }
 
       const body = req.body || {};
@@ -92,7 +92,7 @@ After searching, respond with ONLY a JSON array:
     else cms = JSON.parse(allText.replace(/```json|```/g, '').trim());
     if (!Array.isArray(cms)) cms = [cms];
   } catch (e) {
-    throw new Error('The AI is still searching. Please try again — it may need more time to compile results.');
+    throw new Error('The AI is still searching. Please try again - it may need more time to compile results.');
   }
 
   let cmsCreated = 0, cmsLinked = 0;

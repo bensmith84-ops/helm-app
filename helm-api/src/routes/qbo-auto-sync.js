@@ -1,5 +1,5 @@
 
-// POST /qbo-auto-sync — port of supabase/functions/qbo-auto-sync
+// POST /qbo-auto-sync - port of supabase/functions/qbo-auto-sync
 // Orchestrator: dispatches one HTTP self-call per resource to /qbo-sync.
 // Each child runs in its own request budget. 1s stagger to avoid QBO rate limit.
 

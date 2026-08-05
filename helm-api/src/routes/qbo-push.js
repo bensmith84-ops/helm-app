@@ -1,5 +1,5 @@
 
-// POST /qbo-push — port of supabase/functions/qbo-push
+// POST /qbo-push - port of supabase/functions/qbo-push
 // 2 actions: create_bill (from approved invoice_inbox row), update_bill_memo.
 const { getQboBase, getActiveConnection, ensureToken } = require('../lib/qbo');
 
