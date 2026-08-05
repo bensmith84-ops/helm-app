@@ -435,7 +435,7 @@ async function enter(t){
       });
       if (Array.isArray(c.network_west_table) && c.network_west_table.length) {
         nw += '<h3>Western node sensitivity</h3><p class="lead">'+(c.network_west_intro||'')+'</p>';
-        nw += tblHTML(['Western node (Hebron fixed east)','Orders \u2264 zone 4','Orders \u2264 zone 5','Cost rank','Key metro zones'], c.network_west_table, {max:1});
+        nw += tblHTML(['Western market (Hebron fixed east)','Orders \u2264 zone 4','Orders \u2264 zone 5','Modelled cost','Key metro zones'], c.network_west_table, {max:1});
         nw += '<p class="tbl-note">'+esc(c.network_west_note)+'</p>';
       }
       nw += '<p class="tbl-note" style="margin-top:14px">'+esc(c.network_note)+'</p>';
