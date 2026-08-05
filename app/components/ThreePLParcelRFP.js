@@ -41,6 +41,27 @@ const FIELDS_CM = [
   { key: "nda_text",          label: "NDA text (HTML — shown at signing)",   type: "text", rows: 14 },
 ];
 
+const FIELDS_FF = [
+  { key: "eyebrow",           label: "Eyebrow line (RFP no. / issue date)", type: "input" },
+  { key: "title_html",        label: "Title (HTML, <br> for line break)",   type: "input" },
+  { key: "sub",               label: "Subtitle",                             type: "text", rows: 2 },
+  { key: "facts",             label: "Hero facts — one per line: value | label", type: "facts" },
+  { key: "overview_lead",     label: "Overview — lead paragraph (HTML ok)",  type: "text", rows: 4 },
+  { key: "overview_bullets",  label: "Overview — bullets (one per line)",    type: "list", rows: 5 },
+  { key: "profile_rows",      label: "Business profile — one per line: metric | value", type: "pairs", rows: 11 },
+  { key: "scope_core",        label: "Scope — core services",               type: "list", rows: 6 },
+  { key: "scope_operational", label: "Scope — operational",                 type: "list", rows: 5 },
+  { key: "scope_service",     label: "Scope — service levels",              type: "list", rows: 3 },
+  { key: "postage",           label: "Postage requirements",                type: "list", rows: 5 },
+  { key: "pricing_bullets",   label: "Pricing format bullets",              type: "list", rows: 7 },
+  { key: "timeline_rows",     label: "Timeline — one per line: milestone | date", type: "pairs", rows: 8 },
+  { key: "eval_rows",         label: "Evaluation — one per line: criterion | weight", type: "pairs", rows: 7 },
+  { key: "response_format",   label: "Response format bullets",             type: "list", rows: 10 },
+  { key: "terms",             label: "Terms bullets",                       type: "list", rows: 5 },
+  { key: "contacts",          label: "Contacts paragraph (HTML ok)",        type: "text", rows: 2 },
+  { key: "nda_text",          label: "NDA text (HTML — shown at signing)",  type: "text", rows: 14 },
+];
+
 const FIELDS_PARCEL = [
   { key: "eyebrow",           label: "Eyebrow line (RFP no. / issue date)", type: "input" },
   { key: "title_html",        label: "Title (HTML, <br> for line break)",   type: "input" },
@@ -91,7 +112,7 @@ function fromDraft(draft, FIELDS) {
 export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpType = "parcel", title = "US Parcel Network RFP", onBack }) {
   const RFP_CODE = rfpCode;
   const PORTAL_URL = PORTAL_BASE + "?rfp=" + encodeURIComponent(rfpCode);
-  const FIELDS = rfpType === "cm" ? FIELDS_CM : FIELDS_PARCEL;
+  const FIELDS = rfpType === "cm" ? FIELDS_CM : (rfpCode === "EB-2026-3PL-01" ? FIELDS_FF : FIELDS_PARCEL);
   const { tokens: T } = useTheme();
   const [tab, setTab] = useState("requests");
 

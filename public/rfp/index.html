@@ -336,6 +336,41 @@ async function enter(t){
     '<div class="cap"><span>'+esc(p.strip_caption)+'</span></div>';
 
   const S = [];
+  if (c.template === 'ff') {
+    S.push(['overview','Overview', '<p class="lead">'+(c.overview_lead||'')+'</p>'+listHTML(c.overview_bullets)]);
+    S.push(['profile','Business profile', tblHTML(['Metric','Value'], c.profile_rows||[], {max:1})]);
+    let d = '<h3>Monthly orders, lines &amp; units</h3>'+tblHTML(['Month','Orders','Order lines','Units','Lines/order'], p.monthly||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.monthly_note)+'</p>';
+    d += '<h3>Pick profile \u2014 lines per order</h3>'+tblHTML(['Lines','Orders','% of orders','Units'], p.line_bands||[], {numeric:1, max:1});
+    d += '<h3>Pick profile \u2014 units per order</h3>'+tblHTML(['Units','Orders','% of orders'], p.unit_bands||[], {numeric:1, max:1});
+    d += '<p class="tbl-note">62.4% of orders are a single line and 47.7% a single unit \u2014 a shallow-basket profile. Price the per-order rate and incremental line/unit rates against these distributions.</p>';
+    d += '<h3>SKU velocity (top 15 by units)</h3>'+tblHTML(['SKU','Orders','Lines','Units'], p.top_sku||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.sku_note)+'</p>';
+    d += '<h3>Destination states (top 20)</h3>'+tblHTML(['State','Orders','% of orders'], p.states||[], {numeric:1, max:1});
+    d += '<h3>Destination ZIP3 (top 25)</h3>'+tblHTML(['ZIP3','Orders','Order lines','Units'], p.zip3||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.geo_note)+'</p>';
+    d += '<h3>Ship-day distribution</h3>'+tblHTML(['Day','Orders','% of volume'], p.dow||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.dow_note)+'</p>';
+    d += '<h3>Parcel weight profile</h3><p class="tbl-note" style="margin-top:6px">'+esc(p.weight_note)+'</p>';
+    S.push(['data','Data tables', d]);
+    S.push(['scope','Scope &amp; requirements', '<h3>Core services</h3>'+listHTML(c.scope_core)+'<h3>Operational</h3>'+listHTML(c.scope_operational)+'<h3>Service levels</h3>'+listHTML(c.scope_service)]);
+    S.push(['postage','Postage', listHTML(c.postage)]);
+    S.push(['pricing','Pricing format', listHTML(c.pricing_bullets)]);
+    S.push(['timeline','Timeline', tblHTML(['Milestone','Date'], c.timeline_rows||[], {max:1})]);
+    S.push(['evaluation','Evaluation', tblHTML(['Criterion','Weight'], c.eval_rows||[], {max:1})]);
+    S.push(['response','Response format', listHTML(c.response_format)]);
+    S.push(['terms','Terms', listHTML(c.terms)+(c.contacts?'<h3>Contacts</h3><p style="max-width:780px">'+c.contacts+'</p>':'')]);
+    if (c.download_docx || c.download_xlsx) S.push(['downloads','Downloads',
+      '<div class="grid2">'+
+      (c.download_docx?'<a class="dl" href="'+esc(c.download_docx)+'" download><div class="ic">RFP</div><div><b>Full RFP document</b><span>Word</span></div></a>':'')+
+      (c.download_xlsx?'<a class="dl" href="'+esc(c.download_xlsx)+'" download><div class="ic">XLS</div><div><b>Pricing workbook</b><span>Excel</span></div></a>':'')+
+      '</div>']);
+    S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
+    const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',scope:'Scope',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',submit:'Submit'};
+    $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navFF[id]+'</a>').join('');
+    $('c-main').innerHTML = S.map(([id,title,body],i)=>'<section id="'+id+'"><h2>'+(i+1)+' \u00b7 '+title+'</h2>'+body+'</section>').join('');
+    document.getElementById('f-origins-wrap').style.display = 'none';
+    document.getElementById('f-rates-label').innerHTML = 'Pricing workbook link <span class="opt">(Drive / SharePoint / Dropbox)</span>';
+    $('gate').style.display='none';
+    document.getElementById('site').style.display='block';
+    return;
+  }
   if (c.template === 'cm') {
     S.push(['overview','Overview', '<p class="lead">'+ (c.overview_lead||'') +'</p>'+listHTML(c.overview_bullets)]);
     S.push(['product','Product summary', tblHTML(['Item','Detail'], c.product_rows||[], {max:1})]);
