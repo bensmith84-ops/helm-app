@@ -5,19 +5,20 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Earth Breeze - US Parcel Network RFP</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--spruce:#1F4E4A;--spruce-deep:#143733;--leaf:#7FB069;--paper:#FAF8F3;--ink:#20302E;--ink2:#5A6B68;--line:#E3DFD4;--card:#FFFFFF}
+:root{--spruce:#1C3883;--spruce-deep:#122659;--leaf:#8BCFF2;--sky:#8BCFF2;--sky-deep:#479FDB;--paper:#F7FBFE;--ink:#16233F;--ink2:#5A6B85;--line:#DCE6F0;--card:#FFFFFF}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(--ink);font-size:15px;line-height:1.6}
-h1,h2,h3{font-family:'Fraunces',Georgia,serif;font-weight:600;letter-spacing:-0.01em}
+h1,h2,h3{font-family:'Nunito',system-ui,sans-serif;font-weight:800;letter-spacing:-0.015em}
 a{color:var(--spruce)}
 .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
 /* Gate screens */
 #gate{position:fixed;inset:0;background:var(--spruce-deep);display:flex;align-items:center;justify-content:center;z-index:50;padding:24px;overflow-y:auto}
 .gate-card{background:var(--paper);border-radius:14px;padding:40px;max-width:470px;width:100%;margin:auto}
 .gate-card.wide{max-width:640px}
-.gate-card .mark{font-family:'Fraunces',serif;font-size:22px;color:var(--spruce);margin-bottom:4px}
+.gate-card .mark{margin-bottom:10px;display:flex;justify-content:center}
+.gate-card .mark img{height:54px;width:auto;display:block}
 .gate-card h1{font-size:25px;margin-bottom:6px}
 .gate-card p{color:var(--ink2);font-size:13.5px;margin-bottom:16px}
 .gate-card label{display:block;font-size:12.5px;font-weight:600;margin:12px 0 4px;color:var(--ink)}
@@ -35,17 +36,22 @@ a{color:var(--spruce)}
 .agree-row{display:flex;gap:9px;align-items:flex-start;margin-top:14px;font-size:13px}
 .agree-row input{width:auto;margin-top:3px}
 /* Site */
-header{background:var(--spruce);color:#fff;padding:52px 0 0}
-.eyebrow{font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#BFD8C2;font-weight:600}
+#promo{background:var(--sky);color:var(--spruce);text-align:center;padding:9px 16px;font-size:13.5px;font-weight:700}
+#brandbar{background:#fff;border-bottom:1px solid var(--line)}
+#brandbar .wrap{display:flex;align-items:center;justify-content:space-between;padding-top:13px;padding-bottom:13px}
+#brandbar img{height:44px;width:auto}
+#brandbar .rfpref{font-size:12.5px;font-weight:700;color:var(--spruce);border:2px solid var(--spruce);border-radius:99px;padding:6px 16px}
+header{background:var(--spruce);color:#fff;padding:44px 0 0}
+.eyebrow{font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#8BCFF2;font-weight:700}
 header h1{font-size:clamp(28px,4.4vw,44px);color:#fff;margin:10px 0 8px;line-height:1.15}
-header .sub{color:#D8E6DA;max-width:640px;font-size:15.5px}
+header .sub{color:#D6E9F7;max-width:640px;font-size:15.5px}
 .hero-facts{display:flex;gap:34px;flex-wrap:wrap;margin:30px 0 6px}
-.hero-facts div b{display:block;font-family:'Fraunces',serif;font-size:26px;font-weight:600;color:#fff}
-.hero-facts div span{font-size:12.5px;color:#BFD8C2}
+.hero-facts div b{display:block;font-family:'Nunito',sans-serif;font-size:27px;font-weight:800;color:#fff}
+.hero-facts div span{font-size:12.5px;color:#A9D6F2}
 .strip{margin:28px 0 0;padding-bottom:40px}
 .strip .bar{display:flex;height:34px;border-radius:8px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.25)}
-.strip .seg{display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:600;color:#143733;white-space:nowrap;overflow:hidden}
-.strip .cap{display:flex;justify-content:space-between;font-size:12px;color:#BFD8C2;margin-top:8px}
+.strip .seg{display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#122659;white-space:nowrap;overflow:hidden}
+.strip .cap{display:flex;justify-content:space-between;font-size:12px;color:#A9D6F2;margin-top:8px}
 nav{position:sticky;top:0;background:var(--paper);border-bottom:1px solid var(--line);z-index:10}
 nav .wrap{display:flex;gap:2px;overflow-x:auto}
 nav a{padding:13px 12px;font-size:13px;font-weight:500;color:var(--ink2);text-decoration:none;white-space:nowrap}
@@ -70,7 +76,7 @@ tr.total td{font-weight:700;border-top:2px solid var(--spruce)}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;max-width:820px}
 .dl{display:flex;gap:14px;align-items:center;background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:18px;text-decoration:none;color:var(--ink);transition:border-color .15s}
 .dl:hover{border-color:var(--spruce)}
-.dl .ic{width:42px;height:42px;border-radius:9px;background:var(--spruce);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:13px;flex-shrink:0}
+.dl .ic{width:42px;height:42px;border-radius:9px;background:var(--spruce);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Nunito',sans-serif;font-weight:800;font-size:13px;flex-shrink:0}
 .dl b{display:block;font-size:14.5px}
 .dl span{font-size:12.5px;color:var(--ink2)}
 form.rfp{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:28px;max-width:780px}
@@ -84,10 +90,10 @@ form.rfp textarea{min-height:110px;resize:vertical}
 .submit-btn{margin-top:22px;padding:13px 26px;background:var(--spruce);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer}
 .submit-btn:hover{background:var(--spruce-deep)}
 .submit-btn:disabled{opacity:.6;cursor:default}
-#form-ok{display:none;background:#EAF3E4;border:1.5px solid var(--leaf);border-radius:12px;padding:22px;max-width:780px}
+#form-ok{display:none;background:#E8F4FC;border:1.5px solid var(--sky-deep);border-radius:12px;padding:22px;max-width:780px}
 #form-ok h3{color:var(--spruce);margin:0 0 6px}
 #form-err{display:none;color:#A33B2E;font-size:13.5px;margin-top:12px}
-.pill{display:inline-block;background:#EAF3E4;color:var(--spruce);border-radius:99px;padding:3px 11px;font-size:12px;font-weight:600;margin-left:8px;vertical-align:middle}
+.pill{display:inline-block;background:#E8F4FC;color:var(--spruce);border-radius:99px;padding:3px 11px;font-size:12px;font-weight:700;margin-left:8px;vertical-align:middle}
 footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:var(--ink2)}
 #site{display:none}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
@@ -99,7 +105,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 <div id="gate">
   <!-- request access -->
   <div class="gate-card" id="scr-request" style="display:none">
-    <div class="mark">Earth Breeze</div>
+    <div class="mark"><img src="eb-logo.png" alt="Earth Breeze"></div>
     <h1>US Parcel Network RFP</h1>
     <p>RFP No. EB-2026-PARCEL-01 · Confidential. Access is granted to invited carriers after approval and a signed NDA. Request access below.</p>
     <label>Work email</label><input id="req-email" type="email" placeholder="name@carrier.com" autocomplete="email">
@@ -126,7 +132,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
   </div>
   <!-- NDA -->
   <div class="gate-card wide" id="scr-nda" style="display:none">
-    <div class="mark">Earth Breeze</div>
+    <div class="mark"><img src="eb-logo.png" alt="Earth Breeze"></div>
     <h1>Non-Disclosure Agreement</h1>
     <p>You're approved. Review and sign the NDA below to access the RFP, data packet, and downloads.</p>
     <div class="nda-box" id="nda-text">Loading…</div>
@@ -146,7 +152,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
         <button id="fwd-btn" style="margin-top:12px" onclick="delegateNDA()">Prepare handoff</button>
         <div class="gate-err" id="fwd-err"></div>
       </div>
-      <div id="fwd-done" style="display:none;background:#EAF3E4;border:1.5px solid var(--leaf);border-radius:10px;padding:14px 16px;margin-top:10px;font-size:13px">
+      <div id="fwd-done" style="display:none;background:#E8F4FC;border:1.5px solid var(--sky-deep);border-radius:10px;padding:14px 16px;margin-top:10px;font-size:13px">
         <b>Ready to send.</b> <span id="fwd-done-msg"></span>
         <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
           <a id="fwd-mailto" href="#" style="font-weight:600">✉ Open email draft</a>
@@ -169,6 +175,11 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <!-- ══ SITE (rendered after access) ══ -->
 <div id="site">
+<div id="promo">FREE SHIPPING | 60-day Money-Back Guarantee</div>
+<div id="brandbar"><div class="wrap">
+  <img src="eb-logo.png" alt="Earth Breeze">
+  <span class="rfpref" id="c-rfpref">Request for Proposal</span>
+</div></div>
 <header>
   <div class="wrap">
     <div class="eyebrow" id="c-eyebrow"></div>
@@ -213,6 +224,7 @@ async function brandGate(){
     const m = await rpc('rfp_portal_meta', {p_code: RFP_CODE});
     if (!m.ok) { document.querySelector('#scr-request h1').textContent = 'RFP not available'; document.querySelector('#scr-request p').textContent = 'This RFP is not open for access requests. Check the link in your invitation or contact Earth Breeze.'; document.getElementById('req-btn').disabled = true; return; }
     document.title = 'Earth Breeze - ' + m.title;
+    var rp=document.getElementById('c-rfpref'); if(rp) rp.textContent='RFP ' + m.code;
     document.querySelector('#scr-request h1').textContent = m.title;
     document.querySelector('#scr-request p').innerHTML = 'RFP No. ' + m.code + ' · Confidential. Access is granted to invited ' + (m.type === 'cm' ? 'manufacturers' : 'carriers') + ' after approval and a signed NDA. Request access below.';
   } catch(e) {}
@@ -330,12 +342,12 @@ function axes(maxY, labels, yfmt){
   let g='', ticks=4;
   for(let i=0;i<=ticks;i++){
     const v=maxY*i/ticks, y=mt+ih-(ih*i/ticks);
-    g+='<line x1="'+ml+'" y1="'+y+'" x2="'+(w-mr)+'" y2="'+y+'" stroke="#E3DFD4" stroke-width="1"/>';
-    g+='<text x="'+(ml-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#5A6B68">'+yfmt(v)+'</text>';
+    g+='<line x1="'+ml+'" y1="'+y+'" x2="'+(w-mr)+'" y2="'+y+'" stroke="#DCE6F0" stroke-width="1"/>';
+    g+='<text x="'+(ml-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#5A6B85">'+yfmt(v)+'</text>';
   }
   labels.forEach((l,i)=>{
     const x=ml+(iw/labels.length)*(i+0.5);
-    g+='<text x="'+x+'" y="'+(h-mb+18)+'" text-anchor="middle" font-size="11" fill="#5A6B68">'+l+'</text>';
+    g+='<text x="'+x+'" y="'+(h-mb+18)+'" text-anchor="middle" font-size="11" fill="#5A6B85">'+l+'</text>';
   });
   return g;
 }
@@ -348,14 +360,14 @@ function barLineChart(rows, opts){
   let g=axes(maxB, rows.map(r=>r[0]), v=>Math.round(v/1000)+'k');
   rows.forEach((r,i)=>{
     const x=ml+(iw/rows.length)*i+(iw/rows.length-bw)/2, bh=ih*num(r[1])/maxB;
-    g+='<rect x="'+x+'" y="'+(mt+ih-bh)+'" width="'+bw+'" height="'+bh+'" fill="#4E8F5B" rx="3"/>';
+    g+='<rect x="'+x+'" y="'+(mt+ih-bh)+'" width="'+bw+'" height="'+bh+'" fill="#1C3883" rx="3"/>';
   });
   let pts=rows.map((r,i)=>[ml+(iw/rows.length)*(i+0.5), mt+ih-ih*num(r[2])/maxL]);
   g+='<polyline points="'+pts.map(p=>p.join(',')).join(' ')+'" fill="none" stroke="#C9772F" stroke-width="2.5"/>';
   pts.forEach(p=>{g+='<circle cx="'+p[0]+'" cy="'+p[1]+'" r="3.5" fill="#C9772F"/>';});
-  const leg='<g><rect x="'+ml+'" y="2" width="10" height="10" fill="#4E8F5B" rx="2"/><text x="'+(ml+15)+'" y="11" font-size="11" fill="#20302E">'+opts.barLabel+'</text>'+
-            '<line x1="'+(ml+130)+'" y1="7" x2="'+(ml+152)+'" y2="7" stroke="#C9772F" stroke-width="2.5"/><text x="'+(ml+157)+'" y="11" font-size="11" fill="#20302E">'+opts.lineLabel+'</text></g>';
-  return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" style="max-width:'+w+'px;background:#fff;border:1px solid #E3DFD4;border-radius:10px;margin:10px 0">'+leg+g+'</svg>';
+  const leg='<g><rect x="'+ml+'" y="2" width="10" height="10" fill="#1C3883" rx="2"/><text x="'+(ml+15)+'" y="11" font-size="11" fill="#16233F">'+opts.barLabel+'</text>'+
+            '<line x1="'+(ml+130)+'" y1="7" x2="'+(ml+152)+'" y2="7" stroke="#C9772F" stroke-width="2.5"/><text x="'+(ml+157)+'" y="11" font-size="11" fill="#16233F">'+opts.lineLabel+'</text></g>';
+  return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" style="max-width:'+w+'px;background:#fff;border:1px solid #DCE6F0;border-radius:10px;margin:10px 0">'+leg+g+'</svg>';
 }
 function lineChart(rows, opts){
   const {w,h,ml,mr,mt,mb}=CH, iw=w-ml-mr, ih=h-mt-mb;
@@ -366,15 +378,15 @@ function lineChart(rows, opts){
   g='';
   for(let i=0;i<=4;i++){
     const v=mn+(mx-mn)*i/4, y=mt+ih-(ih*i/4);
-    g+='<line x1="'+ml+'" y1="'+y+'" x2="'+(w-mr)+'" y2="'+y+'" stroke="#E3DFD4"/>';
-    g+='<text x="'+(ml-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#5A6B68">'+(opts.dec?v.toFixed(2):Math.round(v))+'</text>';
+    g+='<line x1="'+ml+'" y1="'+y+'" x2="'+(w-mr)+'" y2="'+y+'" stroke="#DCE6F0"/>';
+    g+='<text x="'+(ml-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#5A6B85">'+(opts.dec?v.toFixed(2):Math.round(v))+'</text>';
   }
-  rows.forEach((r,i)=>{ g+='<text x="'+(ml+(iw/rows.length)*(i+0.5))+'" y="'+(h-mb+18)+'" text-anchor="middle" font-size="11" fill="#5A6B68">'+r[0]+'</text>'; });
+  rows.forEach((r,i)=>{ g+='<text x="'+(ml+(iw/rows.length)*(i+0.5))+'" y="'+(h-mb+18)+'" text-anchor="middle" font-size="11" fill="#5A6B85">'+r[0]+'</text>'; });
   const pts=rows.map((r,i)=>[ml+(iw/rows.length)*(i+0.5), mt+ih-ih*(num(r[1])-mn)/(mx-mn)]);
-  g+='<polyline points="'+pts.map(p=>p.join(',')).join(' ')+'" fill="none" stroke="'+(opts.color||'#1F4E4A')+'" stroke-width="2.5"/>';
-  pts.forEach((p,i)=>{ g+='<circle cx="'+p[0]+'" cy="'+p[1]+'" r="3.5" fill="'+(opts.color||'#1F4E4A')+'"/>';
-    g+='<text x="'+p[0]+'" y="'+(p[1]-10)+'" text-anchor="middle" font-size="10.5" fill="#20302E">'+(opts.dec?num(rows[i][1]).toFixed(2):rows[i][1])+'</text>'; });
-  return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" style="max-width:'+w+'px;background:#fff;border:1px solid #E3DFD4;border-radius:10px;margin:10px 0">'+g+'</svg>';
+  g+='<polyline points="'+pts.map(p=>p.join(',')).join(' ')+'" fill="none" stroke="'+(opts.color||'#1C3883')+'" stroke-width="2.5"/>';
+  pts.forEach((p,i)=>{ g+='<circle cx="'+p[0]+'" cy="'+p[1]+'" r="3.5" fill="'+(opts.color||'#1C3883')+'"/>';
+    g+='<text x="'+p[0]+'" y="'+(p[1]-10)+'" text-anchor="middle" font-size="10.5" fill="#16233F">'+(opts.dec?num(rows[i][1]).toFixed(2):rows[i][1])+'</text>'; });
+  return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" style="max-width:'+w+'px;background:#fff;border:1px solid #DCE6F0;border-radius:10px;margin:10px 0">'+g+'</svg>';
 }
 function hBarChart(rows, opts){
   const w=720, rowH=26, ml=118, mr=60, top=10;
@@ -383,11 +395,11 @@ function hBarChart(rows, opts){
   let g='';
   rows.forEach((r,i)=>{
     const y=top+i*rowH, bw=iw*num(r[1])/mx;
-    g+='<text x="'+(ml-8)+'" y="'+(y+15)+'" text-anchor="end" font-size="11.5" fill="#20302E">'+r[0]+'</text>';
-    g+='<rect x="'+ml+'" y="'+(y+4)+'" width="'+bw+'" height="16" fill="'+(opts.color||'#4E8F5B')+'" rx="3"/>';
-    g+='<text x="'+(ml+bw+7)+'" y="'+(y+16)+'" font-size="11" fill="#5A6B68">'+(opts.suffix?r[2]:r[1])+'</text>';
+    g+='<text x="'+(ml-8)+'" y="'+(y+15)+'" text-anchor="end" font-size="11.5" fill="#16233F">'+r[0]+'</text>';
+    g+='<rect x="'+ml+'" y="'+(y+4)+'" width="'+bw+'" height="16" fill="'+(opts.color||'#1C3883')+'" rx="3"/>';
+    g+='<text x="'+(ml+bw+7)+'" y="'+(y+16)+'" font-size="11" fill="#5A6B85">'+(opts.suffix?r[2]:r[1])+'</text>';
   });
-  return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" style="max-width:'+w+'px;background:#fff;border:1px solid #E3DFD4;border-radius:10px;margin:10px 0">'+g+'</svg>';
+  return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" style="max-width:'+w+'px;background:#fff;border:1px solid #DCE6F0;border-radius:10px;margin:10px 0">'+g+'</svg>';
 }
 
 async function enter(t){
@@ -412,7 +424,7 @@ async function enter(t){
     d += barLineChart(mrows.map(r=>[r[0], r[1], r[2]]), {barLabel:'Orders', lineLabel:'Order lines'});
     d += '<p class="tbl-note">'+esc(p.growth_note)+'</p>';
     d += '<h3>Basket depth - lines per order</h3>';
-    d += lineChart(mrows.map(r=>[r[0], r[4]]), {dec:1, color:'#C9772F'});
+    d += lineChart(mrows.map(r=>[r[0], r[4]]), {dec:1, color:'#479FDB'});
     d += '<p class="tbl-note">'+esc(p.depth_note)+'</p>';
     d += '<h3>Monthly orders, lines &amp; units</h3>'+tblHTML(['Month','Orders','Order lines','Units','Lines/order'], p.monthly||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.monthly_note)+'</p>';
     d += '<h3>Pick profile - lines per order</h3>'+tblHTML(['Lines','Orders','% of orders','Units'], p.line_bands||[], {numeric:1, max:1});
@@ -422,7 +434,7 @@ async function enter(t){
     d += '<h3>SKU velocity (top 15 by units)</h3>'+tblHTML(['SKU','Orders','Lines','Units'], p.top_sku||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.sku_note)+'</p>';
     d += '<h3>Destination states (top 20)</h3>'+hBarChart((p.states||[]).slice(0,12).map(r=>[r[0], r[1], r[2]]), {suffix:1})+tblHTML(['State','Orders','% of orders'], p.states||[], {numeric:1, max:1});
     d += '<h3>Destination ZIP3 (top 25)</h3>'+tblHTML(['ZIP3','Orders','Order lines','Units'], p.zip3||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.geo_note)+'</p>';
-    d += '<h3>Ship-day distribution</h3>'+hBarChart((p.dow||[]).map(r=>[r[0], r[1], r[2]]), {suffix:1, color:'#1F4E4A'})+'<p class="tbl-note">'+esc(p.dow_note)+'</p>';
+    d += '<h3>Ship-day distribution</h3>'+hBarChart((p.dow||[]).map(r=>[r[0], r[1], r[2]]), {suffix:1, color:'#1C3883'})+'<p class="tbl-note">'+esc(p.dow_note)+'</p>';
     d += '<h3>Parcel weight profile</h3><p class="tbl-note" style="margin-top:6px">'+esc(p.weight_note)+'</p>';
     S.push(['data','Data tables', d]);
     S.push(['scope','Scope &amp; requirements', '<h3>Core services</h3>'+listHTML(c.scope_core)+'<h3>Operational</h3>'+listHTML(c.scope_operational)+'<h3>Service levels</h3>'+listHTML(c.scope_service)]);
