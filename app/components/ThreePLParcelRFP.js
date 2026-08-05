@@ -201,6 +201,14 @@ Earth Breeze Procurement`);
     setSaving(false);
   };
 
+  const openAttachment = async (att) => {
+    try {
+      const { data, error } = await supabase.storage.from("rfp-submissions").createSignedUrl(att.path, 300);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank", "noopener");
+    } catch (e) { alert("Could not open file: " + (e.message || e)); }
+  };
+
   const exportCSV = () => {
     const cols = ["created_at", "submission_type", "company", "contact_name", "email", "phone", "origins_bid", "rate_card_url", "proposal_url", "summary", "questions"];
     const escv = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -326,6 +334,20 @@ Earth Breeze Procurement`);
                       {s.rate_card_url && <a href={s.rate_card_url} target="_blank" rel="noreferrer" style={{ color: T.accent }}>Rate workbook ↗</a>}
                       {s.proposal_url && <a href={s.proposal_url} target="_blank" rel="noreferrer" style={{ color: T.accent }}>Full proposal ↗</a>}
                     </div>
+                    {Array.isArray(s.attachments) && s.attachments.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Attachments ({s.attachments.length})</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                          {s.attachments.map((a, i) => (
+                            <button key={i} onClick={() => openAttachment(a)}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.accent, border: `1px solid ${T.border}` }}>
+                              📎 {a.name}
+                              <span style={{ color: T.text3, fontWeight: 400 }}>{a.size ? (a.size / 1048576).toFixed(1) + " MB" : ""}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {s.summary && (<>
                       <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Executive summary</div>
                       <div style={{ fontSize: 12.5, color: T.text, whiteSpace: "pre-wrap", marginBottom: 10 }}>{s.summary}</div>

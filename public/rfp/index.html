@@ -519,10 +519,31 @@ async function enter(t){
 }
 
 // ── proposal submission (post-access) ──
+async function uploadFiles(){
+  const inp=$('f-files'); const files=inp && inp.files ? Array.from(inp.files) : [];
+  if(!files.length) return [];
+  const tok=getTok()||'anon'; const out=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    if(f.size>26214400) throw new Error('"'+f.name+'" is larger than 25 MB — please share it as a link instead.');
+    $('f-btn').textContent='Uploading '+(i+1)+' of '+files.length+'…';
+    const safe=f.name.replace(/[^A-Za-z0-9._-]/g,'_').slice(-120);
+    const path=RFP_CODE+'/'+tok+'/'+Date.now()+'_'+safe;
+    const r=await fetch(SB_URL+'/storage/v1/object/rfp-submissions/'+encodeURI(path),{
+      method:'POST', headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'x-upsert':'true','Content-Type':f.type||'application/octet-stream'}, body:f});
+    if(!r.ok){ const t=await r.text(); throw new Error('Upload failed for "'+f.name+'" ('+r.status+'). '+(t||'').slice(0,120)); }
+    out.push({name:f.name, path:path, size:f.size, type:f.type||null});
+  }
+  return out;
+}
+
 async function submitRFP(e){
   e.preventDefault();
   const btn=$('f-btn'); const err=$('form-err');
   btn.disabled=true; btn.textContent='Submitting…'; err.style.display='none';
+  let uploaded=[];
+  try { uploaded=await uploadFiles(); }
+  catch(ex){ err.textContent=ex.message; err.style.display='block'; btn.disabled=false; btn.textContent='Submit to Earth Breeze'; return false; }
   const body={
     rfp_code: RFP_CODE,
     submission_type:$('f-type').value,
@@ -541,7 +562,8 @@ async function submitRFP(e){
     rate_card_url:$('f-rates').value.trim()||null,
     proposal_url:$('f-prop').value.trim()||null,
     summary:$('f-summary').value.trim()||null,
-    questions:$('f-questions').value.trim()||null
+    questions:$('f-questions').value.trim()||null,
+    attachments: uploaded.length?uploaded:null
   };
   try{
     const r=await fetch(SB_URL+'/rest/v1/rfp_submissions',{method:'POST',headers:{...HDRS,'Prefer':'return=minimal'},body:JSON.stringify(body)});
@@ -555,6 +577,15 @@ async function submitRFP(e){
   }
   return false;
 }
+
+document.addEventListener('change', function(e){
+  if(e.target && e.target.id==='f-files'){
+    const fs=Array.from(e.target.files||[]);
+    $('f-filelist').innerHTML = fs.length ? fs.map(function(f){
+      return '\u2022 '+f.name+' <span style="color:#8a9694">('+(f.size/1048576).toFixed(1)+' MB)</span>';
+    }).join('<br>') : '';
+  }
+});
 
 boot();
 </script>
@@ -590,9 +621,12 @@ boot();
       <label>Certifications held <span class="opt">(Leaping Bunny, GMP, ISO, biobased %, etc.)</span></label><input id="f-certs" maxlength="400" placeholder="List relevant certifications">
     </div>
     <div class="frow">
-      <div><label id="f-rates-label">Rate workbook link <span class="opt">(Drive / SharePoint / Dropbox)</span></label><input id="f-rates" type="url" placeholder="https://…"></div>
+      <div><label id="f-rates-label">Rate workbook link <span class="opt">(or attach the file below)</span></label><input id="f-rates" type="url" placeholder="https://…"></div>
       <div><label>Full proposal link <span class="opt">(optional)</span></label><input id="f-prop" type="url" placeholder="https://…"></div>
     </div>
+    <label>Attach files <span class="opt">(PDF, Excel, Word, PowerPoint, CSV, ZIP or images — up to 25 MB each)</span></label>
+    <input id="f-files" type="file" multiple style="padding:8px 10px;background:#fff">
+    <div id="f-filelist" style="font-size:12.5px;color:var(--ink2);margin-top:6px"></div>
     <label>Executive summary / notes</label>
     <textarea id="f-summary" maxlength="20000" placeholder="Key strengths of your bid, service model, and anything the evaluation team should know."></textarea>
     <label>Questions for Earth Breeze <span class="opt">(answered to all bidders)</span></label>
