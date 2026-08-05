@@ -426,6 +426,16 @@ async function enter(t){
     d += '<h3>Parcel weight profile</h3><p class="tbl-note" style="margin-top:6px">'+esc(p.weight_note)+'</p>';
     S.push(['data','Data tables', d]);
     S.push(['scope','Scope &amp; requirements', '<h3>Core services</h3>'+listHTML(c.scope_core)+'<h3>Operational</h3>'+listHTML(c.scope_operational)+'<h3>Service levels</h3>'+listHTML(c.scope_service)]);
+    if (Array.isArray(c.network_maps) && c.network_maps.length) {
+      let nw = '<p class="lead">'+(c.network_intro||'')+'</p>';
+      nw += tblHTML(['Scenario','Weighted avg distance','Orders \u2264 zone 4','Orders \u2264 zone 5'], c.network_table||[], {max:1});
+      c.network_maps.forEach(function(m){
+        nw += '<h3>'+esc(m.title)+'</h3><img src="'+esc(m.url)+'" alt="'+esc(m.title)+'" style="width:100%;max-width:940px;border-radius:12px;display:block;margin:8px 0"/>'+
+              '<p class="tbl-note">'+esc(m.caption)+'</p>';
+      });
+      nw += '<p class="tbl-note" style="margin-top:14px">'+esc(c.network_note)+'</p>';
+      S.push(['network','Network modelling', nw]);
+    }
     S.push(['postage','Postage', listHTML(c.postage)]);
     S.push(['pricing','Pricing format', listHTML(c.pricing_bullets)]);
     S.push(['timeline','Timeline', tblHTML(['Milestone','Date'], c.timeline_rows||[], {max:1})]);
@@ -438,7 +448,7 @@ async function enter(t){
       (c.download_xlsx?'<a class="dl" href="'+esc(c.download_xlsx)+'" download><div class="ic">XLS</div><div><b>Bidder dataset</b><span>Excel \u00b7 monthly volumes, pick profile, SKU velocity, all 908 ZIP3s, 29,064 ZIP detail, day-of-week</span></div></a>':'')+
       '</div><p class="tbl-note" style="margin-top:14px">The dataset workbook contains the full underlying aggregates so you can model your own cost-to-serve. Read the <b>Read Me</b> tab first \u2014 it documents the bulk-transfer SKUs that must be excluded from pick-labour modelling.</p>']);
     S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
-    const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',scope:'Scope',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',submit:'Submit'};
+    const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',scope:'Scope',network:'Network',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',submit:'Submit'};
     $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navFF[id]+'</a>').join('');
     $('c-main').innerHTML = S.map(([id,title,body],i)=>'<section id="'+id+'"><h2>'+(i+1)+' \u00b7 '+title+'</h2>'+body+'</section>').join('');
     document.getElementById('f-origins-wrap').style.display = 'none';
