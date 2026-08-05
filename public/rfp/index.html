@@ -427,11 +427,10 @@ async function enter(t){
     d += lineChart(mrows.map(r=>[r[0], r[4]]), {dec:1, color:'#479FDB'});
     d += '<p class="tbl-note">'+esc(p.depth_note)+'</p>';
     d += '<h3>Monthly orders, lines &amp; units</h3>'+tblHTML(['Month','Orders','Order lines','Units','Lines/order'], p.monthly||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.monthly_note)+'</p>';
-    d += '<h3>Pick profile - lines per order</h3>'+tblHTML(['Lines','Orders','% of orders','Units'], p.line_bands||[], {numeric:1, max:1});
+    d += '<h3>Pick profile - lines per order</h3>'+tblHTML(['Lines','Orders','Units','% of orders'], p.line_bands||[], {numeric:1, max:1});
     d += '<h3>Pick profile - units per order</h3>'+tblHTML(['Units','Orders','% of orders'], p.unit_bands||[], {numeric:1, max:1});
-    d += hBarChart((p.line_bands||[]).map(r=>[r[0], r[1], r[2]]), {suffix:1});
     d += '<p class="tbl-note">62.4% of orders are a single line and 47.7% a single unit - a shallow-basket profile. Price the per-order rate and incremental line/unit rates against these distributions.</p>';
-    d += '<h3>SKU velocity (top 15 by units)</h3>'+tblHTML(['SKU','Orders','Lines','Units'], p.top_sku||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.sku_note)+'</p>';
+    d += '<h3>SKU velocity (top 15 by units)</h3>'+tblHTML(['SKU','Orders','Units'], p.top_sku||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.sku_note)+'</p>';
     d += '<h3>Destination states (top 20)</h3>'+hBarChart((p.states||[]).slice(0,12).map(r=>[r[0], r[1], r[2]]), {suffix:1})+tblHTML(['State','Orders','% of orders'], p.states||[], {numeric:1, max:1});
     d += '<h3>Destination ZIP3 (top 25)</h3>'+tblHTML(['ZIP3','Orders','Order lines','Units'], p.zip3||[], {numeric:1, max:1})+'<p class="tbl-note">'+esc(p.geo_note)+'</p>';
     d += '<h3>Ship-day distribution</h3>'+hBarChart((p.dow||[]).map(r=>[r[0], r[1], r[2]]), {suffix:1, color:'#1C3883'})+'<p class="tbl-note">'+esc(p.dow_note)+'</p>';
