@@ -53,6 +53,9 @@ const FIELDS_FF = [
   { key: "scope_core",        label: "Scope - core services",               type: "list", rows: 6 },
   { key: "scope_operational", label: "Scope - operational",                 type: "list", rows: 5 },
   { key: "scope_service",     label: "Scope - service levels",              type: "list", rows: 3 },
+  { key: "sku_intro",         label: "SKU profile - intro paragraph (HTML ok)", type: "text", rows: 3 },
+  { key: "sku_profile",       label: "SKU profile rows - one SKU per line, fields separated by |  in this order: SKU | Description | Image URL | Unit weight | Unit dimensions | Qty per master carton | Master carton dimensions | Cartons per pallet | Per 20ft container | Per 40ft container | Per 40ft HC container", type: "skus", rows: 16 },
+  { key: "sku_note",          label: "SKU profile - footnote",              type: "text", rows: 2 },
   { key: "postage",           label: "Postage requirements",                type: "list", rows: 5 },
   { key: "pricing_bullets",   label: "Pricing format bullets",              type: "list", rows: 7 },
   { key: "timeline_rows",     label: "Timeline - one per line: milestone | date", type: "pairs", rows: 8 },
@@ -83,10 +86,13 @@ const FIELDS_PARCEL = [
   { key: "nda_text",          label: "NDA text (HTML - shown at signing)",   type: "text", rows: 14 },
 ];
 
+const SKU_KEYS = ["sku","desc","img","weight","dims","qty_carton","carton_dims","cartons_pallet","c20","c40","c40hc"];
+
 function toDraft(content, FIELDS) {
   const d = {};
   for (const f of FIELDS) {
     const v = content?.[f.key];
+    if (f.type === "skus") { d[f.key] = Array.isArray(v) ? v.map(r => SKU_KEYS.map(k => r[k] ?? "").join(" | ")).join("\n") : ""; continue; }
     if (f.type === "list") d[f.key] = Array.isArray(v) ? v.join("\n") : "";
     else if (f.type === "pairs") d[f.key] = Array.isArray(v) ? v.map(r => `${r[0]} | ${r[1]}`).join("\n") : "";
     else if (f.type === "facts") d[f.key] = Array.isArray(v) ? v.map(x => `${x.v} | ${x.l}`).join("\n") : "";
@@ -102,6 +108,14 @@ function fromDraft(draft, FIELDS) {
   };
   for (const f of FIELDS) {
     const raw = draft[f.key] || "";
+    if (f.type === "skus") {
+      c[f.key] = raw.split("\n").filter(l => l.trim()).map(line => {
+        const parts = line.split("|").map(x => x.trim());
+        const o = {}; SKU_KEYS.forEach((k, i) => { o[k] = parts[i] ?? ""; });
+        return o;
+      });
+      continue;
+    }
     if (f.type === "list") c[f.key] = raw.split("\n").map(s => s.trim()).filter(Boolean);
     else if (f.type === "pairs") c[f.key] = raw.split("\n").filter(s => s.trim()).map(splitPair);
     else if (f.type === "facts") c[f.key] = raw.split("\n").filter(s => s.trim()).map(l => { const [v, lab] = splitPair(l); return { v, l: lab }; });
