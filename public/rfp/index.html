@@ -518,7 +518,7 @@ function qFormProgress(){
 }
 
 // ── lightweight SVG charts ──
-const CH = {w:720,h:290,ml:62,mr:18,mt:18,mb:44};
+const CH = {w:760,h:300,ml:76,mr:20,mt:22,mb:52};
 const num = v => typeof v==='number'?v:parseFloat(String(v).replace(/[^0-9.\-]/g,''))||0;
 function axes(maxY, labels, yfmt){
   const {w,h,ml,mr,mt,mb}=CH, iw=w-ml-mr, ih=h-mt-mb;
@@ -562,13 +562,25 @@ function lineChart(rows, opts){
   for(let i=0;i<=4;i++){
     const v=mn+(mx-mn)*i/4, y=mt+ih-(ih*i/4);
     g+='<line x1="'+ml+'" y1="'+y+'" x2="'+(w-mr)+'" y2="'+y+'" stroke="#DCE6F0"/>';
-    g+='<text x="'+(ml-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#5A6B85">'+(opts.dec?v.toFixed(2):Math.round(v))+'</text>';
+    g+='<text x="'+(ml-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#5A6B85">'+(opts.dec?v.toFixed(2):Math.round(v).toLocaleString())+'</text>';
   }
-  rows.forEach((r,i)=>{ g+='<text x="'+(ml+(iw/rows.length)*(i+0.5))+'" y="'+(h-mb+18)+'" text-anchor="middle" font-size="11" fill="#5A6B85">'+r[0]+'</text>'; });
+  const xstep=iw/rows.length;
+  rows.forEach(function(r,i){
+    const cx=ml+xstep*(i+0.5);
+    const lbl=String(r[0]);
+    const m2=lbl.match(/^(\d{4})\s*(Q\d)$/);
+    if (xstep < 62 && m2) {
+      g+='<text x="'+cx+'" y="'+(h-mb+16)+'" text-anchor="middle" font-size="10.5" fill="#5A6B85">'+m2[2]+'</text>';
+      if (i===0 || String(rows[i-1][0]).slice(0,4)!==m2[1])
+        g+='<text x="'+cx+'" y="'+(h-mb+31)+'" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16233F">'+m2[1]+'</text>';
+      return;
+    }
+    g+='<text x="'+cx+'" y="'+(h-mb+18)+'" text-anchor="middle" font-size="11" fill="#5A6B85">'+lbl+'</text>';
+  });
   const pts=rows.map((r,i)=>[ml+(iw/rows.length)*(i+0.5), mt+ih-ih*(num(r[1])-mn)/(mx-mn)]);
   g+='<polyline points="'+pts.map(p=>p.join(',')).join(' ')+'" fill="none" stroke="'+(opts.color||'#1C3883')+'" stroke-width="2.5"/>';
   pts.forEach((p,i)=>{ g+='<circle cx="'+p[0]+'" cy="'+p[1]+'" r="3.5" fill="'+(opts.color||'#1C3883')+'"/>';
-    g+='<text x="'+p[0]+'" y="'+(p[1]-10)+'" text-anchor="middle" font-size="10.5" fill="#16233F">'+(opts.dec?num(rows[i][1]).toFixed(2):rows[i][1])+'</text>'; });
+    g+='<text x="'+p[0]+'" y="'+(p[1]-10)+'" text-anchor="middle" font-size="10.5" fill="#16233F">'+(opts.dec?num(rows[i][1]).toFixed(2):num(rows[i][1]).toLocaleString())+'</text>'; });
   return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" style="max-width:'+w+'px;background:#fff;border:1px solid #DCE6F0;border-radius:10px;margin:10px 0">'+g+'</svg>';
 }
 function hBarChart(rows, opts){
