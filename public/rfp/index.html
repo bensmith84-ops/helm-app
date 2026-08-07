@@ -37,6 +37,8 @@ a{color:var(--spruce)}
 .agree-row input{width:auto;margin-top:3px}
 /* Site */
 #promo{background:var(--sky);color:var(--spruce);text-align:center;padding:9px 16px;font-size:13.5px;font-weight:700}
+#previewbar{background:#FDF3D6;color:#7A5B12;border-bottom:1px solid #E8D08A;text-align:center;padding:8px 16px;font-size:13px;font-weight:600}
+#previewbar span{font-weight:400;color:#8A6B22}
 #brandbar{background:#fff;border-bottom:1px solid var(--line)}
 #brandbar .wrap{display:flex;align-items:center;justify-content:space-between;padding-top:13px;padding-bottom:13px}
 #brandbar img{height:44px;width:auto}
@@ -214,6 +216,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
 
 <!-- ══ SITE (rendered after access) ══ -->
 <div id="site">
+<div id="previewbar" style="display:none">Internal preview <span>- this is exactly what companies see after signing the NDA. Submissions are disabled.</span></div>
 <div id="promo">FREE SHIPPING | 60-day Money-Back Guarantee</div>
 <div id="brandbar"><div class="wrap">
   <img src="eb-logo.png" alt="Earth Breeze">
@@ -270,7 +273,59 @@ async function brandGate(){
 }
 brandGate();
 
+function helmAccessToken(){
+  // The portal is served from the same origin as Helm, so a signed-in user's Supabase
+  // session is readable here. Used only to authorise the internal preview.
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k && k.startsWith('sb-') && k.endsWith('-auth-token')){
+        const v=JSON.parse(localStorage.getItem(k));
+        const tok=v && (v.access_token || (v.currentSession && v.currentSession.access_token));
+        if(tok) return tok;
+      }
+    }
+  }catch(e){}
+  return null;
+}
+
+async function tryPreview(){
+  const jwt=helmAccessToken();
+  if(!jwt){
+    document.getElementById('scr-loading').innerHTML =
+      '<p style="margin:0 0 10px"><b>Internal preview</b></p>'+
+      '<p style="margin:0;font-size:13.5px;color:var(--ink2)">Sign in to Helm first, then reopen this link. '+
+      'The preview uses your Helm session - there is no separate password.</p>'+
+      '<p style="margin:14px 0 0"><a href="/" style="font-weight:600">Open Helm</a></p>';
+    show('scr-loading');
+    return true;
+  }
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/rpc/rfp_preview_content',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+jwt},
+      body:JSON.stringify({p_code:RFP_CODE})
+    });
+    const res=await r.json();
+    if(!res || !res.ok){
+      document.getElementById('scr-loading').innerHTML =
+        '<p style="margin:0 0 10px"><b>Internal preview unavailable</b></p>'+
+        '<p style="margin:0;font-size:13.5px;color:var(--ink2)">Your Helm session could not be verified'+
+        (res && res.error==='not_a_member' ? ' - your account is not an active member of the organisation.' : '. Try signing in to Helm again.')+'</p>';
+      show('scr-loading');
+      return true;
+    }
+    document.getElementById('previewbar').style.display='block';
+    window.__preview = true;
+    await renderSite(res.content);
+    return true;
+  }catch(e){ return false; }
+}
+
 async function boot(){
+  if (new URL(location.href).searchParams.get('preview') === '1') {
+    if (await tryPreview()) return;
+  }
   const t = getToken();
   if (!t) { show('scr-request'); return; }
   show('scr-loading');
@@ -601,7 +656,11 @@ async function enter(t){
   let res;
   try { res = await rpc('rfp_get_content', {p_token: t}); } catch(e){ show('scr-request'); return; }
   if (!res.ok || !res.content) { show('scr-request'); return; }
-  const c = res.content, p = c.packet || {};
+  return renderSite(res.content);
+}
+
+async function renderSite(content){
+  const c = content, p = c.packet || {};
   $('c-eyebrow').innerHTML = esc(c.eyebrow);
   $('c-title').innerHTML = c.title_html || '';
   $('c-sub').innerHTML = esc(c.sub);
@@ -721,7 +780,8 @@ async function enter(t){
       qh.innerHTML = '<h3 style="margin-top:22px">Structured response</h3>'+
         '<p class="tbl-note" style="margin:0 0 4px">Complete these fields so every proposal can be compared on the same basis. Required fields are marked with an asterisk. You can still attach your own workbook and documents below - this does not replace them.</p>'+
         renderQForm(window.__qschema);
-      loadQA();
+      if (!window.__preview) loadQA();
+      else { const ql=document.getElementById('qa-list'); if(ql) ql.innerHTML='<p class="tbl-note">Published questions and answers appear here for companies once the RFP is open.</p>'; }
       const tsel=$('f-type'); if(tsel) tsel.addEventListener('change', applyTypeMode);
       applyTypeMode();
       renderNodes(1);
@@ -865,6 +925,11 @@ function applyTypeMode(){
 async function submitRFP(e){
   e.preventDefault();
   const btn=$('f-btn'); const err=$('form-err');
+  if (window.__preview) {
+    err.textContent='This is an internal preview - submissions are disabled. Companies will be able to submit here.';
+    err.style.display='block';
+    return false;
+  }
   btn.disabled=true; btn.textContent='Submitting…'; err.style.display='none';
   if($('f-type').value==='question' && !$('f-questions').value.trim()){
     err.textContent='Please type your question before submitting.'; err.style.display='block';

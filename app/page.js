@@ -24,7 +24,6 @@ const PLMView = lazy(() => import("./components/PLM"));
 const ERPView = lazy(() => import("./components/ERP"));
 const WMSView = lazy(() => import("./components/WMS"));
 const ThreePLBillingView = lazy(() => import("./components/ThreePLBilling"));
-const RFPReviewView      = lazy(() => import("./components/RFPReview"));
 const FinanceView = lazy(() => import("./components/Finance"));
 const ScoreboardView2 = lazy(() => import("./components/Scoreboard"));
 const AutomationView = lazy(() => import("./components/Automation"));
@@ -384,7 +383,6 @@ export default function HelmApp() {
       case "erp": return <ERPView modulePerms={allowedModules?.perms || {}} pendingSubView={pendingSubView} clearPendingSubView={() => setPendingSubView(null)} />;
       case "wms": return <WMSView />;
       case "3pl_billing": return <ThreePLBillingView />;
-      case "rfp_review": return <RFPReviewView />;
       case "finance": return <FinanceView pendingSubView={pendingSubView} clearPendingSubView={() => setPendingSubView(null)} />;
       case "spend_request": return <FinanceView initialView="requests" embedded />;
       case "automation": return <AutomationView />;

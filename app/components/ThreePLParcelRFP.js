@@ -435,6 +435,13 @@ Earth Breeze Procurement`);
           ))}
         </div>
         <div style={{ flex: 1 }} />
+        <button onClick={async () => {
+          const link = `${PORTAL_URL}&preview=1`;
+          try { await navigator.clipboard.writeText(link); setCopied("preview"); setTimeout(() => setCopied(null), 2000); }
+          catch (e) { window.prompt("Internal preview link:", link); }
+        }} style={btnGhost} title="Anyone signed in to Helm can open this - no NDA, no access request">
+          {copied === "preview" ? "✓ Copied" : "🔗 Internal preview link"}
+        </button>
         <a href={PORTAL_URL} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none" }}>Open portal ↗</a>
       </div>
 
