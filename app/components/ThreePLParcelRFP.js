@@ -328,8 +328,7 @@ Earth Breeze Procurement`);
     [c[si], c[j]] = [c[j], c[si]];
   });
   const addField = (si) => mutate(c => {
-    const k = slugKey("new field", allKeys(c));
-    (c[si].f = c[si].f || []).push({ k, l: "New field", t: "cur", dp: 2 });
+    (c[si].f = c[si].f || []).push({ k: "", l: "", t: "cur", dp: 2, __new: true });
   });
   const delField = (si, fi) => {
     const f = fdraft[si].f[fi]; const n = answeredCount(f.k);
@@ -343,6 +342,12 @@ Earth Breeze Procurement`);
   const setField = (si, fi, patch) => mutate(c => {
     const f = c[si].f[fi];
     Object.assign(f, patch);
+    // Derive the key from the label while the field is new and unanswered, so keys are
+    // meaningful (storage_rate, not new_field_7). Once answers exist the key is frozen.
+    if (patch.l !== undefined && f.__new) {
+      const taken = allKeys(c); taken.delete(f.k);
+      f.k = slugKey(patch.l, taken);
+    }
     if (patch.t) { // tidy type-specific extras
       if (!["sel", "multi"].includes(f.t)) delete f.opts;
       if (!["cur"].includes(f.t)) delete f.dp;
@@ -360,18 +365,19 @@ Earth Breeze Procurement`);
       for (const sec of fdraft || []) {
         if (!String(sec.s || "").trim()) throw new Error("Every section needs a name.");
         for (const f of sec.f || []) {
-          if (!String(f.l || "").trim()) throw new Error(`A field in "${sec.s}" has no label.`);
+          if (!String(f.l || "").trim()) throw new Error(`A field in "${sec.s}" has no question text yet - type it or remove the field.`);
           if (!/^[a-z0-9_]+$/.test(f.k || "")) throw new Error(`Field key "${f.k}" must be lowercase letters, numbers and underscores.`);
           if (keys.has(f.k)) throw new Error(`Duplicate field key "${f.k}". Keys must be unique across the whole form.`);
           keys.add(f.k);
           if (["sel", "multi"].includes(f.t) && !(f.opts || []).filter(o => String(o).trim()).length) throw new Error(`"${f.l}" needs at least one option.`);
         }
       }
+      const clean = JSON.parse(JSON.stringify(fdraft)).map(sec => ({ ...sec, f: (sec.f || []).map(f => { const { __new, ...rest } = f; return rest; }) }));
       const { data: fresh } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
-      const content = { ...(fresh?.content || baseContent || {}), response_form: fdraft };
+      const content = { ...(fresh?.content || baseContent || {}), response_form: clean };
       const { error } = await supabase.from("rfp_portal_content").upsert({ rfp_code: RFP_CODE, content, updated_at: new Date().toISOString() });
       if (error) throw error;
-      setBaseContent(content); setSchema(fdraft); setFsaved(new Date());
+      setBaseContent(content); setSchema(clean); setFdraft(clean); setFsaved(new Date());
     } catch (e) { setFerr(e.message || String(e)); }
     setFsaving(false);
   };
@@ -722,7 +728,7 @@ Earth Breeze Procurement`);
                                 <input type="checkbox" checked={!!f.req} onChange={e => setField(si, fi, { req: e.target.checked ? 1 : undefined })} />
                                 Required
                               </label>
-                              <span style={{ fontSize: 11.5, color: T.text3, fontFamily: "monospace" }}>key: {f.k}</span>
+                              <span style={{ fontSize: 11.5, color: T.text3, fontFamily: "monospace" }}>key: {f.k || "(from question text)"}{f.__new ? " · not saved yet" : ""}</span>
                               {used > 0 && <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600 }}>{used} submission{used === 1 ? "" : "s"} answered this</span>}
                             </div>
                           </div>
