@@ -207,6 +207,10 @@ export default function PeopleView() {
   // Their profile rows have org_id = NULL, so we resolve them by joining
   // project_members (which IS scoped to the org) → profiles by id.
   const [externals, setExternals] = useState([]); // [{ profile, projects: [{id, name, role, access_scope}] }]
+  // Accounts that can sign in but belong to no org: created when someone signs in with an
+  // address that doesn't match any existing profile (e.g. krizia@ vs krizia.villanueva@).
+  const [unassigned, setUnassigned] = useState([]);
+  const [mergeBusy, setMergeBusy] = useState(null);
 
   useEffect(() => {
     if (!profile?.org_id) return;
@@ -223,6 +227,8 @@ export default function PeopleView() {
       ]);
       setMembers(mR.data || []); setMemberships(omR.data || []); setTasks(tR.data || []); setProjects(pR.data || []); setProjectMembers(pmR.data || []); setTeams(tmR.data || []); setTeamMembers(tmrR.data || []);
       setKeyResults(krR.data || []);
+      const { data: unR } = await supabase.from("v_unassigned_accounts").select("*").order("last_sign_in_at", { ascending: false, nullsFirst: false });
+      setUnassigned(unR || []);
       // Resolve external collaborators: project_members rows where invited_as_external = true.
       // Pull their profile rows separately (org_id is NULL on those, so they're not in mR).
       const externalPm = (pmR.data || []).filter(pm => pm.invited_as_external);
@@ -320,6 +326,34 @@ export default function PeopleView() {
     } catch (e) {
       showToast("Failed: " + e.message);
     }
+  };
+
+  const loadUnassigned = async () => {
+    const { data } = await supabase.from("v_unassigned_accounts").select("*").order("last_sign_in_at", { ascending: false, nullsFirst: false });
+    setUnassigned(data || []);
+  };
+
+  const mergeAccount = async (dormantId, liveId, label) => {
+    if (!confirm(`Merge "${label}" into this account?\n\nEverything owned by the dormant account (membership, permissions, project access, tasks, comments) moves across, and the duplicate is deleted. This cannot be undone.`)) return;
+    setMergeBusy(liveId);
+    const { data, error } = await supabase.rpc("merge_user_accounts", { p_dormant: dormantId, p_live: liveId });
+    setMergeBusy(null);
+    if (error || !data?.ok) { showToast(`Merge failed: ${error?.message || data?.error || "unknown"}`); return; }
+    showToast(`Merged - ${data.rows_migrated} records moved`, "success");
+    await loadUnassigned();
+    window.location.reload();
+  };
+
+  const grantAccess = async (profileId) => {
+    const { error } = await supabase.from("org_memberships").insert({
+      user_id: profileId, org_id: orgId, role: "member", is_active: true,
+      module_permissions: { _default_deny: true },
+    });
+    if (error) { showToast(`Could not grant access: ${error.message}`); return; }
+    await supabase.from("profiles").update({ org_id: orgId }).eq("id", profileId);
+    showToast("Added to the org - set module permissions on their row", "success");
+    await loadUnassigned();
+    window.location.reload();
   };
 
   const updateRole = async (uid, newRole) => { const om = getMembership(uid); if (!om) return; const { error } = await supabase.from("org_memberships").update({ role: newRole }).eq("org_id", orgId).eq("id", om.id); if (error) return showToast("Failed to update role"); setMemberships(p => p.map(m => m.id === om.id ? { ...m, role: newRole } : m)); showToast("Role updated", "success"); };
@@ -561,6 +595,55 @@ export default function PeopleView() {
             setSelectedPeople(new Set());
             showToast(`${selectedPeople.size} members removed`, "success");
           }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid #ef444440`, background: "#ef444410", color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Remove</button>
+        </div>
+      )}
+      {unassigned.length > 0 && (
+        <div style={{ margin: "0 0 14px", border: `1px solid #eab30855`, background: "#eab30810", borderRadius: 10, padding: "13px 15px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
+            <span style={{ fontSize: 15 }}>⚠️</span>
+            <b style={{ fontSize: 13, color: T.text }}>Unassigned accounts ({unassigned.length})</b>
+          </div>
+          <div style={{ fontSize: 12, color: T.text2, marginBottom: 12, maxWidth: 820, lineHeight: 1.55 }}>
+            These people can sign in but belong to no organisation, so they see an empty Helm and don't appear in the list below. This usually means they signed in with an address that differs from the one on their existing profile. Merge them into the matching account, or add them to the org if they're genuinely new.
+          </div>
+          {unassigned.map(u => (
+            <div key={u.profile_id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "11px 13px", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 230 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{u.display_name || u.email}</div>
+                  <div style={{ fontSize: 11.5, color: T.text3 }}>{u.email} · {u.providers || "no provider"}</div>
+                </div>
+                <div style={{ fontSize: 11.5, color: T.text3 }}>
+                  {u.last_sign_in_at ? `signed in ${new Date(u.last_sign_in_at).toLocaleDateString()}` : "never signed in"}
+                </div>
+                <div style={{ flex: 1 }} />
+                <button onClick={() => grantAccess(u.profile_id)} disabled={mergeBusy === u.profile_id}
+                  style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.text2, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+                  + Add to org as new person
+                </button>
+              </div>
+              {Array.isArray(u.suggested_matches) && u.suggested_matches.length > 0 && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Possible match{u.suggested_matches.length > 1 ? "es" : ""}</div>
+                  {u.suggested_matches.map(m => (
+                    <div key={m.profile_id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "5px 0" }}>
+                      <div style={{ fontSize: 12.5, color: T.text }}>{m.display_name || m.email}</div>
+                      <div style={{ fontSize: 11.5, color: T.text3 }}>{m.email}</div>
+                      <div style={{ fontSize: 11.5, color: T.text3 }}>· {m.projects} project{m.projects === 1 ? "" : "s"} · {m.last_sign_in ? "has signed in" : "never signed in"}</div>
+                      <div style={{ flex: 1 }} />
+                      <button onClick={() => mergeAccount(m.profile_id, u.profile_id, m.email)} disabled={mergeBusy === u.profile_id}
+                        style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+                        {mergeBusy === u.profile_id ? "Merging…" : "⇄ Merge into this sign-in"}
+                      </button>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>
+                    Merging keeps the address they actually sign in with and moves everything from the dormant account onto it.
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: `32px ${peopleGrid}`, background: T.surface, borderBottom: `1px solid ${T.border}` }}>
