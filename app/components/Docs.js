@@ -59,7 +59,10 @@ const EditableBlock = memo(function EditableBlock({ blockId, initialContent, sty
   return (
     <div ref={ref} contentEditable suppressContentEditableWarning
       data-placeholder={placeholder}
-      style={{ ...style, outline: "none", minHeight: "1.5em", wordBreak: "break-word" }}
+      // white-space: pre-wrap is essential. Without it the browser collapses runs of spaces,
+      // drops trailing spaces as you type, and won't render newlines from Shift+Enter -
+      // which reads to the user as "spaces and Enter don't work".
+      style={{ ...style, outline: "none", minHeight: "1.5em", wordBreak: "break-word", whiteSpace: "pre-wrap" }}
       onInput={e => {
         const text = e.target.innerText;
         contentRef.current = text;
@@ -265,6 +268,23 @@ export default function DocsView({ setActive }) {
   const handleKey = useCallback((e, blockId, currentContent) => {
     const block = blocks.find(b => b.id === blockId);
     if (!block) return;
+    if (e.key === "Enter" && e.shiftKey) {
+      // Soft line break inside the same block. Done manually so the DOM stays plain text
+      // and innerText round-trips cleanly through save/reload.
+      if (block.type === "divider" || block.type === "table") return;
+      e.preventDefault();
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const tn = document.createTextNode("\n");
+      range.insertNode(tn);
+      range.setStartAfter(tn); range.setEndAfter(tn);
+      sel.removeAllRanges(); sel.addRange(range);
+      const el = e.target;
+      if (el) { handleContentChange(blockId, el.innerText); }
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       if (block.type === "divider" || block.type === "table") return;
       e.preventDefault();
