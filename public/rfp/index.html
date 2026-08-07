@@ -87,6 +87,28 @@ form.rfp label .opt{color:var(--ink2);font-weight:400}
 form.rfp input,form.rfp select,form.rfp textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff}
 form.rfp input:focus,form.rfp select:focus,form.rfp textarea:focus{outline:2px solid var(--spruce);outline-offset:1px;border-color:var(--spruce)}
 form.rfp textarea{min-height:110px;resize:vertical}
+.qsec{border:1.5px solid var(--line);border-radius:12px;margin:14px 0;overflow:hidden;background:#fff}
+.qsec>summary{cursor:pointer;padding:13px 16px;font-weight:700;font-size:14px;color:var(--spruce);background:var(--paper);list-style:none;display:flex;align-items:center;gap:10px}
+.qsec>summary::-webkit-details-marker{display:none}
+.qsec>summary::before{content:'\25B8';display:inline-block;transition:transform .15s;color:var(--sky-deep)}
+.qsec[open]>summary::before{transform:rotate(90deg)}
+.qsec .qbody{padding:6px 16px 16px}
+.qsec .cnt{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--ink2)}
+.qsec .cnt.done{color:#1C7A3E}
+.qgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:640px){.qgrid{grid-template-columns:1fr}}
+.qf label{display:block;font-size:12.5px;font-weight:600;margin:12px 0 5px;color:var(--ink)}
+.qf .req{color:#C0392B;margin-left:3px}
+.qf input,.qf select,.qf textarea{width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff}
+.qf textarea{min-height:74px}
+.qf .pre{position:relative}
+.qf .pre input{padding-left:26px}
+.qf .pre span.sym{position:absolute;left:10px;top:9px;color:var(--ink2);font-size:14px}
+.qf .unit{position:absolute;right:11px;top:9px;color:var(--ink2);font-size:12.5px}
+.qchk{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.qchk label{display:inline-flex;align-items:center;gap:6px;font-weight:500;font-size:13px;margin:0;padding:5px 11px;border:1.5px solid var(--line);border-radius:99px;cursor:pointer;background:#fff}
+.qchk input{width:auto}
+.qmiss{border-color:#C0392B !important;background:#FDF3F2}
 .submit-btn{margin-top:22px;padding:13px 26px;background:var(--spruce);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer}
 .submit-btn:hover{background:var(--spruce-deep)}
 .submit-btn:disabled{opacity:.6;cursor:default}
@@ -334,6 +356,68 @@ const tblHTML = (headers, rows, opts={}) => {
 };
 const listHTML = arr => '<ul>'+(arr||[]).map(x=>'<li>'+x+'</li>').join('')+'</ul>';
 
+// ── structured response form (schema-driven) ──
+function renderQForm(schema){
+  if(!Array.isArray(schema)||!schema.length) return '';
+  let h='<div id="qform">';
+  schema.forEach(function(sec,si){
+    const fields=sec.f||[];
+    const reqn=fields.filter(function(f){return f.req}).length;
+    h+='<details class="qsec"'+(si===0?' open':'')+' data-sec="'+si+'"><summary>'+esc(sec.s)+
+       '<span class="cnt" data-cnt="'+si+'">0 of '+fields.length+(reqn?' \u00b7 '+reqn+' required':'')+'</span></summary><div class="qbody"><div class="qgrid">';
+    fields.forEach(function(f){
+      const wide=(f.t==='area')?' style="grid-column:1/-1"':'';
+      h+='<div class="qf"'+wide+'><label for="q_'+f.k+'">'+esc(f.l)+(f.req?'<span class="req">*</span>':'')+'</label>';
+      if(f.t==='area'){ h+='<textarea id="q_'+f.k+'" data-q="'+f.k+'"'+(f.req?' data-req="1"':'')+' placeholder="'+esc(f.ph||'')+'"></textarea>'; }
+      else if(f.t==='sel'){ h+='<select id="q_'+f.k+'" data-q="'+f.k+'"'+(f.req?' data-req="1"':'')+'><option value="">Select\u2026</option>'+
+        (f.opts||[]).map(function(o){return '<option>'+esc(o)+'</option>'}).join('')+'</select>'; }
+      else if(f.t==='multi'){ h+='<div class="qchk" data-q="'+f.k+'" data-multi="1">'+
+        (f.opts||[]).map(function(o){return '<label><input type="checkbox" value="'+esc(o)+'">'+esc(o)+'</label>'}).join('')+'</div>'; }
+      else if(f.t==='cur'){ h+='<div class="pre"><span class="sym">$</span><input id="q_'+f.k+'" data-q="'+f.k+'" data-type="cur"'+(f.req?' data-req="1"':'')+' inputmode="decimal" placeholder="0.'+('0'.repeat(f.dp||2))+'"></div>'; }
+      else if(f.t==='num'){ h+='<div class="pre" style="position:relative"><input id="q_'+f.k+'" data-q="'+f.k+'" data-type="num"'+(f.req?' data-req="1"':'')+' inputmode="decimal" style="padding-left:11px'+(f.unit?';padding-right:'+(String(f.unit).length*7+18)+'px':'')+'" placeholder="">'+
+        (f.unit?'<span class="unit">'+esc(f.unit)+'</span>':'')+'</div>'; }
+      else { h+='<input id="q_'+f.k+'" data-q="'+f.k+'"'+(f.req?' data-req="1"':'')+' placeholder="'+esc(f.ph||'')+'">'; }
+      h+='</div>';
+    });
+    h+='</div></div></details>';
+  });
+  return h+'</div>';
+}
+function collectQForm(){
+  const out={}; const missing=[];
+  document.querySelectorAll('#qform [data-q]').forEach(function(el){
+    const k=el.getAttribute('data-q');
+    if(el.getAttribute('data-multi')){
+      const vals=Array.from(el.querySelectorAll('input:checked')).map(function(i){return i.value});
+      if(vals.length) out[k]=vals;
+      return;
+    }
+    const raw=(el.value||'').trim();
+    el.classList.remove('qmiss');
+    if(!raw){ if(el.getAttribute('data-req')){ missing.push(k); el.classList.add('qmiss'); } return; }
+    const ty=el.getAttribute('data-type');
+    if(ty==='cur'||ty==='num'){
+      const n=parseFloat(raw.replace(/[^0-9.\-]/g,''));
+      out[k]=isNaN(n)?raw:n;
+    } else out[k]=raw;
+  });
+  return {values:out, missing:missing};
+}
+function qFormProgress(){
+  document.querySelectorAll('#qform .qsec').forEach(function(sec){
+    const si=sec.getAttribute('data-sec');
+    const els=sec.querySelectorAll('[data-q]');
+    let filled=0;
+    els.forEach(function(el){
+      if(el.getAttribute('data-multi')){ if(el.querySelectorAll('input:checked').length) filled++; }
+      else if((el.value||'').trim()) filled++;
+    });
+    const cnt=sec.querySelector('[data-cnt="'+si+'"]');
+    if(cnt){ const total=els.length; cnt.textContent=filled+' of '+total+' complete';
+      cnt.className='cnt'+(filled===total?' done':''); }
+  });
+}
+
 // ── lightweight SVG charts ──
 const CH = {w:720,h:290,ml:62,mr:18,mt:18,mb:44};
 const num = v => typeof v==='number'?v:parseFloat(String(v).replace(/[^0-9.\-]/g,''))||0;
@@ -482,11 +566,21 @@ async function enter(t){
       (c.download_xlsx?'<a class="dl" href="'+esc(c.download_xlsx)+'" download><div class="ic">XLS</div><div><b>Bidder dataset</b><span>Excel \u00b7 monthly volumes, pick profile, SKU velocity, all 908 ZIP3s, 29,064 ZIP detail, day-of-week</span></div></a>':'')+
       '</div><p class="tbl-note" style="margin-top:14px">The dataset workbook contains the full underlying aggregates so you can model your own cost-to-serve. Read the <b>Read Me</b> tab first - it documents the bulk-transfer SKUs that must be excluded from pick-labour modelling.</p>']);
     S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
+    window.__qschema = c.response_form || null;
     const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',forecast:'Forecast',scope:'Scope',network:'Network',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',submit:'Submit'};
     $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navFF[id]+'</a>').join('');
     $('c-main').innerHTML = S.map(([id,title,body],i)=>'<section id="'+id+'"><h2>'+(i+1)+' \u00b7 '+title+'</h2>'+body+'</section>').join('');
     document.getElementById('f-origins-wrap').style.display = 'none';
     document.getElementById('f-rates-label').innerHTML = 'Pricing workbook link <span class="opt">(Drive / SharePoint / Dropbox)</span>';
+    const qh = document.getElementById('q-holder');
+    if (qh && window.__qschema) {
+      qh.innerHTML = '<h3 style="margin-top:22px">Structured response</h3>'+
+        '<p class="tbl-note" style="margin:0 0 4px">Complete these fields so every proposal can be compared on the same basis. Required fields are marked with an asterisk. You can still attach your own workbook and documents below - this does not replace them.</p>'+
+        renderQForm(window.__qschema);
+      qh.addEventListener('input', qFormProgress);
+      qh.addEventListener('change', qFormProgress);
+      qFormProgress();
+    }
     $('gate').style.display='none';
     document.getElementById('site').style.display='block';
     return;
@@ -575,6 +669,21 @@ async function submitRFP(e){
   e.preventDefault();
   const btn=$('f-btn'); const err=$('form-err');
   btn.disabled=true; btn.textContent='Submitting…'; err.style.display='none';
+  let structured=null;
+  if(document.getElementById('qform') && $('f-type').value==='proposal'){
+    const q=collectQForm();
+    if(q.missing.length){
+      document.querySelectorAll('#qform .qsec').forEach(function(sec){ if(sec.querySelector('.qmiss')) sec.setAttribute('open',''); });
+      const first=document.querySelector('#qform .qmiss');
+      if(first) first.scrollIntoView({behavior:'smooth',block:'center'});
+      err.textContent='Please complete the '+q.missing.length+' required field'+(q.missing.length===1?'':'s')+' highlighted in the structured response above.';
+      err.style.display='block'; btn.disabled=false; btn.textContent='Submit to Earth Breeze'; return false;
+    }
+    structured=q.values;
+  } else if(document.getElementById('qform')){
+    const q=collectQForm();
+    if(Object.keys(q.values).length) structured=q.values;
+  }
   let uploaded=[];
   try { uploaded=await uploadFiles(); }
   catch(ex){ err.textContent=ex.message; err.style.display='block'; btn.disabled=false; btn.textContent='Submit to Earth Breeze'; return false; }
@@ -597,7 +706,8 @@ async function submitRFP(e){
     proposal_url:$('f-prop').value.trim()||null,
     summary:$('f-summary').value.trim()||null,
     questions:$('f-questions').value.trim()||null,
-    attachments: uploaded.length?uploaded:null
+    attachments: uploaded.length?uploaded:null,
+    structured: structured
   };
   try{
     const r=await fetch(SB_URL+'/rest/v1/rfp_submissions',{method:'POST',headers:{...HDRS,'Prefer':'return=minimal'},body:JSON.stringify(body)});
@@ -658,6 +768,7 @@ boot();
       <div><label id="f-rates-label">Rate workbook link <span class="opt">(or attach the file below)</span></label><input id="f-rates" type="url" placeholder="https://…"></div>
       <div><label>Full proposal link <span class="opt">(optional)</span></label><input id="f-prop" type="url" placeholder="https://…"></div>
     </div>
+    <div id="q-holder"></div>
     <label>Attach files <span class="opt">(PDF, Excel, Word, PowerPoint, CSV, ZIP or images - up to 25 MB each)</span></label>
     <input id="f-files" type="file" multiple style="padding:8px 10px;background:#fff">
     <div id="f-filelist" style="font-size:12.5px;color:var(--ink2);margin-top:6px"></div>

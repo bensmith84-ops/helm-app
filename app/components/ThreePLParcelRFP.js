@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 
@@ -125,6 +125,7 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
   const [subsLoading, setSubsLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
 
+  const [schema, setSchema] = useState(null);           // structured response form definition
   const [baseContent, setBaseContent] = useState(null); // full JSON incl. packet/download keys
   const [draft, setDraft] = useState(null);
   const [contentLoading, setContentLoading] = useState(true);
@@ -149,7 +150,7 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
   const loadContent = useCallback(async () => {
     setContentLoading(true);
     const { data, error } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
-    if (!error && data?.content) { setBaseContent(data.content); setDraft(toDraft(data.content, FIELDS)); }
+    if (!error && data?.content) { setBaseContent(data.content); setDraft(toDraft(data.content, FIELDS)); setSchema(data.content.response_form || null); }
     setContentLoading(false);
   }, []);
 
@@ -227,6 +228,39 @@ Earth Breeze Procurement`);
   const label = { fontSize: 11.5, fontWeight: 700, color: T.text2, margin: "14px 0 5px", display: "block" };
   const chip = (m) => ({ fontSize: 11, padding: "2px 9px", borderRadius: 99, background: m.bg, color: m.fg, fontWeight: 700, flexShrink: 0 });
 
+  const structuredSubs = subs.filter(s => s.structured && Object.keys(s.structured).length > 0);
+  const fmtVal = (f, v) => {
+    if (v === undefined || v === null || v === "") return null;
+    if (Array.isArray(v)) return v.join(", ");
+    if (f.t === "cur" && typeof v === "number") return "$" + v.toLocaleString(undefined, { minimumFractionDigits: f.dp ?? 2, maximumFractionDigits: f.dp ?? 2 });
+    if (f.t === "num" && typeof v === "number") return v.toLocaleString() + (f.unit ? ` ${f.unit}` : "");
+    return String(v);
+  };
+  // for numeric rows, flag the best (lowest cost / shortest time) and worst
+  const numericExtremes = (f, vals) => {
+    const nums = vals.filter(v => typeof v === "number");
+    if (nums.length < 2) return {};
+    const lowerIsBetter = f.t === "cur" || ["impl_weeks", "escalator", "min_monthly"].includes(f.k);
+    return { best: lowerIsBetter ? Math.min(...nums) : Math.max(...nums),
+             worst: lowerIsBetter ? Math.max(...nums) : Math.min(...nums) };
+  };
+  const exportCompare = () => {
+    if (!schema) return;
+    const cols = ["Section", "Field", ...structuredSubs.map(s => s.company || "(unnamed)")];
+    const rows = [];
+    schema.forEach(sec => (sec.f || []).forEach(f => {
+      rows.push([sec.s, f.l, ...structuredSubs.map(s => {
+        const v = s.structured?.[f.k];
+        return Array.isArray(v) ? v.join("; ") : (v ?? "");
+      })]);
+    }));
+    const escv = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [cols.map(escv).join(","), ...rows.map(r => r.map(escv).join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `${RFP_CODE}_comparison.csv`; a.click();
+  };
+
   const pendingCount = reqs.filter(r => r.status === "pending").length;
   const counts = subs.reduce((a, s) => { a[s.submission_type] = (a[s.submission_type] || 0) + 1; return a; }, {});
 
@@ -236,7 +270,7 @@ Earth Breeze Procurement`);
         {onBack && <button onClick={onBack} style={{ padding: "7px 10px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.text2, border: `1px solid ${T.border}` }}>←</button>}
         <b style={{ fontSize: 13.5, color: T.text }}>{title}</b>
         <div style={{ display: "flex", gap: 2, background: T.surface2, borderRadius: 8, padding: 3 }}>
-          {[["requests", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`], ["submissions", `Submissions${subs.length ? ` (${subs.length})` : ""}`], ["content", "Portal Content"]].map(([k, l]) => (
+          {[["requests", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`], ["submissions", `Submissions${subs.length ? ` (${subs.length})` : ""}`], ...(schema ? [["compare", `Compare${structuredSubs.length ? ` (${structuredSubs.length})` : ""}`]] : []), ["content", "Portal Content"]].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} style={{ ...btn, background: tab === k ? T.surface : "transparent", color: tab === k ? T.text : T.text3, boxShadow: tab === k ? "0 1px 3px rgba(0,0,0,0.15)" : "none" }}>{l}</button>
           ))}
         </div>
@@ -361,6 +395,74 @@ Earth Breeze Procurement`);
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── COMPARE ── */}
+      {tab === "compare" && schema && (
+        <div>
+          <div style={{ ...card, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: T.text2, display: "flex", gap: 10, alignItems: "center" }}>
+            <span>📊</span>
+            <span>Every bidder answers the same {schema.reduce((n, s2) => n + (s2.f || []).length, 0)} fields, so responses line up row by row. Green marks the most favourable answer on numeric rows, amber the least. Blank means the bidder left it empty.</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={exportCompare} style={btnGhost} disabled={!structuredSubs.length}>Export CSV</button>
+          </div>
+          {!structuredSubs.length && (
+            <div style={{ ...card, padding: 36, textAlign: "center", color: T.text3, fontSize: 13 }}>
+              No structured responses yet. They appear here as bidders submit proposals through the portal.
+            </div>
+          )}
+          {structuredSubs.length > 0 && (
+            <div style={{ ...card, overflow: "auto" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    <th style={{ position: "sticky", left: 0, background: T.surface2, textAlign: "left", padding: "9px 12px", borderBottom: `1px solid ${T.border}`, minWidth: 260, zIndex: 2 }}>Field</th>
+                    {structuredSubs.map(s2 => (
+                      <th key={s2.id} style={{ textAlign: "left", padding: "9px 12px", borderBottom: `1px solid ${T.border}`, background: T.surface2, minWidth: 170, color: T.text }}>
+                        {s2.company || "(unnamed)"}
+                        <div style={{ fontWeight: 400, fontSize: 11, color: T.text3 }}>{new Date(s2.created_at).toLocaleDateString()}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {schema.map(sec => (
+                    <React.Fragment key={sec.s}>
+                      <tr>
+                        <td colSpan={structuredSubs.length + 1} style={{ padding: "9px 12px", background: T.accent + "12", fontWeight: 700, color: T.accent, fontSize: 12, borderBottom: `1px solid ${T.border}` }}>{sec.s}</td>
+                      </tr>
+                      {(sec.f || []).map(f => {
+                        const vals = structuredSubs.map(s2 => s2.structured?.[f.k]);
+                        const ext = numericExtremes(f, vals);
+                        return (
+                          <tr key={f.k}>
+                            <td style={{ position: "sticky", left: 0, background: T.surface, padding: "7px 12px", borderBottom: `1px solid ${T.border}`, color: T.text2, zIndex: 1 }}>
+                              {f.l}{f.req ? <span style={{ color: "#e5484d" }}> *</span> : null}
+                            </td>
+                            {vals.map((v, i) => {
+                              const disp = fmtVal(f, v);
+                              const isBest = typeof v === "number" && ext.best !== undefined && v === ext.best && ext.best !== ext.worst;
+                              const isWorst = typeof v === "number" && ext.worst !== undefined && v === ext.worst && ext.best !== ext.worst;
+                              return (
+                                <td key={i} style={{ padding: "7px 12px", borderBottom: `1px solid ${T.border}`, whiteSpace: f.t === "area" ? "normal" : "nowrap",
+                                  color: disp ? T.text : T.text3,
+                                  background: isBest ? "rgba(52,168,83,0.13)" : isWorst ? "rgba(251,188,5,0.13)" : "transparent",
+                                  fontWeight: isBest ? 700 : 400,
+                                  maxWidth: f.t === "area" ? 320 : undefined }}>
+                                  {disp || "-"}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
