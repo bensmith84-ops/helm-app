@@ -607,6 +607,7 @@ Earth Breeze Procurement`);
                       onChange={e => mutate(c => { c[si].s = e.target.value; })}
                       style={{ ...inputStyle, background: T.surface, fontWeight: 700, maxWidth: 340 }} />
                     <span style={{ fontSize: 11.5, color: T.text3 }}>{(sec.f || []).length} field{(sec.f || []).length === 1 ? "" : "s"}</span>
+                    {sec.note && <span title="Has bidder instructions" style={{ fontSize: 11 }}>💬</span>}
                     <div style={{ flex: 1 }} />
                     <button onClick={e => { e.stopPropagation(); moveSection(si, -1); }} disabled={si === 0} style={{ ...btnSm, ...btnGhost, opacity: si === 0 ? 0.4 : 1 }}>↑</button>
                     <button onClick={e => { e.stopPropagation(); moveSection(si, 1); }} disabled={si === fdraft.length - 1} style={{ ...btnSm, ...btnGhost, opacity: si === fdraft.length - 1 ? 0.4 : 1 }}>↓</button>
@@ -615,6 +616,15 @@ Earth Breeze Procurement`);
 
                   {open && (
                     <div style={{ padding: "12px 13px" }}>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ ...label, margin: "0 0 4px" }}>
+                          Instructions for bidders <span style={{ fontWeight: 400, color: T.text3 }}>- shown above these fields on the portal. Basic HTML like &lt;b&gt; works. Leave blank to hide.</span>
+                        </label>
+                        <textarea rows={3} value={sec.note || ""}
+                          onChange={e => mutate(c => { const v = e.target.value; if (v) c[si].note = v; else delete c[si].note; })}
+                          placeholder="e.g. Quote all rates FOB your facility, excluding postage. If your structure differs from these fields, use the notes box at the end of the section."
+                          style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} />
+                      </div>
                       {(sec.f || []).map((f, fi) => {
                         const used = answeredCount(f.k);
                         return (

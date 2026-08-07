@@ -93,6 +93,8 @@ form.rfp textarea{min-height:110px;resize:vertical}
 .qsec>summary::before{content:'\25B8';display:inline-block;transition:transform .15s;color:var(--sky-deep)}
 .qsec[open]>summary::before{transform:rotate(90deg)}
 .qsec .qbody{padding:6px 16px 16px}
+.qnote{background:#EAF4FC;border-left:3px solid var(--sky-deep);border-radius:0 8px 8px 0;padding:10px 14px;margin:10px 0 4px;font-size:12.5px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
+.qnote b{color:var(--spruce)}
 .qsec .cnt{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--ink2)}
 .qsec .cnt.done{color:#1C7A3E}
 .qgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -374,7 +376,8 @@ function renderQForm(schema){
     const fields=sec.f||[];
     const reqn=fields.filter(function(f){return f.req}).length;
     h+='<details class="qsec"'+(si===0?' open':'')+' data-sec="'+si+'"><summary>'+esc(sec.s)+
-       '<span class="cnt" data-cnt="'+si+'">0 of '+fields.length+(reqn?' \u00b7 '+reqn+' required':'')+'</span></summary><div class="qbody"><div class="qgrid">';
+       '<span class="cnt" data-cnt="'+si+'">0 of '+fields.length+(reqn?' \u00b7 '+reqn+' required':'')+'</span></summary><div class="qbody">'+
+       (sec.note?'<div class="qnote">'+sec.note+'</div>':'')+'<div class="qgrid">';
     fields.forEach(function(f){
       const wide=(f.t==='area')?' style="grid-column:1/-1"':'';
       h+='<div class="qf"'+wide+'><label for="q_'+f.k+'">'+esc(f.l)+(f.req?'<span class="req">*</span>':'')+'</label>';
