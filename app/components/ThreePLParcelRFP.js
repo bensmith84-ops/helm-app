@@ -10,6 +10,7 @@ const TYPE_META = {
   question: { label: "Question", bg: "rgba(251,188,5,0.15)", fg: "#b8860b" },
   intent:   { label: "Intent to bid", bg: "rgba(66,133,244,0.15)", fg: "#4285f4" },
 };
+const ANSWER_HINT = "Answers are published to every bidder without naming who asked, so write them as general clarifications.";
 const STATUS_META = {
   pending:  { label: "Pending",  bg: "rgba(251,188,5,0.15)", fg: "#b8860b" },
   approved: { label: "Approved", bg: "rgba(52,168,83,0.15)", fg: "#34a853" },
@@ -124,6 +125,8 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
   const [subs, setSubs] = useState([]);
   const [subsLoading, setSubsLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
+  const [answerDraft, setAnswerDraft] = useState({});
+  const [qBusy, setQBusy] = useState(null);
 
   const [schema, setSchema] = useState(null);           // structured response form definition
   const [fdraft, setFdraft] = useState(null);          // editable copy of the schema
@@ -217,6 +220,23 @@ Earth Breeze Procurement`);
       if (error) throw error;
       window.open(data.signedUrl, "_blank", "noopener");
     } catch (e) { alert("Could not open file: " + (e.message || e)); }
+  };
+
+  const saveAnswer = async (sub, publish) => {
+    const text = (answerDraft[sub.id] ?? sub.answer ?? "").trim();
+    if (publish && !text) { alert("Write an answer before publishing."); return; }
+    setQBusy(sub.id);
+    const patch = { answer: text || null, answered_at: text ? new Date().toISOString() : null, published: publish };
+    const { error } = await supabase.from("rfp_submissions").update(patch).eq("id", sub.id);
+    setQBusy(null);
+    if (error) { alert("Could not save: " + error.message); return; }
+    setSubs(list => list.map(x => x.id === sub.id ? { ...x, ...patch } : x));
+  };
+  const unpublish = async (sub) => {
+    setQBusy(sub.id);
+    const { error } = await supabase.from("rfp_submissions").update({ published: false }).eq("id", sub.id);
+    setQBusy(null);
+    if (!error) setSubs(list => list.map(x => x.id === sub.id ? { ...x, published: false } : x));
   };
 
   const exportCSV = () => {
@@ -469,6 +489,13 @@ Earth Breeze Procurement`);
                   <b style={{ fontSize: 13, color: T.text }}>{s.company}</b>
                   <span style={{ fontSize: 12, color: T.text2 }}>{s.contact_name}</span>
                   {s.origins_bid && <span style={{ fontSize: 11.5, color: T.text3 }}>· {s.origins_bid}</span>}
+                  {s.submission_type === "question" && (
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99,
+                      background: s.published ? "rgba(52,168,83,0.15)" : s.answer ? "rgba(251,188,5,0.15)" : "rgba(229,72,77,0.12)",
+                      color: s.published ? "#34a853" : s.answer ? "#b8860b" : "#e5484d" }}>
+                      {s.published ? "published" : s.answer ? "drafted" : "unanswered"}
+                    </span>
+                  )}
                   <div style={{ flex: 1 }} />
                   <span style={{ fontSize: 11.5, color: T.text3 }}>{new Date(s.created_at).toLocaleString()}</span>
                   <span style={{ color: T.text3, fontSize: 11 }}>{open ? "▲" : "▼"}</span>
@@ -500,9 +527,27 @@ Earth Breeze Procurement`);
                       <div style={{ fontSize: 12.5, color: T.text, whiteSpace: "pre-wrap", marginBottom: 10 }}>{s.summary}</div>
                     </>)}
                     {s.questions && (<>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Questions</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{s.submission_type === "question" ? "Question" : "Questions"}</div>
                       <div style={{ fontSize: 12.5, color: T.text, whiteSpace: "pre-wrap" }}>{s.questions}</div>
                     </>)}
+                    {s.submission_type === "question" && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Your answer</div>
+                        <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 6 }}>{ANSWER_HINT}</div>
+                        <textarea rows={4} value={answerDraft[s.id] ?? s.answer ?? ""}
+                          onChange={e => setAnswerDraft(d => ({ ...d, [s.id]: e.target.value }))}
+                          placeholder="Write the clarification all bidders will see…"
+                          style={{ ...inputStyle, resize: "vertical" }} />
+                        <div style={{ display: "flex", gap: 8, marginTop: 9, alignItems: "center", flexWrap: "wrap" }}>
+                          <button disabled={qBusy === s.id} onClick={() => saveAnswer(s, true)} style={{ ...btnSm, background: "#34a853", color: "#fff" }}>
+                            {qBusy === s.id ? "Saving…" : s.published ? "Update published answer" : "✓ Publish to all bidders"}
+                          </button>
+                          <button disabled={qBusy === s.id} onClick={() => saveAnswer(s, false)} style={{ ...btnSm, ...btnGhost }}>Save draft</button>
+                          {s.published && <button disabled={qBusy === s.id} onClick={() => unpublish(s)} style={{ ...btnSm, background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>Unpublish</button>}
+                          {s.answered_at && <span style={{ fontSize: 11.5, color: T.text3 }}>last answered {new Date(s.answered_at).toLocaleString()}</span>}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

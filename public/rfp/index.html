@@ -95,6 +95,11 @@ form.rfp textarea{min-height:110px;resize:vertical}
 .qsec .qbody{padding:6px 16px 16px}
 .qnote{background:#EAF4FC;border-left:3px solid var(--sky-deep);border-radius:0 8px 8px 0;padding:10px 14px;margin:10px 0 4px;font-size:12.5px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
 .qnote b{color:var(--spruce)}
+.qa-item{border:1.5px solid var(--line);border-radius:10px;padding:14px 16px;margin:10px 0;background:#fff}
+.qa-item .qq{font-weight:700;color:var(--spruce);font-size:13.5px;white-space:pre-wrap}
+.qa-item .qa{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);font-size:13px;color:var(--ink);white-space:pre-wrap}
+.qa-item .qmeta{font-size:11.5px;color:var(--ink2);margin-top:8px}
+.qa-pending{font-size:12.5px;color:var(--ink2);font-style:italic;margin-top:8px}
 .qsec .cnt{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--ink2)}
 .qsec .cnt.done{color:#1C7A3E}
 .qgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -659,9 +664,10 @@ async function enter(t){
       (c.download_docx?'<a class="dl" href="'+esc(c.download_docx)+'" download><div class="ic">RFP</div><div><b>Full RFP document</b><span>Word</span></div></a>':'')+
       (c.download_xlsx?'<a class="dl" href="'+esc(c.download_xlsx)+'" download><div class="ic">XLS</div><div><b>Bidder dataset</b><span>Excel \u00b7 monthly volumes, pick profile, SKU velocity, all 908 ZIP3s, 29,064 ZIP detail, day-of-week</span></div></a>':'')+
       '</div><p class="tbl-note" style="margin-top:14px">The dataset workbook contains the full underlying aggregates so you can model your own cost-to-serve. Read the <b>Read Me</b> tab first - it documents the bulk-transfer SKUs that must be excluded from pick-labour modelling.</p>']);
+    S.push(['qa','Questions &amp; answers', '<p class="lead">Questions submitted by any bidder are answered here and published to everyone, without naming who asked. Check this section before submitting a question in case it has already been covered.</p><div id="qa-list"><p class="tbl-note">Loading\u2026</p></div>']);
     S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
     window.__qschema = c.response_form || null;
-    const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',forecast:'Forecast',scope:'Scope',network:'Network',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',submit:'Submit'};
+    const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',forecast:'Forecast',scope:'Scope',network:'Network',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',qa:'Q&A',submit:'Submit'};
     $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navFF[id]+'</a>').join('');
     $('c-main').innerHTML = S.map(([id,title,body],i)=>'<section id="'+id+'"><h2>'+(i+1)+' \u00b7 '+title+'</h2>'+body+'</section>').join('');
     document.getElementById('f-origins-wrap').style.display = 'none';
@@ -671,6 +677,9 @@ async function enter(t){
       qh.innerHTML = '<h3 style="margin-top:22px">Structured response</h3>'+
         '<p class="tbl-note" style="margin:0 0 4px">Complete these fields so every proposal can be compared on the same basis. Required fields are marked with an asterisk. You can still attach your own workbook and documents below - this does not replace them.</p>'+
         renderQForm(window.__qschema);
+      loadQA();
+      const tsel=$('f-type'); if(tsel) tsel.addEventListener('change', applyTypeMode);
+      applyTypeMode();
       renderNodes(1);
       const cntSel=document.getElementById('q_proposed_node_count');
       if(cntSel){ cntSel.addEventListener('change', function(){
@@ -766,10 +775,57 @@ async function uploadFiles(){
   return out;
 }
 
+async function loadQA(){
+  const el=document.getElementById('qa-list'); if(!el) return;
+  try{
+    const res=await rpc('rfp_get_qa', {p_token: getTok()});
+    const items=(res && res.ok && Array.isArray(res.items)) ? res.items : [];
+    if(!items.length){ el.innerHTML='<p class="tbl-note">No questions have been published yet. Submit yours below and the answer will appear here for all bidders.</p>'; return; }
+    el.innerHTML=items.map(function(it){
+      const d=it.answered_at?new Date(it.answered_at):null;
+      return '<div class="qa-item"><div class="qq">'+esc(it.question||'')+'</div>'+
+        (it.answer?'<div class="qa">'+esc(it.answer)+'</div>':'<div class="qa-pending">Answer pending.</div>')+
+        '<div class="qmeta">'+(d?('Answered '+d.toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})):'Awaiting answer')+
+        (it.files?' \u00b7 '+it.files+' file'+(it.files===1?'':'s')+' attached to the question':'')+'</div></div>';
+    }).join('');
+  }catch(e){ el.innerHTML='<p class="tbl-note">Questions and answers will appear here once published.</p>'; }
+}
+
+function applyTypeMode(){
+  const t=$('f-type') ? $('f-type').value : 'proposal';
+  const q=document.getElementById('qform');
+  const qh=document.getElementById('q-holder');
+  const rates=document.getElementById('f-rates-row');
+  const origins=document.getElementById('f-origins-wrap');
+  const summ=document.getElementById('f-summary-row');
+  const isQ = t==='question';
+  if(qh) qh.style.display = isQ ? 'none' : '';
+  if(rates) rates.style.display = isQ ? 'none' : '';
+  if(origins && isQ) origins.style.display='none';
+  if(summ) summ.style.display = isQ ? 'none' : '';
+  const ql=document.getElementById('f-questions-label');
+  const qi=document.getElementById('f-questions');
+  if(ql) ql.innerHTML = isQ
+    ? 'Your question <span class="opt">(answered to all bidders)</span>'
+    : 'Questions for Earth Breeze <span class="opt">(answered to all bidders)</span>';
+  if(qi) qi.setAttribute('placeholder', isQ
+    ? 'Ask anything about the RFP, the data, or how to price a line. Questions and answers are published to all bidders without naming who asked.'
+    : 'Optional');
+  const btn=$('f-btn'); if(btn) btn.textContent = isQ ? 'Submit question' : 'Submit to Earth Breeze';
+  const fl=document.getElementById('f-files-label');
+  if(fl) fl.innerHTML = isQ
+    ? 'Attach a file to your question <span class="opt">(optional - screenshots, spreadsheets)</span>'
+    : 'Attach files <span class="opt">(PDF, Excel, Word, PowerPoint, CSV, ZIP or images - up to 25 MB each)</span>';
+}
+
 async function submitRFP(e){
   e.preventDefault();
   const btn=$('f-btn'); const err=$('form-err');
   btn.disabled=true; btn.textContent='Submitting…'; err.style.display='none';
+  if($('f-type').value==='question' && !$('f-questions').value.trim()){
+    err.textContent='Please type your question before submitting.'; err.style.display='block';
+    btn.disabled=false; btn.textContent='Submit question'; $('f-questions').focus(); return false;
+  }
   let structured=null;
   if(document.getElementById('qform') && $('f-type').value==='proposal'){
     const q=collectQForm();
@@ -842,7 +898,7 @@ boot();
   <form id="rfp-form" class="rfp" onsubmit="return submitRFP(event)">
     <div class="frow">
       <div><label>Submission type</label>
-        <select id="f-type"><option value="intent">Intent to bid</option><option value="question">Question</option><option value="proposal" selected>Proposal</option></select></div>
+        <select id="f-type"><option value="proposal" selected>Proposal</option><option value="question">Question</option></select></div>
       <div id="f-origins-wrap"><label>Origins bid</label>
         <select id="f-origins"><option>Both</option><option>Kentucky (40330) only</option><option>Oregon (97503) only</option><option value="">N/A - question only</option></select></div>
     </div>
@@ -865,17 +921,19 @@ boot();
       </div>
       <label>Certifications held <span class="opt">(Leaping Bunny, GMP, ISO, biobased %, etc.)</span></label><input id="f-certs" maxlength="400" placeholder="List relevant certifications">
     </div>
-    <div class="frow">
+    <div class="frow" id="f-rates-row">
       <div><label id="f-rates-label">Rate workbook link <span class="opt">(or attach the file below)</span></label><input id="f-rates" type="url" placeholder="https://…"></div>
       <div><label>Full proposal link <span class="opt">(optional)</span></label><input id="f-prop" type="url" placeholder="https://…"></div>
     </div>
     <div id="q-holder"></div>
-    <label>Attach files <span class="opt">(PDF, Excel, Word, PowerPoint, CSV, ZIP or images - up to 25 MB each)</span></label>
+    <label id="f-files-label">Attach files <span class="opt">(PDF, Excel, Word, PowerPoint, CSV, ZIP or images - up to 25 MB each)</span></label>
     <input id="f-files" type="file" multiple style="padding:8px 10px;background:#fff">
     <div id="f-filelist" style="font-size:12.5px;color:var(--ink2);margin-top:6px"></div>
-    <label>Executive summary / notes</label>
-    <textarea id="f-summary" maxlength="20000" placeholder="Key strengths of your bid, service model, and anything the evaluation team should know."></textarea>
-    <label>Questions for Earth Breeze <span class="opt">(answered to all bidders)</span></label>
+    <div id="f-summary-row">
+      <label>Executive summary / notes</label>
+      <textarea id="f-summary" maxlength="20000" placeholder="Key strengths of your bid, service model, and anything the evaluation team should know."></textarea>
+    </div>
+    <label id="f-questions-label">Questions for Earth Breeze <span class="opt">(answered to all bidders)</span></label>
     <textarea id="f-questions" maxlength="10000" placeholder="Optional"></textarea>
     <button class="submit-btn" id="f-btn" type="submit">Submit to Earth Breeze</button>
     <div id="form-err"></div>
