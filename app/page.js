@@ -130,10 +130,25 @@ export default function HelmApp() {
   const [pendingProjectId, setPendingProjectId] = useState(null);
 
   // Deep links: #projects/t/<taskId> or #projects/p/<projectId>
+  // Captured on first paint - even before sign-in - and stashed, because the auth redirect
+  // drops the URL fragment. Consumed once the user is present.
   useEffect(() => {
     const m = (window.location.hash || "").match(/^#projects\/(t|p)\/([0-9a-f-]{36})/i);
-    if (m) { setActive("projects"); if (m[1] === "t") setPendingTaskId(m[2]); else setPendingProjectId(m[2]); }
+    if (m) { try { sessionStorage.setItem("helm_deeplink", m[1] + ":" + m[2]); } catch (_) {} }
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let raw = null;
+    const m = (window.location.hash || "").match(/^#projects\/(t|p)\/([0-9a-f-]{36})/i);
+    if (m) raw = m[1] + ":" + m[2];
+    if (!raw) { try { raw = sessionStorage.getItem("helm_deeplink"); } catch (_) {} }
+    if (!raw) return;
+    try { sessionStorage.removeItem("helm_deeplink"); } catch (_) {}
+    const [kind, id] = raw.split(":");
+    setActive("projects");
+    if (kind === "t") setPendingTaskId(id); else setPendingProjectId(id);
+  }, [user]);
   const [allowedModules, setAllowedModules] = useState(null); // null = loading, array = loaded
   const [isAdmin, setIsAdmin] = useState(false);
   const [isExternal, setIsExternal] = useState(false);

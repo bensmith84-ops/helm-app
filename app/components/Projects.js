@@ -890,8 +890,10 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     const base = window.location.pathname + window.location.search;
     if (selectedTask?.id) window.history.replaceState(null, "", base + "#projects/t/" + selectedTask.id);
     else if (activeProject) window.history.replaceState(null, "", base + "#projects/p/" + activeProject);
-    else if ((window.location.hash || "").startsWith("#projects/")) window.history.replaceState(null, "", base);
-  }, [selectedTask?.id, activeProject]);
+    // Don't strip the hash while a deep link is still waiting to be resolved, or the
+    // target is lost if the projects list hasn't loaded yet.
+    else if ((window.location.hash || "").startsWith("#projects/") && !pendingProjectId && !pendingTaskId) window.history.replaceState(null, "", base);
+  }, [selectedTask?.id, activeProject, pendingProjectId, pendingTaskId]);
 
   const copyShareLink = (kind, id) => {
     const url = window.location.origin + window.location.pathname + "#projects/" + kind + "/" + id;
