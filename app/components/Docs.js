@@ -144,6 +144,16 @@ export default function DocsView({ setActive }) {
   const saveTimer = useRef(null);
   const titleSaveTimer = useRef(null);
   const blocksRef = useRef(blocks); blocksRef.current = blocks;
+  // Undo/redo history for block structure (add, delete, reorder, type change, table edits).
+  const undoStack = useRef([]);
+  const redoStack = useRef([]);
+  const skipHistory = useRef(false);
+  const snapshot = useCallback((label) => {
+    if (skipHistory.current) return;
+    undoStack.current.push({ blocks: JSON.parse(JSON.stringify(blocksRef.current || [])), label });
+    if (undoStack.current.length > 60) undoStack.current.shift();
+    redoStack.current = [];
+  }, []);
   const slashMenuRef = useRef(slashMenu); slashMenuRef.current = slashMenu;
   const calloutPickerRef = useRef(calloutEmojiPicker); calloutPickerRef.current = calloutEmojiPicker;
   const handleKeyRef = useRef(null);
@@ -204,6 +214,40 @@ export default function DocsView({ setActive }) {
   }, [saveDoc, activeDoc, blocks]);
 
   // Content change handler - does NOT trigger re-render
+  const applyHistory = useCallback((from, to) => {
+    if (!from.current.length) return;
+    const entry = from.current.pop();
+    to.current.push({ blocks: JSON.parse(JSON.stringify(blocksRef.current || [])) });
+    skipHistory.current = true;
+    setBlocks(entry.blocks);
+    // push restored text back into the contenteditable DOM, which React doesn't own
+    setTimeout(() => {
+      entry.blocks.forEach(b => {
+        const el = blockRefs.current[b.id];
+        if (el && el.isContentEditable && el.innerText !== (b.content || "")) el.innerText = b.content || "";
+        blockContents.current[b.id] = b.content || "";
+      });
+      skipHistory.current = false;
+    }, 0);
+    queueSave();
+  }, [queueSave]);
+  const undo = useCallback(() => applyHistory(undoStack, redoStack), [applyHistory]);
+  const redo = useCallback(() => applyHistory(redoStack, undoStack), [applyHistory]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.key.toLowerCase() !== "z") return;
+      // Let the browser handle undo inside a plain input (e.g. table cell, title field)
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+
   const handleContentChange = useCallback((blockId, text) => {
     blockContents.current[blockId] = text;
     // While the menu is open for this block, mirror the text typed after "/" into the filter.
@@ -228,11 +272,13 @@ export default function DocsView({ setActive }) {
 
   // Structural changes (add/delete/reorder/type change) DO trigger re-render
   const updateBlockMeta = (bid, upd) => {
+    snapshot();
     setBlocks(prev => prev.map(b => b.id === bid ? { ...b, ...upd } : b));
     queueSave();
   };
 
   const insertBlockAfter = (afterId, type = "text", indent = 0) => {
+    snapshot();
     const nb = mkBlock(type);
     if (indent) nb.indent = indent;
     blockContents.current[nb.id] = "";
@@ -243,6 +289,7 @@ export default function DocsView({ setActive }) {
   };
 
   const deleteBlock = (bid) => {
+    snapshot();
     setBlocks(prev => {
       if (prev.length <= 1) return prev;
       const i = prev.findIndex(b => b.id === bid);
@@ -255,6 +302,7 @@ export default function DocsView({ setActive }) {
   };
 
   const changeBlockType = (bid, type) => {
+    snapshot();
     blockContents.current[bid] = "";
     setBlocks(prev => prev.map(b => b.id === bid ? { ...b, type, content: "", ...(type === "table" ? { tableData: { cols: ["Column A","Column B","Column C"], rows: [["","",""],["","",""]], formulas: {} } } : {}) } : b));
     setSlashMenu(null);
@@ -416,13 +464,21 @@ export default function DocsView({ setActive }) {
     toggle: { fontSize: 16, lineHeight: 1.55, fontWeight: 600 }, divider: {}, table: {},
   }[type] || {});
 
+  const [tblEdit, setTblEdit] = useState(null);     // { blockId, key }
+  const [tblEditVal, setTblEditVal] = useState("");
+
   // ──── TABLE COMPONENT ────
   const TableBlock = ({ block }) => {
     const td = block.tableData || { cols: ["A","B","C"], rows: [["","",""],["","",""]], formulas: {} };
-    const [editCell, setEditCell] = useState(null); // "r,c"
-    const [editVal, setEditVal] = useState("");
+    // Cell edit state lives in the parent: this component is re-created on every render of
+    // Docs, so local state here would be discarded the moment the table updates.
+    const editCell = tblEdit && tblEdit.blockId === block.id ? tblEdit.key : null;
+    const setEditCell = (key) => setTblEdit(key ? { blockId: block.id, key } : null);
+    const editVal = tblEditVal;
+    const setEditVal = setTblEditVal;
 
     const updateTable = (newTd) => {
+      snapshot();
       setBlocks(prev => prev.map(b => b.id === block.id ? { ...b, tableData: newTd } : b));
       queueSave();
     };
@@ -451,9 +507,17 @@ export default function DocsView({ setActive }) {
             <thead>
               <tr>
                 {td.cols.map((col, ci) => (
-                  <th key={ci} style={headerStyle}>
+                  <th key={ci} style={{ ...headerStyle, paddingRight: 20 }}>
                     <input value={col} onChange={e => { const nc = [...td.cols]; nc[ci] = e.target.value; updateTable({ ...td, cols: nc }); }}
                       style={{ background: "transparent", border: "none", outline: "none", color: T.text2, fontSize: 12, fontWeight: 600, width: "100%", fontFamily: "inherit" }} />
+                    {td.cols.length > 1 && (
+                      <span onClick={() => { if (confirm(`Delete column "${col || String.fromCharCode(65 + ci)}" and its contents?`)) delCol(ci); }}
+                        title="Delete column"
+                        style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", cursor: "pointer",
+                                 color: T.text3, fontSize: 11, opacity: 0.45, padding: "0 3px", lineHeight: 1 }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = "#e5484d"; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = 0.45; e.currentTarget.style.color = T.text3; }}>×</span>
+                    )}
                   </th>
                 ))}
                 <th style={{ ...headerStyle, width: 28, padding: 0, cursor: "pointer" }} onClick={addCol} title="Add column">
@@ -473,7 +537,7 @@ export default function DocsView({ setActive }) {
                       <td key={ci} style={{ ...cellStyle, background: formula ? `${T.accent}08` : "transparent" }}
                         onClick={() => { setEditCell(key); setEditVal(formula || cell); }}>
                         {isEditing ? (
-                          <input value={editVal} onChange={e => setEditVal(e.target.value)}
+                          <input value={editVal} autoFocus onChange={e => setEditVal(e.target.value)}
                             onBlur={() => { setCell(ri, ci, editVal); setEditCell(null); }}
                             onKeyDown={e => { if (e.key === "Enter") { setCell(ri, ci, editVal); setEditCell(null); } if (e.key === "Escape") setEditCell(null); if (e.key === "Tab") { e.preventDefault(); setCell(ri, ci, editVal); const nc = ci + 1 < td.cols.length ? `${ri},${ci+1}` : ri + 1 < td.rows.length ? `${ri+1},0` : null; if (nc) { setEditCell(nc); const [nr, ncc] = nc.split(",").map(Number); setEditVal(td.formulas?.[nc] || td.rows[nr]?.[ncc] || ""); } else { setEditCell(null); } } }}
                             style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontFamily: formula ? "monospace" : "inherit" }} />
@@ -485,7 +549,8 @@ export default function DocsView({ setActive }) {
                       </td>
                     );
                   })}
-                  <td style={{ ...cellStyle, width: 28, padding: 0, textAlign: "center", cursor: "pointer" }} onClick={() => delRow(ri)} title="Delete row">
+                  <td style={{ ...cellStyle, width: 28, padding: 0, textAlign: "center", cursor: "pointer" }}
+                      onClick={() => { const empty = row.every(c => !String(c || "").trim()); if (empty || confirm("Delete this row and its contents?")) delRow(ri); }} title="Delete row">
                     <span style={{ color: T.text3, fontSize: 10, opacity: 0.4 }}>×</span>
                   </td>
                 </tr>
