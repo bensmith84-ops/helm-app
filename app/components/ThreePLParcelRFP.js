@@ -374,6 +374,27 @@ Earth Breeze Procurement`);
       }
       const clean = JSON.parse(JSON.stringify(fdraft)).map(sec => ({ ...sec, f: (sec.f || []).map(f => { const { __new, ...rest } = f; return rest; }) }));
       const { data: fresh } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
+      // Guard against overwriting changes made elsewhere while this tab was open.
+      const liveForm = fresh?.content?.response_form || null;
+      const loadedForm = schema || null;
+      if (liveForm && loadedForm && JSON.stringify(liveForm) !== JSON.stringify(loadedForm)) {
+        const liveCount = liveForm.reduce((n, s2) => n + (s2.f || []).length, 0);
+        const mineCount = clean.reduce((n, s2) => n + (s2.f || []).length, 0);
+        const ok = window.confirm(
+          "This form was changed somewhere else after you opened this tab.\n\n" +
+          `Saved version now: ${liveForm.length} sections, ${liveCount} fields\n` +
+          `Your version: ${clean.length} sections, ${mineCount} fields\n\n` +
+          "OK = overwrite with your version (the other changes will be lost).\n" +
+          "Cancel = discard your edits and load the current saved version."
+        );
+        if (!ok) {
+          setSchema(liveForm);
+          setFdraft(JSON.parse(JSON.stringify(liveForm)));
+          setFsaving(false);
+          setFerr("Loaded the current saved version. Your unsaved edits were discarded.");
+          return;
+        }
+      }
       const content = { ...(fresh?.content || baseContent || {}), response_form: clean };
       const { error } = await supabase.from("rfp_portal_content").upsert({ rfp_code: RFP_CODE, content, updated_at: new Date().toISOString() });
       if (error) throw error;
