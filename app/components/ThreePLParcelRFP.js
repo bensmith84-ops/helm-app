@@ -229,8 +229,12 @@ Earth Breeze Procurement`);
   const chip = (m) => ({ fontSize: 11, padding: "2px 9px", borderRadius: 99, background: m.bg, color: m.fg, fontWeight: 700, flexShrink: 0 });
 
   const structuredSubs = subs.filter(s => s.structured && Object.keys(s.structured).length > 0);
+  const fmtNode = (n) => [n.address1, n.city, n.state, n.zip].filter(Boolean).join(", ");
   const fmtVal = (f, v) => {
     if (v === undefined || v === null || v === "") return null;
+    if (f.t === "nodes" && Array.isArray(v)) {
+      return v.map((n, i) => `${i + 1}. ${fmtNode(n)}${n.sqft ? ` (${Number(n.sqft).toLocaleString()} sq ft)` : ""}${n.status ? ` - ${n.status}` : ""}`).join("\n");
+    }
     if (Array.isArray(v)) return v.join(", ");
     if (f.t === "cur" && typeof v === "number") return "$" + v.toLocaleString(undefined, { minimumFractionDigits: f.dp ?? 2, maximumFractionDigits: f.dp ?? 2 });
     if (f.t === "num" && typeof v === "number") return v.toLocaleString() + (f.unit ? ` ${f.unit}` : "");
@@ -251,6 +255,7 @@ Earth Breeze Procurement`);
     schema.forEach(sec => (sec.f || []).forEach(f => {
       rows.push([sec.s, f.l, ...structuredSubs.map(s => {
         const v = s.structured?.[f.k];
+        if (f.t === "nodes" && Array.isArray(v)) return v.map(fmtNode).join(" | ");
         return Array.isArray(v) ? v.join("; ") : (v ?? "");
       })]);
     }));
@@ -259,6 +264,24 @@ Earth Breeze Procurement`);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     a.download = `${RFP_CODE}_comparison.csv`; a.click();
+  };
+
+  const exportNodes = () => {
+    const rows = [];
+    structuredSubs.forEach(s => {
+      const ns = s.structured?.nodes;
+      if (Array.isArray(ns)) ns.forEach((n, i) => rows.push([
+        s.company || "(unnamed)", i + 1, n.address1 || "", n.city || "", n.state || "", n.zip || "",
+        n.sqft || "", n.status || "", n.role || "",
+      ]));
+    });
+    if (!rows.length) return;
+    const cols = ["Bidder", "Node #", "Address", "City", "State", "ZIP", "Sq ft", "Status", "Role"];
+    const escv = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [cols.join(","), ...rows.map(r => r.map(escv).join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `${RFP_CODE}_proposed_nodes.csv`; a.click();
   };
 
   const pendingCount = reqs.filter(r => r.status === "pending").length;
@@ -405,6 +428,7 @@ Earth Breeze Procurement`);
             <span>📊</span>
             <span>Every bidder answers the same {schema.reduce((n, s2) => n + (s2.f || []).length, 0)} fields, so responses line up row by row. Green marks the most favourable answer on numeric rows, amber the least. Blank means the bidder left it empty.</span>
             <div style={{ flex: 1 }} />
+            <button onClick={exportNodes} style={btnGhost} disabled={!structuredSubs.some(s => Array.isArray(s.structured?.nodes) && s.structured.nodes.length)}>Export node addresses</button>
             <button onClick={exportCompare} style={btnGhost} disabled={!structuredSubs.length}>Export CSV</button>
           </div>
           {!structuredSubs.length && (
@@ -445,11 +469,11 @@ Earth Breeze Procurement`);
                               const isBest = typeof v === "number" && ext.best !== undefined && v === ext.best && ext.best !== ext.worst;
                               const isWorst = typeof v === "number" && ext.worst !== undefined && v === ext.worst && ext.best !== ext.worst;
                               return (
-                                <td key={i} style={{ padding: "7px 12px", borderBottom: `1px solid ${T.border}`, whiteSpace: f.t === "area" ? "normal" : "nowrap",
+                                <td key={i} style={{ padding: "7px 12px", borderBottom: `1px solid ${T.border}`, whiteSpace: (f.t === "area" || f.t === "nodes") ? "pre-line" : "nowrap",
                                   color: disp ? T.text : T.text3,
                                   background: isBest ? "rgba(52,168,83,0.13)" : isWorst ? "rgba(251,188,5,0.13)" : "transparent",
                                   fontWeight: isBest ? 700 : 400,
-                                  maxWidth: f.t === "area" ? 320 : undefined }}>
+                                  maxWidth: (f.t === "area" || f.t === "nodes") ? 320 : undefined }}>
                                   {disp || "-"}
                                 </td>
                               );

@@ -109,6 +109,16 @@ form.rfp textarea{min-height:110px;resize:vertical}
 .qchk label{display:inline-flex;align-items:center;gap:6px;font-weight:500;font-size:13px;margin:0;padding:5px 11px;border:1.5px solid var(--line);border-radius:99px;cursor:pointer;background:#fff}
 .qchk input{width:auto}
 .qmiss{border-color:#C0392B !important;background:#FDF3F2}
+.nodewrap{grid-column:1/-1}
+.nodecard{border:1.5px solid var(--line);border-radius:10px;padding:13px 14px;margin:10px 0;background:var(--paper)}
+.nodecard .nhead{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.nodecard .nhead b{font-size:13px;color:var(--spruce)}
+.nodecard .nrm{margin-left:auto;background:none;border:none;color:#C0392B;font-size:12px;font-weight:600;cursor:pointer;padding:2px 6px}
+.ngrid{display:grid;grid-template-columns:2fr 1.2fr .7fr .9fr;gap:10px}
+@media(max-width:700px){.ngrid{grid-template-columns:1fr 1fr}}
+.ngrid .nf label{font-size:11.5px;font-weight:600;margin:0 0 4px;display:block;color:var(--ink2)}
+.ngrid .nf input,.ngrid .nf select{width:100%;padding:8px 10px;border:1.5px solid var(--line);border-radius:7px;font-size:13.5px;font-family:inherit;background:#fff}
+.naddbtn{padding:7px 14px;border-radius:8px;border:1.5px dashed var(--line);background:#fff;color:var(--spruce);font-size:12.5px;font-weight:600;cursor:pointer}
 .submit-btn{margin-top:22px;padding:13px 26px;background:var(--spruce);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer}
 .submit-btn:hover{background:var(--spruce-deep)}
 .submit-btn:disabled{opacity:.6;cursor:default}
@@ -368,7 +378,13 @@ function renderQForm(schema){
     fields.forEach(function(f){
       const wide=(f.t==='area')?' style="grid-column:1/-1"':'';
       h+='<div class="qf"'+wide+'><label for="q_'+f.k+'">'+esc(f.l)+(f.req?'<span class="req">*</span>':'')+'</label>';
-      if(f.t==='area'){ h+='<textarea id="q_'+f.k+'" data-q="'+f.k+'"'+(f.req?' data-req="1"':'')+' placeholder="'+esc(f.ph||'')+'"></textarea>'; }
+      if(f.t==='nodes'){
+        h+='<div class="nodewrap" data-nodes="'+f.k+'"'+(f.req?' data-req="1"':'')+'>'+
+           (f.hint?'<div style="font-size:12px;color:var(--ink2);margin-bottom:2px">'+esc(f.hint)+'</div>':'')+
+           '<div id="nodelist"></div>'+
+           '<button type="button" class="naddbtn" onclick="addNode()">+ Add another facility</button></div>';
+      }
+      else if(f.t==='area'){ h+='<textarea id="q_'+f.k+'" data-q="'+f.k+'"'+(f.req?' data-req="1"':'')+' placeholder="'+esc(f.ph||'')+'"></textarea>'; }
       else if(f.t==='sel'){ h+='<select id="q_'+f.k+'" data-q="'+f.k+'"'+(f.req?' data-req="1"':'')+'><option value="">Select\u2026</option>'+
         (f.opts||[]).map(function(o){return '<option>'+esc(o)+'</option>'}).join('')+'</select>'; }
       else if(f.t==='multi'){ h+='<div class="qchk" data-q="'+f.k+'" data-multi="1">'+
@@ -383,8 +399,80 @@ function renderQForm(schema){
   });
   return h+'</div>';
 }
+const US_STATES=['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'];
+function nodeCardHTML(i){
+  return '<div class="nodecard" data-node="'+i+'">'+
+    '<div class="nhead"><b>Facility '+(i+1)+'</b>'+(i>0?'<button type="button" class="nrm" onclick="removeNode('+i+')">Remove</button>':'')+'</div>'+
+    '<div class="ngrid">'+
+      '<div class="nf"><label>Street address</label><input data-nf="address1" placeholder="1234 Distribution Way"></div>'+
+      '<div class="nf"><label>City</label><input data-nf="city" placeholder="City"></div>'+
+      '<div class="nf"><label>State</label><select data-nf="state"><option value="">--</option>'+US_STATES.map(function(x){return '<option>'+x+'</option>'}).join('')+'</select></div>'+
+      '<div class="nf"><label>ZIP code</label><input data-nf="zip" inputmode="numeric" maxlength="10" placeholder="00000"></div>'+
+    '</div>'+
+    '<div class="ngrid" style="margin-top:10px">'+
+      '<div class="nf"><label>Square footage</label><input data-nf="sqft" inputmode="numeric" placeholder="e.g. 250000"></div>'+
+      '<div class="nf"><label>Status</label><select data-nf="status"><option value="">--</option><option>Existing - operating today</option><option>Existing - space available</option><option>New site - under LOI</option><option>New site - to be secured</option></select></div>'+
+      '<div class="nf" style="grid-column:span 2"><label>Role of this node</label><input data-nf="role" placeholder="e.g. West coast fulfilment, returns processing"></div>'+
+    '</div></div>';
+}
+function renderNodes(n){
+  const list=document.getElementById('nodelist'); if(!list) return;
+  const existing=collectNodes();
+  let h=''; for(let i=0;i<n;i++) h+=nodeCardHTML(i);
+  list.innerHTML=h;
+  // restore any values the bidder had already typed
+  existing.slice(0,n).forEach(function(v,i){
+    const card=list.querySelector('[data-node="'+i+'"]'); if(!card) return;
+    Object.keys(v).forEach(function(k){
+      const el=card.querySelector('[data-nf="'+k+'"]'); if(el) el.value=v[k];
+    });
+  });
+  qFormProgress();
+}
+function collectNodes(){
+  const out=[];
+  document.querySelectorAll('#nodelist .nodecard').forEach(function(card){
+    const o={};
+    card.querySelectorAll('[data-nf]').forEach(function(el){
+      const v=(el.value||'').trim(); if(v) o[el.getAttribute('data-nf')]=v;
+    });
+    if(Object.keys(o).length) out.push(o);
+  });
+  return out;
+}
+function addNode(){
+  const n=document.querySelectorAll('#nodelist .nodecard').length;
+  if(n>=8) return;
+  renderNodes(n+1);
+}
+function removeNode(i){
+  const cards=Array.from(document.querySelectorAll('#nodelist .nodecard'));
+  const vals=collectNodes(); vals.splice(i,1);
+  renderNodes(Math.max(1,cards.length-1));
+  const list=document.getElementById('nodelist');
+  vals.forEach(function(v,j){
+    const card=list.querySelector('[data-node="'+j+'"]'); if(!card) return;
+    Object.keys(v).forEach(function(k){ const el=card.querySelector('[data-nf="'+k+'"]'); if(el) el.value=v[k]; });
+  });
+  qFormProgress();
+}
+
 function collectQForm(){
   const out={}; const missing=[];
+  const nodeWrap=document.querySelector('#qform [data-nodes]');
+  if(nodeWrap){
+    const nodes=collectNodes();
+    const complete=nodes.filter(function(n){ return n.city && n.state && n.zip; });
+    if(complete.length) out[nodeWrap.getAttribute('data-nodes')]=nodes;
+    if(nodeWrap.getAttribute('data-req') && !complete.length){
+      missing.push('nodes');
+      document.querySelectorAll('#nodelist [data-nf="city"],#nodelist [data-nf="state"],#nodelist [data-nf="zip"]').forEach(function(el){
+        if(!(el.value||'').trim()) el.classList.add('qmiss');
+      });
+    } else {
+      document.querySelectorAll('#nodelist .qmiss').forEach(function(el){ el.classList.remove('qmiss'); });
+    }
+  }
   document.querySelectorAll('#qform [data-q]').forEach(function(el){
     const k=el.getAttribute('data-q');
     if(el.getAttribute('data-multi')){
@@ -412,8 +500,11 @@ function qFormProgress(){
       if(el.getAttribute('data-multi')){ if(el.querySelectorAll('input:checked').length) filled++; }
       else if((el.value||'').trim()) filled++;
     });
+    let extra=0;
+    const nw=sec.querySelector('[data-nodes]');
+    if(nw){ extra=1; if(collectNodes().some(function(n){return n.city&&n.state&&n.zip})) filled++; }
     const cnt=sec.querySelector('[data-cnt="'+si+'"]');
-    if(cnt){ const total=els.length; cnt.textContent=filled+' of '+total+' complete';
+    if(cnt){ const total=els.length+extra; cnt.textContent=filled+' of '+total+' complete';
       cnt.className='cnt'+(filled===total?' done':''); }
   });
 }
@@ -577,6 +668,13 @@ async function enter(t){
       qh.innerHTML = '<h3 style="margin-top:22px">Structured response</h3>'+
         '<p class="tbl-note" style="margin:0 0 4px">Complete these fields so every proposal can be compared on the same basis. Required fields are marked with an asterisk. You can still attach your own workbook and documents below - this does not replace them.</p>'+
         renderQForm(window.__qschema);
+      renderNodes(1);
+      const cntSel=document.getElementById('q_proposed_node_count');
+      if(cntSel){ cntSel.addEventListener('change', function(){
+        const v=cntSel.value; const n=(v==='More than 3')?4:(parseInt(v,10)||1);
+        const cur=document.querySelectorAll('#nodelist .nodecard').length;
+        if(n!==cur) renderNodes(n);
+      }); }
       qh.addEventListener('input', qFormProgress);
       qh.addEventListener('change', qFormProgress);
       qFormProgress();
