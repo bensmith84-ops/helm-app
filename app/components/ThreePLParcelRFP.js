@@ -126,6 +126,11 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
   const [expanded, setExpanded] = useState(null);
 
   const [schema, setSchema] = useState(null);           // structured response form definition
+  const [fdraft, setFdraft] = useState(null);          // editable copy of the schema
+  const [fsaving, setFsaving] = useState(false);
+  const [fsaved, setFsaved] = useState(null);
+  const [ferr, setFerr] = useState(null);
+  const [openSec, setOpenSec] = useState(0);
   const [baseContent, setBaseContent] = useState(null); // full JSON incl. packet/download keys
   const [draft, setDraft] = useState(null);
   const [contentLoading, setContentLoading] = useState(true);
@@ -150,7 +155,11 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
   const loadContent = useCallback(async () => {
     setContentLoading(true);
     const { data, error } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
-    if (!error && data?.content) { setBaseContent(data.content); setDraft(toDraft(data.content, FIELDS)); setSchema(data.content.response_form || null); }
+    if (!error && data?.content) {
+      setBaseContent(data.content); setDraft(toDraft(data.content, FIELDS));
+      setSchema(data.content.response_form || null);
+      setFdraft(data.content.response_form ? JSON.parse(JSON.stringify(data.content.response_form)) : null);
+    }
     setContentLoading(false);
   }, []);
 
@@ -266,6 +275,87 @@ Earth Breeze Procurement`);
     a.download = `${RFP_CODE}_comparison.csv`; a.click();
   };
 
+  // ── response form schema editor ──
+  const FIELD_TYPES = [
+    { t: "cur",   label: "Currency ($)" },
+    { t: "num",   label: "Number" },
+    { t: "text",  label: "Short text" },
+    { t: "area",  label: "Long text" },
+    { t: "sel",   label: "Dropdown (pick one)" },
+    { t: "multi", label: "Checkboxes (pick many)" },
+    { t: "nodes", label: "Facility addresses" },
+  ];
+  const slugKey = (label, taken) => {
+    let base = (label || "field").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "field";
+    let k = base, i = 2;
+    while (taken.has(k)) { k = `${base}_${i++}`; }
+    return k;
+  };
+  const allKeys = (sch) => new Set((sch || []).flatMap(s2 => (s2.f || []).map(f => f.k)));
+  // how many submissions already answered a given field - used to warn before deletion
+  const answeredCount = (key) => subs.filter(s2 => s2.structured && s2.structured[key] !== undefined && s2.structured[key] !== "").length;
+
+  const mutate = (fn) => setFdraft(d => { const c = JSON.parse(JSON.stringify(d || [])); fn(c); return c; });
+  const addSection = () => mutate(c => c.push({ s: "New section", f: [] }));
+  const delSection = (si) => {
+    const sec = fdraft[si];
+    const answered = (sec.f || []).reduce((n, f) => n + answeredCount(f.k), 0);
+    if (!confirm(`Delete section "${sec.s}" and its ${(sec.f || []).length} field(s)?${answered ? `\n\n${answered} existing answer(s) across submissions reference these fields. The answers stay in the database but will no longer be shown in Compare.` : ""}`)) return;
+    mutate(c => c.splice(si, 1));
+  };
+  const moveSection = (si, dir) => mutate(c => {
+    const j = si + dir; if (j < 0 || j >= c.length) return;
+    [c[si], c[j]] = [c[j], c[si]];
+  });
+  const addField = (si) => mutate(c => {
+    const k = slugKey("new field", allKeys(c));
+    (c[si].f = c[si].f || []).push({ k, l: "New field", t: "cur", dp: 2 });
+  });
+  const delField = (si, fi) => {
+    const f = fdraft[si].f[fi]; const n = answeredCount(f.k);
+    if (!confirm(`Remove "${f.l}"?${n ? `\n\n${n} submission(s) have already answered this. Their answers stay in the database but will disappear from Compare.` : ""}`)) return;
+    mutate(c => c[si].f.splice(fi, 1));
+  };
+  const moveField = (si, fi, dir) => mutate(c => {
+    const j = fi + dir; if (j < 0 || j >= c[si].f.length) return;
+    [c[si].f[fi], c[si].f[j]] = [c[si].f[j], c[si].f[fi]];
+  });
+  const setField = (si, fi, patch) => mutate(c => {
+    const f = c[si].f[fi];
+    Object.assign(f, patch);
+    if (patch.t) { // tidy type-specific extras
+      if (!["sel", "multi"].includes(f.t)) delete f.opts;
+      if (!["cur"].includes(f.t)) delete f.dp;
+      if (!["num"].includes(f.t)) delete f.unit;
+      if (["sel", "multi"].includes(f.t) && !f.opts) f.opts = ["Option 1", "Option 2"];
+      if (f.t === "cur" && f.dp === undefined) f.dp = 2;
+    }
+  });
+
+  const saveSchema = async () => {
+    setFsaving(true); setFerr(null);
+    try {
+      // validate
+      const keys = new Set();
+      for (const sec of fdraft || []) {
+        if (!String(sec.s || "").trim()) throw new Error("Every section needs a name.");
+        for (const f of sec.f || []) {
+          if (!String(f.l || "").trim()) throw new Error(`A field in "${sec.s}" has no label.`);
+          if (!/^[a-z0-9_]+$/.test(f.k || "")) throw new Error(`Field key "${f.k}" must be lowercase letters, numbers and underscores.`);
+          if (keys.has(f.k)) throw new Error(`Duplicate field key "${f.k}". Keys must be unique across the whole form.`);
+          keys.add(f.k);
+          if (["sel", "multi"].includes(f.t) && !(f.opts || []).filter(o => String(o).trim()).length) throw new Error(`"${f.l}" needs at least one option.`);
+        }
+      }
+      const { data: fresh } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
+      const content = { ...(fresh?.content || baseContent || {}), response_form: fdraft };
+      const { error } = await supabase.from("rfp_portal_content").upsert({ rfp_code: RFP_CODE, content, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      setBaseContent(content); setSchema(fdraft); setFsaved(new Date());
+    } catch (e) { setFerr(e.message || String(e)); }
+    setFsaving(false);
+  };
+
   const exportNodes = () => {
     const rows = [];
     structuredSubs.forEach(s => {
@@ -293,7 +383,7 @@ Earth Breeze Procurement`);
         {onBack && <button onClick={onBack} style={{ padding: "7px 10px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.text2, border: `1px solid ${T.border}` }}>←</button>}
         <b style={{ fontSize: 13.5, color: T.text }}>{title}</b>
         <div style={{ display: "flex", gap: 2, background: T.surface2, borderRadius: 8, padding: 3 }}>
-          {[["requests", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`], ["submissions", `Submissions${subs.length ? ` (${subs.length})` : ""}`], ...(schema ? [["compare", `Compare${structuredSubs.length ? ` (${structuredSubs.length})` : ""}`]] : []), ["content", "Portal Content"]].map(([k, l]) => (
+          {[["requests", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`], ["submissions", `Submissions${subs.length ? ` (${subs.length})` : ""}`], ...(schema ? [["compare", `Compare${structuredSubs.length ? ` (${structuredSubs.length})` : ""}`]] : []), ["form", "Response Form"], ["content", "Portal Content"]].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} style={{ ...btn, background: tab === k ? T.surface : "transparent", color: tab === k ? T.text : T.text3, boxShadow: tab === k ? "0 1px 3px rgba(0,0,0,0.15)" : "none" }}>{l}</button>
           ))}
         </div>
@@ -487,6 +577,121 @@ Earth Breeze Procurement`);
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── RESPONSE FORM EDITOR ── */}
+      {tab === "form" && (
+        <div>
+          <div style={{ ...card, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: T.text2, display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <span>🧩</span>
+            <span>These are the fields bidders fill in on the portal. Add, remove or reorder them and hit Save - the form updates live. Answers already submitted are never deleted, but removing a field hides it from Compare. Field keys must stay unique; changing a key on a field that already has answers will orphan those answers, so rename the label instead.</span>
+          </div>
+
+          {!fdraft && (
+            <div style={{ ...card, padding: 30, textAlign: "center" }}>
+              <div style={{ fontSize: 13, color: T.text2, marginBottom: 14 }}>This portal has no structured response form yet.</div>
+              <button onClick={() => setFdraft([{ s: "Pricing", f: [{ k: "price_per_order", l: "Cost per order", t: "cur", dp: 3, req: 1 }] }])} style={btnPrimary}>Create a response form</button>
+            </div>
+          )}
+
+          {fdraft && (<>
+            {fdraft.map((sec, si) => {
+              const open = openSec === si;
+              return (
+                <div key={si} style={{ ...card, marginBottom: 10, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 13px", background: T.surface2, cursor: "pointer" }}
+                       onClick={() => setOpenSec(open ? -1 : si)}>
+                    <span style={{ color: T.text3, fontSize: 11 }}>{open ? "▼" : "▶"}</span>
+                    <input value={sec.s} onClick={e => e.stopPropagation()}
+                      onChange={e => mutate(c => { c[si].s = e.target.value; })}
+                      style={{ ...inputStyle, background: T.surface, fontWeight: 700, maxWidth: 340 }} />
+                    <span style={{ fontSize: 11.5, color: T.text3 }}>{(sec.f || []).length} field{(sec.f || []).length === 1 ? "" : "s"}</span>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={e => { e.stopPropagation(); moveSection(si, -1); }} disabled={si === 0} style={{ ...btnSm, ...btnGhost, opacity: si === 0 ? 0.4 : 1 }}>↑</button>
+                    <button onClick={e => { e.stopPropagation(); moveSection(si, 1); }} disabled={si === fdraft.length - 1} style={{ ...btnSm, ...btnGhost, opacity: si === fdraft.length - 1 ? 0.4 : 1 }}>↓</button>
+                    <button onClick={e => { e.stopPropagation(); delSection(si); }} style={{ ...btnSm, background: "transparent", color: "#e5484d", border: `1px solid ${T.border}` }}>Delete</button>
+                  </div>
+
+                  {open && (
+                    <div style={{ padding: "12px 13px" }}>
+                      {(sec.f || []).map((f, fi) => {
+                        const used = answeredCount(f.k);
+                        return (
+                          <div key={fi} style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, background: T.surface2 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "2fr 1.1fr 0.9fr auto", gap: 10, alignItems: "end" }}>
+                              <div>
+                                <label style={{ ...label, margin: "0 0 4px" }}>Question shown to bidders</label>
+                                <input value={f.l} onChange={e => setField(si, fi, { l: e.target.value })} style={inputStyle} />
+                              </div>
+                              <div>
+                                <label style={{ ...label, margin: "0 0 4px" }}>Type</label>
+                                <select value={f.t} onChange={e => setField(si, fi, { t: e.target.value })} style={inputStyle}>
+                                  {FIELD_TYPES.map(ft => <option key={ft.t} value={ft.t}>{ft.label}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                {f.t === "cur" && (<>
+                                  <label style={{ ...label, margin: "0 0 4px" }}>Decimals</label>
+                                  <select value={f.dp ?? 2} onChange={e => setField(si, fi, { dp: parseInt(e.target.value, 10) })} style={inputStyle}>
+                                    {[0, 2, 3, 4].map(d => <option key={d} value={d}>{d}</option>)}
+                                  </select>
+                                </>)}
+                                {f.t === "num" && (<>
+                                  <label style={{ ...label, margin: "0 0 4px" }}>Unit</label>
+                                  <input value={f.unit || ""} onChange={e => setField(si, fi, { unit: e.target.value })} placeholder="%, weeks…" style={inputStyle} />
+                                </>)}
+                                {["text", "area"].includes(f.t) && (<>
+                                  <label style={{ ...label, margin: "0 0 4px" }}>Placeholder</label>
+                                  <input value={f.ph || ""} onChange={e => setField(si, fi, { ph: e.target.value })} style={inputStyle} />
+                                </>)}
+                              </div>
+                              <div style={{ display: "flex", gap: 5, alignItems: "center", paddingBottom: 6 }}>
+                                <button onClick={() => moveField(si, fi, -1)} disabled={fi === 0} style={{ ...btnSm, ...btnGhost, opacity: fi === 0 ? 0.4 : 1 }}>↑</button>
+                                <button onClick={() => moveField(si, fi, 1)} disabled={fi === sec.f.length - 1} style={{ ...btnSm, ...btnGhost, opacity: fi === sec.f.length - 1 ? 0.4 : 1 }}>↓</button>
+                                <button onClick={() => delField(si, fi)} style={{ ...btnSm, background: "transparent", color: "#e5484d", border: `1px solid ${T.border}` }}>✕</button>
+                              </div>
+                            </div>
+
+                            {["sel", "multi"].includes(f.t) && (
+                              <div style={{ marginTop: 9 }}>
+                                <label style={{ ...label, margin: "0 0 4px" }}>Options (one per line)</label>
+                                <textarea rows={Math.min(6, (f.opts || []).length + 1)} value={(f.opts || []).join("\n")}
+                                  onChange={e => setField(si, fi, { opts: e.target.value.split("\n").map(x => x.trim()).filter(Boolean) })}
+                                  style={{ ...inputStyle, resize: "vertical" }} />
+                              </div>
+                            )}
+
+                            <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 9, flexWrap: "wrap" }}>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text2, margin: 0, fontWeight: 600 }}>
+                                <input type="checkbox" checked={!!f.req} onChange={e => setField(si, fi, { req: e.target.checked ? 1 : undefined })} />
+                                Required
+                              </label>
+                              <span style={{ fontSize: 11.5, color: T.text3, fontFamily: "monospace" }}>key: {f.k}</span>
+                              {used > 0 && <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600 }}>{used} submission{used === 1 ? "" : "s"} answered this</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <button onClick={() => addField(si)} style={{ ...btnGhost, borderStyle: "dashed" }}>+ Add field</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
+              <button onClick={addSection} style={{ ...btnGhost, borderStyle: "dashed" }}>+ Add section</button>
+              <div style={{ flex: 1 }} />
+              {ferr && <span style={{ fontSize: 12, color: "#e5484d", maxWidth: 460 }}>{ferr}</span>}
+              {fsaved && !fsaving && !ferr && <span style={{ fontSize: 12, color: "#34a853" }}>✓ Published {fsaved.toLocaleTimeString()}</span>}
+              <button onClick={() => { setFdraft(schema ? JSON.parse(JSON.stringify(schema)) : null); setFerr(null); }} style={btnGhost}>Revert</button>
+              <button onClick={saveSchema} disabled={fsaving} style={btnPrimary}>{fsaving ? "Saving…" : "Save & publish form"}</button>
+            </div>
+            <div style={{ fontSize: 11.5, color: T.text3, marginTop: 8 }}>
+              {fdraft.reduce((n, s2) => n + (s2.f || []).length, 0)} fields across {fdraft.length} sections · {fdraft.reduce((n, s2) => n + (s2.f || []).filter(f => f.req).length, 0)} required
+            </div>
+          </>)}
         </div>
       )}
 
