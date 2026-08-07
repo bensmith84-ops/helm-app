@@ -26,6 +26,7 @@ export const NAV_GROUPS = [
     { key: "plm", icon: "⬢", label: "PLM" },
     { key: "erp", icon: "◧", label: "ERP" },
     { key: "wms", icon: "◨", label: "WMS" },
+    { key: "rfp_review", icon: "◎", label: "RFP Review" },
   ]},
   { label: "System", items: [
     { key: "automation", icon: "⚡", label: "Automation" },
