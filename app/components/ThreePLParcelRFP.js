@@ -225,17 +225,25 @@ Earth Breeze Procurement`);
   };
 
   const [skuBusy, setSkuBusy] = useState(null);
-  const SKU_COLS = [
-    { k: "sku",            l: "SKU",                     w: "1.2fr", ph: "L-06-LS-FS30S" },
-    { k: "desc",           l: "Description",             w: "2fr",   ph: "Laundry Sheets - Fresh Scent, 30ct" },
-    { k: "weight",         l: "Unit weight",             w: "1fr",   ph: "4.16 oz" },
-    { k: "dims",           l: "Unit dimensions",         w: "1.3fr", ph: "9.76 x 6.46 x 0.35 in" },
-    { k: "qty_carton",     l: "Qty / master carton",     w: "1fr",   ph: "48" },
-    { k: "carton_dims",    l: "Master carton dims",      w: "1.3fr", ph: "15 x 12 x 9 in" },
-    { k: "cartons_pallet", l: "Cartons / pallet",        w: "1fr",   ph: "60" },
-    { k: "c20",            l: "Per 20' container",       w: "1fr",   ph: "620" },
-    { k: "c40",            l: "Per 40' container",       w: "1fr",   ph: "1280" },
-    { k: "c40hc",          l: "Per 40' HC container",    w: "1fr",   ph: "1450" },
+  const SKU_GROUPS = [
+    { title: "Identity", min: 260, cols: [
+      { k: "sku",  l: "SKU",         ph: "L-06-LS-FS30S" },
+      { k: "desc", l: "Description", ph: "Laundry Sheets - Fresh Scent, 30ct", grow: 2 },
+    ]},
+    { title: "Selling unit", min: 190, cols: [
+      { k: "weight", l: "Unit weight",       ph: "4.16 oz" },
+      { k: "dims",   l: "Unit dimensions (L x W x H)", ph: "9.76 x 6.46 x 0.35 in" },
+    ]},
+    { title: "Master carton", min: 190, cols: [
+      { k: "qty_carton",     l: "Units per carton",        ph: "48" },
+      { k: "carton_dims",    l: "Carton dimensions",       ph: "15 x 12 x 9 in" },
+      { k: "cartons_pallet", l: "Cartons per pallet",      ph: "60" },
+    ]},
+    { title: "Cartons per container", min: 170, cols: [
+      { k: "c20",   l: "20' standard",  ph: "620" },
+      { k: "c40",   l: "40' standard",  ph: "1,280" },
+      { k: "c40hc", l: "40' high cube", ph: "1,450" },
+    ]},
   ];
   const skuRows = () => (Array.isArray(draft?.sku_profile) ? draft.sku_profile : []);
   const setSkuRows = (fn) => setDraft(d => {
@@ -854,16 +862,25 @@ Earth Breeze Procurement`);
                         One row per SKU. Blank cells show as “TBC” to bidders. Images upload straight to Helm - no links needed.
                       </div>
                       {skuRows().map((row, i) => (
-                        <div key={i} style={{ border: `1px solid ${T.border}`, borderRadius: 9, padding: 12, marginBottom: 10, background: T.surface2 }}>
-                          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                        <div key={i} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, marginBottom: 14, background: T.surface2 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: T.text3, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 99, padding: "2px 9px" }}>{i + 1}</span>
+                            <b style={{ fontSize: 13, color: T.text }}>{row.sku || "New SKU"}</b>
+                            {row.desc && <span style={{ fontSize: 12, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.desc}</span>}
+                            <div style={{ flex: 1 }} />
+                            <button onClick={() => moveSkuRow(i, -1)} disabled={i === 0} style={{ ...btnSm, ...btnGhost, opacity: i === 0 ? 0.4 : 1 }}>↑</button>
+                            <button onClick={() => moveSkuRow(i, 1)} disabled={i === skuRows().length - 1} style={{ ...btnSm, ...btnGhost, opacity: i === skuRows().length - 1 ? 0.4 : 1 }}>↓</button>
+                            <button onClick={() => delSkuRow(i)} style={{ ...btnSm, background: "transparent", color: "#e5484d", border: `1px solid ${T.border}` }}>Remove</button>
+                          </div>
+                          <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
                             {/* image */}
                             <div style={{ flexShrink: 0, textAlign: "center" }}>
                               {row.img ? (
-                                <img src={row.img} alt={row.sku || ""} style={{ width: 66, height: 66, objectFit: "contain", borderRadius: 7, border: `1px solid ${T.border}`, background: "#fff", display: "block" }} />
+                                <img src={row.img} alt={row.sku || ""} style={{ width: 92, height: 92, objectFit: "contain", borderRadius: 8, border: `1px solid ${T.border}`, background: "#fff", display: "block" }} />
                               ) : (
-                                <div style={{ width: 66, height: 66, borderRadius: 7, border: `1px dashed ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 10 }}>no image</div>
+                                <div style={{ width: 92, height: 92, borderRadius: 8, border: `1px dashed ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 11 }}>no image</div>
                               )}
-                              <label style={{ display: "block", marginTop: 5, fontSize: 10.5, color: T.accent, cursor: "pointer", fontWeight: 600 }}>
+                              <label style={{ display: "block", marginTop: 7, fontSize: 11.5, color: T.accent, cursor: "pointer", fontWeight: 600 }}>
                                 {skuBusy === i ? "Uploading…" : row.img ? "Replace" : "Upload"}
                                 <input type="file" accept="image/*" style={{ display: "none" }}
                                   onChange={e => { uploadSkuImage(i, e.target.files?.[0]); e.target.value = ""; }} />
@@ -872,22 +889,23 @@ Earth Breeze Procurement`);
                                 <div onClick={() => setSkuCell(i, "img", "")} style={{ fontSize: 10, color: T.text3, cursor: "pointer", marginTop: 2 }}>remove</div>
                               )}
                             </div>
-                            {/* fields */}
-                            <div style={{ flex: 1, display: "grid", gridTemplateColumns: SKU_COLS.map(c => c.w).join(" "), gap: 8 }}>
-                              {SKU_COLS.map(col => (
-                                <div key={col.k}>
-                                  <div style={{ fontSize: 10.5, fontWeight: 600, color: T.text3, marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{col.l}</div>
-                                  <input value={row[col.k] || ""} placeholder={col.ph}
-                                    onChange={e => setSkuCell(i, col.k, e.target.value)}
-                                    style={{ ...inputStyle, background: T.surface, padding: "6px 8px", fontSize: 12 }} />
+                            {/* fields, grouped and wrapping so nothing gets squeezed */}
+                            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+                              {SKU_GROUPS.map(g => (
+                                <div key={g.title}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>{g.title}</div>
+                                  <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${g.min}px, 1fr))`, gap: 10 }}>
+                                    {g.cols.map(col => (
+                                      <div key={col.k} style={{ gridColumn: col.grow ? `span ${col.grow}` : undefined, minWidth: 0 }}>
+                                        <label style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: T.text2, marginBottom: 4 }}>{col.l}</label>
+                                        <input value={row[col.k] || ""} placeholder={col.ph}
+                                          onChange={e => setSkuCell(i, col.k, e.target.value)}
+                                          style={{ ...inputStyle, background: T.surface, padding: "9px 11px", fontSize: 13.5 }} />
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                               ))}
-                            </div>
-                            {/* row controls */}
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
-                              <button onClick={() => moveSkuRow(i, -1)} disabled={i === 0} style={{ ...btnSm, ...btnGhost, opacity: i === 0 ? 0.4 : 1, padding: "3px 7px" }}>↑</button>
-                              <button onClick={() => moveSkuRow(i, 1)} disabled={i === skuRows().length - 1} style={{ ...btnSm, ...btnGhost, opacity: i === skuRows().length - 1 ? 0.4 : 1, padding: "3px 7px" }}>↓</button>
-                              <button onClick={() => delSkuRow(i)} style={{ ...btnSm, background: "transparent", color: "#e5484d", border: `1px solid ${T.border}`, padding: "3px 7px" }}>✕</button>
                             </div>
                           </div>
                         </div>
