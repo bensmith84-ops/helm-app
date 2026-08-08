@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, Suspense, lazy, Component } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense, lazy, Component } from "react";
 import { T } from "./tokens";
 import { supabase } from "./lib/supabase";
 import { useAuth } from "./lib/auth";
@@ -137,14 +137,19 @@ export default function HelmApp() {
     if (m) { try { sessionStorage.setItem("helm_deeplink", m[1] + ":" + m[2]); } catch (_) {} }
   }, []);
 
+  // Consume the stashed deep link exactly once per page load. Without this guard the effect
+  // re-fires whenever Firebase re-emits `user` (token refresh, ~hourly) and, because Projects
+  // mirrors the open project into the hash, it would drag you back into Projects mid-session.
+  const deepLinkDone = useRef(false);
   useEffect(() => {
-    if (!user) return;
+    if (!user || deepLinkDone.current) return;
+    deepLinkDone.current = true;
     let raw = null;
     const m = (window.location.hash || "").match(/^#projects\/(t|p)\/([0-9a-f-]{36})/i);
     if (m) raw = m[1] + ":" + m[2];
     if (!raw) { try { raw = sessionStorage.getItem("helm_deeplink"); } catch (_) {} }
-    if (!raw) return;
     try { sessionStorage.removeItem("helm_deeplink"); } catch (_) {}
+    if (!raw) return;
     const [kind, id] = raw.split(":");
     setActive("projects");
     if (kind === "t") setPendingTaskId(id); else setPendingProjectId(id);
