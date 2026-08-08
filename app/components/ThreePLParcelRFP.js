@@ -54,7 +54,7 @@ const FIELDS_FF = [
   { key: "scope_operational", label: "Scope - operational",                 type: "list", rows: 5 },
   { key: "scope_service",     label: "Scope - service levels",              type: "list", rows: 3 },
   { key: "sku_intro",         label: "SKU profile - intro paragraph (HTML ok)", type: "text", rows: 3 },
-  { key: "sku_profile",       label: "SKU profile rows - one SKU per line, fields separated by |  in this order: SKU | Description | Image URL | Unit weight | Unit dimensions | Qty per master carton | Master carton dimensions | Cartons per pallet | Per 20ft container | Per 40ft container | Per 40ft HC container", type: "skus", rows: 16 },
+  { key: "sku_profile",       label: "SKU profile",                          type: "skus" },
   { key: "sku_note",          label: "SKU profile - footnote",              type: "text", rows: 2 },
   { key: "postage",           label: "Postage requirements",                type: "list", rows: 5 },
   { key: "pricing_bullets",   label: "Pricing format bullets",              type: "list", rows: 7 },
@@ -92,7 +92,7 @@ function toDraft(content, FIELDS) {
   const d = {};
   for (const f of FIELDS) {
     const v = content?.[f.key];
-    if (f.type === "skus") { d[f.key] = Array.isArray(v) ? v.map(r => SKU_KEYS.map(k => r[k] ?? "").join(" | ")).join("\n") : ""; continue; }
+    if (f.type === "skus") { d[f.key] = Array.isArray(v) ? JSON.parse(JSON.stringify(v)) : []; continue; }
     if (f.type === "list") d[f.key] = Array.isArray(v) ? v.join("\n") : "";
     else if (f.type === "pairs") d[f.key] = Array.isArray(v) ? v.map(r => `${r[0]} | ${r[1]}`).join("\n") : "";
     else if (f.type === "facts") d[f.key] = Array.isArray(v) ? v.map(x => `${x.v} | ${x.l}`).join("\n") : "";
@@ -109,11 +109,7 @@ function fromDraft(draft, FIELDS) {
   for (const f of FIELDS) {
     const raw = draft[f.key] || "";
     if (f.type === "skus") {
-      c[f.key] = raw.split("\n").filter(l => l.trim()).map(line => {
-        const parts = line.split("|").map(x => x.trim());
-        const o = {}; SKU_KEYS.forEach((k, i) => { o[k] = parts[i] ?? ""; });
-        return o;
-      });
+      c[f.key] = (Array.isArray(raw) ? raw : []).filter(r => String(r.sku || "").trim() || String(r.desc || "").trim());
       continue;
     }
     if (f.type === "list") c[f.key] = raw.split("\n").map(s => s.trim()).filter(Boolean);
@@ -226,6 +222,47 @@ Earth Breeze Procurement`);
       setSavedAt(new Date());
     } catch (e) { setErr(e.message || String(e)); }
     setSaving(false);
+  };
+
+  const [skuBusy, setSkuBusy] = useState(null);
+  const SKU_COLS = [
+    { k: "sku",            l: "SKU",                     w: "1.2fr", ph: "L-06-LS-FS30S" },
+    { k: "desc",           l: "Description",             w: "2fr",   ph: "Laundry Sheets - Fresh Scent, 30ct" },
+    { k: "weight",         l: "Unit weight",             w: "1fr",   ph: "4.16 oz" },
+    { k: "dims",           l: "Unit dimensions",         w: "1.3fr", ph: "9.76 x 6.46 x 0.35 in" },
+    { k: "qty_carton",     l: "Qty / master carton",     w: "1fr",   ph: "48" },
+    { k: "carton_dims",    l: "Master carton dims",      w: "1.3fr", ph: "15 x 12 x 9 in" },
+    { k: "cartons_pallet", l: "Cartons / pallet",        w: "1fr",   ph: "60" },
+    { k: "c20",            l: "Per 20' container",       w: "1fr",   ph: "620" },
+    { k: "c40",            l: "Per 40' container",       w: "1fr",   ph: "1280" },
+    { k: "c40hc",          l: "Per 40' HC container",    w: "1fr",   ph: "1450" },
+  ];
+  const skuRows = () => (Array.isArray(draft?.sku_profile) ? draft.sku_profile : []);
+  const setSkuRows = (fn) => setDraft(d => {
+    const rows = JSON.parse(JSON.stringify(Array.isArray(d.sku_profile) ? d.sku_profile : []));
+    fn(rows);
+    return { ...d, sku_profile: rows };
+  });
+  const setSkuCell = (i, k, v) => setSkuRows(rows => { rows[i] = { ...(rows[i] || {}), [k]: v }; });
+  const addSkuRow = () => setSkuRows(rows => rows.push(Object.fromEntries(SKU_KEYS.map(k => [k, ""]))));
+  const delSkuRow = (i) => { if (!confirm(`Remove ${skuRows()[i]?.sku || "this SKU"} from the table?`)) return; setSkuRows(rows => rows.splice(i, 1)); };
+  const moveSkuRow = (i, dir) => setSkuRows(rows => { const j = i + dir; if (j < 0 || j >= rows.length) return; [rows[i], rows[j]] = [rows[j], rows[i]]; });
+
+  const uploadSkuImage = async (i, file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { alert("Please choose an image file."); return; }
+    if (file.size > 5 * 1024 * 1024) { alert("Images must be under 5 MB."); return; }
+    setSkuBusy(i);
+    try {
+      const safe = (skuRows()[i]?.sku || "sku").replace(/[^A-Za-z0-9._-]/g, "_");
+      const ext = (file.name.split(".").pop() || "png").toLowerCase();
+      const path = `${RFP_CODE}/skus/${safe}_${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from("rfp-assets").upload(path, file, { upsert: true, contentType: file.type });
+      if (error) throw error;
+      const { data } = supabase.storage.from("rfp-assets").getPublicUrl(path);
+      setSkuCell(i, "img", data.publicUrl);
+    } catch (e) { alert("Upload failed: " + (e.message || e)); }
+    setSkuBusy(null);
   };
 
   const openAttachment = async (att) => {
@@ -811,7 +848,54 @@ Earth Breeze Procurement`);
               {FIELDS.map(f => (
                 <div key={f.key}>
                   <label style={label}>{f.label}</label>
-                  {f.type === "input" ? (
+                  {f.type === "skus" ? (
+                    <div>
+                      <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 10 }}>
+                        One row per SKU. Blank cells show as “TBC” to bidders. Images upload straight to Helm - no links needed.
+                      </div>
+                      {skuRows().map((row, i) => (
+                        <div key={i} style={{ border: `1px solid ${T.border}`, borderRadius: 9, padding: 12, marginBottom: 10, background: T.surface2 }}>
+                          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                            {/* image */}
+                            <div style={{ flexShrink: 0, textAlign: "center" }}>
+                              {row.img ? (
+                                <img src={row.img} alt={row.sku || ""} style={{ width: 66, height: 66, objectFit: "contain", borderRadius: 7, border: `1px solid ${T.border}`, background: "#fff", display: "block" }} />
+                              ) : (
+                                <div style={{ width: 66, height: 66, borderRadius: 7, border: `1px dashed ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.text3, fontSize: 10 }}>no image</div>
+                              )}
+                              <label style={{ display: "block", marginTop: 5, fontSize: 10.5, color: T.accent, cursor: "pointer", fontWeight: 600 }}>
+                                {skuBusy === i ? "Uploading…" : row.img ? "Replace" : "Upload"}
+                                <input type="file" accept="image/*" style={{ display: "none" }}
+                                  onChange={e => { uploadSkuImage(i, e.target.files?.[0]); e.target.value = ""; }} />
+                              </label>
+                              {row.img && (
+                                <div onClick={() => setSkuCell(i, "img", "")} style={{ fontSize: 10, color: T.text3, cursor: "pointer", marginTop: 2 }}>remove</div>
+                              )}
+                            </div>
+                            {/* fields */}
+                            <div style={{ flex: 1, display: "grid", gridTemplateColumns: SKU_COLS.map(c => c.w).join(" "), gap: 8 }}>
+                              {SKU_COLS.map(col => (
+                                <div key={col.k}>
+                                  <div style={{ fontSize: 10.5, fontWeight: 600, color: T.text3, marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{col.l}</div>
+                                  <input value={row[col.k] || ""} placeholder={col.ph}
+                                    onChange={e => setSkuCell(i, col.k, e.target.value)}
+                                    style={{ ...inputStyle, background: T.surface, padding: "6px 8px", fontSize: 12 }} />
+                                </div>
+                              ))}
+                            </div>
+                            {/* row controls */}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+                              <button onClick={() => moveSkuRow(i, -1)} disabled={i === 0} style={{ ...btnSm, ...btnGhost, opacity: i === 0 ? 0.4 : 1, padding: "3px 7px" }}>↑</button>
+                              <button onClick={() => moveSkuRow(i, 1)} disabled={i === skuRows().length - 1} style={{ ...btnSm, ...btnGhost, opacity: i === skuRows().length - 1 ? 0.4 : 1, padding: "3px 7px" }}>↓</button>
+                              <button onClick={() => delSkuRow(i)} style={{ ...btnSm, background: "transparent", color: "#e5484d", border: `1px solid ${T.border}`, padding: "3px 7px" }}>✕</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <button onClick={addSkuRow} style={{ ...btnGhost, borderStyle: "dashed" }}>+ Add SKU</button>
+                      <span style={{ fontSize: 11.5, color: T.text3, marginLeft: 10 }}>{skuRows().length} SKU{skuRows().length === 1 ? "" : "s"}</span>
+                    </div>
+                  ) : f.type === "input" ? (
                     <input style={inputStyle} value={draft[f.key]} onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value }))} />
                   ) : (
                     <textarea style={{ ...inputStyle, resize: "vertical" }} rows={f.rows || 4} value={draft[f.key]} onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value }))} />
