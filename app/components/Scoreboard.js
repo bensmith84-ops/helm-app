@@ -810,6 +810,11 @@ export default function ScoreboardView() {
   const [daily, setDaily] = useState({});
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [health, setHealth] = useState([]);          // stale metrics from v_scoreboard_metric_health
+  const [remap, setRemap] = useState(null);          // suggestions from scoreboard-remap
+  const [remapOpen, setRemapOpen] = useState(false);
+  const [remapLoading, setRemapLoading] = useState(false);
+  const [approving, setApproving] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -829,6 +834,7 @@ export default function ScoreboardView() {
   const inputRef = useRef(null);
 
   useEffect(() => { loadData(); }, [orgId]);
+  useEffect(() => { loadHealth(); }, [loadHealth]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior:"smooth" });
@@ -961,6 +967,32 @@ export default function ScoreboardView() {
     setAiSummaryLoading(false);
   };
 
+  const loadHealth = useCallback(async () => {
+    const { data } = await supabase
+      .from("v_scoreboard_metric_health")
+      .select("metric_key,metric_label,last_date,days_behind,status,mapped_header")
+      .neq("status", "ok")
+      .order("days_behind", { ascending: false });
+    setHealth(data || []);
+  }, []);
+
+  const loadSuggestions = async () => {
+    setRemapLoading(true); setRemapOpen(true);
+    const { data, error } = await invokeFunction("scoreboard-remap", { body: {} });
+    setRemapLoading(false);
+    setRemap(error ? { error: error.message } : data);
+  };
+
+  const approveMapping = async (metricKey, headerName) => {
+    if (!confirm(`Point "${metricKey}" at the sheet column "${headerName}"?\n\nThe next sync will read this column. Existing history is not changed.`)) return;
+    setApproving(metricKey + headerName);
+    const { error } = await invokeFunction("scoreboard-remap", { body: { approve: { metric_key: metricKey, sheet_header: headerName, note: "approved in Helm" } } });
+    setApproving(null);
+    if (error) { alert("Could not save: " + error.message); return; }
+    setRemap(r => r && ({ ...r, stale: (r.stale || []).map(m => m.metric_key === metricKey ? { ...m, current_mapping: headerName, approved: true } : m) }));
+    await loadHealth();
+  };
+
   const syncSheet = async () => {
     setSyncing(true);
     setActiveTab("chat");
@@ -978,6 +1010,7 @@ export default function ScoreboardView() {
         setMessages(p => [...p, { role:"assistant", content:`📊 Daily sync: ${d1.rows_upserted||0} rows imported.\n\nMatched cols: ${d1.matched_cols?.join(" | ")||"none"}\n\nAll unmatched headers (full list):\n${d1.unmatched_headers?.join("\n")||"none"}\n\nRPC error: ${d1.rpc_error||"none"}` }]);
       }
       if (d2.success) setMessages(p => [...p, { role:"assistant", content:`✅ Monthly sync: ${d2.rowsUpserted} rows` }]);
+      await loadHealth();
     } catch(e) {
       setMessages(p => [...p, { role:"assistant", content:`❌ Sync failed: ${e}` }]);
     }
@@ -1071,7 +1104,83 @@ export default function ScoreboardView() {
           <button onClick={syncSheet} disabled={syncing} style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:syncing?T.surface2:T.accentDim, color:T.accent, border:`1px solid ${T.accent}40`, borderRadius:6, cursor:syncing?"wait":"pointer", opacity:syncing?0.6:1 }}>
             {syncing?"Syncing…":"↻ Sync Sheet"}
           </button>
+          {health.length > 0 && (
+            <button onClick={() => (remapOpen ? setRemapOpen(false) : loadSuggestions())}
+              style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:"rgba(251,188,5,0.14)", color:"#b8860b", border:"1px solid rgba(251,188,5,0.45)", borderRadius:6, cursor:"pointer" }}>
+              ⚠ {health.length} metric{health.length===1?"":"s"} not updating
+            </button>
+          )}
         </div>
+
+      {remapOpen && (
+        <div style={{ margin:"0 0 16px", border:`1px solid ${T.border}`, borderRadius:10, background:T.surface, overflow:"hidden" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 14px", background:"rgba(251,188,5,0.10)", borderBottom:`1px solid ${T.border}` }}>
+            <b style={{ fontSize:13, color:T.text }}>Sync health</b>
+            <span style={{ fontSize:12, color:T.text2 }}>metrics whose sheet column stopped feeding Helm</span>
+            <div style={{ flex:1 }} />
+            <button onClick={loadSuggestions} disabled={remapLoading} style={{ padding:"5px 11px", fontSize:11.5, fontWeight:600, background:T.surface2, color:T.text2, border:`1px solid ${T.border}`, borderRadius:6, cursor:"pointer" }}>
+              {remapLoading ? "Scanning sheet…" : "↻ Re-scan"}
+            </button>
+            <button onClick={() => setRemapOpen(false)} style={{ padding:"5px 11px", fontSize:11.5, background:"none", color:T.text3, border:"none", cursor:"pointer" }}>Close</button>
+          </div>
+
+          <div style={{ padding:14 }}>
+            {remapLoading && <div style={{ fontSize:13, color:T.text3, padding:"14px 0" }}>Reading the live sheet and matching column names…</div>}
+            {remap?.error && <div style={{ fontSize:13, color:"#e5484d" }}>Could not scan the sheet: {remap.error}</div>}
+
+            {!remapLoading && remap?.stale?.map(m => (
+              <div key={m.metric_key} style={{ border:`1px solid ${T.border}`, borderRadius:9, padding:"12px 14px", marginBottom:10, background:T.surface2 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:9, flexWrap:"wrap" }}>
+                  <b style={{ fontSize:13, color:T.text }}>{m.metric_label || m.metric_key}</b>
+                  <span style={{ fontSize:10.5, fontWeight:700, padding:"1px 8px", borderRadius:99,
+                    background: m.status==="column_missing" ? "rgba(229,72,77,0.14)" : "rgba(251,188,5,0.16)",
+                    color: m.status==="column_missing" ? "#e5484d" : "#b8860b" }}>
+                    {m.status==="column_missing" ? "column not found" : "source empty"}
+                  </span>
+                  <span style={{ fontSize:11.5, color:T.text3 }}>last data {m.last_date} · {m.days_behind} days behind</span>
+                  {m.current_mapping && <span style={{ fontSize:11.5, color:"#34a853", fontWeight:600 }}>→ mapped to “{m.current_mapping}”</span>}
+                </div>
+                <div style={{ fontSize:12, color:T.text2, marginTop:6, lineHeight:1.5 }}>{m.diagnosis}</div>
+
+                {m.status === "column_missing" && m.suggestions?.length > 0 && (
+                  <div style={{ marginTop:10 }}>
+                    <div style={{ fontSize:10.5, fontWeight:700, color:T.text3, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:6 }}>Suggested columns</div>
+                    {m.suggestions.map(sg => (
+                      <div key={sg.header} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:T.surface, border:`1px solid ${sg.header===m.recommended ? T.accent : T.border}`, borderRadius:7, marginBottom:6, flexWrap:"wrap" }}>
+                        <div style={{ minWidth:210 }}>
+                          <div style={{ fontSize:12.5, fontWeight:600, color:T.text }}>{sg.header}</div>
+                          <div style={{ fontSize:11, color:T.text3 }}>col {sg.column}</div>
+                        </div>
+                        <span style={{ fontSize:11, fontWeight:700, color: sg.confidence>=60?"#34a853":sg.confidence>=40?"#b8860b":T.text3 }}>{sg.confidence}% match</span>
+                        <span style={{ fontSize:11, color: sg.has_recent_data?"#34a853":"#e5484d" }}>
+                          {sg.has_recent_data ? `${sg.recent_days_with_data}/7 recent days have data` : "no recent data"}
+                        </span>
+                        <span style={{ fontSize:11, color:T.text3, fontFamily:"monospace" }}>
+                          {sg.samples?.slice(0,3).map(v => v.raw ?? "—").join("  ")}
+                        </span>
+                        <div style={{ flex:1 }} />
+                        {sg.header===m.recommended && <span style={{ fontSize:10.5, fontWeight:700, color:T.accent }}>recommended</span>}
+                        <button onClick={() => approveMapping(m.metric_key, sg.header)} disabled={!!approving}
+                          style={{ padding:"5px 12px", fontSize:11.5, fontWeight:600, background: sg.has_recent_data ? T.accent : T.surface2, color: sg.has_recent_data ? "#fff" : T.text3, border: sg.has_recent_data ? "none" : `1px solid ${T.border}`, borderRadius:6, cursor:"pointer" }}>
+                          {approving===m.metric_key+sg.header ? "Saving…" : "Use this column"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {m.status === "column_missing" && !m.suggestions?.length && (
+                  <div style={{ fontSize:12, color:T.text3, marginTop:8 }}>No plausible replacement column found in the sheet. The metric may have been retired.</div>
+                )}
+              </div>
+            ))}
+
+            {!remapLoading && remap?.stale?.length === 0 && (
+              <div style={{ fontSize:13, color:"#34a853" }}>Every metric is current.</div>
+            )}
+          </div>
+        </div>
+      )}
       </div>
 
       {/* Content */}
