@@ -834,7 +834,6 @@ export default function ScoreboardView() {
   const inputRef = useRef(null);
 
   useEffect(() => { loadData(); }, [orgId]);
-  useEffect(() => { loadHealth(); }, [loadHealth]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior:"smooth" });
@@ -975,6 +974,10 @@ export default function ScoreboardView() {
       .order("days_behind", { ascending: false });
     setHealth(data || []);
   }, []);
+
+  // Declared after loadHealth: referencing it in an effect placed earlier in the
+  // component body hits the temporal dead zone and crashes the whole module.
+  useEffect(() => { loadHealth(); }, [loadHealth]);
 
   const loadSuggestions = async () => {
     setRemapLoading(true); setRemapOpen(true);
