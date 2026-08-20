@@ -783,7 +783,7 @@ async function renderSite(content){
       nw += '<p class="tbl-note" style="margin-top:14px">'+esc(c.network_note)+'</p>';
       S.push(['network','Network modelling', nw]);
     }
-    S.push(['postage','Postage', listHTML(c.postage)]);
+    S.push(['postage','Postage &amp; mail', listHTML(c.postage) + (c.packaging_note ? '<h3>Packaging</h3><p style="max-width:780px">'+c.packaging_note+'</p>' : '')]);
     S.push(['pricing','Pricing format', listHTML(c.pricing_bullets)]);
     S.push(['timeline','Timeline', tblHTML(['Milestone','Date'], c.timeline_rows||[], {max:1})]);
     S.push(['evaluation','Evaluation', tblHTML(['Criterion','Weight'], c.eval_rows||[], {max:1})]);
