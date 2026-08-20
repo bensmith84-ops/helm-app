@@ -979,6 +979,9 @@ export default function ScoreboardView() {
   // component body hits the temporal dead zone and crashes the whole module.
   useEffect(() => { loadHealth(); }, [loadHealth]);
 
+  const visibleStale = (remap?.stale || []).filter(m => !m.approved);
+  const resolvedCount = (remap?.stale || []).filter(m => m.approved).length;
+
   const loadSuggestions = async () => {
     setRemapLoading(true); setRemapOpen(true);
     const { data, error } = await invokeFunction("scoreboard-remap", { body: {} });
@@ -1107,10 +1110,10 @@ export default function ScoreboardView() {
           <button onClick={syncSheet} disabled={syncing} style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:syncing?T.surface2:T.accentDim, color:T.accent, border:`1px solid ${T.accent}40`, borderRadius:6, cursor:syncing?"wait":"pointer", opacity:syncing?0.6:1 }}>
             {syncing?"Syncing…":"↻ Sync Sheet"}
           </button>
-          {health.length > 0 && (
+          {Math.max(health.length - resolvedCount, 0) > 0 && (
             <button onClick={() => (remapOpen ? setRemapOpen(false) : loadSuggestions())}
               style={{ padding:"6px 14px", fontSize:12, fontWeight:600, background:"rgba(251,188,5,0.14)", color:"#b8860b", border:"1px solid rgba(251,188,5,0.45)", borderRadius:6, cursor:"pointer" }}>
-              ⚠ {health.length} metric{health.length===1?"":"s"} not updating
+              ⚠ {Math.max(health.length - resolvedCount, 0)} metric{Math.max(health.length - resolvedCount, 0)===1?"":"s"} not updating
             </button>
           )}
         </div>
@@ -1127,11 +1130,16 @@ export default function ScoreboardView() {
             <button onClick={() => setRemapOpen(false)} style={{ padding:"5px 11px", fontSize:11.5, background:"none", color:T.text3, border:"none", cursor:"pointer" }}>Close</button>
           </div>
 
-          <div style={{ padding:14 }}>
+          <div style={{ padding:14, maxHeight:"58vh", overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
             {remapLoading && <div style={{ fontSize:13, color:T.text3, padding:"14px 0" }}>Reading the live sheet and matching column names…</div>}
             {remap?.error && <div style={{ fontSize:13, color:"#e5484d" }}>Could not scan the sheet: {remap.error}</div>}
 
-            {!remapLoading && remap?.stale?.map(m => (
+            {!remapLoading && resolvedCount > 0 && (
+              <div style={{ fontSize:12, color:"#34a853", fontWeight:600, marginBottom:10 }}>
+                ✓ {resolvedCount} metric{resolvedCount===1?"":"s"} mapped. {resolvedCount===1?"It":"They"} will repopulate on the next sync - if the mapping is wrong {resolvedCount===1?"it":"they"} will reappear here.
+              </div>
+            )}
+            {!remapLoading && visibleStale.map(m => (
               <div key={m.metric_key} style={{ border:`1px solid ${T.border}`, borderRadius:9, padding:"12px 14px", marginBottom:10, background:T.surface2 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:9, flexWrap:"wrap" }}>
                   <b style={{ fontSize:13, color:T.text }}>{m.metric_label || m.metric_key}</b>
@@ -1178,8 +1186,10 @@ export default function ScoreboardView() {
               </div>
             ))}
 
-            {!remapLoading && remap?.stale?.length === 0 && (
-              <div style={{ fontSize:13, color:"#34a853" }}>Every metric is current.</div>
+            {!remapLoading && remap && visibleStale.length === 0 && (
+              <div style={{ fontSize:13, color:"#34a853" }}>
+                {resolvedCount > 0 ? "Nothing left to review." : "Every metric is current."}
+              </div>
             )}
           </div>
         </div>
