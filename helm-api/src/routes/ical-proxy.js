@@ -33,17 +33,28 @@ function parseIcal(text) {
   return events;
 }
 
-module.exports = function(app, { pool }) {
+module.exports = function(app, { pool, requireAuth }) {
   const handler = async (req, res) => {
     try {
       const src = { ...(req.query || {}), ...(req.body || {}) };
       const mode = src.mode || 'fetch';
       const icalUrl = src.url;
       const calendarId = src.calendar_id;
-      const orgId = src.org_id;
-      const userId = src.user_id;
+      let orgId = src.org_id;
 
       if (!icalUrl) return res.status(400).json({ error: "Missing 'url' parameter" });
+
+      // Resolve the caller's Helm profile UUID from the verified Firebase token.
+      // NEVER trust client-supplied user_id: post-Firebase-migration clients send
+      // Firebase UIDs, which violate the organizer_id -> profiles(id) FK.
+      const firebaseUid = req.firebase?.sub || null;
+      let organizerId = null;
+      if (firebaseUid) {
+        const { rows } = await pool.query(
+          `SELECT id FROM profiles WHERE firebase_uid = $1 LIMIT 1`, [firebaseUid]
+        );
+        organizerId = rows[0]?.id || null;
+      }
 
       let parsedUrl;
       try { parsedUrl = new URL(icalUrl); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
@@ -63,7 +74,20 @@ module.exports = function(app, { pool }) {
         return res.status(422).json({ error: 'Not valid iCalendar data' });
       }
 
-      if (mode === 'sync' && calendarId && orgId && userId) {
+      if (mode === 'sync' && calendarId) {
+        if (!organizerId) {
+          return res.status(403).json({
+            error: 'Could not resolve your Helm profile from the auth token. Sign out and back in (auth/bind), then retry.',
+          });
+        }
+        if (!orgId) {
+          const { rows: m } = await pool.query(
+            `SELECT org_id FROM org_memberships WHERE user_id = $1 AND is_active IS NOT FALSE ORDER BY joined_at ASC NULLS LAST LIMIT 1`, [organizerId]
+          );
+          orgId = m[0]?.org_id || null;
+        }
+        if (!orgId) return res.status(400).json({ error: 'No org membership found for user' });
+
         const events = parseIcal(text);
 
         await pool.query(
@@ -79,7 +103,7 @@ module.exports = function(app, { pool }) {
           for (const e of batch) {
             values.push(`($${pi++}, $${pi++}, $${pi++}, $${pi++}, 'ical', $${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, 'confirmed', 'meeting')`);
             params.push(
-              orgId, userId, calendarId, e.uid || `${e.title}-${e.start}`,
+              orgId, organizerId, calendarId, e.uid || `${e.title}-${e.start}`,
               e.title, e.description || null, e.start, e.end,
               e.all_day, e.location || null, e.video_link || null, !!e.video_link
             );
@@ -105,6 +129,6 @@ module.exports = function(app, { pool }) {
       res.status(500).json({ error: 'Failed: ' + (err?.message || String(err)) });
     }
   };
-  app.get('/ical-proxy', handler);
-  app.post('/ical-proxy', handler);
+  app.get('/ical-proxy', requireAuth, handler);
+  app.post('/ical-proxy', requireAuth, handler);
 };
