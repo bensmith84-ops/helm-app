@@ -680,6 +680,7 @@ async function renderSite(content){
     S.push(['overview','Overview', '<p class="lead">'+(c.overview_lead||'')+'</p>'+listHTML(c.overview_bullets)]);
     S.push(['design','Operation design', tblHTML(['Parameter','Design'], c.design_rows||[], {max:1})]);
     S.push(['space','Building &amp; space', (c.space_note ? '<div class="qnote" style="max-width:860px;margin-bottom:14px">'+c.space_note+'</div>' : '') +
+      ((c.floorplans||[]).map(function(f){return '<h3>'+esc(f.title)+'</h3><img src="'+esc(f.url)+'" alt="'+esc(f.title)+'" style="width:100%;max-width:1100px;border-radius:12px;display:block;margin:8px 0"/>'+(f.caption?'<p class="tbl-note">'+esc(f.caption)+'</p>':'');}).join('')) +
       two(tblHTML(['Area','Sq ft'], c.east_space||[], {numeric:1}), tblHTML(['Area','Sq ft'], c.west_space||[], {numeric:1}),
           'East - Harrisburg, PA', 'West - Las Vegas, NV')]);
     S.push(['people','Headcount',
