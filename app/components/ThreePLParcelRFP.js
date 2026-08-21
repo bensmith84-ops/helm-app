@@ -123,7 +123,7 @@ function fromDraft(draft, FIELDS) {
 
 export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpType = "parcel", title = "US Parcel Network RFP", onBack }) {
   const RFP_CODE = rfpCode;
-  const PORTAL_URL = PORTAL_BASE + "?rfp=" + encodeURIComponent(rfpCode);
+  const PORTAL_URL = PORTAL_BASE + "?rfp=" + encodeURIComponent(rfpCode) + (rfpType === "internal" ? "&key=" + PREVIEW_KEY : "");
   const FIELDS = rfpType === "cm" ? FIELDS_CM : (rfpCode === "EB-2026-3PL-01" ? FIELDS_FF : FIELDS_PARCEL);
   const { tokens: T } = useTheme();
   const [tab, setTab] = useState("requests");

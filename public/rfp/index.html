@@ -308,8 +308,11 @@ async function tryPreview(){
   const jwt=helmAccessToken();
   const show_msg=(html)=>{ document.getElementById('scr-loading').innerHTML=html; show('scr-loading'); };
   if(!key && !jwt){
-    show_msg('<p style="margin:0 0 10px"><b>Internal preview</b></p>'+
-      '<p style="margin:0;font-size:13.5px;color:var(--ink2)">This link is missing the internal preview key. Copy a fresh preview link from Helm (RFP admin) - it now includes the key automatically.</p>'+
+    const isInt = !!window.__internalDoc;
+    show_msg('<p style="margin:0 0 10px"><b>'+(isInt?'Internal document':'Internal preview')+'</b></p>'+
+      '<p style="margin:0;font-size:13.5px;color:var(--ink2)">'+(isInt
+        ? 'This is a confidential Earth Breeze document. Open it from the RFPs page in Helm - those links include the access key automatically.'
+        : 'This link is missing the internal preview key. Copy a fresh preview link from Helm (RFP admin) - it now includes the key automatically.')+'</p>'+
       '<p style="margin:14px 0 0"><a href="/" style="font-weight:600">Open Helm</a></p>');
     return true;
   }
@@ -338,6 +341,17 @@ async function tryPreview(){
 }
 
 async function boot(){
+  // Internal documents (rfp_type='internal') never show the supplier flow -
+  // no access request, no NDA, no tokens. They render via the capability key.
+  try{
+    const meta = await rpc('rfp_portal_meta', {p_code: RFP_CODE});
+    if (meta && meta.ok && meta.type === 'internal') {
+      window.__internalDoc = true;
+      const pb = document.getElementById('previewbar');
+      pb.innerHTML = 'Internal document <span>- Confidential - Earth Breeze only. Not shared with suppliers.</span>';
+      if (await tryPreview()) return;
+    }
+  }catch(e){}
   if (new URL(location.href).searchParams.get('preview') === '1') {
     if (await tryPreview()) return;
   }
