@@ -200,39 +200,41 @@ def zone_tint(sc, x, y, w, d, fill, edge):
     q = [iso(x, y), iso(x + w, y), iso(x + w, y + d), iso(x, y + d)]
     sc.add(x + y - 900, f'<polygon points="{pts(q)}" fill="{fill}" stroke="{edge}" stroke-width="1.1" opacity=".55"/>')
 
-def zone_label(sc, x, y, w, d, name, sqft, fs=11.5):
+def zone_label(sc, x, y, w, d, name, sqft, fs=11.5, note=None):
     cx, cy = iso(x + w/2, y + d/2)
-    tw = max(len(name), 10) * fs * 0.60 + 16
-    o = (f'<g><rect x="{cx-tw/2:.0f}" y="{cy-14:.0f}" width="{tw:.0f}" height="30" rx="6" fill="#FFFFFF" opacity=".82" stroke="#C9D3DF" stroke-width=".6"/>'
+    tw = max(len(name), len(note or ""), 10) * fs * 0.60 + 16
+    hh = 42 if note else 30
+    o = (f'<g><rect x="{cx-tw/2:.0f}" y="{cy-14:.0f}" width="{tw:.0f}" height="{hh}" rx="6" fill="#FFFFFF" opacity=".85" stroke="#C9D3DF" stroke-width=".6"/>'
          f'<text x="{cx:.0f}" y="{cy-1:.0f}" font-size="{fs}" font-weight="700" fill="{INK}" text-anchor="middle">{esc(name)}</text>'
-         f'<text x="{cx:.0f}" y="{cy+11:.0f}" font-size="{fs-2}" fill="{INK2}" text-anchor="middle">{sqft:,} sq ft</text></g>')
+         f'<text x="{cx:.0f}" y="{cy+11:.0f}" font-size="{fs-2}" fill="{INK2}" text-anchor="middle">{sqft:,} sq ft</text>')
+    if note:
+        o += f'<text x="{cx:.0f}" y="{cy+23:.0f}" font-size="{fs-2.5}" fill="{INK2}" text-anchor="middle">{esc(note)}</text>'
+    o += "</g>"
     sc.add(9000 + x + y, o)
 
 def build_scene(site):
     if site == "east":
-        W, D = 250, 175
+        W, D = 175, 150
         zones = [
-            ("off",  0,   0,  60,  90, "Office & welfare", 5400),
-            ("recv", 0,  95,  50,  80, "Inbound receiving", 4000),
-            ("rack", 60, 110, 98,  64, "Reserve racking + bulk pick", 6284),
-            ("sort", 70,  45, 130, 36, "Sure Sort", 4660),
-            ("pack", 70,   8, 130, 29, "Pack", 3781),
-            ("ret",  160, 90,  40, 85, "Returns", 3400),
-            ("out",  200,  0,  50, 160, "Outbound & mail staging", 8000),
+            ("off",  0,   0,  25,  20, "Office & welfare", 500),
+            ("recv", 0,  96,  46,  54, "Receiving & returns", 2500),
+            ("rack", 50,  86,  98,  64, "Reserve racking + bulk pick", 6284),
+            ("sort", 14,  40, 130,  36, "Sure Sort", 4660),
+            ("pack", 14,   6, 130,  29, "Pack", 3781),
+            ("out",  148,  0,  27, 148, "Outbound & mail staging", 4000),
         ]
-        recv_doors, out_doors, rack_runs, pack_n, sort_len = [103,119,135,151], [12,36,60,84,108,132], 3, 8, 110
+        recv_doors, out_doors, rack_runs, pack_n, sort_len = [102,120,138], [14,48,82,116], 3, 8, 110
     else:
-        W, D = 175, 140
+        W, D = 135, 100
         zones = [
-            ("off",  0,   0,  52,  75, "Office & welfare", 3900),
-            ("recv", 0,  80,  42,  60, "Inbound receiving", 2500),
-            ("rack", 42, 100,  58,  40, "Reserve racking + bulk pick", 2319),
-            ("sort", 48, 42,  88,  36, "Sure Sort", 3170),
-            ("pack", 48,  8,  50,  28, "Pack", 1387),
-            ("ret",  104, 82,  36, 58, "Returns", 2100),
-            ("out",  140, 10,  35, 130, "Outbound & mail staging", 4500),
+            ("off",  0,   0,  18,  20, "Office & welfare", 350),
+            ("recv", 0,  48,  30,  52, "Receiving & returns", 1550),
+            ("rack", 30,  66,  68,  34, "Reserve racking + bulk pick", 2319),
+            ("sort", 14,  30,  88,  36, "Sure Sort", 3170),
+            ("pack", 14,   2,  50,  27, "Pack", 1387),
+            ("out",  108,   8,  27,  83, "Outbound & mail staging", 2250),
         ]
-        recv_doors, out_doors, rack_runs, pack_n, sort_len = [86,102,118], [24,52,80,108], 2, 4, 72
+        recv_doors, out_doors, rack_runs, pack_n, sort_len = [56,76], [22,50,78], 2, 4, 72
     sc = Scene()
     # concrete floor with sheen
     sc.add(-10000, f'<defs><linearGradient id="fl{site}" x1="0" y1="0" x2="1" y2="1">'
@@ -250,7 +252,8 @@ def build_scene(site):
     zx = {}
     for key, x, y, w, d, name, sq in zones:
         zone_tint(sc, x, y, w, d, *tints[key]); zx[key] = (x, y, w, d)
-        zone_label(sc, x, y, w, d, name, sq)
+        zone_label(sc, x, y, w, d, name, sq,
+                   note=(f"{sq*2:,} sq ft over 2 levels" if key == "off" else None))
     # green walkway lane along the front
     q = [iso(4, D*0.24), iso(W-4, D*0.24), iso(W-4, D*0.24+5), iso(4, D*0.24+5)]
     sc.add(-9980, f'<polygon points="{pts(q)}" fill="#7FBF8E" opacity=".35"/>')
@@ -263,9 +266,12 @@ def build_scene(site):
     x, y, w, d = zx["sort"]; sorter(sc, x + (w-sort_len)/2 + 6, y + (d-12)/2, sort_len, 12)
     x, y, w, d = zx["pack"]; pack_row(sc, x + 6, y + d - 12, pack_n)
     x, y, w, d = zx["recv"]
-    for i in range(6 if site == "east" else 4):
-        pallet(sc, x + 8 + (i%3)*6.5, y + 10 + (i//3)*7, 0, ("rc",site,i), w=4.5, d=4.5)
-    person(sc, x + 12, y + 28, vest="#3BA2E8")
+    for i in range(4 if site == "east" else 3):
+        pallet(sc, x + 6 + (i%2)*6.5, y + 8 + (i//2)*7, 0, ("rc",site,i), w=4.5, d=4.5)
+    for i in range(2):                                                   # returns corner
+        pallet(sc, x + w - 12, y + 8 + i*8, 0, ("rt",site,i), w=4.2, d=4.2)
+        tote(sc, x + w - 6, y + 10 + i*8, 0, x + y + 0.56)
+    person(sc, x + 10, y + 22, vest="#3BA2E8")
     x, y, w, d = zx["out"]
     for i in range(10 if site == "east" else 6):
         loaded = rnd("ol",site,i) < .85
@@ -274,16 +280,15 @@ def build_scene(site):
     for i in range(3):
         box(sc, x + 6 + i*8, y + d - 22, 5, 5, 3.8, "#F2F4F6", dp=0.55)
     person(sc, x + w*0.45, y + d*0.55)
-    x, y, w, d = zx["ret"]
-    for i in range(3):
-        pallet(sc, x + 6 + (i%2)*11, y + 10 + (i//2)*12, 0, ("rt",site,i), w=4.5, d=4.5)
     x, y, w, d = zx["off"]
-    box(sc, x + 4, y + 4, w - 8, d - 8, 22, "#CBD5E2", dp=0.40)
-    for lvl_z in (5.5, 15.5):                                            # window bands
-        p1, p2 = iso(x + 4, y + 4, lvl_z), iso(x + w - 4, y + 4, lvl_z)
-        sc.add(x + y + 0.42, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#8FB6DE" stroke-width="4" opacity=".85"/>')
-        p1, p2 = iso(x + w - 4, y + 4, lvl_z), iso(x + w - 4, y + d - 4, lvl_z)
-        sc.add(x + y + 0.42, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#7FA9D2" stroke-width="4" opacity=".85"/>')
+    box(sc, x + 1.5, y + 1.5, w - 3, d - 3, 22, "#CBD5E2", dp=0.40)
+    for lvl_z in (5.5, 15.5):                                            # window bands (2 levels)
+        p1, p2 = iso(x + 1.5, y + 1.5, lvl_z), iso(x + w - 1.5, y + 1.5, lvl_z)
+        sc.add(x + y + 0.42, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#8FB6DE" stroke-width="3.4" opacity=".85"/>')
+        p1, p2 = iso(x + w - 1.5, y + 1.5, lvl_z), iso(x + w - 1.5, y + d - 1.5, lvl_z)
+        sc.add(x + y + 0.42, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#7FA9D2" stroke-width="3.4" opacity=".85"/>')
+    p1, p2 = iso(x + 1.5, y + 1.5, 11), iso(x + w - 1.5, y + 1.5, 11)   # mid-floor line
+    sc.add(x + y + 0.43, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#9AA9BE" stroke-width="1.4"/>')
     # docks + trailers, then translucent shell walls
     wall_h = 32
     dock_wall(sc, "W", W, D, recv_doors, wall_h)
@@ -331,9 +336,9 @@ def crop(vb, fx0, fy0, fx1, fy1):
 
 def site_plan(site):
     if site == "east":
-        W, D, cW, cE, park, title = 250, 175, 130, 190, 44, "East node - Hebron, KY  |  site plan  |  building 43,750 sq ft (250 x 175 ft)"
+        W, D, cW, cE, park, title = 175, 150, 130, 160, 40, "East node - Hebron, KY  |  site plan  |  building 26,250 sq ft (175 x 150 ft)"
     else:
-        W, D, cW, cE, park, title = 175, 140, 120, 130, 22, "West node - Las Vegas, NV  |  site plan  |  building 24,500 sq ft (175 x 140 ft)"
+        W, D, cW, cE, park, title = 135, 100, 120, 130, 20, "West node - Las Vegas, NV  |  site plan  |  building 13,500 sq ft (135 x 100 ft)"
     s = 1.9
     tw, td = cW + W + cE, D + 115
     acres = (tw * td) / 43560
@@ -356,7 +361,7 @@ def site_plan(site):
     b += T(cW + W/2, 55 + D/2 + 9, f"{W*D:,} sq ft ({W} x {D} ft)", 11, "400", INK2)
     b += T(cW/2, 66, "Inbound truck court"); b += T(cW/2, 80, f"{cW} ft deep", 10.5, "400", INK2)
     b += T(cW + W + cE/2, 66, "Outbound truck court"); b += T(cW + W + cE/2, 80, f"{cE} ft deep + trailer storage", 10.5, "400", INK2)
-    n_in, n_out = (4, 6) if site == "east" else (3, 4)
+    n_in, n_out = (3, 4) if site == "east" else (2, 3)
     for i in range(n_in):                                                           # docked inbound trucks
         yy = 95 + i*22
         b += R(cW - 46, yy, 44, 10, "#E4E8EC", "#9AA6B2", 2)
@@ -389,19 +394,19 @@ def site_plan(site):
 def main():
     os.makedirs(OUT, exist_ok=True)
     body, vb = build_scene("east")
-    emit("view_east_1.svg", "East node - Hebron, KY  |  43,750 sq ft  |  bulk-pick design",
-         "View 1 of 4 - overview from the south-west. 250 x 175 ft, 32 ft clear. No forward pick: floor-level pallet faces in reserve racking feed Sure Sort. Grid 25 ft. Each zone labeled with its sq ft.", body, vb)
+    emit("view_east_1.svg", "East node - Hebron, KY  |  26,250 sq ft  |  bulk-pick design",
+         "View 1 of 4 - overview from the south-west. 175 x 150 ft, 32 ft clear. No forward pick: floor-level pallet faces in reserve racking feed Sure Sort. Grid 25 ft. Each zone labeled with its sq ft.", body, vb)
     emit("view_east_2.svg", "East - receiving and reserve racking (bulk pick faces)",
-         "View 2 of 4 - four inbound doors with trailers on the dock, floor staging, 1,150 pallet positions across three runs, four levels to 24 ft. The floor level is the bulk pick face; upper levels replenish it by letdown.", body, crop(vb, 0.0, 0.0, 0.60, 0.74))
+         "View 2 of 4 - three inbound doors, combined receiving and returns floor, 1,150 pallet positions across three runs, four levels to 24 ft. The floor level is the bulk pick face; upper levels replenish it by letdown.", body, crop(vb, 0.0, 0.0, 0.60, 0.74))
     emit("view_east_3.svg", "East - Sure Sort and pack line",
          "View 3 of 4 - bulk-picked totes induct at the near end; the 130 ft bed drops units to order bins; eight pack stations work the front face.", body, crop(vb, 0.16, 0.30, 0.80, 1.00))
     emit("view_east_4.svg", "East - outbound, mail staging and office",
-         "View 4 of 4 - six shipping doors with trailers on the dock, mail trays staged on pallets for presort collection, two-storey office block clear of the floor.", body, crop(vb, 0.46, 0.06, 1.00, 0.86))
+         "View 4 of 4 - four shipping doors with trailers on the dock, mail trays staged on pallets for presort collection, compact two-level office block in the corner.", body, crop(vb, 0.46, 0.06, 1.00, 0.86))
     body, vb = build_scene("west")
-    emit("view_west_1.svg", "West node - Las Vegas, NV  |  24,500 sq ft  |  bulk-pick design",
-         "View 1 of 2 - same flow at smaller scale: three inbound doors, two racking runs with floor-level bulk pick faces, an 85 ft Sure Sort, four pack stations. Each zone labeled with its sq ft.", body, vb)
+    emit("view_west_1.svg", "West node - Las Vegas, NV  |  13,500 sq ft  |  bulk-pick design",
+         "View 1 of 2 - same flow at smaller scale: two inbound doors, combined receiving and returns, two racking runs with floor-level bulk pick faces, an 85 ft Sure Sort, four pack stations. Each zone labeled with its sq ft.", body, vb)
     emit("view_west_2.svg", "West - Sure Sort, pack and outbound",
-         "View 2 of 2 - the working half: sorter, pack line and staging to four shipping doors.", body, crop(vb, 0.25, 0.20, 1.00, 1.00))
+         "View 2 of 2 - the working half: sorter, pack line and staging to three shipping doors.", body, crop(vb, 0.25, 0.20, 1.00, 1.00))
     site_plan("east"); site_plan("west")
 
 if __name__ == "__main__":
