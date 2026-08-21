@@ -8,6 +8,9 @@ import math, os, hashlib
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "public", "rfp", "dl-inhouse")
 S = 1.9
+def set_scale(v):
+    global S
+    S = v
 C30, S30 = math.cos(math.radians(30)), math.sin(math.radians(30))
 
 def iso(x, y, z=0.0):
@@ -58,10 +61,10 @@ def box(sc, x, y, w, d, h, fill, edge=None, z0=0.0, op=1.0, top=None, shadow=Tru
     sc.add(x + y + dp, o)
 
 def carton_stack(sc, x, y, w, d, base_z, key):
-    layers = 2 + int(rnd(key, 1) * 2)
+    layers = 2 + int(rnd(key, 1) * 1.6)
     z = base_z
     for L in range(layers):
-        hh = 0.9 + rnd(key, L) * 0.5
+        hh = 1.5 + rnd(key, L) * 0.9
         shrink = L * 0.22
         cw, cd = w - shrink, d - shrink
         cx, cy = x + shrink/2, y + shrink/2
@@ -151,20 +154,23 @@ def pack_row(sc, x, y, n, pitch=15):
             person(sc, bx + 5, y + 6.5, vest="#3BA2E8" if rnd("pv",i) < .4 else "#F5B324", dp=0.52)
 
 def trailer(sc, x, y, dp):
-    box(sc, x, y, 42, 9.5, 10.2, "#E2E6EB", z0=3.4, shadow=False, dp=dp)          # body
+    box(sc, x, y, 42, 9.5, 10.2, "#D3D9E0", z0=3.4, shadow=False, dp=dp)          # body
+    r1, r2 = iso(x, y, 13.6), iso(x + 42, y, 13.6)
+    sc.add(dp + .015, f'<line x1="{r1[0]:.1f}" y1="{r1[1]:.1f}" x2="{r2[0]:.1f}" y2="{r2[1]:.1f}" stroke="#9AA6B2" stroke-width="1.2"/>')
     for wx in (x + 5, x + 34):                                                     # wheels
         box(sc, wx, y + 1.2, 4.5, 7.1, 3.0, "#48505B", z0=0.4, shadow=False, dp=dp + .01)
     p1 = iso(x, y, 3.4); p2 = iso(x, y + 9.5, 3.4)                                 # underside line
     sc.add(dp + .02, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#AAB2BB" stroke-width=".8"/>')
 
-def dock_wall(sc, side, W, D, positions, wall_h, with_trailers=True):
+def dock_wall(sc, side, W, D, positions, wall_h, with_trailers=True, y0=0, y1=None):
+    y1 = D if y1 is None else y1
     xw = 0 if side == "W" else W
     dh = 11.0                                                                       # door height
     if side == "W":
         # cut-away side: low stub wall (12 ft) anchors the doors; trailers behind it
         stub_h = 13
-        segs = [0] + sorted(positions) + [D]
-        prev = 0
+        segs = [y0] + sorted(positions) + [y1]
+        prev = y0
         wall = ""
         for p in sorted(positions):
             if p > prev:
@@ -172,11 +178,11 @@ def dock_wall(sc, side, W, D, positions, wall_h, with_trailers=True):
                 t1, t2 = iso(0, prev, stub_h), iso(0, p, stub_h)
                 wall += f'<polygon points="{pts([a,b,t2,t1])}" fill="#D6DDE6" stroke="#9AA7B5" stroke-width="1" opacity=".97"/>'
             prev = p + 9.5
-        if prev < D:
-            a, b = iso(0, prev), iso(0, D)
-            t1, t2 = iso(0, prev, stub_h), iso(0, D, stub_h)
+        if prev < y1:
+            a, b = iso(0, prev), iso(0, y1)
+            t1, t2 = iso(0, prev, stub_h), iso(0, y1, stub_h)
             wall += f'<polygon points="{pts([a,b,t2,t1])}" fill="#D6DDE6" stroke="#9AA7B5" stroke-width="1" opacity=".97"/>'
-        cap1, cap2 = iso(0, 0, stub_h), iso(0, D, stub_h)
+        cap1, cap2 = iso(0, y0, stub_h), iso(0, y1, stub_h)
         wall += f'<line x1="{cap1[0]:.1f}" y1="{cap1[1]:.1f}" x2="{cap2[0]:.1f}" y2="{cap2[1]:.1f}" stroke="#AEB8C4" stroke-width="1.2"/>'
         sc.add(-9200, wall)
     for p in positions:
@@ -212,7 +218,7 @@ def zone_label(sc, x, y, w, d, name, sqft, fs=11.5, note=None):
     o += "</g>"
     sc.add(9000 + x + y, o)
 
-def build_scene(site):
+def build_scene(site, focus=None):
     if site == "east":
         W, D = 180, 150
         zones = [
@@ -240,67 +246,94 @@ def build_scene(site):
     sc.add(-10000, f'<defs><linearGradient id="fl{site}" x1="0" y1="0" x2="1" y2="1">'
                    f'<stop offset="0" stop-color="#F0F2F4"/><stop offset=".55" stop-color="{CONC}"/>'
                    f'<stop offset="1" stop-color="#DEE2E6"/></linearGradient></defs>')
-    sc.add(-9999, f'<polygon points="{pts([iso(0,0),iso(W,0),iso(W,D),iso(0,D)])}" fill="url(#fl{site})" stroke="#B7C0CB" stroke-width="1.4"/>')
-    for gx in range(0, W+1, 25):
-        a, b = iso(gx, 0), iso(gx, D)
+    if focus:
+        fz = [z for z in zones if z[0] in focus]
+        fx0 = max(0, min(z[1] for z in fz) - 10); fy0 = max(0, min(z[2] for z in fz) - 10)
+        fx1 = min(W, max(z[1] + z[3] for z in fz) + 10); fy1 = min(D, max(z[2] + z[4] for z in fz) + 10)
+    else:
+        fx0, fy0, fx1, fy1 = 0, 0, W, D
+    sc.add(-9999, f'<polygon points="{pts([iso(fx0,fy0),iso(fx1,fy0),iso(fx1,fy1),iso(fx0,fy1)])}" fill="url(#fl{site})" stroke="#B7C0CB" stroke-width="1.4"/>')
+    for gx in range(int(fx0)//25*25, int(fx1)+1, 25):
+        if gx < fx0: continue
+        a, b = iso(gx, fy0), iso(gx, fy1)
         sc.add(-9990, f'<line x1="{a[0]:.1f}" y1="{a[1]:.1f}" x2="{b[0]:.1f}" y2="{b[1]:.1f}" stroke="#D5DAE0" stroke-width=".45"/>')
-    for gy in range(0, D+1, 25):
-        a, b = iso(0, gy), iso(W, gy)
+    for gy in range(int(fy0)//25*25, int(fy1)+1, 25):
+        if gy < fy0: continue
+        a, b = iso(fx0, gy), iso(fx1, gy)
         sc.add(-9990, f'<line x1="{a[0]:.1f}" y1="{a[1]:.1f}" x2="{b[0]:.1f}" y2="{b[1]:.1f}" stroke="#D5DAE0" stroke-width=".45"/>')
     tints = {"recv":("#D6E7F8","#9CBCDD"),"rack":("#E2DEF6","#ABA2DC"),"sort":("#FBE4C8","#E0A868"),
              "pack":("#D9F0DC","#8FC79C"),"out":("#F8DEDE","#D89A9A"),"ret":("#F3EDD4","#C7BA79"),"off":("#E4E9F0","#A9B6C8")}
     zx = {}
     for key, x, y, w, d, name, sq in zones:
-        zone_tint(sc, x, y, w, d, *tints[key]); zx[key] = (x, y, w, d)
+        zx[key] = (x, y, w, d)
+        if focus and key not in focus: continue
+        zone_tint(sc, x, y, w, d, *tints[key])
         zone_label(sc, x, y, w, d, name, sq,
                    note=(f"{sq*2:,} sq ft over 2 levels" if key == "off" else None))
-    # green walkway lane along the front
-    q = [iso(4, D*0.24), iso(W-4, D*0.24), iso(W-4, D*0.24+5), iso(4, D*0.24+5)]
-    sc.add(-9980, f'<polygon points="{pts(q)}" fill="#7FBF8E" opacity=".35"/>')
+    if not focus:
+        q = [iso(4, D*0.24), iso(W-4, D*0.24), iso(W-4, D*0.24+5), iso(4, D*0.24+5)]
+        sc.add(-9980, f'<polygon points="{pts(q)}" fill="#7FBF8E" opacity=".35"/>')
     # geometry
-    x, y, w, d = zx["rack"]
-    run_d = 9.5; gap = (d - rack_runs*run_d) / max(rack_runs - 1, 1)
-    for r in range(rack_runs):
-        rack_run(sc, x + 2, y + r*(run_d+gap), w - 4, run_d, key=f"{site}{r}")
-    forklift(sc, x + w*0.55, y - 7)
-    x, y, w, d = zx["sort"]; sorter(sc, x + (w-sort_len)/2 + 6, y + (d-12)/2, sort_len, 12)
-    x, y, w, d = zx["pack"]; pack_row(sc, x + 6, y + d - 12, pack_n)
-    x, y, w, d = zx["recv"]
-    for i in range(4 if site == "east" else 3):
-        pallet(sc, x + 6 + (i%2)*6.5, y + 8 + (i//2)*7, 0, ("rc",site,i), w=4.5, d=4.5)
-    for i in range(2):                                                   # returns corner
-        pallet(sc, x + w - 12, y + 8 + i*8, 0, ("rt",site,i), w=4.2, d=4.2)
-        tote(sc, x + w - 6, y + 10 + i*8, 0, x + y + 0.56)
-    person(sc, x + 10, y + 22, vest="#3BA2E8")
-    x, y, w, d = zx["out"]
-    for i in range(10 if site == "east" else 6):
-        loaded = rnd("ol",site,i) < .85
-        pallet(sc, x + 6 + (i%2)*10, y + 8 + (i//2)*13, 0, ("ot",site,i), w=5, d=5, loaded=loaded)
-    # mail trays: white stacks
-    for i in range(3):
-        box(sc, x + 6 + i*8, y + d - 22, 5, 5, 3.8, "#F2F4F6", dp=0.55)
-    person(sc, x + w*0.45, y + d*0.55)
-    x, y, w, d = zx["off"]
-    box(sc, x + 1.5, y + 1.5, w - 3, d - 3, 22, "#CBD5E2", dp=0.40)
-    for lvl_z in (5.5, 15.5):                                            # window bands (2 levels)
-        p1, p2 = iso(x + 1.5, y + 1.5, lvl_z), iso(x + w - 1.5, y + 1.5, lvl_z)
-        sc.add(x + y + 0.42, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#8FB6DE" stroke-width="3.4" opacity=".85"/>')
-        p1, p2 = iso(x + w - 1.5, y + 1.5, lvl_z), iso(x + w - 1.5, y + d - 1.5, lvl_z)
-        sc.add(x + y + 0.42, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#7FA9D2" stroke-width="3.4" opacity=".85"/>')
-    p1, p2 = iso(x + 1.5, y + 1.5, 11), iso(x + w - 1.5, y + 1.5, 11)   # mid-floor line
-    sc.add(x + y + 0.43, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#9AA9BE" stroke-width="1.4"/>')
+    if not focus or "rack" in focus:
+        x, y, w, d = zx["rack"]
+        run_d = 9.5; gap = (d - rack_runs*run_d) / max(rack_runs - 1, 1)
+        for r in range(rack_runs):
+            rack_run(sc, x + 2, y + r*(run_d+gap), w - 4, run_d, key=f"{site}{r}")
+        forklift(sc, x + w*0.55, y - 7)
+    if not focus or "sort" in focus:
+        x, y, w, d = zx["sort"]; sorter(sc, x + (w-sort_len)/2 + 6, y + (d-12)/2, sort_len, 12)
+    if not focus or "pack" in focus:
+        x, y, w, d = zx["pack"]; pack_row(sc, x + 6, y + d - 12, pack_n)
+    if not focus or "recv" in focus:
+      x, y, w, d = zx["recv"]
+      for i in range(4 if site == "east" else 3):
+          pallet(sc, x + 6 + (i%2)*6.5, y + 8 + (i//2)*7, 0, ("rc",site,i), w=4.5, d=4.5)
+      for i in range(2):                                                 # returns corner
+          pallet(sc, x + w - 12, y + 8 + i*8, 0, ("rt",site,i), w=4.2, d=4.2)
+          tote(sc, x + w - 6, y + 10 + i*8, 0, x + y + 0.56)
+      person(sc, x + 10, y + 22, vest="#3BA2E8")
+    if not focus or "out" in focus:
+      x, y, w, d = zx["out"]
+      for i in range(10 if site == "east" else 6):
+          loaded = rnd("ol",site,i) < .96
+          pallet(sc, x + 6 + (i%2)*10, y + 8 + (i//2)*13, 0, ("ot",site,i), w=5, d=5, loaded=loaded)
+      for i in range(4):                                                 # mail trays
+          box(sc, x + 5 + (i%2)*8, y + d - 24 + (i//2)*8, 5, 5, 3.8, "#F2F4F6", dp=0.55)
+      person(sc, x + w*0.45, y + d*0.55)
+      if focus:
+          person(sc, x + w*0.5, y + d*0.22, vest="#3BA2E8")
+          tote(sc, x + w*0.35, y + d*0.30, 0, x + y + 0.57)
+    if not focus or "off" in focus:
+      x, y, w, d = zx["off"]
+      box(sc, x + 1.5, y + 1.5, w - 3, d - 3, 22, "#CBD5E2", dp=0.40)
+      for lvl_z in (5.5, 15.5):                                        # window bands (2 levels)
+          p1, p2 = iso(x + 1.5, y + 1.5, lvl_z), iso(x + w - 1.5, y + 1.5, lvl_z)
+          sc.add(x + y + 0.42, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#8FB6DE" stroke-width="3.4" opacity=".85"/>')
+          p1, p2 = iso(x + w - 1.5, y + 1.5, lvl_z), iso(x + w - 1.5, y + d - 1.5, lvl_z)
+          sc.add(x + y + 0.42, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#7FA9D2" stroke-width="3.4" opacity=".85"/>')
+      p1, p2 = iso(x + 1.5, y + 1.5, 11), iso(x + w - 1.5, y + 1.5, 11)
+      sc.add(x + y + 0.43, f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#9AA9BE" stroke-width="1.4"/>')
     # docks + trailers, then translucent shell walls
     wall_h = 32
-    dock_wall(sc, "W", W, D, recv_doors, wall_h)
-    dock_wall(sc, "E", W, D, out_doors, wall_h)
-    for a, b in [((0, D), (W, D)), ((W, 0), (W, D))]:
-        p1, p2 = iso(*a), iso(*b); t1, t2 = iso(*a, wall_h), iso(*b, wall_h)
-        sc.add(8000, f'<polygon points="{pts([p1,p2,t2,t1])}" fill="#ECF1F6" stroke="#B7C0CB" stroke-width="1" opacity=".38"/>')
-    stub_south(sc, W)
+    if not focus or "recv" in focus:
+        dock_wall(sc, "W", W, D, recv_doors, wall_h, y0=fy0, y1=fy1)
+    if not focus or "out" in focus:
+        dock_wall(sc, "E", W, D, [p for p in out_doors if fy0 <= p <= fy1 - 9], wall_h,
+                  with_trailers=(focus is None))
+    if not focus:
+        for a, b in [((0, D), (W, D)), ((W, 0), (W, D))]:
+            p1, p2 = iso(*a), iso(*b); t1, t2 = iso(*a, wall_h), iso(*b, wall_h)
+            sc.add(8000, f'<polygon points="{pts([p1,p2,t2,t1])}" fill="#ECF1F6" stroke="#B7C0CB" stroke-width="1" opacity=".38"/>')
+        stub_south(sc, W)
+    elif "out" in focus:
+        p1, p2 = iso(W, fy0), iso(W, fy1); t1, t2 = iso(W, fy0, 13), iso(W, fy1, 13)
+        sc.add(700, f'<polygon points="{pts([p1,p2,t2,t1])}" fill="#DFE5EC" stroke="#9AA7B5" stroke-width="1" opacity=".95"/>')
     xs, ys = [], []
-    for px in (-46, W + 46):
-        for py in (0, D):
-            for zz in (0, 40):
+    ex0 = fx0 - (46 if (not focus or "recv" in focus) else 4)
+    ex1 = fx1 + (46 if (not focus or "out" in focus) else 4)
+    for px in (ex0, ex1):
+        for py in (fy0, fy1):
+            for zz in (0, 40 if not focus else 30):
                 q = iso(px, py, zz); xs.append(q[0]); ys.append(q[1])
     return sc.emit(), (min(xs), min(ys), max(xs), max(ys))
 
@@ -393,20 +426,31 @@ def site_plan(site):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    # EAST
+    set_scale(1.9)
     body, vb = build_scene("east")
     emit("view_east_1.svg", "East node - Hebron, KY  |  27,000 sq ft  |  bulk-pick design",
          "View 1 of 4 - overview from the south-west. 180 x 150 ft, 32 ft clear. No forward pick: floor-level pallet faces in reserve racking feed Sure Sort. Grid 25 ft. Each zone labeled with its sq ft.", body, vb)
-    emit("view_east_2.svg", "East - receiving and reserve racking (bulk pick faces)",
-         "View 2 of 4 - three inbound doors, combined receiving and returns floor, 1,150 pallet positions across three runs, four levels to 24 ft. The floor level is the bulk pick face; upper levels replenish it by letdown.", body, crop(vb, 0.0, 0.0, 0.60, 0.74))
+    set_scale(2.9)
+    body, vb = build_scene("east", focus={"recv", "rack"})
+    emit("view_east_2.svg", "East - receiving, returns and reserve racking",
+         "View 2 of 4 - three inbound doors, combined receiving and returns floor at 2,500 sq ft, then 1,150 pallet positions across three runs, four levels to 24 ft. The floor level is the bulk pick face; upper levels replenish it by letdown.", body, vb)
+    body, vb = build_scene("east", focus={"sort", "pack"})
     emit("view_east_3.svg", "East - Sure Sort and pack line",
-         "View 3 of 4 - bulk-picked totes induct at the near end; the 130 ft bed drops units to order bins; eight pack stations work the front face.", body, crop(vb, 0.16, 0.30, 0.80, 1.00))
-    emit("view_east_4.svg", "East - outbound, mail staging and office",
-         "View 4 of 4 - four shipping doors with trailers on the dock, mail trays staged on pallets for presort collection, compact two-level office block in the corner.", body, crop(vb, 0.46, 0.06, 1.00, 0.86))
+         "View 3 of 4 - bulk-picked totes induct at the near end of the 130 ft bed; units drop to order bins and eight pack stations work the front face. With no forward pick, replenishment here is simply the next picked tote.", body, vb)
+    body, vb = build_scene("east", focus={"out"})
+    emit("view_east_4.svg", "East - outbound, mail staging and shipping dock",
+         "View 4 of 4 - four shipping doors on the east wall; parcel pallets and mail trays staged for presort collection in 4,000 sq ft.", body, vb)
+    # WEST
+    set_scale(1.9)
     body, vb = build_scene("west")
     emit("view_west_1.svg", "West node - Las Vegas, NV  |  14,000 sq ft  |  bulk-pick design",
          "View 1 of 2 - same flow at smaller scale: two inbound doors, combined receiving and returns, two racking runs with floor-level bulk pick faces, an 85 ft Sure Sort, four pack stations. Each zone labeled with its sq ft.", body, vb)
+    set_scale(2.7)
+    body, vb = build_scene("west", focus={"sort", "pack", "out"})
     emit("view_west_2.svg", "West - Sure Sort, pack and outbound",
-         "View 2 of 2 - the working half: sorter, pack line and staging to three shipping doors.", body, crop(vb, 0.25, 0.20, 1.00, 1.00))
+         "View 2 of 2 - the working half up close: sorter, pack line and staging to three shipping doors.", body, vb)
+    set_scale(1.9)
     site_plan("east"); site_plan("west")
 
 if __name__ == "__main__":
