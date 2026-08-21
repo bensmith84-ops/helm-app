@@ -9,6 +9,7 @@ WORKDIR /app
 ENV NODE_ENV=production PORT=8080
 COPY --from=deps /app/node_modules ./node_modules
 COPY src ./src
+COPY migrations ./migrations
 COPY package.json ./
 USER node
 EXPOSE 8080

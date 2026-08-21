@@ -165,6 +165,12 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
-app.listen(PORT, () => {
-  console.log(`helm-api listening on :${PORT}`);
-});
+const { runMigrations } = require('./lib/migrate');
+const path = require('path');
+runMigrations(pool, path.join(__dirname, '..', 'migrations'))
+  .catch((e) => console.error('[migrate] unexpected:', e?.message))
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`helm-api listening on :${PORT}`);
+    });
+  });
