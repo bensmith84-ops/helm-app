@@ -59,6 +59,17 @@ async function requireAuth(req, res, next) {
     const decoded = await admin.auth().verifyIdToken(token);
     req.firebase = decoded;
     req.jwtClaims = decoded;
+    // Resolve the Helm profile UUID so routes can use req.user.helm_user.uid.
+    // (organizer/actor columns FK to profiles(id), not Firebase UIDs.)
+    try {
+      const { rows } = await pool.query(
+        `SELECT id FROM profiles WHERE firebase_uid = $1 LIMIT 1`, [decoded.sub]
+      );
+      req.user = { helm_user: { uid: rows[0]?.id || null, firebase_uid: decoded.sub, email: decoded.email || null } };
+    } catch (e) {
+      console.error('profile resolution failed in requireAuth:', e?.message);
+      req.user = { helm_user: { uid: null, firebase_uid: decoded.sub, email: decoded.email || null } };
+    }
     next();
   } catch (err) {
     console.error('verifyIdToken failed:', err?.message);
