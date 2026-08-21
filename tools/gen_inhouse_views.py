@@ -214,25 +214,25 @@ def zone_label(sc, x, y, w, d, name, sqft, fs=11.5, note=None):
 
 def build_scene(site):
     if site == "east":
-        W, D = 175, 150
+        W, D = 180, 150
         zones = [
-            ("off",  0,   0,  25,  20, "Office & welfare", 500),
+            ("off",  0,   0,  25,  40, "Office & welfare", 1000),
             ("recv", 0,  96,  46,  54, "Receiving & returns", 2500),
             ("rack", 50,  86,  98,  64, "Reserve racking + bulk pick", 6284),
             ("sort", 14,  40, 130,  36, "Sure Sort", 4660),
             ("pack", 14,   6, 130,  29, "Pack", 3781),
-            ("out",  148,  0,  27, 148, "Outbound & mail staging", 4000),
+            ("out",  152,  0,  28, 143, "Outbound & mail staging", 4000),
         ]
         recv_doors, out_doors, rack_runs, pack_n, sort_len = [102,120,138], [14,48,82,116], 3, 8, 110
     else:
-        W, D = 135, 100
+        W, D = 140, 100
         zones = [
-            ("off",  0,   0,  18,  20, "Office & welfare", 350),
+            ("off",  0,   0,  20,  35, "Office & welfare", 700),
             ("recv", 0,  48,  30,  52, "Receiving & returns", 1550),
             ("rack", 30,  66,  68,  34, "Reserve racking + bulk pick", 2319),
             ("sort", 14,  30,  88,  36, "Sure Sort", 3170),
             ("pack", 14,   2,  50,  27, "Pack", 1387),
-            ("out",  108,   8,  27,  83, "Outbound & mail staging", 2250),
+            ("out",  112,   8,  28,  80, "Outbound & mail staging", 2250),
         ]
         recv_doors, out_doors, rack_runs, pack_n, sort_len = [56,76], [22,50,78], 2, 4, 72
     sc = Scene()
@@ -336,9 +336,9 @@ def crop(vb, fx0, fy0, fx1, fy1):
 
 def site_plan(site):
     if site == "east":
-        W, D, cW, cE, park, title = 175, 150, 130, 160, 40, "East node - Hebron, KY  |  site plan  |  building 26,250 sq ft (175 x 150 ft)"
+        W, D, cW, cE, park, title = 180, 150, 130, 160, 40, "East node - Hebron, KY  |  site plan  |  building 27,000 sq ft (180 x 150 ft)"
     else:
-        W, D, cW, cE, park, title = 135, 100, 120, 130, 20, "West node - Las Vegas, NV  |  site plan  |  building 13,500 sq ft (135 x 100 ft)"
+        W, D, cW, cE, park, title = 140, 100, 120, 130, 20, "West node - Las Vegas, NV  |  site plan  |  building 14,000 sq ft (140 x 100 ft)"
     s = 1.9
     tw, td = cW + W + cE, D + 115
     acres = (tw * td) / 43560
@@ -394,8 +394,8 @@ def site_plan(site):
 def main():
     os.makedirs(OUT, exist_ok=True)
     body, vb = build_scene("east")
-    emit("view_east_1.svg", "East node - Hebron, KY  |  26,250 sq ft  |  bulk-pick design",
-         "View 1 of 4 - overview from the south-west. 175 x 150 ft, 32 ft clear. No forward pick: floor-level pallet faces in reserve racking feed Sure Sort. Grid 25 ft. Each zone labeled with its sq ft.", body, vb)
+    emit("view_east_1.svg", "East node - Hebron, KY  |  27,000 sq ft  |  bulk-pick design",
+         "View 1 of 4 - overview from the south-west. 180 x 150 ft, 32 ft clear. No forward pick: floor-level pallet faces in reserve racking feed Sure Sort. Grid 25 ft. Each zone labeled with its sq ft.", body, vb)
     emit("view_east_2.svg", "East - receiving and reserve racking (bulk pick faces)",
          "View 2 of 4 - three inbound doors, combined receiving and returns floor, 1,150 pallet positions across three runs, four levels to 24 ft. The floor level is the bulk pick face; upper levels replenish it by letdown.", body, crop(vb, 0.0, 0.0, 0.60, 0.74))
     emit("view_east_3.svg", "East - Sure Sort and pack line",
@@ -403,7 +403,7 @@ def main():
     emit("view_east_4.svg", "East - outbound, mail staging and office",
          "View 4 of 4 - four shipping doors with trailers on the dock, mail trays staged on pallets for presort collection, compact two-level office block in the corner.", body, crop(vb, 0.46, 0.06, 1.00, 0.86))
     body, vb = build_scene("west")
-    emit("view_west_1.svg", "West node - Las Vegas, NV  |  13,500 sq ft  |  bulk-pick design",
+    emit("view_west_1.svg", "West node - Las Vegas, NV  |  14,000 sq ft  |  bulk-pick design",
          "View 1 of 2 - same flow at smaller scale: two inbound doors, combined receiving and returns, two racking runs with floor-level bulk pick faces, an 85 ft Sure Sort, four pack stations. Each zone labeled with its sq ft.", body, vb)
     emit("view_west_2.svg", "West - Sure Sort, pack and outbound",
          "View 2 of 2 - the working half: sorter, pack line and staging to three shipping doors.", body, crop(vb, 0.25, 0.20, 1.00, 1.00))
