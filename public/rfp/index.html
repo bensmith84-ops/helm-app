@@ -279,15 +279,23 @@ async function brandGate(){
 brandGate();
 
 function helmAccessToken(){
-  // The portal is served from the same origin as Helm, so a signed-in user's Supabase
-  // session is readable here. Used only to authorise the internal preview.
+  // Reads a Supabase session from localStorage, ONLY if it is not expired.
+  // Post-Firebase-cutover most browsers hold a stale pre-cutover token here;
+  // sending it makes PostgREST reject the whole request with 'JWT expired'
+  // before rfp_preview_content ever evaluates the capability key.
   try{
     for(let i=0;i<localStorage.length;i++){
       const k=localStorage.key(i);
       if(k && k.startsWith('sb-') && k.endsWith('-auth-token')){
         const v=JSON.parse(localStorage.getItem(k));
         const tok=v && (v.access_token || (v.currentSession && v.currentSession.access_token));
-        if(tok) return tok;
+        if(tok){
+          try{
+            const exp=JSON.parse(atob(tok.split('.')[1])).exp;
+            if(exp && exp*1000 > Date.now()+60000) return tok; // valid for >60s
+          }catch(e){}
+          try{ localStorage.removeItem(k); }catch(e){} // stale - clear it
+        }
       }
     }
   }catch(e){}
@@ -306,7 +314,7 @@ async function tryPreview(){
     return true;
   }
   try{
-    const headers={'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+(jwt||SB_KEY)};
+    const headers={'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+(key?SB_KEY:(jwt||SB_KEY))};
     const r=await fetch(SB_URL+'/rest/v1/rpc/rfp_preview_content',{
       method:'POST', headers:headers,
       body:JSON.stringify({p_code:RFP_CODE, p_key:key})
