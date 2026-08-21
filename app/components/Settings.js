@@ -893,6 +893,8 @@ export default function SettingsView({ isAdmin, allowedModules }) {
                 { key:"comment",       label:"Comments",         desc:"New comments on tasks and docs you are involved in" },
                 { key:"assignment",    label:"Assignments",      desc:"When a task is assigned to you" },
                 { key:"project_added", label:"Project access",   desc:"When you are added to a project" },
+                { key:"task_completed", label:"Task completed",   desc:"When a task in a project you own is completed" },
+                { key:"task_update",    label:"Due date changes", desc:"When the due date moves on a task assigned to you" },
                 { key:"task_overdue",  label:"Overdue tasks",    desc:"When tasks assigned to you pass their due date" },
                 { key:"okr_deadline",  label:"OKR deadlines",    desc:"When OKR cycles are ending soon" },
                 { key:"approval",      label:"Approval requests",desc:"When you have something waiting on your approval" },
