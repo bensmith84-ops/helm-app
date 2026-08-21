@@ -6,6 +6,7 @@ import { useResponsive } from "../lib/responsive";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { notifySlack } from "../lib/slack";
+import { invokeFunction } from "../lib/invokeFunction";
 import { NAV_ITEMS, NAV_GROUPS } from "./Sidebar";
 import MetabaseBrowser from "./MetabaseBrowser";
 
@@ -85,9 +86,72 @@ export default function SettingsView({ isAdmin, allowedModules }) {
   }, []);
 
   // Notifications
-  const [notifSettings, setNotifSettings] = useState({
-    task_overdue: true, okr_deadline: true, approval: true, mention: true, weekly_digest: true,
-  });
+  const [notifSettings, setNotifSettings] = useState({});
+  const [notifChannel, setNotifChannel] = useState("in_app");   // in_app | slack | both
+  const [slackLinkStatus, setSlackLinkStatus] = useState(null);
+  const [slackBusy, setSlackBusy] = useState(false);
+  const [savingNotif, setSavingNotif] = useState(false);
+
+  // Load real preferences rather than showing defaults that were never persisted.
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const { data } = await supabase.from("notification_preferences")
+        .select("in_app_enabled,slack_enabled,slack_user_id,slack_link_status,category_settings")
+        .eq("user_id", user.id).maybeSingle();
+      if (!data) return;
+      setNotifSettings(data.category_settings || {});
+      setSlackLinkStatus(data.slack_user_id ? "linked" : (data.slack_link_status || null));
+      setNotifChannel(data.slack_enabled ? (data.in_app_enabled ? "both" : "slack") : "in_app");
+    })();
+  }, [user?.id]);
+
+  const callDispatch = async (payload) => {
+    const { data, error } = await invokeFunction("notification-dispatch", { body: payload });
+    if (error) throw new Error(error.message);
+    return data;
+  };
+
+  const connectSlack = async () => {
+    setSlackBusy(true);
+    try {
+      // ensure the opt-in is persisted first so the linker picks this user up
+      await supabase.from("notification_preferences")
+        .update({ slack_enabled: true }).eq("user_id", user.id);
+      const res = await callDispatch({ link_user_id: user.id });
+      const r = (res?.results || [])[0];
+      setSlackLinkStatus(r?.status === "linked" ? "linked" : (r?.status || "error"));
+      showToast(r?.status === "linked" ? "Slack connected" : "Could not find a Slack account for your email");
+    } catch (e) { showToast("Could not connect Slack: " + e.message); }
+    setSlackBusy(false);
+  };
+
+  const sendTestDM = async () => {
+    setSlackBusy(true);
+    try {
+      const res = await callDispatch({ test_user_id: user.id });
+      showToast(res?.ok ? "Test message sent - check Slack" : "Could not send test message");
+    } catch (e) { showToast("Could not send: " + e.message); }
+    setSlackBusy(false);
+  };
+
+  const saveNotifPrefs = async () => {
+    setSavingNotif(true);
+    try {
+      const { error } = await supabase.from("notification_preferences").update({
+        in_app_enabled: notifChannel !== "slack",
+        slack_enabled: notifChannel === "slack" || notifChannel === "both",
+        category_settings: notifSettings,
+        updated_at: new Date().toISOString(),
+      }).eq("user_id", user.id);
+      if (error) throw error;
+      if ((notifChannel === "slack" || notifChannel === "both") && slackLinkStatus !== "linked") {
+        await connectSlack();
+      }
+      showToast("Notification preferences saved");
+    } catch (e) { showToast("Could not save: " + e.message); }
+    setSavingNotif(false);
+  };
 
   // Sidebar order
   const [dragIdx, setDragIdx] = useState(null);
@@ -772,28 +836,84 @@ export default function SettingsView({ isAdmin, allowedModules }) {
         {activeTab === "Notifications" && (
           <>
             <h1 style={{ fontSize:20, fontWeight:800, marginBottom:20 }}>Notifications</h1>
-            <Section title="In-App Notifications" subtitle="Choose what you get notified about">
-              {[
-                { key:"task_overdue", label:"Overdue Tasks", desc:"When tasks assigned to you pass their due date" },
-                { key:"okr_deadline", label:"OKR Deadlines", desc:"When OKR cycles are ending soon" },
-                { key:"approval", label:"Approval Requests", desc:"When you have pending approvals" },
-                { key:"mention", label:"Mentions", desc:"When someone mentions you in a comment" },
-                { key:"weekly_digest", label:"Weekly Digest", desc:"Summary of activity every Monday morning" },
-              ].map(n => (
-                <div key={n.key} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 0", borderBottom:`1px solid ${T.border}` }}>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, fontWeight:600 }}>{n.label}</div>
-                    <div style={{ fontSize:11, color:T.text3 }}>{n.desc}</div>
+
+            <Section title="Where you get notified" subtitle="In-app always works. Turn on Slack to get the same notifications as a direct message.">
+              <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:6 }}>
+                {[
+                  { k:"in_app", label:"In Helm only", desc:"Bell icon in the app" },
+                  { k:"both",   label:"Helm + Slack", desc:"Bell icon and a Slack DM" },
+                  { k:"slack",  label:"Slack only",   desc:"Slack DM, no bell badge" },
+                ].map(opt => {
+                  const active = notifChannel === opt.k;
+                  return (
+                    <div key={opt.k} onClick={() => setNotifChannel(opt.k)}
+                      style={{ flex:"1 1 190px", cursor:"pointer", padding:"13px 15px", borderRadius:10,
+                        border:`1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"10" : T.surface }}>
+                      <div style={{ fontSize:13, fontWeight:700, color: active ? T.accent : T.text }}>{opt.label}</div>
+                      <div style={{ fontSize:11.5, color:T.text3, marginTop:2 }}>{opt.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {(notifChannel === "both" || notifChannel === "slack") && (
+                <div style={{ marginTop:14, padding:"13px 15px", borderRadius:10, border:`1px solid ${T.border}`, background:T.surface2 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                    <b style={{ fontSize:13 }}>Slack</b>
+                    {slackLinkStatus === "linked" ? (
+                      <span style={{ fontSize:11.5, fontWeight:700, color:"#34a853" }}>✓ connected</span>
+                    ) : slackLinkStatus === "not_found" ? (
+                      <span style={{ fontSize:11.5, fontWeight:700, color:"#e5484d" }}>no Slack account found for your Helm email</span>
+                    ) : (
+                      <span style={{ fontSize:11.5, color:T.text3 }}>not connected yet</span>
+                    )}
+                    <div style={{ flex:1 }} />
+                    <button onClick={connectSlack} disabled={slackBusy}
+                      style={{ padding:"6px 14px", fontSize:12, fontWeight:600, borderRadius:7, border:`1px solid ${T.border}`, background:T.surface, color:T.text2, cursor:"pointer" }}>
+                      {slackBusy ? "Connecting…" : slackLinkStatus === "linked" ? "Reconnect" : "Connect Slack"}
+                    </button>
+                    {slackLinkStatus === "linked" && (
+                      <button onClick={sendTestDM} disabled={slackBusy}
+                        style={{ padding:"6px 14px", fontSize:12, fontWeight:600, borderRadius:7, border:"none", background:T.accent, color:"#fff", cursor:"pointer" }}>
+                        Send test message
+                      </button>
+                    )}
                   </div>
-                  <div onClick={() => setNotifSettings(p => ({...p, [n.key]:!p[n.key]}))}
-                    style={{ width:44, height:24, borderRadius:12, background:notifSettings[n.key]?T.accent:T.surface3, cursor:"pointer", position:"relative", transition:"background 0.2s" }}>
-                    <div style={{ width:18, height:18, borderRadius:9, background:"#fff", position:"absolute", top:3, left:notifSettings[n.key]?23:3, transition:"left 0.2s", boxShadow:"0 1px 4px #00000030" }} />
+                  <div style={{ fontSize:11.5, color:T.text3, marginTop:8, lineHeight:1.55 }}>
+                    Connecting matches your Helm account to Slack using your work email - there is nothing to install.
+                    Make sure the Helm app is in your Slack workspace and that you allow direct messages from apps.
                   </div>
                 </div>
-              ))}
-              <button onClick={() => showToast("Notification preferences saved")}
-                style={{ marginTop:16, padding:"10px 24px", fontSize:13, fontWeight:700, borderRadius:8, border:"none", background:T.accent, color:"#fff", cursor:"pointer" }}>
-                Save Preferences
+              )}
+            </Section>
+
+            <Section title="What you get notified about" subtitle="Applies to both in-app and Slack.">
+              {[
+                { key:"mention",       label:"Mentions",         desc:"When someone @mentions you in a comment" },
+                { key:"comment",       label:"Comments",         desc:"New comments on tasks and docs you are involved in" },
+                { key:"assignment",    label:"Assignments",      desc:"When a task is assigned to you" },
+                { key:"project_added", label:"Project access",   desc:"When you are added to a project" },
+                { key:"task_overdue",  label:"Overdue tasks",    desc:"When tasks assigned to you pass their due date" },
+                { key:"okr_deadline",  label:"OKR deadlines",    desc:"When OKR cycles are ending soon" },
+                { key:"approval",      label:"Approval requests",desc:"When you have something waiting on your approval" },
+              ].map(n => {
+                const on = notifSettings[n.key] !== false; // default on
+                return (
+                  <div key={n.key} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600 }}>{n.label}</div>
+                      <div style={{ fontSize:11, color:T.text3 }}>{n.desc}</div>
+                    </div>
+                    <div onClick={() => setNotifSettings(p => ({ ...p, [n.key]: !on }))}
+                      style={{ width:44, height:24, borderRadius:12, background:on?T.accent:T.surface3, cursor:"pointer", position:"relative", transition:"background 0.2s" }}>
+                      <div style={{ width:18, height:18, borderRadius:9, background:"#fff", position:"absolute", top:3, left:on?23:3, transition:"left 0.2s", boxShadow:"0 1px 4px #00000030" }} />
+                    </div>
+                  </div>
+                );
+              })}
+              <button onClick={saveNotifPrefs} disabled={savingNotif}
+                style={{ marginTop:16, padding:"10px 24px", fontSize:13, fontWeight:700, borderRadius:8, border:"none", background:T.accent, color:"#fff", cursor:"pointer", opacity:savingNotif?0.6:1 }}>
+                {savingNotif ? "Saving…" : "Save preferences"}
               </button>
             </Section>
           </>
