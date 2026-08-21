@@ -301,8 +301,7 @@ async function tryPreview(){
   const show_msg=(html)=>{ document.getElementById('scr-loading').innerHTML=html; show('scr-loading'); };
   if(!key && !jwt){
     show_msg('<p style="margin:0 0 10px"><b>Internal preview</b></p>'+
-      '<p style="margin:0;font-size:13.5px;color:var(--ink2)">This link needs either an active Helm session in this browser, or the internal preview key appended to the URL. '+
-      'Ask Ben for the full link.</p>'+
+      '<p style="margin:0;font-size:13.5px;color:var(--ink2)">This link is missing the internal preview key. Copy a fresh preview link from Helm (RFP admin) - it now includes the key automatically.</p>'+
       '<p style="margin:14px 0 0"><a href="/" style="font-weight:600">Open Helm</a></p>');
     return true;
   }
@@ -317,7 +316,7 @@ async function tryPreview(){
       show_msg('<p style="margin:0 0 10px"><b>Internal preview unavailable</b></p>'+
         '<p style="margin:0;font-size:13.5px;color:var(--ink2)">'+
         (res && res.error==='unknown_rfp' ? 'That RFP code was not found.' :
-         'Could not verify access. Check the link includes the preview key, or sign in to Helm in this browser and reload.')+'</p>');
+         'Could not verify access - the preview key on this link is missing or wrong. Copy a fresh preview link from Helm (RFP admin).')+'</p>');
       return true;
     }
     document.getElementById('previewbar').style.display='block';

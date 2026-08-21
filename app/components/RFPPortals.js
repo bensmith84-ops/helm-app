@@ -6,6 +6,9 @@ import PortalAdmin from "./ThreePLParcelRFP";
 
 const PORTAL_BASE = "https://helm-app-six.vercel.app/rfp/index.html";
 const CM_TEMPLATE_CODE = "EB-2026-CM-POWDER-01";
+// Internal preview capability key (matches rfp_preview_content). Required since
+// the Firebase cutover removed Supabase browser sessions the RPC used to accept.
+const PREVIEW_KEY = "k7m2q9x4vt8bn3rf";
 
 const TYPE_META = {
   parcel: { label: "Parcel / Freight", bg: "rgba(66,133,244,0.15)", fg: "#4285f4" },
@@ -140,7 +143,7 @@ export default function RFPPortals() {
             <span style={{ fontSize: 11.5, color: T.text3 }}>{c.signed} NDA{c.signed === 1 ? "" : "s"} · {c.subs} submission{c.subs === 1 ? "" : "s"}</span>
             <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: 99, fontWeight: 700, background: p.status === "active" ? "rgba(52,168,83,0.15)" : "rgba(128,128,128,0.15)", color: p.status === "active" ? "#34a853" : T.text3 }}>{p.status}</span>
             <button onClick={() => setSelected(p)} style={btnGhost}>Manage</button>
-            <a href={`${PORTAL_BASE}?rfp=${encodeURIComponent(p.rfp_code)}&preview=1`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none" }} title="Internal preview - Helm login only">Preview ↗</a>
+            <a href={`${PORTAL_BASE}?rfp=${encodeURIComponent(p.rfp_code)}&preview=1&key=${PREVIEW_KEY}`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none" }} title="Internal preview - Helm login only">Preview ↗</a>
             <a href={`${PORTAL_BASE}?rfp=${encodeURIComponent(p.rfp_code)}`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none" }}>Portal ↗</a>
             {p.status === "active"
               ? <button onClick={() => setStatus(p, "closed")} style={{ ...btnGhost, color: T.text3 }}>Close</button>

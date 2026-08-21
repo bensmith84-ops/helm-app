@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 
 const PORTAL_BASE = "https://helm-app-six.vercel.app/rfp/index.html";
+const PREVIEW_KEY = "k7m2q9x4vt8bn3rf"; // internal preview capability key (rfp_preview_content)
 
 const TYPE_META = {
   proposal: { label: "Proposal", bg: "rgba(52,168,83,0.15)", fg: "#34a853" },
@@ -495,7 +496,7 @@ Earth Breeze Procurement`);
         </div>
         <div style={{ flex: 1 }} />
         <button onClick={async () => {
-          const link = `${PORTAL_URL}&preview=1`;
+          const link = `${PORTAL_URL}&preview=1&key=${PREVIEW_KEY}`;
           try { await navigator.clipboard.writeText(link); setCopied("preview"); setTimeout(() => setCopied(null), 2000); }
           catch (e) { window.prompt("Internal preview link:", link); }
         }} style={btnGhost} title="Anyone signed in to Helm can open this - no NDA, no access request">
