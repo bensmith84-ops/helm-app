@@ -843,6 +843,11 @@ async function renderSite(content){
       rt += '<h3>Refund volume</h3>';
       if (c.returns_volume_note) rt += '<div class="qnote" style="max-width:820px">'+c.returns_volume_note+'</div>';
       rt += tblHTML(['Month','Refunded orders','Refund rate'], c.returns_volume||[], {numeric:1, max:1});
+      if (Array.isArray(c.returns_labels)) {
+        rt += '<h3>Verified physical returns - return label summary</h3>';
+        if (c.returns_labels_note) rt += '<div class="qnote" style="max-width:820px">'+c.returns_labels_note+'</div>';
+        rt += tblHTML(['Month','Labels created','Delivered / scanned','Pre-shipment','Expired','Completion rate'], c.returns_labels, {numeric:1, max:1});
+      }
       rt += '<h3>Refund rate by order segment</h3>'+tblHTML(['Segment','May 2026','June 2026','July 2026'], c.returns_segments||[], {numeric:1, max:1});
       rt += '<p class="tbl-note">'+esc(c.returns_note)+'</p>';
       rt += '<h3>Receiving and disposition</h3>'+listHTML(c.returns_process);
