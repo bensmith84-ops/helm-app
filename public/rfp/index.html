@@ -855,6 +855,17 @@ async function renderSite(content){
       if (c.priority_note) rt += '<h3>Priority fulfilment</h3><p style="max-width:780px">'+c.priority_note+'</p>';
       S.push(['returns','Returns &amp; RTS', rt]);
     }
+    if (c.retail_intro || Array.isArray(c.retail_volume)) {
+      let rw = '<p class="lead">'+(c.retail_intro||'')+'</p>';
+      if (Array.isArray(c.retail_volume)) rw += '<h3>Monthly outbound case volume - January to July 2026</h3>'+tblHTML(['Month','Cases shipped','Note'], c.retail_volume, {numeric:1, max:1});
+      if (Array.isArray(c.retail_activity)) rw += '<h3>Activity profile - 7 months</h3>'+tblHTML(['Activity','Volume'], c.retail_activity, {numeric:1, max:1});
+      if (Array.isArray(c.retail_freight)) rw += '<h3>Outbound freight profile by mode</h3>'+tblHTML(['Mode','Cases','Blended linehaul $/case'], c.retail_freight, {numeric:1, max:1});
+      if (c.retail_rates_note) rw += '<div class="qnote" style="max-width:820px">'+c.retail_rates_note+'</div>';
+      if (Array.isArray(c.retail_rates)) rw += '<h3>Current blended rate context</h3>'+tblHTML(['Service','Current blended rate'], c.retail_rates, {max:1});
+      if (Array.isArray(c.retail_requirements)) rw += '<h3>What to include in your quote</h3>'+listHTML(c.retail_requirements);
+      if (c.retail_note) rw += '<p class="tbl-note">'+esc(c.retail_note)+'</p>';
+      S.push(['retail','Retail &amp; wholesale (B2B)', rw]);
+    }
     S.push(['postage','Postage &amp; mail', listHTML(c.postage) + (c.packaging_note ? '<h3>Packaging</h3><p style="max-width:780px">'+c.packaging_note+'</p>' : '')]);
     S.push(['pricing','Pricing format', listHTML(c.pricing_bullets)]);
     S.push(['timeline','Timeline', tblHTML(['Milestone','Date'], c.timeline_rows||[], {max:1})]);
