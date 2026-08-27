@@ -43,15 +43,38 @@ const LazyFallback = () => (
 );
 
 class ChunkErrorBoundary extends Component {
-  constructor(props) { super(props); this.state = { hasError: false }; }
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(error) {
-    if (error?.name === "ChunkLoadError") { window.location.reload(); }
+  constructor(props) { super(props); this.state = { hasError: false, msg: "" }; }
+  static getDerivedStateFromError(error) { return { hasError: true, msg: error?.message || String(error) }; }
+  componentDidCatch(error, info) {
+    const msg = `${error?.name || ""}: ${error?.message || error}`;
+    // Stale-deploy chunk failures (JS, CSS, or dynamic import): reload once to
+    // pick up the new build. sessionStorage guards against a reload loop.
+    if (/ChunkLoadError|Loading chunk|Loading CSS chunk|dynamically imported module|Importing a module script failed/i.test(msg)) {
+      const last = Number(sessionStorage.getItem("helm_chunk_reload") || 0);
+      if (Date.now() - last > 15000) {
+        sessionStorage.setItem("helm_chunk_reload", String(Date.now()));
+        window.location.reload();
+        return;
+      }
+    }
+    console.error("[HelmErrorBoundary]", error, info?.componentStack);
+    // Report to client_errors so crashes are diagnosable without a screen share.
+    try {
+      supabase.from("client_errors").insert({
+        message: msg.slice(0, 2000),
+        stack: (error?.stack || "").slice(0, 6000),
+        component_stack: (info?.componentStack || "").slice(0, 6000),
+        path: typeof window !== "undefined" ? window.location.pathname + window.location.hash : null,
+        user_email: (typeof window !== "undefined" && window.__helmUserEmail) || null,
+        user_agent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 300) : null,
+      }).then(() => {});
+    } catch (e) {}
   }
   render() {
     if (this.state.hasError) return (
       <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#94a3b8" }}>
         <div style={{ fontSize: 14 }}>Something went wrong loading this page.</div>
+        {this.state.msg ? <div style={{ fontSize: 12, color: "#64748b", maxWidth: 560, textAlign: "center", wordBreak: "break-word" }}>{this.state.msg}</div> : null}
         <button onClick={() => window.location.reload()} style={{ padding: "8px 16px", fontSize: 13, borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer" }}>Reload</button>
       </div>
     );
@@ -111,6 +134,7 @@ function SetPasswordPage() {
 
 export default function HelmApp() {
   const { user, profile, loading: authLoading, signOut, needsPasswordSetup, orgId, orgs, switchOrg } = useAuth();
+  useEffect(() => { if (typeof window !== "undefined") window.__helmUserEmail = user?.email || profile?.email || null; }, [user?.email, profile?.email]);
   const { tokens, mode } = useTheme();
   _setTokens(tokens); // sync theme tokens to global singleton for T proxy
   const [active, setActive] = useState("dashboard");
