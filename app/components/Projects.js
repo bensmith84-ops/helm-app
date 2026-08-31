@@ -553,8 +553,30 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const { isMobile, isTablet } = useResponsive();
   const { showPrompt, showConfirm } = useModal();
   const [projects, setProjects] = useState([]);
-  const [sections, setSections] = useState([]);
-  const [tasks, setTasks] = useState([]);
+  const [sections, _setSectionsRaw] = useState([]);
+  const [tasks, _setTasksRaw] = useState([]);
+  // Sanitizing setters: a falsy element in these arrays crashes every derived
+  // memo (t.project_id of undefined - seen for Diego + Mindy). Strip them at the
+  // source and report the injecting call stack so the origin identifies itself.
+  const _mkSafeSetter = (rawSetter, label) => (updater) => rawSetter(prev => {
+    const next = typeof updater === "function" ? updater(prev) : updater;
+    if (!Array.isArray(next)) return next;
+    const clean = next.filter(Boolean);
+    if (clean.length !== next.length) {
+      console.error(`[Projects] stripped ${next.length - clean.length} undefined element(s) from ${label}`);
+      try {
+        supabase.from("client_errors").insert({
+          message: `sanitized undefined element in ${label}`,
+          stack: (new Error().stack || "").slice(0, 6000),
+          path: typeof window !== "undefined" ? window.location.pathname + window.location.hash : null,
+          user_email: (typeof window !== "undefined" && window.__helmUserEmail) || null,
+        }).then(() => {});
+      } catch (e) {}
+    }
+    return clean;
+  });
+  const setSections = useCallback(_mkSafeSetter(_setSectionsRaw, "sections"), []);
+  const setTasks = useCallback(_mkSafeSetter(_setTasksRaw, "tasks"), []);
   const [profiles, setProfiles] = useState({});
   const [activeProject, setActiveProject] = useState(null);
   useEffect(() => { try { if (activeProject) localStorage.setItem("helm_active_project", activeProject); } catch (e) {} }, [activeProject]);
@@ -632,7 +654,8 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   const [dependencies, setDependencies] = useState([]);
   const [depTasks, setDepTasks] = useState({}); // id -> {id,title,...} for dependency targets not in the loaded task set
   const [profileCard, setProfileCard] = useState(null); // {userId,x,y} for the read-only creator profile popover
-  const [taskProjects, setTaskProjects] = useState([]); // additional project memberships (multi-home links)
+  const [taskProjects, _setTaskProjectsRaw] = useState([]); // additional project memberships (multi-home links)
+  const setTaskProjects = useCallback(_mkSafeSetter(_setTaskProjectsRaw, "taskProjects"), []);
   const [linkedTaskObjs, setLinkedTaskObjs] = useState({}); // id -> task row, for linked tasks not in the loaded set
   const [customFields, setCustomFields] = useState([]);
   const [projectLabels, setProjectLabels] = useState([]);
@@ -978,16 +1001,16 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   }, [dependencies, tasks, depTasks]);
 
   const proj = projects.find(p => p.id === activeProject);
-  const projSections = useMemo(() => sections.filter(s => s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
+  const projSections = useMemo(() => sections.filter(s => s && s.project_id === activeProject).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)), [sections, activeProject]);
   // ── Multi-home: a task can also appear in other projects beyond its home project ──
-  const linkedIdsByProject = useMemo(() => { const m = {}; taskProjects.forEach(l => { (m[l.project_id] = m[l.project_id] || new Set()).add(l.task_id); }); return m; }, [taskProjects]);
-  const linkedProjectsByTask = useMemo(() => { const m = {}; taskProjects.forEach(l => { (m[l.task_id] = m[l.task_id] || []).push(l.project_id); }); return m; }, [taskProjects]);
+  const linkedIdsByProject = useMemo(() => { const m = {}; taskProjects.forEach(l => { if (!l) return; (m[l.project_id] = m[l.project_id] || new Set()).add(l.task_id); }); return m; }, [taskProjects]);
+  const linkedProjectsByTask = useMemo(() => { const m = {}; taskProjects.forEach(l => { if (!l) return; (m[l.task_id] = m[l.task_id] || []).push(l.project_id); }); return m; }, [taskProjects]);
   // Split incoming links: ones pinned to a section render inside that section; ones with no section show in the "Also here" group.
   const sharedSplit = useMemo(() => {
     const sectioned = []; const rootless = [];
-    const validSec = new Set(sections.filter(s => s.project_id === activeProject).map(s => s.id));
+    const validSec = new Set(sections.filter(s => s && s.project_id === activeProject).map(s => s.id));
     taskProjects.forEach(l => {
-      if (l.project_id !== activeProject) return;
+      if (!l || l.project_id !== activeProject) return;
       const t = tasks.find(x => x.id === l.task_id) || linkedTaskObjs[l.task_id];
       if (!t || t.project_id === activeProject || t.parent_task_id) return;
       if (l.section_id && validSec.has(l.section_id)) sectioned.push({ ...t, section_id: l.section_id, __sharedLink: l.id, __homeProjectId: t.project_id });
@@ -997,9 +1020,9 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
   }, [taskProjects, activeProject, tasks, linkedTaskObjs, sections]);
   const sharedSectioned = sharedSplit.sectioned;
   const sharedRoots = sharedSplit.rootless;
-  const projTasks = useMemo(() => tasks.filter(t => t.project_id === activeProject).concat(sharedSectioned), [tasks, activeProject, sharedSectioned]);
+  const projTasks = useMemo(() => tasks.filter(t => t && t.project_id === activeProject).concat(sharedSectioned), [tasks, activeProject, sharedSectioned]);
   const projOpenCount = (pid) => {
-    let c = tasks.filter(t => t.project_id === pid && t.status !== "done" && !t.parent_task_id).length;
+    let c = tasks.filter(t => t && t.project_id === pid && t.status !== "done" && !t.parent_task_id).length;
     const set = linkedIdsByProject[pid];
     if (set) set.forEach(id => { const t = tasks.find(x => x.id === id) || linkedTaskObjs[id]; if (t && t.project_id !== pid && t.status !== "done" && !t.parent_task_id) c++; });
     return c;
@@ -1030,6 +1053,7 @@ export default function ProjectsView({ pendingTaskId, clearPendingTask, pendingP
     }
   }, [visibleTabs, viewMode]);
   const filteredTasks = useMemo(() => projTasks.filter(t => {
+    if (!t) return false;
     if (search) { const s = search.toLowerCase(); const nameMatch = t.assignee_id && profiles[t.assignee_id]?.display_name?.toLowerCase().includes(s); if (!t.title?.toLowerCase().includes(s) && !nameMatch) return false; }
     if (filterStatus !== "all" && filterStatus.length && !filterStatus.includes(t.status)) return false;
     if (filterPriority !== "all" && filterPriority.length && !filterPriority.includes(t.priority)) return false;
