@@ -25,6 +25,22 @@ module.exports = function(app, { pool }) {
       const ok = await rpc('check_backfill_key', { p_key: key });
       if (ok !== true) return res.status(403).json({ error: 'bad key' });
 
+      // Set mode: caller supplies a fresh Admin API token; test it, then write it
+      // to BOTH databases (Cloud SQL directly, Supabase via keyed RPC).
+      if (req.body?.set_token) {
+        const domain = req.body.set_domain || 'earth-breeze-hydrogen.myshopify.com';
+        const t = await fetch(`https://${domain}/admin/api/2024-01/shop.json`, {
+          headers: { 'X-Shopify-Access-Token': req.body.set_token },
+        });
+        if (!t.ok) return res.status(400).json({ error: `new token failed shopify test: ${t.status}` });
+        await pool.query(
+          `UPDATE integrations SET access_token=$1, store_domain=$2, status='active', updated_at=NOW() WHERE provider='shopify'`,
+          [req.body.set_token, domain]
+        );
+        const pushed = (await rpc('update_shopify_token', { p_key: key, p_token: req.body.set_token, p_domain: domain })) === true;
+        return res.json({ set: true, valid: true, cloudsql_updated: true, supabase_pushed: pushed, store_domain: domain });
+      }
+
       const { rows } = await pool.query(
         `SELECT access_token, store_domain, updated_at FROM integrations WHERE provider='shopify' AND access_token IS NOT NULL ORDER BY updated_at DESC LIMIT 1`
       );
