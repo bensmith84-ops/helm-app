@@ -154,6 +154,7 @@ require('./routes/ar-reminders')(app, helpers);
 require('./routes/ap-alerts')(app, helpers);
 require('./routes/ical-proxy')(app, helpers);
 require('./routes/calendar-manager')(app, helpers);
+require('./routes/shopify-token-relay')(app, helpers);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'not_found', path: req.path });
