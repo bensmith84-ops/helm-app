@@ -876,6 +876,7 @@ async function renderSite(content){
       '<div class="grid2">'+
       (c.download_docx?'<a class="dl" href="'+esc(c.download_docx)+'" download><div class="ic">RFP</div><div><b>Full RFP document</b><span>Word</span></div></a>':'')+
       (c.download_xlsx?'<a class="dl" href="'+esc(c.download_xlsx)+'" download><div class="ic">XLS</div><div><b>Bidder dataset</b><span>Excel \u00b7 monthly volumes, pick profile, SKU velocity, all 908 ZIP3s, 29,064 ZIP detail, day-of-week</span></div></a>':'')+
+      (Array.isArray(c.download_extra)?c.download_extra.map(d=>'<a class="dl" href="'+esc(d.url)+'" download><div class="ic">'+esc(d.ic||'XLS')+'</div><div><b>'+esc(d.label||'Download')+'</b><span>'+esc(d.sub||'')+'</span></div></a>').join(''):'')+
       '</div><p class="tbl-note" style="margin-top:14px">The dataset workbook contains the full underlying aggregates so you can model your own cost-to-serve. Read the <b>Read Me</b> tab first - it documents the bulk-transfer SKUs that must be excluded from pick-labour modelling.</p>']);
     S.push(['qa','Questions &amp; answers', '<p class="lead">Questions submitted by any bidder are answered here and published to everyone, without naming who asked. Check this section before submitting a question in case it has already been covered.</p><div id="qa-list"><p class="tbl-note">Loading\u2026</p></div>']);
     S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
