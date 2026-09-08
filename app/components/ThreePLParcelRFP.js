@@ -968,13 +968,13 @@ Earth Breeze Procurement`);
                       return (
                         <div key={k} style={{ marginBottom: 18 }}>
                           <label style={{ ...label, display: "flex", alignItems: "center", gap: 8 }}>{prettyKey(k)}{k in extraDraft && <span style={{ fontSize: 10, color: T.accent }}>● edited</span>}</label>
-                          {kind === "input" && <input value={v ?? ""} onChange={e => setExtra(k, e.target.value)} style={inp} />}
-                          {kind === "text" && <textarea value={v ?? ""} onChange={e => setExtra(k, e.target.value)} rows={Math.min(8, Math.max(3, Math.ceil(String(v ?? "").length / 110)))} style={{ ...inp, resize: "vertical", lineHeight: 1.5 }} />}
+                          {kind === "input" && <input value={v ?? ""} onChange={e => setExtra(k, e.target.value)} style={inputStyle} />}
+                          {kind === "text" && <textarea value={v ?? ""} onChange={e => setExtra(k, e.target.value)} rows={Math.min(8, Math.max(3, Math.ceil(String(v ?? "").length / 110)))} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} />}
                           {kind === "list" && (
                             <div>
                               {(v || []).map((item, i) => (
                                 <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                                  <textarea value={item} rows={Math.max(1, Math.ceil(String(item).length / 100))} onChange={e => { const n = [...v]; n[i] = e.target.value; setExtra(k, n); }} style={{ ...inp, flex: 1, resize: "vertical", lineHeight: 1.45 }} />
+                                  <textarea value={item} rows={Math.max(1, Math.ceil(String(item).length / 100))} onChange={e => { const n = [...v]; n[i] = e.target.value; setExtra(k, n); }} style={{ ...inputStyle, flex: 1, resize: "vertical", lineHeight: 1.45 }} />
                                   <button onClick={() => setExtra(k, v.filter((_, j) => j !== i))} style={{ ...btnSm, ...btnGhost }}>✕</button>
                                 </div>
                               ))}
@@ -986,7 +986,7 @@ Earth Breeze Procurement`);
                               {(v || []).map((row, i) => (
                                 <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
                                   {row.map((cell, j) => (
-                                    <input key={j} value={cell ?? ""} onChange={e => { const n = v.map(r => [...r]); n[i][j] = e.target.value; setExtra(k, n); }} style={{ ...inp, flex: j === 0 ? 2 : 1, minWidth: 90 }} />
+                                    <input key={j} value={cell ?? ""} onChange={e => { const n = v.map(r => [...r]); n[i][j] = e.target.value; setExtra(k, n); }} style={{ ...inputStyle, flex: j === 0 ? 2 : 1, minWidth: 90 }} />
                                   ))}
                                   <button onClick={() => { const n = v.map(r => [...r]); if (i > 0) { const t = n[i-1]; n[i-1] = n[i]; n[i] = t; setExtra(k, n); } }} disabled={i === 0} style={{ ...btnSm, ...btnGhost, opacity: i === 0 ? .4 : 1 }}>↑</button>
                                   <button onClick={() => setExtra(k, v.filter((_, j) => j !== i))} style={{ ...btnSm, ...btnGhost }}>✕</button>
@@ -1006,7 +1006,7 @@ Earth Breeze Procurement`);
                                 {(v || []).map((o, i) => (
                                   <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                                     {cols.map(c => (
-                                      <textarea key={c} value={o[c] ?? ""} rows={Math.max(1, Math.ceil(String(o[c] ?? "").length / 60))} onChange={e => { const n = v.map(x => ({ ...x })); n[i][c] = e.target.value; setExtra(k, n); }} style={{ ...inp, flex: 1, minWidth: 110, resize: "vertical", lineHeight: 1.4 }} />
+                                      <textarea key={c} value={o[c] ?? ""} rows={Math.max(1, Math.ceil(String(o[c] ?? "").length / 60))} onChange={e => { const n = v.map(x => ({ ...x })); n[i][c] = e.target.value; setExtra(k, n); }} style={{ ...inputStyle, flex: 1, minWidth: 110, resize: "vertical", lineHeight: 1.4 }} />
                                     ))}
                                     <button onClick={() => setExtra(k, v.filter((_, j) => j !== i))} style={{ ...btnSm, ...btnGhost, alignSelf: "flex-start" }}>✕</button>
                                   </div>
@@ -1024,7 +1024,7 @@ Earth Breeze Procurement`);
                                   try { setExtra(k, JSON.parse(e.target.value)); setExtraJsonErr(p => ({ ...p, [k]: null })); }
                                   catch (er) { setExtraJsonErr(p => ({ ...p, [k]: er.message })); }
                                 }}
-                                style={{ ...inp, resize: "vertical", fontFamily: "ui-monospace, monospace", fontSize: 11.5, lineHeight: 1.5, borderColor: extraJsonErr[k] ? "#e5484d" : undefined }} />
+                                style={{ ...inputStyle, resize: "vertical", fontFamily: "ui-monospace, monospace", fontSize: 11.5, lineHeight: 1.5, borderColor: extraJsonErr[k] ? "#e5484d" : undefined }} />
                               {extraJsonErr[k] && <div style={{ fontSize: 11, color: "#e5484d", marginTop: 3 }}>Invalid JSON: {extraJsonErr[k]}</div>}
                             </div>
                           )}
