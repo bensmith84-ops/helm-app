@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 
@@ -17,6 +17,27 @@ const STATUS_META = {
   approved: { label: "Approved", bg: "rgba(52,168,83,0.15)", fg: "#34a853" },
   denied:   { label: "Denied",   bg: "rgba(229,72,77,0.15)", fg: "#e5484d" },
 };
+
+// ---- Generic editors for content keys not in the curated FIELDS lists ----
+// Covers everything added since the editor was built (returns_*, retail_*,
+// downloads, etc.) so the whole portal is editable without code changes.
+const EXTRA_EXCLUDE = new Set(["response_form", "sku_profile"]); // edited in their own tabs
+function detectKind(v) {
+  if (typeof v === "string") return v.length > 90 ? "text" : "input";
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "json";
+    if (v.every(x => typeof x === "string")) return "list";
+    if (v.every(x => Array.isArray(x))) return "table";
+    if (v.every(x => x && typeof x === "object" && !Array.isArray(x))) {
+      const flat = v.every(o => Object.values(o).every(val => typeof val !== "object" || val === null));
+      return flat ? "objects" : "json";
+    }
+  }
+  return "json";
+}
+function prettyKey(k) {
+  return k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
 
 const FIELDS_CM = [
   { key: "eyebrow",           label: "Eyebrow line (RFP no.)",              type: "input" },
@@ -210,16 +231,30 @@ Earth Breeze Procurement`);
     return `mailto:${r.email}?subject=${subject}&body=${body}`;
   };
 
+  const [extraDraft, setExtraDraft] = useState({});   // generic editors: key -> value (parsed)
+  const [extraJsonErr, setExtraJsonErr] = useState({}); // key -> parse error for raw JSON editors
+  const extraKeys = useMemo(() => {
+    const covered = new Set(FIELDS.map(f => f.key));
+    return Object.keys(baseContent || {}).filter(k => !covered.has(k) && !EXTRA_EXCLUDE.has(k)).sort();
+  }, [baseContent, FIELDS]);
+  const setExtra = (k, v) => setExtraDraft(p => ({ ...p, [k]: v }));
+  const extraVal = (k) => (k in extraDraft ? extraDraft[k] : (baseContent || {})[k]);
+
   const save = async () => {
+    if (Object.keys(extraJsonErr).some(k => extraJsonErr[k])) { setErr("Fix the JSON errors highlighted below before publishing."); return; }
+    // Guardrail: the B2B section intentionally publishes no pricing.
+    const leak = Object.entries(extraDraft).find(([k, v]) => k.startsWith("retail_") && /\$\s?\d/.test(JSON.stringify(v)));
+    if (leak && !window.confirm(`"${prettyKey(leak[0])}" contains a dollar amount. The Retail & wholesale section intentionally publishes no pricing. Publish anyway?`)) return;
     setSaving(true); setErr(null);
     try {
       // Merge edits over a FRESH read (not the mount-time snapshot) so data updated
       // elsewhere (packet tables, downloads, etc.) is never clobbered by a stale save.
       const { data: fresh } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
-      const content = { ...(fresh?.content || baseContent || {}), ...fromDraft(draft, FIELDS) };
+      const content = { ...(fresh?.content || baseContent || {}), ...fromDraft(draft, FIELDS), ...extraDraft };
       const { error } = await supabase.from("rfp_portal_content").upsert({ rfp_code: RFP_CODE, content, updated_at: new Date().toISOString() });
       if (error) throw error;
       setBaseContent(content);
+      setExtraDraft({});
       setSavedAt(new Date());
     } catch (e) { setErr(e.message || String(e)); }
     setSaving(false);
@@ -849,7 +884,7 @@ Earth Breeze Procurement`);
         <div>
           <div style={{ ...card, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: T.text2, display: "flex", alignItems: "center", gap: 10 }}>
             <span>💡</span>
-            <span>Edits go <b>live on the portal immediately</b> - no redeploy; carriers see them on next page load. HTML like &lt;b&gt; is allowed. This includes the full on-site RFP (all sections) and the NDA text. The data tables (monthly volume, weights, geography, carrier mix) and download files are generated from shipment data - ask Claude to refresh those.</span>
+            <span>Edits go <b>live on the portal immediately</b> - no redeploy; carriers see them on next page load. HTML like &lt;b&gt; is allowed. Every published section is editable here - the curated fields below, then everything else under "All other sections" (returns, retail/B2B, downloads, notes). The data tables (monthly volume, weights, geography, carrier mix) and download files are generated from shipment data - ask Claude to refresh those.</span>
           </div>
           {contentLoading && <div style={{ padding: 30, color: T.text3, fontSize: 13 }}>Loading…</div>}
           {!contentLoading && draft && (
@@ -921,6 +956,83 @@ Earth Breeze Procurement`);
                   )}
                 </div>
               ))}
+{extraKeys.length > 0 && (
+                  <div style={{ marginTop: 26, borderTop: `1px solid ${T.border}`, paddingTop: 18 }}>
+                    <b style={{ fontSize: 13, color: T.text }}>All other sections</b>
+                    <div style={{ fontSize: 11.5, color: T.text3, margin: "4px 0 14px" }}>
+                      Everything else this portal publishes, editable directly. Tables add/remove rows; long text allows &lt;b&gt; HTML. These save with the same Save &amp; publish button.
+                    </div>
+                    {extraKeys.map(k => {
+                      const v = extraVal(k);
+                      const kind = detectKind((baseContent || {})[k]);
+                      return (
+                        <div key={k} style={{ marginBottom: 18 }}>
+                          <label style={{ ...label, display: "flex", alignItems: "center", gap: 8 }}>{prettyKey(k)}{k in extraDraft && <span style={{ fontSize: 10, color: T.accent }}>● edited</span>}</label>
+                          {kind === "input" && <input value={v ?? ""} onChange={e => setExtra(k, e.target.value)} style={inp} />}
+                          {kind === "text" && <textarea value={v ?? ""} onChange={e => setExtra(k, e.target.value)} rows={Math.min(8, Math.max(3, Math.ceil(String(v ?? "").length / 110)))} style={{ ...inp, resize: "vertical", lineHeight: 1.5 }} />}
+                          {kind === "list" && (
+                            <div>
+                              {(v || []).map((item, i) => (
+                                <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                                  <textarea value={item} rows={Math.max(1, Math.ceil(String(item).length / 100))} onChange={e => { const n = [...v]; n[i] = e.target.value; setExtra(k, n); }} style={{ ...inp, flex: 1, resize: "vertical", lineHeight: 1.45 }} />
+                                  <button onClick={() => setExtra(k, v.filter((_, j) => j !== i))} style={{ ...btnSm, ...btnGhost }}>✕</button>
+                                </div>
+                              ))}
+                              <button onClick={() => setExtra(k, [...(v || []), ""])} style={{ ...btnSm, ...btnGhost }}>+ Add item</button>
+                            </div>
+                          )}
+                          {kind === "table" && (
+                            <div style={{ overflowX: "auto" }}>
+                              {(v || []).map((row, i) => (
+                                <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                                  {row.map((cell, j) => (
+                                    <input key={j} value={cell ?? ""} onChange={e => { const n = v.map(r => [...r]); n[i][j] = e.target.value; setExtra(k, n); }} style={{ ...inp, flex: j === 0 ? 2 : 1, minWidth: 90 }} />
+                                  ))}
+                                  <button onClick={() => { const n = v.map(r => [...r]); if (i > 0) { const t = n[i-1]; n[i-1] = n[i]; n[i] = t; setExtra(k, n); } }} disabled={i === 0} style={{ ...btnSm, ...btnGhost, opacity: i === 0 ? .4 : 1 }}>↑</button>
+                                  <button onClick={() => setExtra(k, v.filter((_, j) => j !== i))} style={{ ...btnSm, ...btnGhost }}>✕</button>
+                                </div>
+                              ))}
+                              <button onClick={() => setExtra(k, [...(v || []), new Array((v?.[0] || ["",""]).length).fill("")])} style={{ ...btnSm, ...btnGhost }}>+ Add row</button>
+                            </div>
+                          )}
+                          {kind === "objects" && (() => {
+                            const cols = Array.from(new Set((v || []).flatMap(o => Object.keys(o))));
+                            return (
+                              <div style={{ overflowX: "auto" }}>
+                                <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                                  {cols.map(c => <span key={c} style={{ flex: 1, minWidth: 110, fontSize: 10.5, color: T.text3, fontWeight: 700, textTransform: "uppercase" }}>{c}</span>)}
+                                  <span style={{ width: 58 }} />
+                                </div>
+                                {(v || []).map((o, i) => (
+                                  <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                                    {cols.map(c => (
+                                      <textarea key={c} value={o[c] ?? ""} rows={Math.max(1, Math.ceil(String(o[c] ?? "").length / 60))} onChange={e => { const n = v.map(x => ({ ...x })); n[i][c] = e.target.value; setExtra(k, n); }} style={{ ...inp, flex: 1, minWidth: 110, resize: "vertical", lineHeight: 1.4 }} />
+                                    ))}
+                                    <button onClick={() => setExtra(k, v.filter((_, j) => j !== i))} style={{ ...btnSm, ...btnGhost, alignSelf: "flex-start" }}>✕</button>
+                                  </div>
+                                ))}
+                                <button onClick={() => setExtra(k, [...(v || []), Object.fromEntries(cols.map(c => [c, ""]))])} style={{ ...btnSm, ...btnGhost }}>+ Add row</button>
+                              </div>
+                            );
+                          })()}
+                          {kind === "json" && (
+                            <div>
+                              <textarea
+                                defaultValue={JSON.stringify(v, null, 2)}
+                                rows={8}
+                                onChange={e => {
+                                  try { setExtra(k, JSON.parse(e.target.value)); setExtraJsonErr(p => ({ ...p, [k]: null })); }
+                                  catch (er) { setExtraJsonErr(p => ({ ...p, [k]: er.message })); }
+                                }}
+                                style={{ ...inp, resize: "vertical", fontFamily: "ui-monospace, monospace", fontSize: 11.5, lineHeight: 1.5, borderColor: extraJsonErr[k] ? "#e5484d" : undefined }} />
+                              {extraJsonErr[k] && <div style={{ fontSize: 11, color: "#e5484d", marginTop: 3 }}>Invalid JSON: {extraJsonErr[k]}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18 }}>
                 <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? "Saving…" : "Save & publish"}</button>
                 {savedAt && !saving && <span style={{ fontSize: 12, color: "#34a853" }}>✓ Published {savedAt.toLocaleTimeString()}</span>}
