@@ -231,12 +231,15 @@ Earth Breeze Procurement`);
     return `mailto:${r.email}?subject=${subject}&body=${body}`;
   };
 
+  const [newKey, setNewKey] = useState("");
+  const [newKind, setNewKind] = useState("text");
   const [extraDraft, setExtraDraft] = useState({});   // generic editors: key -> value (parsed)
   const [extraJsonErr, setExtraJsonErr] = useState({}); // key -> parse error for raw JSON editors
   const extraKeys = useMemo(() => {
     const covered = new Set(FIELDS.map(f => f.key));
-    return Object.keys(baseContent || {}).filter(k => !covered.has(k) && !EXTRA_EXCLUDE.has(k)).sort();
-  }, [baseContent, FIELDS]);
+    const keys = new Set([...Object.keys(baseContent || {}), ...Object.keys(extraDraft)]);
+    return [...keys].filter(k => !covered.has(k) && !EXTRA_EXCLUDE.has(k)).sort();
+  }, [baseContent, FIELDS, extraDraft]);
   const setExtra = (k, v) => setExtraDraft(p => ({ ...p, [k]: v }));
   const extraVal = (k) => (k in extraDraft ? extraDraft[k] : (baseContent || {})[k]);
 
@@ -958,13 +961,33 @@ Earth Breeze Procurement`);
               ))}
 {extraKeys.length > 0 && (
                   <div style={{ marginTop: 26, borderTop: `1px solid ${T.border}`, paddingTop: 18 }}>
-                    <b style={{ fontSize: 13, color: T.text }}>All other sections</b>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <b style={{ fontSize: 13, color: T.text }}>All other sections</b>
+                      <div style={{ flex: 1 }} />
+                      <input placeholder="new_section_key" value={newKey} onChange={e => setNewKey(e.target.value.replace(/[^a-z0-9_]/g, "_").toLowerCase())} style={{ ...inputStyle, width: 190 }} />
+                      <select value={newKind} onChange={e => setNewKind(e.target.value)} style={{ ...inputStyle, width: 150 }}>
+                        <option value="input">Short text</option>
+                        <option value="text">Long text</option>
+                        <option value="list">Bullet list</option>
+                        <option value="table">Table</option>
+                        <option value="objects">Labelled rows</option>
+                      </select>
+                      <button style={{ ...btnSm, ...btnGhost }} disabled={!newKey} onClick={() => {
+                        if (!newKey) return;
+                        if (extraKeys.includes(newKey) || (baseContent || {})[newKey] !== undefined) { setErr(`"${newKey}" already exists.`); return; }
+                        const seed = newKind === "input" || newKind === "text" ? ""
+                          : newKind === "list" ? [""]
+                          : newKind === "table" ? [["", ""]]
+                          : [{ heading: "", body: "" }];
+                        setExtra(newKey, seed); setNewKey(""); setErr(null);
+                      }}>+ Add section</button>
+                    </div>
                     <div style={{ fontSize: 11.5, color: T.text3, margin: "4px 0 14px" }}>
                       Everything else this portal publishes, editable directly. Tables add/remove rows; long text allows &lt;b&gt; HTML. These save with the same Save &amp; publish button.
                     </div>
                     {extraKeys.map(k => {
                       const v = extraVal(k);
-                      const kind = detectKind((baseContent || {})[k]);
+                      const kind = detectKind((baseContent || {})[k] !== undefined ? (baseContent || {})[k] : extraDraft[k]);
                       return (
                         <div key={k} style={{ marginBottom: 18 }}>
                           <label style={{ ...label, display: "flex", alignItems: "center", gap: 8 }}>{prettyKey(k)}{k in extraDraft && <span style={{ fontSize: 10, color: T.accent }}>● edited</span>}</label>

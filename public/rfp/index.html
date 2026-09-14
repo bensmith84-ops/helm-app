@@ -881,6 +881,27 @@ async function renderSite(content){
     S.push(['qa','Questions &amp; answers', '<p class="lead">Questions submitted by any bidder are answered here and published to everyone, without naming who asked. Check this section before submitting a question in case it has already been covered.</p><div id="qa-list"><p class="tbl-note">Loading\u2026</p></div>']);
     S.push(['submit','Submit', document.getElementById('tpl-submit').innerHTML]);
     window.__qschema = c.response_form || null;
+    // Auto-generate one acceptance question per legal clause so the form never
+    // drifts from the published terms - add a clause, get a question for free.
+    if (window.__qschema && Array.isArray(c.legal_terms) && c.legal_terms.length) {
+      const lf = [];
+      c.legal_terms.forEach((t, i) => {
+        const k = 'legal_' + (t.key || ('clause' + (i+1)));
+        lf.push({ k: k, l: (t.group ? t.group + ' - ' : '') + (t.heading || ('Clause ' + (i+1))), t: 'sel', req: 1,
+                  opts: ['Accept as written', 'Accept with exceptions (describe below)', 'Cannot accept'] });
+        lf.push({ k: k + '_ex', l: '↳ Exception / proposed alternative language', t: 'area',
+                  ph: 'Leave blank if accepting as written. If taking exception, state your proposed language and the commercial reason.' });
+      });
+      lf.push({ k: 'legal_insurance_confirm', l: 'Can you meet the insurance schedule (limits, additional insured, primary and non-contributory, 30-day notice)?', t: 'sel', req: 1,
+                opts: ['Yes - all limits met', 'Yes - with variances described below', 'No'] });
+      lf.push({ k: 'legal_insurance_detail', l: '↳ Insurance variances or carrier detail', t: 'area', ph: 'List any coverage you cannot meet, your carrier A.M. Best ratings, and current limits.' });
+      lf.push({ k: 'legal_counsel', l: 'Name and contact for your contracting/legal point of person', t: 'text' });
+      window.__qschema = window.__qschema.concat([{
+        s: 'Legal terms - acceptance',
+        note: 'Material contract terms are published in the Legal terms section. State your position on each now. Exceptions are permitted and expected; undisclosed exceptions discovered later count against award. This is not a redline exercise - state the principle and your proposed alternative.',
+        f: lf
+      }]);
+    }
     const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',forecast:'Forecast',skus:'SKU profile',scope:'Scope',network:'Network',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',terms:'Terms',downloads:'Downloads',qa:'Q&A',submit:'Submit',returns:'Returns & RTS'};
     $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navFF[id]+'</a>').join('');
     $('c-main').innerHTML = S.map(([id,title,body],i)=>'<section id="'+id+'"><h2>'+(i+1)+' \u00b7 '+title+'</h2>'+body+'</section>').join('');
@@ -924,6 +945,18 @@ async function renderSite(content){
     S.push(['evaluation','Evaluation', tblHTML(['Criterion','Weight'], c.eval_rows||[], {max:1})]);
     S.push(['response','Response format', listHTML(c.response_format)]);
     if (Array.isArray(c.documentation) && c.documentation.length) S.push(['documentation','Documentation requirements', listHTML(c.documentation)]);
+    if (Array.isArray(c.legal_terms) && c.legal_terms.length) {
+      let lt = '<p class="lead">'+esc(c.legal_terms_intro || 'The following contract terms are material to Earth Breeze. Bidders must state acceptance of each clause in the response form. Exceptions are permitted but must be stated up front with proposed alternative language - undisclosed exceptions discovered during contracting will count against award.')+'</p>';
+      let grp = null;
+      c.legal_terms.forEach(t => {
+        if ((t.group||'') !== grp) { grp = t.group||''; if (grp) lt += '<h3>'+esc(grp)+'</h3>'; }
+        lt += '<div class="lt-clause"><b>'+esc(t.heading||'')+'</b>'
+           + String(t.body||'').split(/\n\s*\n/).map(p => '<p style="max-width:860px">'+p+'</p>').join('')
+           + '</div>';
+      });
+      if (c.legal_terms_note) lt += '<div class="qnote" style="max-width:860px">'+c.legal_terms_note+'</div>';
+      S.push(['legal','Legal terms', lt]);
+    }
     S.push(['terms','Terms', listHTML(c.terms) + (c.contacts ? '<h3>Contacts</h3><p style="max-width:780px">'+c.contacts+'</p>' : '')]);
     if (c.download_docx || c.download_xlsx) S.push(['downloads','Downloads',
       '<div class="grid2">'+
