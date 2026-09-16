@@ -231,6 +231,7 @@ Earth Breeze Procurement`);
     return `mailto:${r.email}?subject=${subject}&body=${body}`;
   };
 
+  const [jsonMode, setJsonMode] = useState({});
   const [newKey, setNewKey] = useState("");
   const [newKind, setNewKind] = useState("text");
   const [extraDraft, setExtraDraft] = useState({});   // generic editors: key -> value (parsed)
@@ -990,10 +991,34 @@ Earth Breeze Procurement`);
                       const kind = detectKind((baseContent || {})[k] !== undefined ? (baseContent || {})[k] : extraDraft[k]);
                       return (
                         <div key={k} style={{ marginBottom: 18 }}>
-                          <label style={{ ...label, display: "flex", alignItems: "center", gap: 8 }}>{prettyKey(k)}{k in extraDraft && <span style={{ fontSize: 10, color: T.accent }}>● edited</span>}</label>
-                          {kind === "input" && <input value={v ?? ""} onChange={e => setExtra(k, e.target.value)} style={inputStyle} />}
-                          {kind === "text" && <textarea value={v ?? ""} onChange={e => setExtra(k, e.target.value)} rows={Math.min(8, Math.max(3, Math.ceil(String(v ?? "").length / 110)))} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} />}
-                          {kind === "list" && (
+                          <label style={{ ...label, display: "flex", alignItems: "center", gap: 8 }}>
+                            {prettyKey(k)}
+                            {k in extraDraft && <span style={{ fontSize: 10, color: T.accent }}>● edited</span>}
+                            <div style={{ flex: 1 }} />
+                            {kind !== "json" && (
+                              <button onClick={() => setJsonMode(p => ({ ...p, [k]: !p[k] }))} style={{ ...btnSm, ...btnGhost, fontWeight: 500 }}>
+                                {jsonMode[k] ? "◂ Back to editor" : "Edit as JSON"}
+                              </button>
+                            )}
+                          </label>
+                          {jsonMode[k] && kind !== "json" && (
+                            <div>
+                              <textarea
+                                defaultValue={JSON.stringify(v, null, 2)}
+                                rows={12}
+                                onChange={e => {
+                                  try { setExtra(k, JSON.parse(e.target.value)); setExtraJsonErr(p => ({ ...p, [k]: null })); }
+                                  catch (er) { setExtraJsonErr(p => ({ ...p, [k]: er.message })); }
+                                }}
+                                style={{ ...inputStyle, resize: "vertical", fontFamily: "ui-monospace, monospace", fontSize: 11.5, lineHeight: 1.5, borderColor: extraJsonErr[k] ? "#e5484d" : undefined }} />
+                              {extraJsonErr[k]
+                                ? <div style={{ fontSize: 11, color: "#e5484d", marginTop: 3 }}>Invalid JSON: {extraJsonErr[k]}</div>
+                                : <div style={{ fontSize: 11, color: T.text3, marginTop: 3 }}>Paste replaces this whole section. Switch back to the editor to check it looks right before publishing.</div>}
+                            </div>
+                          )}
+                          {!jsonMode[k] && kind === "input" && <input value={v ?? ""} onChange={e => setExtra(k, e.target.value)} style={inputStyle} />}
+                          {!jsonMode[k] && kind === "text" && <textarea value={v ?? ""} onChange={e => setExtra(k, e.target.value)} rows={Math.min(8, Math.max(3, Math.ceil(String(v ?? "").length / 110)))} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} />}
+                          {!jsonMode[k] && kind === "list" && (
                             <div>
                               {(v || []).map((item, i) => (
                                 <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
@@ -1004,7 +1029,7 @@ Earth Breeze Procurement`);
                               <button onClick={() => setExtra(k, [...(v || []), ""])} style={{ ...btnSm, ...btnGhost }}>+ Add item</button>
                             </div>
                           )}
-                          {kind === "table" && (
+                          {!jsonMode[k] && kind === "table" && (
                             <div style={{ overflowX: "auto" }}>
                               {(v || []).map((row, i) => (
                                 <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
@@ -1018,7 +1043,7 @@ Earth Breeze Procurement`);
                               <button onClick={() => setExtra(k, [...(v || []), new Array((v?.[0] || ["",""]).length).fill("")])} style={{ ...btnSm, ...btnGhost }}>+ Add row</button>
                             </div>
                           )}
-                          {kind === "objects" && (() => {
+                          {!jsonMode[k] && kind === "objects" && (() => {
                             const cols = Array.from(new Set((v || []).flatMap(o => Object.keys(o))));
                             return (
                               <div style={{ overflowX: "auto" }}>
