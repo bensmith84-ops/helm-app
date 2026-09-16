@@ -21,6 +21,43 @@ const STATUS_META = {
 // ---- Generic editors for content keys not in the curated FIELDS lists ----
 // Covers everything added since the editor was built (returns_*, retail_*,
 // downloads, etc.) so the whole portal is editable without code changes.
+// The bidder portal appends an acceptance question per legal clause to the
+// response form at render time (source of truth = legal_terms). Mirror that here
+// so Compare and the CSV export show those answers instead of silently dropping them.
+function normalizeLegalTerms(c) {
+  let v = c?.legal_terms;
+  if (v === undefined && c) {
+    const k = Object.keys(c).find(k => /^legal[_\- ]?terms$/i.test(k));
+    if (k) v = c[k];
+  }
+  if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { return []; } }
+  if (v && !Array.isArray(v) && typeof v === "object") {
+    v = v.legal_terms || v.clauses || v.terms || null;
+    if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { v = null; } }
+  }
+  if (!Array.isArray(v)) return [];
+  return v.map(t => (typeof t === "string" ? { heading: "", body: t } : t)).filter(t => t && (t.heading || t.body));
+}
+function withLegalSection(content) {
+  const base = content?.response_form || null;
+  if (!base) return base;
+  const clauses = normalizeLegalTerms(content);
+  if (!clauses.length) return base;
+  if (base.some(sec => (sec.s || "").toLowerCase().startsWith("legal terms"))) return base;
+  const f = [];
+  clauses.forEach((t, i) => {
+    const k = "legal_" + (t.key || ("clause" + (i + 1)));
+    f.push({ k, l: (t.group ? t.group + " - " : "") + (t.heading || ("Clause " + (i + 1))), t: "sel", req: 1,
+             opts: ["Accept as written", "Accept with exceptions (describe below)", "Cannot accept"] });
+    f.push({ k: k + "_ex", l: "↳ Exception / proposed alternative language", t: "area" });
+  });
+  f.push({ k: "legal_insurance_confirm", l: "Can you meet the insurance schedule?", t: "sel", req: 1,
+           opts: ["Yes - all limits met", "Yes - with variances described below", "No"] });
+  f.push({ k: "legal_insurance_detail", l: "↳ Insurance variances or carrier detail", t: "area" });
+  f.push({ k: "legal_counsel", l: "Contracting/legal point of contact", t: "text" });
+  return base.concat([{ s: "Legal terms - acceptance", note: "Generated from the published legal terms. Edit the clauses in Portal Content; these questions follow automatically.", f }]);
+}
+
 const EXTRA_EXCLUDE = new Set(["response_form", "sku_profile"]); // edited in their own tabs
 function detectKind(v) {
   if (typeof v === "string") return v.length > 90 ? "text" : "input";
@@ -192,8 +229,8 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
     const { data, error } = await supabase.from("rfp_portal_content").select("content").eq("rfp_code", RFP_CODE).maybeSingle();
     if (!error && data?.content) {
       setBaseContent(data.content); setDraft(toDraft(data.content, FIELDS));
-      setSchema(data.content.response_form || null);
-      setFdraft(data.content.response_form ? JSON.parse(JSON.stringify(data.content.response_form)) : null);
+      setSchema(withLegalSection(data.content));
+      setFdraft(data.content.response_form ? JSON.parse(JSON.stringify(data.content.response_form)) : null); // stored form only - legal section is derived
     }
     setContentLoading(false);
   }, []);
