@@ -937,7 +937,7 @@ async function renderSite(content){
         f: lf
       }]);
     }
-    const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',forecast:'Forecast',skus:'SKU profile',scope:'Scope',network:'Network',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',legal:'Legal terms',terms:'Terms',downloads:'Downloads',qa:'Q&A',submit:'Submit',returns:'Returns & RTS'};
+    const navFF = {overview:'Overview',profile:'Profile',data:'Data tables',forecast:'Forecast',skus:'SKU profile',scope:'Scope',network:'Network',postage:'Postage',pricing:'Pricing',timeline:'Timeline',evaluation:'Evaluation',response:'Response',legal:'Legal terms',terms:'Terms',downloads:'Downloads',qa:'Q&A',submit:'Submit',returns:'Returns &amp; RTS',retail:'Retail &amp; wholesale'};
     $('c-nav').innerHTML = S.map(([id])=>'<a href="#'+id+'">'+navFF[id]+'</a>').join('');
     $('c-main').innerHTML = S.map(([id,title,body],i)=>'<section id="'+id+'"><h2>'+(i+1)+' \u00b7 '+title+'</h2>'+body+'</section>').join('');
     document.getElementById('f-origins-wrap').style.display = 'none';
