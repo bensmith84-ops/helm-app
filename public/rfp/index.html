@@ -447,6 +447,27 @@ async function delegateNDA(){
 
 // ── render full site from content JSON ──
 const esc = s => String(s??'');
+// Legal terms can arrive as an array, a JSON string, or a wrapper object
+// ({legal_terms:[...]}) depending on how it was pasted into the admin editor.
+// Normalise all of those, and tolerate key-name variants.
+function legalTerms(c) {
+  let v = c.legal_terms;
+  if (v === undefined) {
+    const k = Object.keys(c).find(k => /^legal[_\- ]?terms$/i.test(k));
+    if (k) v = c[k];
+  }
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return { list: [], intro: null, note: null }; } }
+  let intro = c.legal_terms_intro, note = c.legal_terms_note;
+  if (v && !Array.isArray(v) && typeof v === 'object') {
+    intro = v.legal_terms_intro || intro;
+    note = v.legal_terms_note || note;
+    v = v.legal_terms || v.clauses || v.terms || null;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+  }
+  if (!Array.isArray(v)) return { list: [], intro: intro, note: note };
+  const list = v.map(t => (typeof t === 'string' ? { heading: '', body: t } : t)).filter(t => t && (t.heading || t.body));
+  return { list: list, intro: intro, note: note };
+}
 const tblHTML = (headers, rows, opts={}) => {
   let h = '<table'+(opts.max?' class="tbl-max"':'')+'><tr>'+headers.map((x,i)=>'<th'+(i>0&&opts.numeric?' class="num"':'')+'>'+x+'</th>').join('')+'</tr>';
   for (const r of rows) {
@@ -871,16 +892,17 @@ async function renderSite(content){
     S.push(['timeline','Timeline', tblHTML(['Milestone','Date'], c.timeline_rows||[], {max:1})]);
     S.push(['evaluation','Evaluation', tblHTML(['Criterion','Weight'], c.eval_rows||[], {max:1})]);
     S.push(['response','Response format', listHTML(c.response_format)]);
-    if (Array.isArray(c.legal_terms) && c.legal_terms.length) {
-      let lt = '<p class="lead">'+esc(c.legal_terms_intro || 'The following contract terms are material to Earth Breeze. Bidders must state acceptance of each clause in the response form. Exceptions are permitted but must be stated up front with proposed alternative language - undisclosed exceptions discovered during contracting will count against award.')+'</p>';
+    const LT = legalTerms(c);
+    if (LT.list.length) {
+      let lt = '<p class="lead">'+esc(LT.intro || 'The following contract terms are material to Earth Breeze. Bidders must state acceptance of each clause in the response form. Exceptions are permitted but must be stated up front with proposed alternative language - undisclosed exceptions discovered during contracting will count against award.')+'</p>';
       let grp = null;
-      c.legal_terms.forEach(t => {
+      LT.list.forEach(t => {
         if ((t.group||'') !== grp) { grp = t.group||''; if (grp) lt += '<h3>'+esc(grp)+'</h3>'; }
         lt += '<div class="lt-clause"><b>'+esc(t.heading||'')+'</b>'
            + String(t.body||'').split(/\n\s*\n/).map(p => '<p style="max-width:860px">'+p+'</p>').join('')
            + '</div>';
       });
-      if (c.legal_terms_note) lt += '<div class="qnote" style="max-width:860px">'+c.legal_terms_note+'</div>';
+      if (LT.note) lt += '<div class="qnote" style="max-width:860px">'+LT.note+'</div>';
       S.push(['legal','Legal terms', lt]);
     }
     S.push(['terms','Terms', listHTML(c.terms)+(c.contacts?'<h3>Contacts</h3><p style="max-width:780px">'+c.contacts+'</p>':'')]);
@@ -895,9 +917,10 @@ async function renderSite(content){
     window.__qschema = c.response_form || null;
     // Auto-generate one acceptance question per legal clause so the form never
     // drifts from the published terms - add a clause, get a question for free.
-    if (window.__qschema && Array.isArray(c.legal_terms) && c.legal_terms.length) {
+    const LTF = legalTerms(c);
+    if (window.__qschema && LTF.list.length) {
       const lf = [];
-      c.legal_terms.forEach((t, i) => {
+      LTF.list.forEach((t, i) => {
         const k = 'legal_' + (t.key || ('clause' + (i+1)));
         lf.push({ k: k, l: (t.group ? t.group + ' - ' : '') + (t.heading || ('Clause ' + (i+1))), t: 'sel', req: 1,
                   opts: ['Accept as written', 'Accept with exceptions (describe below)', 'Cannot accept'] });
@@ -957,16 +980,17 @@ async function renderSite(content){
     S.push(['evaluation','Evaluation', tblHTML(['Criterion','Weight'], c.eval_rows||[], {max:1})]);
     S.push(['response','Response format', listHTML(c.response_format)]);
     if (Array.isArray(c.documentation) && c.documentation.length) S.push(['documentation','Documentation requirements', listHTML(c.documentation)]);
-    if (Array.isArray(c.legal_terms) && c.legal_terms.length) {
-      let lt = '<p class="lead">'+esc(c.legal_terms_intro || 'The following contract terms are material to Earth Breeze. Bidders must state acceptance of each clause in the response form. Exceptions are permitted but must be stated up front with proposed alternative language - undisclosed exceptions discovered during contracting will count against award.')+'</p>';
+    const LT = legalTerms(c);
+    if (LT.list.length) {
+      let lt = '<p class="lead">'+esc(LT.intro || 'The following contract terms are material to Earth Breeze. Bidders must state acceptance of each clause in the response form. Exceptions are permitted but must be stated up front with proposed alternative language - undisclosed exceptions discovered during contracting will count against award.')+'</p>';
       let grp = null;
-      c.legal_terms.forEach(t => {
+      LT.list.forEach(t => {
         if ((t.group||'') !== grp) { grp = t.group||''; if (grp) lt += '<h3>'+esc(grp)+'</h3>'; }
         lt += '<div class="lt-clause"><b>'+esc(t.heading||'')+'</b>'
            + String(t.body||'').split(/\n\s*\n/).map(p => '<p style="max-width:860px">'+p+'</p>').join('')
            + '</div>';
       });
-      if (c.legal_terms_note) lt += '<div class="qnote" style="max-width:860px">'+c.legal_terms_note+'</div>';
+      if (LT.note) lt += '<div class="qnote" style="max-width:860px">'+LT.note+'</div>';
       S.push(['legal','Legal terms', lt]);
     }
     S.push(['terms','Terms', listHTML(c.terms) + (c.contacts ? '<h3>Contacts</h3><p style="max-width:780px">'+c.contacts+'</p>' : '')]);
@@ -1000,16 +1024,17 @@ async function renderSite(content){
   S.push(['timeline','Timeline', tblHTML(['Milestone','Date'], c.timeline_rows||[], {max:1})]);
   S.push(['evaluation','Evaluation', tblHTML(['Criterion','Weight'], c.eval_rows||[], {max:1})]);
   S.push(['response','Response format', listHTML(c.response_format)]);
-    if (Array.isArray(c.legal_terms) && c.legal_terms.length) {
-      let lt = '<p class="lead">'+esc(c.legal_terms_intro || 'The following contract terms are material to Earth Breeze. Bidders must state acceptance of each clause in the response form. Exceptions are permitted but must be stated up front with proposed alternative language - undisclosed exceptions discovered during contracting will count against award.')+'</p>';
+    const LT = legalTerms(c);
+    if (LT.list.length) {
+      let lt = '<p class="lead">'+esc(LT.intro || 'The following contract terms are material to Earth Breeze. Bidders must state acceptance of each clause in the response form. Exceptions are permitted but must be stated up front with proposed alternative language - undisclosed exceptions discovered during contracting will count against award.')+'</p>';
       let grp = null;
-      c.legal_terms.forEach(t => {
+      LT.list.forEach(t => {
         if ((t.group||'') !== grp) { grp = t.group||''; if (grp) lt += '<h3>'+esc(grp)+'</h3>'; }
         lt += '<div class="lt-clause"><b>'+esc(t.heading||'')+'</b>'
            + String(t.body||'').split(/\n\s*\n/).map(p => '<p style="max-width:860px">'+p+'</p>').join('')
            + '</div>';
       });
-      if (c.legal_terms_note) lt += '<div class="qnote" style="max-width:860px">'+c.legal_terms_note+'</div>';
+      if (LT.note) lt += '<div class="qnote" style="max-width:860px">'+LT.note+'</div>';
       S.push(['legal','Legal terms', lt]);
     }
   S.push(['terms','Terms', listHTML(c.terms) + (c.contacts ? '<h3>Contacts</h3><p style="max-width:780px">'+c.contacts+'</p>' : '')]);
