@@ -58,6 +58,44 @@ function withLegalSection(content) {
   return base.concat([{ s: "Legal terms - acceptance", note: "Generated from the published legal terms. Edit the clauses in Portal Content; these questions follow automatically.", f }]);
 }
 
+// Execution copy of a signed NDA, rendered from the stored record. Mirrors the
+// bidder-side renderer in public/rfp/index.html so both produce the same document.
+function ndaDocumentHTML(o) {
+  const e = v => String(v == null ? "" : v).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+  const when = o.signed_at ? new Date(o.signed_at) : new Date();
+  const d = o.details || {};
+  const row = (k, v) => (v ? `<tr><th>${e(k)}</th><td>${e(v)}</td></tr>` : "");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Signed NDA - ${e(o.company || o.name || "")}</title><style>
+@page{margin:22mm 18mm}
+body{font:12px/1.65 Georgia,"Times New Roman",serif;color:#111;max-width:760px;margin:0 auto;padding:24px}
+h1{font-size:17px;margin:0 0 2px}.sub{font-size:11px;color:#555;margin:0 0 20px}
+.body-text p{margin:0 0 10px}
+.exec{margin-top:26px;border-top:1.5px solid #111;padding-top:14px;page-break-inside:avoid}
+.exec h2{font-size:13px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.02em}
+table{border-collapse:collapse;width:100%;font-family:system-ui,sans-serif;font-size:11.5px}
+th{text-align:left;padding:5px 12px 5px 0;color:#555;font-weight:600;width:190px;vertical-align:top;white-space:nowrap}
+td{padding:5px 0;vertical-align:top}
+.sig{margin-top:16px;font-family:"Segoe Script","Brush Script MT",cursive;font-size:21px;border-bottom:1px solid #111;display:inline-block;padding:0 26px 3px 2px}
+.att{margin-top:18px;font-family:system-ui,sans-serif;font-size:10px;color:#666;border-top:1px dotted #bbb;padding-top:8px}
+.noprint{margin:0 0 18px;font-family:system-ui,sans-serif}
+button{font:13px system-ui;padding:8px 16px;border:0;border-radius:6px;background:#1C3883;color:#fff;cursor:pointer}
+@media print{.noprint{display:none}}
+</style></head><body>
+<div class="noprint"><button onclick="window.print()">Download / print this NDA</button></div>
+<h1>Mutual Non-Disclosure Agreement</h1>
+<p class="sub">Earth Breeze${o.rfp_title ? " &middot; " + e(o.rfp_title) : ""}${o.rfp_code ? " (" + e(o.rfp_code) + ")" : ""}</p>
+<div class="body-text">${o.nda_text || "<p>(Agreement text unavailable.)</p>"}</div>
+<div class="exec"><h2>Execution</h2><table>
+${row("Signed by", o.name)}${row("Title", o.title)}${row("Company (legal name)", o.company)}
+${row("Entity type", d.entity)}${row("Registered address", d.address)}
+${row("Signer email", d.signer_email || o.email)}${row("Date and time signed", when.toLocaleString())}
+${row("Agreement reference", o.rfp_code)}
+</table>
+<div class="sig">${e(o.name || "")}</div>
+<div class="att">Executed electronically. The signatory confirmed authority to bind the named entity and accepted the terms above by typing their full legal name in the Earth Breeze supplier portal. This copy was generated from the recorded signature on ${new Date().toLocaleString()}.</div>
+</div></body></html>`;
+}
+
 const EXTRA_EXCLUDE = new Set(["response_form", "sku_profile"]); // edited in their own tabs
 function detectKind(v) {
   if (typeof v === "string") return v.length > 90 ? "text" : "input";
@@ -244,6 +282,18 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
     const { error } = await supabase.from("rfp_access_requests").update({ status, decided_at: new Date().toISOString() }).eq("id", r.id);
     if (!error) setReqs(list => list.map(x => x.id === r.id ? { ...x, status, decided_at: new Date().toISOString() } : x));
     setBusy(null);
+  };
+
+  const openNDACopy = (r) => {
+    const w = window.open("", "_blank");
+    if (!w) { setErr("Allow pop-ups to open the signed NDA copy."); return; }
+    w.document.write(ndaDocumentHTML({
+      name: r.nda_name, title: r.nda_title, company: r.nda_details?.company_legal || r.company,
+      email: r.email, signed_at: r.nda_signed_at, details: r.nda_details || {},
+      nda_text: (baseContent && baseContent.nda_text) || "",
+      rfp_code: rfpCode, rfp_title: title,
+    }));
+    w.document.close();
   };
 
   const copyLink = async (r) => {
@@ -617,7 +667,10 @@ Earth Breeze Procurement`);
                   </div>
                   <div style={{ flex: 1 }} />
                   {r.nda_signed_at
-                    ? <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600 }}>✓ NDA signed - {r.nda_name}{r.nda_title ? `, ${r.nda_title}` : ""}{r.nda_details?.signer_email ? ` (${r.nda_details.signer_email})` : ""} · {new Date(r.nda_signed_at).toLocaleString()}</span>
+                    ? <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        ✓ NDA signed - {r.nda_name}{r.nda_title ? `, ${r.nda_title}` : ""}{r.nda_details?.signer_email ? ` (${r.nda_details.signer_email})` : ""} · {new Date(r.nda_signed_at).toLocaleString()}
+                        <button onClick={() => openNDACopy(r)} style={{ ...btnSm, ...btnGhost, fontWeight: 500 }}>NDA copy</button>
+                      </span>
                     : r.status === "approved" && (r.delegate_email
                       ? <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600 }}>✉ NDA forwarded to {r.delegate_name || r.delegate_email} ({r.delegate_email}) - awaiting signature</span>
                       : <span style={{ fontSize: 11.5, color: T.text3 }}>NDA not yet signed</span>)}

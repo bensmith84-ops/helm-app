@@ -386,6 +386,8 @@ async function showNDA(t, st){
   const res = await rpc('rfp_get_nda', {p_token: t});
   if (!res.ok) { show('scr-request'); return; }
   $('nda-text').innerHTML = res.nda_text || '';
+  window.__ndaText = res.nda_text || '';
+  window.__rfpTitle = (res.title_html || '').replace(/<[^>]+>/g, '') || document.title;
   if (res.name) $('nda-name').value = res.name;
   if (res.company) $('nda-company').value = res.company;
   $('nda-email').value = res.delegate_email || res.email || '';
@@ -400,6 +402,76 @@ async function showNDA(t, st){
   show('scr-nda');
 }
 
+
+// ---- Signed NDA counterpart document -------------------------------------
+// Renders an execution copy of the NDA from the stored record. Used by the
+// bidder right after signing and by the admin from Access requests, so both
+// sides produce a byte-identical document. Browser print dialog saves as PDF.
+function ndaDocumentHTML(o) {
+  const esc2 = v => String(v == null ? '' : v).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  const when = o.signed_at ? new Date(o.signed_at) : new Date();
+  const d = o.details || {};
+  const row = (k, v) => v ? '<tr><th>' + esc2(k) + '</th><td>' + esc2(v) + '</td></tr>' : '';
+  return '<!doctype html><html><head><meta charset="utf-8"><title>Signed NDA - ' + esc2(o.company || o.name || '') + '</title>'
+    + '<style>'
+    + '@page{margin:22mm 18mm}'
+    + 'body{font:12px/1.65 Georgia,"Times New Roman",serif;color:#111;max-width:760px;margin:0 auto;padding:24px}'
+    + 'h1{font-size:17px;margin:0 0 2px;letter-spacing:.01em}'
+    + '.sub{font-size:11px;color:#555;margin:0 0 20px}'
+    + '.body-text p{margin:0 0 10px}'
+    + '.exec{margin-top:26px;border-top:1.5px solid #111;padding-top:14px;page-break-inside:avoid}'
+    + '.exec h2{font-size:13px;margin:0 0 10px;letter-spacing:.02em;text-transform:uppercase}'
+    + 'table{border-collapse:collapse;width:100%;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:11.5px}'
+    + 'th{text-align:left;padding:5px 12px 5px 0;color:#555;font-weight:600;width:190px;vertical-align:top;white-space:nowrap}'
+    + 'td{padding:5px 0;vertical-align:top}'
+    + '.sig{margin-top:16px;font-family:"Segoe Script","Brush Script MT",cursive;font-size:21px;border-bottom:1px solid #111;display:inline-block;padding:0 26px 3px 2px}'
+    + '.att{margin-top:18px;font-family:system-ui,sans-serif;font-size:10px;color:#666;border-top:1px dotted #bbb;padding-top:8px}'
+    + '.noprint{margin:0 0 18px;font-family:system-ui,sans-serif}'
+    + 'button{font:13px system-ui;padding:8px 16px;border:0;border-radius:6px;background:#1C3883;color:#fff;cursor:pointer}'
+    + '@media print{.noprint{display:none}}'
+    + '</style></head><body>'
+    + '<div class="noprint"><button onclick="window.print()">Download / print this NDA</button></div>'
+    + '<h1>Mutual Non-Disclosure Agreement</h1>'
+    + '<p class="sub">Earth Breeze &middot; ' + esc2(o.rfp_title || '') + (o.rfp_code ? ' (' + esc2(o.rfp_code) + ')' : '') + '</p>'
+    + '<div class="body-text">' + (o.nda_text || '<p>(Agreement text unavailable.)</p>') + '</div>'
+    + '<div class="exec"><h2>Execution</h2><table>'
+    + row('Signed by', o.name)
+    + row('Title', o.title)
+    + row('Company (legal name)', o.company)
+    + row('Entity type', d.entity)
+    + row('Registered address', d.address)
+    + row('Signer email', d.signer_email || o.email)
+    + row('Date and time signed', when.toLocaleString())
+    + row('Agreement reference', o.rfp_code)
+    + '</table>'
+    + '<div class="sig">' + esc2(o.name || '') + '</div>'
+    + '<div class="att">Executed electronically. The signatory confirmed authority to bind the named entity and accepted the terms above by typing their full legal name in the Earth Breeze supplier portal. This copy was generated from the recorded signature on ' + new Date().toLocaleString() + '.</div>'
+    + '</div></body></html>';
+}
+function openNDADocument(o) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('Please allow pop-ups to download your signed NDA copy.'); return; }
+  w.document.write(ndaDocumentHTML(o));
+  w.document.close();
+}
+function showNDACopyBar() {
+  if (!window.__ndaSigned || document.getElementById('nda-copy-bar')) return;
+  const b = document.createElement('div');
+  b.id = 'nda-copy-bar';
+  b.style.cssText = 'position:sticky;top:0;z-index:50;background:#eef6ee;border-bottom:1px solid #cfe3cf;padding:9px 16px;font-size:13px;display:flex;gap:12px;align-items:center;flex-wrap:wrap';
+  b.innerHTML = '<span>\u2713 NDA signed. Keep a copy for your records.</span>';
+  const a = document.createElement('a');
+  a.href = '#'; a.textContent = 'Download your signed NDA';
+  a.style.cssText = 'font-weight:600;color:#1C3883';
+  a.onclick = function(e){ e.preventDefault(); openNDADocument(window.__ndaSigned); };
+  b.appendChild(a);
+  const x = document.createElement('a');
+  x.href = '#'; x.textContent = 'Dismiss'; x.style.cssText = 'margin-left:auto;color:#666;font-size:12px';
+  x.onclick = function(e){ e.preventDefault(); b.remove(); };
+  b.appendChild(x);
+  document.body.insertBefore(b, document.body.firstChild);
+}
+
 async function signNDA(){
   const err = $('nda-err'); err.style.display='none';
   const name = $('nda-name').value.trim(), title = $('nda-title').value.trim();
@@ -412,7 +484,11 @@ async function signNDA(){
   try {
     const res = await rpc('rfp_sign_nda', {p_token: getTok(), p_name: name, p_title: title, p_company_legal: companyLegal, p_entity: entity, p_address: address, p_signer_email: signerEmail});
     if (!res.ok) throw new Error(res.error||'failed');
+    window.__ndaSigned = { name: name, title: title, company: companyLegal, email: signerEmail, signed_at: new Date().toISOString(),
+      details: { entity: entity, address: address, signer_email: signerEmail },
+      nda_text: window.__ndaText || '', rfp_code: RFP_CODE, rfp_title: (window.__rfpTitle || '') };
     await enter(getTok());
+    showNDACopyBar();
   } catch(e) { err.textContent='Could not record signature - please retry.'; err.style.display='block'; $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
 }
 
