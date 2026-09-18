@@ -250,18 +250,27 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
     try { await navigator.clipboard.writeText(accessLink(r)); setCopied(r.id); setTimeout(() => setCopied(null), 1800); } catch (e) {}
   };
 
+  // Deadline comes from the portal's own timeline so the invite can never
+  // contradict what the bidder reads on the page.
+  const dueLine = () => {
+    const rows = (baseContent && baseContent.timeline_rows) || [];
+    const hit = rows.find(row => /due|deadline|submission/i.test(String(row && row[0])));
+    return hit ? `Proposals are due ${String(hit[1]).replace(/<[^>]+>/g, "")}.` : "Submission deadlines are listed in the portal timeline.";
+  };
+
   const mailtoHref = (r) => {
-    const subject = encodeURIComponent("Earth Breeze US Parcel RFP - access approved");
+    const rfpName = title || rfpCode;
+    const subject = encodeURIComponent(`Earth Breeze ${rfpName} - access approved`);
     const body = encodeURIComponent(
 `Hi ${r.name || ""},
 
-Your access to the Earth Breeze US Parcel Network RFP (EB-2026-PARCEL-01) has been approved.
+Your access to the Earth Breeze ${rfpName} (${rfpCode}) has been approved.
 
 Open your personal access link below, sign the NDA, and you'll have the full RFP, data tables, and downloads:
 
 ${accessLink(r)}
 
-Proposals are due 28 August 2026, 5:00 pm ET. Questions can be submitted through the portal.
+${dueLine()} Questions can be submitted through the portal.
 
 Best regards,
 Earth Breeze Procurement`);
