@@ -64,6 +64,7 @@ function ndaDocumentHTML(o) {
   const e = v => String(v == null ? "" : v).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
   const when = o.signed_at ? new Date(o.signed_at) : new Date();
   const d = o.details || {};
+  const eb = { name: "Ben Smith", title: "Chief Operating Officer", company: "EARTH BREEZE, INC.", ...(o.eb || {}) };
   const row = (k, v) => (v ? `<tr><th>${e(k)}</th><td>${e(v)}</td></tr>` : "");
   return `<!doctype html><html><head><meta charset="utf-8"><title>Signed NDA - ${e(o.company || o.name || "")}</title><style>
 @page{margin:22mm 18mm}
@@ -77,6 +78,8 @@ th{text-align:left;padding:5px 12px 5px 0;color:#555;font-weight:600;width:190px
 td{padding:5px 0;vertical-align:top}
 .sig{margin-top:16px;font-family:"Segoe Script","Brush Script MT",cursive;font-size:21px;border-bottom:1px solid #111;display:inline-block;padding:0 26px 3px 2px}
 .att{margin-top:18px;font-family:system-ui,sans-serif;font-size:10px;color:#666;border-top:1px dotted #bbb;padding-top:8px}
+.parties{display:flex;gap:28px;margin:4px 0 14px}.party{flex:1;min-width:0}.pname{font-family:system-ui,sans-serif;font-weight:700;font-size:11.5px;letter-spacing:.03em}
+.party table th{width:44px}.detail{margin-top:6px}
 .noprint{margin:0 0 18px;font-family:system-ui,sans-serif}
 button{font:13px system-ui;padding:8px 16px;border:0;border-radius:6px;background:#1C3883;color:#fff;cursor:pointer}
 @media print{.noprint{display:none}}
@@ -85,14 +88,19 @@ button{font:13px system-ui;padding:8px 16px;border:0;border-radius:6px;backgroun
 <h1>Mutual Non-Disclosure Agreement</h1>
 <p class="sub">Earth Breeze${o.rfp_title ? " &middot; " + e(o.rfp_title) : ""}${o.rfp_code ? " (" + e(o.rfp_code) + ")" : ""}</p>
 <div class="body-text">${o.nda_text || "<p>(Agreement text unavailable.)</p>"}</div>
-<div class="exec"><h2>Execution</h2><table>
-${row("Signed by", o.name)}${row("Title", o.title)}${row("Company (legal name)", o.company)}
-${row("Entity type", d.entity)}${row("Registered address", d.address)}
-${row("Signer email", d.signer_email || o.email)}${row("Date and time signed", when.toLocaleString())}
+<div class="exec"><h2>Agreed to and accepted by</h2>
+<div class="parties">
+<div class="party"><div class="pname">${e(eb.company)}</div><div class="sig">${e(eb.name)}</div>
+<table>${row("By", eb.name)}${row("Its", eb.title)}${row("Date", when.toLocaleDateString())}</table></div>
+<div class="party"><div class="pname">${e((o.company || "").toUpperCase())}</div><div class="sig">${e(o.name || "")}</div>
+<table>${row("By", o.name)}${row("Its", o.title)}${row("Date", when.toLocaleDateString())}</table></div>
+</div>
+<table class="detail">
+${row("Counterparty entity type", d.entity)}${row("Counterparty address", d.address)}
+${row("Counterparty signer email", d.signer_email || o.email)}${row("Executed (date and time)", when.toLocaleString())}
 ${row("Agreement reference", o.rfp_code)}
 </table>
-<div class="sig">${e(o.name || "")}</div>
-<div class="att">Executed electronically. The signatory confirmed authority to bind the named entity and accepted the terms above by typing their full legal name in the Earth Breeze supplier portal. This copy was generated from the recorded signature on ${new Date().toLocaleString()}.</div>
+<div class="att">Executed electronically. Earth Breeze, Inc. pre-executed this agreement through its authorized officer; it became effective upon the counterparty&rsquo;s signature, when the signatory confirmed authority to bind the named entity and accepted these terms by typing their full legal name in the Earth Breeze supplier portal. This copy was generated from the recorded signature on ${new Date().toLocaleString()}.</div>
 </div></body></html>`;
 }
 
@@ -292,6 +300,11 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
       email: r.email, signed_at: r.nda_signed_at, details: r.nda_details || {},
       nda_text: (baseContent && baseContent.nda_text) || "",
       rfp_code: rfpCode, rfp_title: title,
+      eb: {
+        name: (baseContent && baseContent.nda_signatory_name) || "Ben Smith",
+        title: (baseContent && baseContent.nda_signatory_title) || "Chief Operating Officer",
+        company: (baseContent && baseContent.nda_company_legal) || "EARTH BREEZE, INC.",
+      },
     }));
     w.document.close();
   };

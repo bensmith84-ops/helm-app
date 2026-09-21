@@ -388,6 +388,7 @@ async function showNDA(t, st){
   $('nda-text').innerHTML = res.nda_text || '';
   window.__ndaText = res.nda_text || '';
   window.__rfpTitle = (res.title_html || '').replace(/<[^>]+>/g, '') || document.title;
+  window.__ndaEB = { name: res.nda_signatory_name || 'Ben Smith', title: res.nda_signatory_title || 'Chief Operating Officer', company: res.nda_company_legal || 'EARTH BREEZE, INC.' };
   if (res.name) $('nda-name').value = res.name;
   if (res.company) $('nda-company').value = res.company;
   $('nda-email').value = res.delegate_email || res.email || '';
@@ -426,6 +427,8 @@ function ndaDocumentHTML(o) {
     + 'td{padding:5px 0;vertical-align:top}'
     + '.sig{margin-top:16px;font-family:"Segoe Script","Brush Script MT",cursive;font-size:21px;border-bottom:1px solid #111;display:inline-block;padding:0 26px 3px 2px}'
     + '.att{margin-top:18px;font-family:system-ui,sans-serif;font-size:10px;color:#666;border-top:1px dotted #bbb;padding-top:8px}'
+    + '.parties{display:flex;gap:28px;margin:4px 0 14px}.party{flex:1;min-width:0}.pname{font-family:system-ui,sans-serif;font-weight:700;font-size:11.5px;letter-spacing:.03em}'
+    + '.party table th{width:44px}.detail{margin-top:6px}'
     + '.noprint{margin:0 0 18px;font-family:system-ui,sans-serif}'
     + 'button{font:13px system-ui;padding:8px 16px;border:0;border-radius:6px;background:#1C3883;color:#fff;cursor:pointer}'
     + '@media print{.noprint{display:none}}'
@@ -434,18 +437,23 @@ function ndaDocumentHTML(o) {
     + '<h1>Mutual Non-Disclosure Agreement</h1>'
     + '<p class="sub">Earth Breeze &middot; ' + esc2(o.rfp_title || '') + (o.rfp_code ? ' (' + esc2(o.rfp_code) + ')' : '') + '</p>'
     + '<div class="body-text">' + (o.nda_text || '<p>(Agreement text unavailable.)</p>') + '</div>'
-    + '<div class="exec"><h2>Execution</h2><table>'
-    + row('Signed by', o.name)
-    + row('Title', o.title)
-    + row('Company (legal name)', o.company)
-    + row('Entity type', d.entity)
-    + row('Registered address', d.address)
-    + row('Signer email', d.signer_email || o.email)
-    + row('Date and time signed', when.toLocaleString())
+    + '<div class="exec"><h2>Agreed to and accepted by</h2>'
+    + '<div class="parties">'
+    + '<div class="party"><div class="pname">' + esc2((o.eb && o.eb.company) || 'EARTH BREEZE, INC.') + '</div>'
+    +   '<div class="sig">' + esc2((o.eb && o.eb.name) || 'Ben Smith') + '</div>'
+    +   '<table>' + row('By', (o.eb && o.eb.name) || 'Ben Smith') + row('Its', (o.eb && o.eb.title) || 'Chief Operating Officer') + row('Date', when.toLocaleDateString()) + '</table></div>'
+    + '<div class="party"><div class="pname">' + esc2((o.company || '').toUpperCase()) + '</div>'
+    +   '<div class="sig">' + esc2(o.name || '') + '</div>'
+    +   '<table>' + row('By', o.name) + row('Its', o.title) + row('Date', when.toLocaleDateString()) + '</table></div>'
+    + '</div>'
+    + '<table class="detail">'
+    + row('Counterparty entity type', d.entity)
+    + row('Counterparty address', d.address)
+    + row('Counterparty signer email', d.signer_email || o.email)
+    + row('Executed (date and time)', when.toLocaleString())
     + row('Agreement reference', o.rfp_code)
     + '</table>'
-    + '<div class="sig">' + esc2(o.name || '') + '</div>'
-    + '<div class="att">Executed electronically. The signatory confirmed authority to bind the named entity and accepted the terms above by typing their full legal name in the Earth Breeze supplier portal. This copy was generated from the recorded signature on ' + new Date().toLocaleString() + '.</div>'
+    + '<div class="att">Executed electronically. Earth Breeze, Inc. pre-executed this agreement through its authorized officer; it became effective upon the counterparty\u2019s signature, when the signatory confirmed authority to bind the named entity and accepted these terms by typing their full legal name in the Earth Breeze supplier portal. This copy was generated from the recorded signature on ' + new Date().toLocaleString() + '.</div>'
     + '</div></body></html>';
 }
 function openNDADocument(o) {
@@ -486,7 +494,7 @@ async function signNDA(){
     if (!res.ok) throw new Error(res.error||'failed');
     window.__ndaSigned = { name: name, title: title, company: companyLegal, email: signerEmail, signed_at: new Date().toISOString(),
       details: { entity: entity, address: address, signer_email: signerEmail },
-      nda_text: window.__ndaText || '', rfp_code: RFP_CODE, rfp_title: (window.__rfpTitle || '') };
+      nda_text: window.__ndaText || '', rfp_code: RFP_CODE, rfp_title: (window.__rfpTitle || ''), eb: (window.__ndaEB || null) };
     await enter(getTok());
     showNDACopyBar();
   } catch(e) { err.textContent='Could not record signature - please retry.'; err.style.display='block'; $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
