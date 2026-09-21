@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import CopyInviteButton from "./CopyInviteButton";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 
@@ -643,6 +644,7 @@ Earth Breeze Procurement`);
           ))}
         </div>
         <div style={{ flex: 1 }} />
+        <CopyInviteButton rfpCode={rfpCode} rfpType={rfpType} style={{ ...btnSm, ...btnGhost }} />
         <button onClick={async () => {
           const link = `${PORTAL_URL}&preview=1&key=${PREVIEW_KEY}`;
           try { await navigator.clipboard.writeText(link); setCopied("preview"); setTimeout(() => setCopied(null), 2000); }

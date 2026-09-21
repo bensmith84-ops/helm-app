@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import CopyInviteButton from "./CopyInviteButton";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 import PortalAdmin from "./ThreePLParcelRFP";
@@ -143,6 +144,7 @@ export default function RFPPortals() {
             <span style={{ fontSize: 11.5, color: T.text3 }}>{c.signed} NDA{c.signed === 1 ? "" : "s"} · {c.subs} submission{c.subs === 1 ? "" : "s"}</span>
             <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: 99, fontWeight: 700, background: p.status === "active" ? "rgba(52,168,83,0.15)" : "rgba(128,128,128,0.15)", color: p.status === "active" ? "#34a853" : T.text3 }}>{p.status}</span>
             <button onClick={() => setSelected(p)} style={btnGhost}>Manage</button>
+            <CopyInviteButton rfpCode={p.rfp_code} rfpType={p.rfp_type} style={btnGhost} />
             <a href={p.rfp_type === "internal" ? `${PORTAL_BASE}?rfp=${encodeURIComponent(p.rfp_code)}&key=${PREVIEW_KEY}` : `${PORTAL_BASE}?rfp=${encodeURIComponent(p.rfp_code)}&preview=1&key=${PREVIEW_KEY}`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none" }} title={p.rfp_type === "internal" ? "Open internal document" : "Internal preview - Helm login only"}>{p.rfp_type === "internal" ? "Open ↗" : "Preview ↗"}</a>
             <a href={`${PORTAL_BASE}?rfp=${encodeURIComponent(p.rfp_code)}`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none" }}>Portal ↗</a>
             {p.status === "active"

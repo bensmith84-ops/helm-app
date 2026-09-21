@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+import CopyInviteButton from "./CopyInviteButton";
 import { supabase } from "../lib/supabase";
 import { T } from "../tokens";
 import { useAuth } from "../lib/auth";
@@ -72,6 +73,7 @@ function ExternalPortalSection({ rfp }) {
           <span style={{ fontSize: 11.5, color: T.text3 }}>{counts.signed} NDA{counts.signed === 1 ? "" : "s"} · {counts.subs} submission{counts.subs === 1 ? "" : "s"}</span>
           <button onClick={() => setManage(true)} style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none", background: T.accent, color: "#fff" }}>Manage portal</button>
           <a href={portalUrl} target="_blank" rel="noreferrer" style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, textDecoration: "none", background: T.surface, color: T.text2, border: `1px solid ${T.border}` }}>Open ↗</a>
+          <CopyInviteButton rfpCode={portal.rfp_code} rfpType={portal.rfp_type} style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface, color: T.text2, border: `1px solid ${T.border}` }} />
         </>) : (<>
           <span style={{ fontSize: 12, color: T.text3 }}>No gated manufacturer portal yet - create one from the CM template (access requests → MNDA → gated RFP → submissions).</span>
           <div style={{ flex: 1 }} />
