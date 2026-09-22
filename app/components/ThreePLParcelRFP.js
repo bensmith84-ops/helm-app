@@ -341,6 +341,40 @@ Earth Breeze Procurement`);
     loadReqs();
   };
 
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inv, setInv] = useState({ company: "", name: "", email: "", waive: false, ref: "" });
+  const [invBusy, setInvBusy] = useState(false);
+
+  // Adds a bidder straight to the approved list. With "NDA already on file" the
+  // NDA gate is satisfied by reference to the existing agreement - recorded as a
+  // waiver, never as a portal signature, so the audit trail stays truthful.
+  const inviteBidder = async () => {
+    if (!inv.company.trim() || !inv.email.includes("@")) { setErr("Company and a valid email are required."); return; }
+    setInvBusy(true); setErr(null);
+    const now = new Date().toISOString();
+    const row = {
+      rfp_code: RFP_CODE,
+      company: inv.company.trim(),
+      name: inv.name.trim() || null,
+      email: inv.email.trim(),
+      status: "approved",
+      decided_at: now,
+    };
+    if (inv.waive) {
+      row.nda_signed_at = now;
+      row.nda_name = inv.name.trim() || inv.company.trim();
+      row.nda_title = "NDA on file";
+      row.nda_details = { waiver: true, waiver_ref: inv.ref.trim() || null, waived_by: "admin", waived_at: now };
+    }
+    const { data, error } = await supabase.from("rfp_access_requests").insert(row).select().maybeSingle();
+    setInvBusy(false);
+    if (error) { setErr("Could not add bidder: " + error.message); return; }
+    setInviteOpen(false);
+    setInv({ company: "", name: "", email: "", waive: false, ref: "" });
+    await loadReqs();
+    if (data?.id) { copyLink(data); }
+  };
+
   const copyLink = async (r) => {
     try { await navigator.clipboard.writeText(accessLink(r)); setCopied(r.id); setTimeout(() => setCopied(null), 1800); } catch (e) {}
   };
@@ -693,10 +727,46 @@ Earth Breeze Procurement`);
             <span>🔐</span>
             <span>Flow: carrier requests access on the portal → you <b>Approve</b> here → send them the access link (Email button prefills it) → they sign the NDA → full RFP unlocks. If they kept the portal open in their browser, it also unlocks automatically after approval.</span>
           </div>
-          <div style={{ display: "flex", marginBottom: 10 }}>
+          <div style={{ display: "flex", marginBottom: 10, gap: 8 }}>
+            <button onClick={() => setInviteOpen(o => !o)} style={{ ...btnGhost, fontWeight: 600 }}>{inviteOpen ? "Cancel" : "+ Invite bidder directly"}</button>
             <div style={{ flex: 1 }} />
             <button onClick={loadReqs} style={btnGhost}>Refresh</button>
           </div>
+          {inviteOpen && (
+            <div style={{ ...card, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 12.5, color: T.text2, marginBottom: 12 }}>
+                Adds a bidder straight to the approved list - no request needed. Tick the NDA box if you already hold a signed NDA with them and they should skip that gate entirely. The access link is copied to your clipboard when you save.
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 200px" }}>
+                  <label style={label}>Company *</label>
+                  <input value={inv.company} onChange={e => setInv(p => ({ ...p, company: e.target.value }))} placeholder="Next3PL" style={inputStyle} />
+                </div>
+                <div style={{ flex: "1 1 180px" }}>
+                  <label style={label}>Contact name</label>
+                  <input value={inv.name} onChange={e => setInv(p => ({ ...p, name: e.target.value }))} placeholder="Full name" style={inputStyle} />
+                </div>
+                <div style={{ flex: "1 1 200px" }}>
+                  <label style={label}>Contact email *</label>
+                  <input value={inv.email} onChange={e => setInv(p => ({ ...p, email: e.target.value }))} placeholder="name@company.com" style={inputStyle} />
+                </div>
+              </div>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 14, fontSize: 12.5, color: T.text, cursor: "pointer" }}>
+                <input type="checkbox" checked={inv.waive} onChange={e => setInv(p => ({ ...p, waive: e.target.checked }))} style={{ marginTop: 2 }} />
+                <span><b>NDA already on file</b> - skip the portal NDA. They go straight into the full RFP from their link. Recorded as a waiver against the existing agreement, not as a new signature.</span>
+              </label>
+              {inv.waive && (
+                <div style={{ marginTop: 10 }}>
+                  <label style={label}>Existing NDA reference (recommended)</label>
+                  <input value={inv.ref} onChange={e => setInv(p => ({ ...p, ref: e.target.value }))} placeholder="e.g. MNDA executed 14 March 2025 - DocuSign 90862C1E" style={inputStyle} />
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center" }}>
+                <button onClick={inviteBidder} disabled={invBusy} style={{ ...btnSm, background: T.accent, color: "#fff" }}>{invBusy ? "Adding…" : "Add bidder & copy link"}</button>
+                <span style={{ fontSize: 11.5, color: T.text3 }}>You send the link yourself - nothing is emailed automatically.</span>
+              </div>
+            </div>
+          )}
           {reqsLoading && <div style={{ padding: 30, color: T.text3, fontSize: 13 }}>Loading…</div>}
           {!reqsLoading && !reqs.length && (
             <div style={{ ...card, padding: 36, textAlign: "center", color: T.text3, fontSize: 13 }}>No access requests yet. They appear here the moment a carrier submits the request form on the portal.</div>
@@ -712,7 +782,12 @@ Earth Breeze Procurement`);
                     <div style={{ fontSize: 12, color: T.text2 }}>{r.email}</div>
                   </div>
                   <div style={{ flex: 1 }} />
-                  {r.nda_signed_at
+                  {r.nda_signed_at && r.nda_details?.waiver
+                    ? <span style={{ fontSize: 11.5, color: "#0b7285", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        🔓 NDA gate waived - existing NDA on file{r.nda_details.waiver_ref ? ` (${r.nda_details.waiver_ref})` : ""} · added {new Date(r.nda_signed_at).toLocaleDateString()}
+                        <button onClick={() => copyLink(r)} style={{ ...btnSm, ...btnGhost, fontWeight: 500 }}>{copied === r.id ? "✓ Copied" : "Copy access link"}</button>
+                      </span>
+                    : r.nda_signed_at
                     ? <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         ✓ NDA signed - {r.nda_name}{r.nda_title ? `, ${r.nda_title}` : ""}{r.nda_details?.signer_email ? ` (${r.nda_details.signer_email})` : ""} · {new Date(r.nda_signed_at).toLocaleString()}
                         <button onClick={() => openNDACopy(r)} style={{ ...btnSm, ...btnGhost, fontWeight: 500 }}>NDA copy</button>
