@@ -105,6 +105,39 @@ ${row("Agreement reference", o.rfp_code)}
 </div></body></html>`;
 }
 
+// Multiple people from one bidder each create their own access request (access is
+// per-link, not per-domain), and the submission form takes a free-typed company
+// name. Group both by a normalised organisation key - company name with legal
+// suffixes stripped, falling back to email domain - so one 3PL reads as one
+// bidder and duplicate submissions from the same org are visible.
+const GENERIC_MAIL = new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","yahoo.com","icloud.com","aol.com","proton.me","protonmail.com"]);
+function orgKey(row) {
+  const c = String(row?.company || "").toLowerCase()
+    .replace(/[.,]/g, " ")
+    .replace(/\b(inc|llc|ltd|limited|corp|corporation|co|company|group|holdings|logistics|fulfillment|fulfilment|services|usa|us)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+  if (c) return c;
+  const dom = (String(row?.email || "").split("@")[1] || "").toLowerCase();
+  return dom && !GENERIC_MAIL.has(dom) ? dom.replace(/[^a-z0-9]/g, "") : "unknown";
+}
+function orgLabel(rows) {
+  const named = rows.find(r => r.company && r.company.trim());
+  if (named) return named.company.trim();
+  return (String(rows[0]?.email || "").split("@")[1]) || "Unknown organisation";
+}
+function groupByOrg(rows) {
+  const m = new Map();
+  (rows || []).forEach(r => {
+    const k = orgKey(r);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(r);
+  });
+  return [...m.entries()]
+    .map(([key, list]) => ({ key, label: orgLabel(list), rows: list }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 const EXTRA_EXCLUDE = new Set(["response_form", "sku_profile"]); // edited in their own tabs
 function detectKind(v) {
   if (typeof v === "string") return v.length > 90 ? "text" : "input";
@@ -860,6 +893,11 @@ Earth Breeze Procurement`);
           {subs.map(s => {
             const m = TYPE_META[s.submission_type] || TYPE_META.intent;
             const open = expanded === s.id;
+            // One submission per 3PL is expected; several people from the same org
+            // can each submit, so link siblings and mark which one is current.
+            const sibs = subs.filter(x => orgKey(x) === orgKey(s) && x.submission_type === s.submission_type);
+            const isLatest = sibs.length > 1 && sibs[0].id === s.id;
+            const supersededBy = sibs.length > 1 && !isLatest ? sibs[0] : null;
             return (
               <div key={s.id} style={{ ...card, marginBottom: 8, overflow: "hidden" }}>
                 <div onClick={() => setExpanded(open ? null : s.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", cursor: "pointer" }}>
