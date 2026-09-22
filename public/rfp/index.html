@@ -466,10 +466,25 @@ function ndaDocumentHTML(o) {
     + '</div></body></html>';
 }
 function openNDADocument(o) {
-  const w = window.open('', '_blank');
-  if (!w) { alert('Please allow pop-ups to download your signed NDA copy.'); return; }
-  w.document.write(ndaDocumentHTML(o));
-  w.document.close();
+  const html = ndaDocumentHTML(o);
+  let w = null;
+  try { w = window.open('', '_blank'); } catch (e) { w = null; }
+  if (w && w.document) {
+    try { w.document.write(html); w.document.close(); return; } catch (e) { /* fall through */ }
+  }
+  // Pop-up blocked or write refused: hand over an actual file instead of hanging.
+  try {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Earth-Breeze-NDA-' + String(o.company || o.name || 'signed').replace(/[^A-Za-z0-9]+/g, '-') + '.html';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    alert('Your signed NDA has been downloaded as a file. Open it and use your browser\u2019s Print \u2192 Save as PDF to keep a PDF copy.');
+  } catch (e) {
+    alert('Could not open the signed NDA automatically. Please allow pop-ups for this site and try again.');
+  }
 }
 function showNDACopyBar() {
   if (!window.__ndaSigned || document.getElementById('nda-copy-bar')) return;
@@ -505,6 +520,7 @@ async function signNDA(){
     window.__ndaSigned = { name: name, title: title, company: companyLegal, email: signerEmail, signed_at: new Date().toISOString(),
       details: { entity: entity, address: address, signer_email: signerEmail },
       nda_text: window.__ndaText || '', rfp_code: RFP_CODE, rfp_title: (window.__rfpTitle || ''), eb: (window.__ndaEB || null) };
+    try { localStorage.setItem('helm_nda_' + getTok(), JSON.stringify(window.__ndaSigned)); } catch(e){}
     await enter(getTok());
     showNDACopyBar();
   } catch(e) { if (!(e && e.message === '__cancelled')) { err.textContent='Could not record signature - please retry.'; err.style.display='block'; } $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
@@ -596,7 +612,9 @@ const listHTML = arr => '<ul>'+(arr||[]).map(x=>'<li>'+x+'</li>').join('')+'</ul
 // ── structured response form (schema-driven) ──
 function renderQForm(schema){
   if(!Array.isArray(schema)||!schema.length) return '';
-  let h='<div id="qform">';
+  let h='<div id="draft-bar" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;background:#E8F4FC;border:1.5px solid var(--sky-deep);border-radius:10px;padding:10px 14px;margin:0 0 14px;font-size:13px">'+'<span>\u21ba Draft restored from <b id="draft-when"></b>. Your answers are saved in this browser as you type.</span>'+'<span style="flex:1"></span><a href="#" onclick="clearQDraft();return false" style="font-size:12px">Clear draft</a></div>';
+  h+='<div id="draft-status" style="font-size:11.5px;color:var(--ink2);opacity:.55;margin:0 0 8px">Answers save automatically in this browser as you type.</div>';
+  h+='<div id="qform">';
   schema.forEach(function(sec,si){
     const fields=sec.f||[];
     const reqn=fields.filter(function(f){return f.req}).length;
@@ -683,6 +701,71 @@ function removeNode(i){
     Object.keys(v).forEach(function(k){ const el=card.querySelector('[data-nf="'+k+'"]'); if(el) el.value=v[k]; });
   });
   qFormProgress();
+}
+
+// ---- Response draft autosave -------------------------------------------
+// Bidders asked to fill the response in over multiple sittings. Drafts are kept
+// in this browser (per access token) and restored on return; nothing is sent to
+// Earth Breeze until Submit, so a draft is never visible to us.
+function draftKey(){ return 'helm_rfp_draft_' + (getTok() || 'anon'); }
+function saveQDraft(){
+  try {
+    const d = {};
+    document.querySelectorAll('#qform [data-q]').forEach(function(el){
+      const k = el.getAttribute('data-q');
+      if (el.getAttribute('data-multi')) {
+        const vals = Array.from(el.querySelectorAll('input:checked')).map(function(i){return i.value});
+        if (vals.length) d[k] = vals;
+      } else if ((el.value || '').trim()) { d[k] = el.value; }
+    });
+    ['f-company','f-name','f-email','f-phone','f-rates','f-prop','f-summary','f-questions'].forEach(function(id){
+      const el = $(id); if (el && (el.value||'').trim()) d['__' + id] = el.value;
+    });
+    const nodes = (typeof collectNodes === 'function') ? collectNodes() : null;
+    if (nodes && nodes.length) d.__nodes = nodes;
+    localStorage.setItem(draftKey(), JSON.stringify({ at: Date.now(), d: d }));
+    const st = $('draft-status');
+    if (st) { st.textContent = 'Draft saved ' + new Date().toLocaleTimeString(); st.style.opacity = '1';
+      clearTimeout(window.__draftFade); window.__draftFade = setTimeout(function(){ st.style.opacity = '.55'; }, 2500); }
+  } catch(e){}
+}
+function restoreQDraft(){
+  try {
+    const raw = localStorage.getItem(draftKey());
+    if (!raw) return;
+    const parsed = JSON.parse(raw); const d = parsed.d || {};
+    Object.keys(d).forEach(function(k){
+      if (k.indexOf('__') === 0) {
+        if (k === '__nodes') return;
+        const el = $(k.slice(2)); if (el) el.value = d[k];
+        return;
+      }
+      const el = document.querySelector('#qform [data-q="' + k.replace(/"/g,'') + '"]');
+      if (!el) return;
+      if (el.getAttribute('data-multi')) {
+        const want = Array.isArray(d[k]) ? d[k] : [];
+        el.querySelectorAll('input').forEach(function(i){ i.checked = want.indexOf(i.value) >= 0; });
+      } else { el.value = d[k]; }
+    });
+    if (typeof qFormProgress === 'function') qFormProgress();
+    const bar = $('draft-bar');
+    if (bar) { bar.style.display = 'flex'; $('draft-when').textContent = new Date(parsed.at).toLocaleString(); }
+  } catch(e){}
+}
+function clearQDraft(){
+  try { localStorage.removeItem(draftKey()); } catch(e){}
+  const bar = $('draft-bar'); if (bar) bar.style.display = 'none';
+  location.reload();
+}
+function wireDraftAutosave(){
+  const form = $('qform') || document.getElementById('rfp-form');
+  if (!form || form.__draftWired) return;
+  form.__draftWired = true;
+  let t = null;
+  const onChange = function(){ clearTimeout(t); t = setTimeout(saveQDraft, 900); };
+  form.addEventListener('input', onChange, true);
+  form.addEventListener('change', onChange, true);
+  restoreQDraft();
 }
 
 function collectQForm(){
@@ -818,6 +901,12 @@ function hBarChart(rows, opts){
 }
 
 async function enter(t){
+  if (!window.__ndaSigned) {
+    try {
+      const cached = localStorage.getItem('helm_nda_' + t);
+      if (cached) { window.__ndaSigned = JSON.parse(cached); setTimeout(showNDACopyBar, 400); }
+    } catch(e){}
+  }
   let res;
   try { res = await rpc('rfp_get_content', {p_token: t}); } catch(e){ show('scr-request'); return; }
   if (!res.ok || !res.content) { show('scr-request'); return; }
@@ -1062,6 +1151,7 @@ async function renderSite(content){
       qh.innerHTML = '<h3 style="margin-top:22px">Structured response</h3>'+
         '<p class="tbl-note" style="margin:0 0 4px">Complete these fields so every proposal can be compared on the same basis. Required fields are marked with an asterisk. You can still attach your own workbook and documents below - this does not replace them.</p>'+
         renderQForm(window.__qschema);
+        setTimeout(wireDraftAutosave, 60);
       if (!window.__preview) loadQA();
       else { const ql=document.getElementById('qa-list'); if(ql) ql.innerHTML='<p class="tbl-note">Published questions and answers appear here for companies once the RFP is open.</p>'; }
       const tsel=$('f-type'); if(tsel) tsel.addEventListener('change', applyTypeMode);
@@ -1286,6 +1376,7 @@ async function submitRFP(e){
   try{
     const r=await fetch(SB_URL+'/rest/v1/rfp_submissions',{method:'POST',headers:{...HDRS,'Prefer':'return=minimal'},body:JSON.stringify(body)});
     if(!r.ok){throw new Error('HTTP '+r.status)}
+    try { localStorage.removeItem(draftKey()); } catch(e){}
     $('rfp-form').style.display='none';
     $('form-ok').style.display='block';
     $('form-ok').scrollIntoView({behavior:'smooth',block:'center'});

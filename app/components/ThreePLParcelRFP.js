@@ -408,6 +408,35 @@ Earth Breeze Procurement`);
     if (data?.id) { copyLink(data); }
   };
 
+  // A colleague of someone whose organisation already signed shouldn't have to
+  // sign again - the NDA binds the company. Approves and records a waiver that
+  // points at the sibling's signature rather than fabricating a new one.
+  const admitUnderOrgNDA = async (r, sibling) => {
+    const who = sibling.nda_details?.waiver
+      ? `the NDA already on file${sibling.nda_details.waiver_ref ? ` (${sibling.nda_details.waiver_ref})` : ""}`
+      : `the NDA signed by ${sibling.nda_name} on ${new Date(sibling.nda_signed_at).toLocaleDateString()}`;
+    if (!window.confirm(`Admit ${r.name || r.email} under ${who}?\n\nThey get full access without signing again. Recorded as a waiver referencing their colleague's signature.`)) return;
+    setBusy(r.id);
+    const now = new Date().toISOString();
+    const { error } = await supabase.from("rfp_access_requests").update({
+      status: "approved", decided_at: now,
+      nda_signed_at: now,
+      nda_name: r.name || r.email,
+      nda_title: "Covered by organisation NDA",
+      nda_details: {
+        waiver: true,
+        waiver_ref: sibling.nda_details?.waiver
+          ? sibling.nda_details.waiver_ref || "existing NDA on file"
+          : `NDA signed by ${sibling.nda_name}${sibling.nda_details?.signer_email ? ` (${sibling.nda_details.signer_email})` : ""} on ${new Date(sibling.nda_signed_at).toLocaleDateString()}`,
+        covered_by_request: sibling.id,
+        waived_by: "admin", waived_at: now,
+      },
+    }).eq("id", r.id);
+    setBusy(null);
+    if (error) { setErr("Could not admit under org NDA: " + error.message); return; }
+    loadReqs();
+  };
+
   const copyLink = async (r) => {
     try { await navigator.clipboard.writeText(accessLink(r)); setCopied(r.id); setTimeout(() => setCopied(null), 1800); } catch (e) {}
   };
@@ -823,6 +852,7 @@ Earth Breeze Procurement`);
               </div>
               {g.rows.map(r => {
             const sm = STATUS_META[r.status] || STATUS_META.pending;
+            const orgCover = g.rows.find(x => x.id !== r.id && x.nda_signed_at);
             return (
               <div key={r.id} style={{ ...card, marginBottom: 8, padding: "12px 14px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -853,6 +883,11 @@ Earth Breeze Procurement`);
                   <span style={{ fontSize: 11.5, color: T.text3 }}>{new Date(r.created_at).toLocaleString()}</span>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  {!r.nda_signed_at && orgCover && (
+                    <button disabled={busy === r.id} onClick={() => admitUnderOrgNDA(r, orgCover)} style={{ ...btnSm, background: "#0b7285", color: "#fff" }} title="Give access under the NDA this organisation has already signed">
+                      🔓 Admit under org NDA
+                    </button>
+                  )}
                   {r.status === "pending" && (<>
                     <button disabled={busy === r.id} onClick={() => decide(r, "approved")} style={{ ...btnSm, background: "#34a853", color: "#fff" }}>✓ Approve</button>
                     <button disabled={busy === r.id} onClick={() => decide(r, "denied")} style={{ ...btnSm, background: "rgba(229,72,77,0.12)", color: "#e5484d" }}>✕ Deny</button>
