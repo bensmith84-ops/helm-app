@@ -468,6 +468,7 @@ Earth Breeze Procurement`);
     return `mailto:${r.email}?subject=${subject}&body=${body}`;
   };
 
+  const [questionDraft, setQuestionDraft] = useState({});
   const [jsonMode, setJsonMode] = useState({});
   const [newKey, setNewKey] = useState("");
   const [newKind, setNewKind] = useState("text");
@@ -558,9 +559,50 @@ Earth Breeze Procurement`);
     } catch (e) { alert("Could not open file: " + (e.message || e)); }
   };
 
+  // Attach a data file to an answer. The bucket is private, so we mint a
+  // long-lived signed URL and append it to the answer text - bidders open it
+  // straight from the published Q&A without needing an account.
+  const attachToAnswer = async (sub, file) => {
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) { alert("File is larger than 25 MB. Add it to the bidder dataset instead."); return; }
+    setQBusy(sub.id);
+    const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, "-");
+    const path = `qa/${RFP_CODE}/${sub.id}/${Date.now()}-${safe}`;
+    const up = await supabase.storage.from("rfp-submissions").upload(path, file, { upsert: false });
+    if (up.error) { setQBusy(null); alert("Upload failed: " + up.error.message); return; }
+    const { data, error } = await supabase.storage.from("rfp-submissions").createSignedUrl(path, 60 * 60 * 24 * 120);
+    setQBusy(null);
+    if (error || !data?.signedUrl) { alert("Uploaded, but could not create a link: " + (error?.message || "unknown")); return; }
+    const url = data.signedUrl.startsWith("http") ? data.signedUrl : `${window.location.origin}${data.signedUrl}`;
+    const line = `\n\nAttached: ${file.name}\n${url}`;
+    setAnswerDraft(d => ({ ...d, [sub.id]: ((d[sub.id] ?? sub.answer ?? "") + line).trim() }));
+  };
+
+  // Publishing a question publishes its wording verbatim. Let the wording be
+  // edited first so a self-identifying question can be made generic; the
+  // original is preserved alongside it.
+  const saveQuestionWording = async (sub) => {
+    const text = (questionDraft[sub.id] ?? sub.question ?? "").trim();
+    if (!text) { alert("The question text cannot be empty."); return; }
+    setQBusy(sub.id);
+    const structured = { ...(sub.structured || {}) };
+    if (!structured.original_question) structured.original_question = sub.question;
+    const patch = { question: text, structured };
+    const { error } = await supabase.from("rfp_submissions").update(patch).eq("id", sub.id);
+    setQBusy(null);
+    if (error) { alert("Could not save wording: " + error.message); return; }
+    setSubs(list => list.map(x => x.id === sub.id ? { ...x, ...patch } : x));
+  };
+
   const saveAnswer = async (sub, publish) => {
     const text = (answerDraft[sub.id] ?? sub.answer ?? "").trim();
     if (publish && !text) { alert("Write an answer before publishing."); return; }
+    if (publish) {
+      const q = (questionDraft[sub.id] ?? sub.question ?? "");
+      const selfNaming = (sub.company && q.toLowerCase().includes(String(sub.company).toLowerCase().split(" ")[0].toLowerCase()))
+        || (sub.contact_name && q.toLowerCase().includes(String(sub.contact_name).split(" ")[0].toLowerCase()));
+      if (selfNaming && !window.confirm("The question text appears to name the bidder who asked it. Published questions are visible to every bidder.\n\nPublish anyway?")) return;
+    }
     setQBusy(sub.id);
     const patch = { answer: text || null, answered_at: text ? new Date().toISOString() : null, published: publish };
     const { error } = await supabase.from("rfp_submissions").update(patch).eq("id", sub.id);
@@ -986,7 +1028,21 @@ Earth Breeze Procurement`);
                     </>)}
                     {s.submission_type === "question" && (
                       <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Your answer</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Published wording of the question</div>
+                        <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 6 }}>
+                          Bidders never see who asked - but the wording itself is published verbatim. Edit it here if it identifies the asker or wanders off-topic.
+                          {s.structured?.original_question && <span style={{ color: "#b8860b", fontWeight: 600 }}> · edited (original kept on file)</span>}
+                        </div>
+                        <textarea rows={3} value={questionDraft[s.id] ?? s.question ?? ""}
+                          onChange={e => setQuestionDraft(d => ({ ...d, [s.id]: e.target.value }))}
+                          style={{ ...inputStyle, resize: "vertical" }} />
+                        <div style={{ display: "flex", gap: 8, marginTop: 7, alignItems: "center", flexWrap: "wrap" }}>
+                          <button disabled={qBusy === s.id} onClick={() => saveQuestionWording(s)} style={{ ...btnSm, ...btnGhost }}>Save wording</button>
+                          {s.structured?.original_question && (
+                            <button disabled={qBusy === s.id} onClick={() => setQuestionDraft(d => ({ ...d, [s.id]: s.structured.original_question }))} style={{ ...btnSm, ...btnGhost, fontWeight: 500 }}>Restore original</button>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.05em", margin: "14px 0 5px" }}>Your answer</div>
                         <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 6 }}>{ANSWER_HINT}</div>
                         <textarea rows={4} value={answerDraft[s.id] ?? s.answer ?? ""}
                           onChange={e => setAnswerDraft(d => ({ ...d, [s.id]: e.target.value }))}
@@ -997,6 +1053,11 @@ Earth Breeze Procurement`);
                             {qBusy === s.id ? "Saving…" : s.published ? "Update published answer" : "✓ Publish to all bidders"}
                           </button>
                           <button disabled={qBusy === s.id} onClick={() => saveAnswer(s, false)} style={{ ...btnSm, ...btnGhost }}>Save draft</button>
+                          <label style={{ ...btnSm, ...btnGhost, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }} title="Upload a data file; a download link is added to the answer for all bidders">
+                            📎 Attach data file
+                            <input type="file" style={{ display: "none" }} disabled={qBusy === s.id}
+                              onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; attachToAnswer(s, f); }} />
+                          </label>
                           {s.published && <button disabled={qBusy === s.id} onClick={() => unpublish(s)} style={{ ...btnSm, background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>Unpublish</button>}
                           {s.answered_at && <span style={{ fontSize: 11.5, color: T.text3 }}>last answered {new Date(s.answered_at).toLocaleString()}</span>}
                         </div>

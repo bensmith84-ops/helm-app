@@ -1285,10 +1285,14 @@ async function loadQA(){
     if(!items.length){ el.innerHTML='<p class="tbl-note">No questions have been published yet. Submit yours below and the answer will appear here for all bidders.</p>'; return; }
     el.innerHTML=items.map(function(it){
       const d=it.answered_at?new Date(it.answered_at):null;
+      const ans = esc(it.answer||'').replace(/(https?:\/\/[^\s<]+)/g, function(u){
+        const label = /\.(xlsx|xls|csv|pdf|zip|docx|pptx|json|txt)(\?|$)/i.test(u) ? '\u2b07 Download file' : u;
+        return '<a href="'+u+'" target="_blank" rel="noreferrer noopener" style="font-weight:600">'+label+'</a>';
+      });
       return '<div class="qa-item"><div class="qq">'+esc(it.question||'')+'</div>'+
-        (it.answer?'<div class="qa">'+esc(it.answer)+'</div>':'<div class="qa-pending">Answer pending.</div>')+
+        (it.answer?'<div class="qa" style="white-space:pre-wrap">'+ans+'</div>':'<div class="qa-pending">Answer pending.</div>')+
         '<div class="qmeta">'+(d?('Answered '+d.toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})):'Awaiting answer')+
-        (it.files?' \u00b7 '+it.files+' file'+(it.files===1?'':'s')+' attached to the question':'')+'</div></div>';
+        '</div></div>';
     }).join('');
   }catch(e){ el.innerHTML='<p class="tbl-note">Questions and answers will appear here once published.</p>'; }
 }
