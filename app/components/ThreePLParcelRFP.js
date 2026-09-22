@@ -771,7 +771,24 @@ Earth Breeze Procurement`);
           {!reqsLoading && !reqs.length && (
             <div style={{ ...card, padding: 36, textAlign: "center", color: T.text3, fontSize: 13 }}>No access requests yet. They appear here the moment a carrier submits the request form on the portal.</div>
           )}
-          {reqs.map(r => {
+          {groupByOrg(reqs).map(g => {
+            const anyAccess = g.rows.some(r => r.nda_signed_at);
+            const signer = g.rows.find(r => r.nda_signed_at && !r.nda_details?.waiver);
+            const waived = g.rows.find(r => r.nda_details?.waiver);
+            const pending = g.rows.filter(r => r.status === "pending").length;
+            return (
+            <div key={g.key} style={{ marginBottom: 18 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "6px 2px 8px" }}>
+                <span style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>{g.label}</span>
+                <span style={{ fontSize: 11.5, color: T.text3 }}>{g.rows.length} {g.rows.length === 1 ? "person" : "people"}</span>
+                {signer && <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600 }}>· NDA signed by {signer.nda_name}</span>}
+                {!signer && waived && <span style={{ fontSize: 11.5, color: "#0b7285", fontWeight: 600 }}>· NDA on file (waived)</span>}
+                {!anyAccess && <span style={{ fontSize: 11.5, color: T.text3 }}>· no NDA yet</span>}
+                {pending > 0 && <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600 }}>· {pending} awaiting approval</span>}
+                <div style={{ flex: 1 }} />
+                <span style={{ fontSize: 11, color: T.text3 }}>One submission expected per organisation</span>
+              </div>
+              {g.rows.map(r => {
             const sm = STATUS_META[r.status] || STATUS_META.pending;
             return (
               <div key={r.id} style={{ ...card, marginBottom: 8, padding: "12px 14px" }}>
@@ -818,6 +835,9 @@ Earth Breeze Procurement`);
                 </div>
               </div>
             );
+              })}
+            </div>
+            );
           })}
         </div>
       )}
@@ -845,6 +865,9 @@ Earth Breeze Procurement`);
                 <div onClick={() => setExpanded(open ? null : s.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", cursor: "pointer" }}>
                   <span style={chip(m)}>{m.label}</span>
                   <b style={{ fontSize: 13, color: T.text }}>{s.company}</b>
+                  {sibs.length > 1 && (isLatest
+                    ? <span title="Another person from this organisation also submitted. This is the most recent." style={{ fontSize: 10.5, fontWeight: 700, color: "#0b7285", background: "rgba(11,114,133,0.10)", padding: "2px 7px", borderRadius: 20 }}>latest of {sibs.length} from this org</span>
+                    : <span title={`Superseded by a later submission from ${supersededBy?.contact_name || "a colleague"}`} style={{ fontSize: 10.5, fontWeight: 700, color: "#b8860b", background: "rgba(184,134,11,0.12)", padding: "2px 7px", borderRadius: 20 }}>superseded</span>)}
                   <span style={{ fontSize: 12, color: T.text2 }}>{s.contact_name}</span>
                   {s.origins_bid && <span style={{ fontSize: 11.5, color: T.text3 }}>· {s.origins_bid}</span>}
                   {s.submission_type === "question" && (
