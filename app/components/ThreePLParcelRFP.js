@@ -582,15 +582,16 @@ Earth Breeze Procurement`);
   // edited first so a self-identifying question can be made generic; the
   // original is preserved alongside it.
   const saveQuestionWording = async (sub) => {
-    const text = (questionDraft[sub.id] ?? sub.question ?? "").trim();
+    const text = (questionDraft[sub.id] ?? sub.questions ?? "").trim();
     if (!text) { alert("The question text cannot be empty."); return; }
     setQBusy(sub.id);
     const structured = { ...(sub.structured || {}) };
-    if (!structured.original_question) structured.original_question = sub.question;
-    const patch = { question: text, structured };
-    const { error } = await supabase.from("rfp_submissions").update(patch).eq("id", sub.id);
+    if (!structured.original_question) structured.original_question = sub.questions;
+    const patch = { questions: text, structured };
+    const { data, error } = await supabase.from("rfp_submissions").update(patch).eq("id", sub.id).select("id");
     setQBusy(null);
     if (error) { alert("Could not save wording: " + error.message); return; }
+    if (!data || !data.length) { alert("Nothing was saved - the update was rejected (no rows changed)."); return; }
     setSubs(list => list.map(x => x.id === sub.id ? { ...x, ...patch } : x));
   };
 
@@ -598,23 +599,25 @@ Earth Breeze Procurement`);
     const text = (answerDraft[sub.id] ?? sub.answer ?? "").trim();
     if (publish && !text) { alert("Write an answer before publishing."); return; }
     if (publish) {
-      const q = (questionDraft[sub.id] ?? sub.question ?? "");
+      const q = (questionDraft[sub.id] ?? sub.questions ?? "");
       const selfNaming = (sub.company && q.toLowerCase().includes(String(sub.company).toLowerCase().split(" ")[0].toLowerCase()))
         || (sub.contact_name && q.toLowerCase().includes(String(sub.contact_name).split(" ")[0].toLowerCase()));
       if (selfNaming && !window.confirm("The question text appears to name the bidder who asked it. Published questions are visible to every bidder.\n\nPublish anyway?")) return;
     }
     setQBusy(sub.id);
     const patch = { answer: text || null, answered_at: text ? new Date().toISOString() : null, published: publish };
-    const { error } = await supabase.from("rfp_submissions").update(patch).eq("id", sub.id);
+    const { data, error } = await supabase.from("rfp_submissions").update(patch).eq("id", sub.id).select("id");
     setQBusy(null);
     if (error) { alert("Could not save: " + error.message); return; }
+    if (!data || !data.length) { alert("Nothing was saved - the update was rejected (no rows changed). This usually means a permissions policy is blocking it. Nothing has been published."); return; }
     setSubs(list => list.map(x => x.id === sub.id ? { ...x, ...patch } : x));
   };
   const unpublish = async (sub) => {
     setQBusy(sub.id);
-    const { error } = await supabase.from("rfp_submissions").update({ published: false }).eq("id", sub.id);
+    const { data, error } = await supabase.from("rfp_submissions").update({ published: false }).eq("id", sub.id).select("id");
     setQBusy(null);
-    if (!error) setSubs(list => list.map(x => x.id === sub.id ? { ...x, published: false } : x));
+    if (error || !data || !data.length) { alert("Could not unpublish" + (error ? ": " + error.message : " - no rows changed.")); return; }
+    setSubs(list => list.map(x => x.id === sub.id ? { ...x, published: false } : x));
   };
 
   const exportCSV = () => {
@@ -1033,7 +1036,7 @@ Earth Breeze Procurement`);
                           Bidders never see who asked - but the wording itself is published verbatim. Edit it here if it identifies the asker or wanders off-topic.
                           {s.structured?.original_question && <span style={{ color: "#b8860b", fontWeight: 600 }}> · edited (original kept on file)</span>}
                         </div>
-                        <textarea rows={3} value={questionDraft[s.id] ?? s.question ?? ""}
+                        <textarea rows={3} value={questionDraft[s.id] ?? s.questions ?? ""}
                           onChange={e => setQuestionDraft(d => ({ ...d, [s.id]: e.target.value }))}
                           style={{ ...inputStyle, resize: "vertical" }} />
                         <div style={{ display: "flex", gap: 8, marginTop: 7, alignItems: "center", flexWrap: "wrap" }}>
