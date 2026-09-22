@@ -207,14 +207,23 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
         <div style="color:var(--ink2);font-size:12px;margin-top:8px">This page stays available at the same link until the NDA is signed - whoever signs it below unlocks access for your team's link.</div>
       </div>
     </div>
-    <div class="frow">
-      <div><label>Full name (signature)</label><input id="nda-name" placeholder="Type your full legal name"></div>
-      <div><label>Title</label><input id="nda-title" placeholder="e.g. Director, Pricing"></div>
+    <div id="sig-waiting" style="display:none;background:#FFF8E6;border:1.5px solid #E8C872;border-radius:10px;padding:14px 16px;margin:6px 0 10px;font-size:13px">
+      <b>Waiting for <span id="sig-waiting-name"></span> to sign.</b> Send them the signing link above. They'll open this same page and sign in their own name.
+      <div style="margin-top:8px"><a href="#" onclick="signMyself();return false" style="font-size:12.5px">I'm the authorized signatory after all - sign myself</a></div>
     </div>
-    <label>Signer email</label><input id="nda-email" type="email" placeholder="Signatory's work email">
-    <div class="agree-row"><input type="checkbox" id="nda-agree"><span>I am authorized to sign on behalf of my organization and agree to the terms of this Non-Disclosure Agreement.</span></div>
-    <button id="nda-btn" onclick="signNDA()">Sign &amp; access RFP</button>
-    <div class="gate-err" id="nda-err"></div>
+    <div id="sig-block">
+      <div style="background:#F3F6FA;border-radius:8px;padding:10px 12px;margin:8px 0 10px;font-size:12.5px;color:var(--ink2)">
+        <b style="color:var(--ink)">Whoever completes this section is signing the NDA.</b> Type <u>your own</u> full legal name. If someone else needs to sign, use the forward link above instead of entering their details here.
+      </div>
+      <div class="frow">
+        <div><label>Your full name (signature)</label><input id="nda-name" placeholder="Type your own full legal name"></div>
+        <div><label>Your title</label><input id="nda-title" placeholder="e.g. Director, Pricing"></div>
+      </div>
+      <label>Your email</label><input id="nda-email" type="email" placeholder="Your work email">
+      <div class="agree-row"><input type="checkbox" id="nda-agree"><span>I am the person named above, I am authorized to sign on behalf of my organization, and I agree to the terms of this Non-Disclosure Agreement.</span></div>
+      <button id="nda-btn" onclick="signNDA()">Sign &amp; access RFP</button>
+      <div class="gate-err" id="nda-err"></div>
+    </div>
   </div>
   <div class="gate-card" id="scr-loading"><p style="margin:0">Loading…</p></div>
 </div>
@@ -389,11 +398,11 @@ async function showNDA(t, st){
   window.__ndaText = res.nda_text || '';
   window.__rfpTitle = (res.title_html || '').replace(/<[^>]+>/g, '') || document.title;
   window.__ndaEB = { name: res.nda_signatory_name || 'Ben Smith', title: res.nda_signatory_title || 'Chief Operating Officer', company: res.nda_company_legal || 'EARTH BREEZE, INC.' };
-  if (res.name) $('nda-name').value = res.name;
+  window.__reqEmail = (res.email || '').toLowerCase();
+  window.__delegate = res.delegate_email ? { name: res.delegate_name || '', email: String(res.delegate_email).toLowerCase() } : null;
   if (res.company) $('nda-company').value = res.company;
   $('nda-email').value = res.delegate_email || res.email || '';
   if (res.delegate_email) {
-    $('nda-name').value = res.delegate_name || '';
     $('fwd-toggle').style.display = 'none';
     $('fwd-done-msg').textContent = 'The NDA is marked for ' + (res.delegate_name || res.delegate_email) + ' to sign.';
     buildMailto(res.delegate_name || '', res.delegate_email, res.company || '');
@@ -490,6 +499,7 @@ async function signNDA(){
   if (!$('nda-agree').checked) { err.textContent='Please tick the authorization checkbox.'; err.style.display='block'; return; }
   $('nda-btn').disabled = true; $('nda-btn').textContent = 'Signing…';
   try {
+    if (!signerMismatchOK(signerEmail)) { throw new Error('__cancelled'); }
     const res = await rpc('rfp_sign_nda', {p_token: getTok(), p_name: name, p_title: title, p_company_legal: companyLegal, p_entity: entity, p_address: address, p_signer_email: signerEmail});
     if (!res.ok) throw new Error(res.error||'failed');
     window.__ndaSigned = { name: name, title: title, company: companyLegal, email: signerEmail, signed_at: new Date().toISOString(),
@@ -497,7 +507,7 @@ async function signNDA(){
       nda_text: window.__ndaText || '', rfp_code: RFP_CODE, rfp_title: (window.__rfpTitle || ''), eb: (window.__ndaEB || null) };
     await enter(getTok());
     showNDACopyBar();
-  } catch(e) { err.textContent='Could not record signature - please retry.'; err.style.display='block'; $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
+  } catch(e) { if (!(e && e.message === '__cancelled')) { err.textContent='Could not record signature - please retry.'; err.style.display='block'; } $('nda-btn').disabled=false; $('nda-btn').textContent='Sign & access RFP'; }
 }
 
 function toggleFwd(){ const f=$('fwd-form'); f.style.display = f.style.display==='none'?'block':'none'; }
@@ -512,6 +522,23 @@ async function copyAccessLink(el){
   try { await navigator.clipboard.writeText(link); el.textContent='\u2713 Copied'; setTimeout(()=>{ el.textContent='Copy signing link'; }, 1800); }
   catch(e){ window.prompt('Copy link:', link); }
 }
+function signMyself(){
+  $('sig-waiting').style.display = 'none';
+  $('sig-block').style.display = 'block';
+  $('nda-email').value = window.__reqEmail || '';
+  $('nda-name').focus();
+}
+function signerMismatchOK(signerEmail){
+  const e = String(signerEmail || '').toLowerCase().trim();
+  if (window.__delegate && window.__delegate.email && e && e !== window.__delegate.email) {
+    return confirm('This NDA was forwarded to ' + (window.__delegate.name || window.__delegate.email) + ' (' + window.__delegate.email + ') to sign, but you entered ' + e + '.\n\nOnly continue if YOU are the person signing and are authorized to bind your organization.');
+  }
+  if (!window.__delegate && window.__reqEmail && e && e !== window.__reqEmail) {
+    return confirm('You are signing with a different email (' + e + ') from the one that requested access (' + window.__reqEmail + ').\n\nOnly continue if you are the person named as signatory. If someone else needs to sign, cancel and use "Forward the NDA to the right person" instead.');
+  }
+  return true;
+}
+
 async function delegateNDA(){
   const err=$('fwd-err'); err.style.display='none';
   const name=$('fwd-name').value.trim(), email=$('fwd-email').value.trim();
@@ -521,8 +548,12 @@ async function delegateNDA(){
     const res = await rpc('rfp_delegate_nda', {p_token: getTok(), p_name: name, p_email: email});
     if (!res.ok) throw new Error(res.error||'failed');
     $('fwd-form').style.display='none'; $('fwd-toggle').style.display='none';
-    $('nda-name').value = name; $('nda-email').value = email;
-    $('fwd-done-msg').textContent = 'Send ' + name + ' the signing link below - the NDA form is pre-filled for them.';
+    window.__delegate = { name: name, email: email.toLowerCase() };
+    $('nda-email').value = email;
+    $('fwd-done-msg').textContent = 'Send ' + name + ' the signing link below. They sign in their own name when they open it.';
+    $('sig-waiting-name').textContent = name;
+    $('sig-block').style.display = 'none';
+    $('sig-waiting').style.display = 'block';
     buildMailto(name, email, $('nda-company').value.trim());
     $('fwd-done').style.display='block';
   } catch(e){ err.textContent='Could not save - please retry.'; err.style.display='block'; }

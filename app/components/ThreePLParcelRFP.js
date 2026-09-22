@@ -310,6 +310,37 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
     w.document.close();
   };
 
+  // Addressed to the forwarded signatory, not the original requester.
+  const signatoryMailto = (r) => {
+    const rfpName = title || rfpCode;
+    const subject = encodeURIComponent(`Earth Breeze ${rfpName} - NDA for your signature`);
+    const body = encodeURIComponent(
+`Hi ${r.delegate_name || ""},
+
+${r.name || "A colleague"}${r.company ? ` at ${r.company}` : ""} has asked you to sign the mutual NDA for the Earth Breeze ${rfpName} (${rfpCode}), as your organization's authorized signatory.
+
+Open the link below, review the agreement, and sign in your own name. Earth Breeze has already countersigned; the agreement takes effect when you sign, and you can download the executed copy immediately afterwards.
+
+${accessLink(r)}
+
+Best regards,
+Earth Breeze Procurement`);
+    return `mailto:${r.delegate_email}?subject=${subject}&body=${body}`;
+  };
+
+  // Clears a signature entered on someone else's behalf. The access link keeps
+  // working and returns to the NDA screen so the right person can sign.
+  const resetSignature = async (r) => {
+    if (!window.confirm(`Void the NDA signature recorded for ${r.nda_name || "this request"}?\n\nAccess to the full RFP is removed until the correct signatory signs from the same link. Use this when someone signed in another person's name.`)) return;
+    setBusy(r.id);
+    const { error } = await supabase.from("rfp_access_requests")
+      .update({ nda_signed_at: null, nda_name: null, nda_title: null, nda_details: null })
+      .eq("id", r.id);
+    setBusy(null);
+    if (error) { setErr("Could not void signature: " + error.message); return; }
+    loadReqs();
+  };
+
   const copyLink = async (r) => {
     try { await navigator.clipboard.writeText(accessLink(r)); setCopied(r.id); setTimeout(() => setCopied(null), 1800); } catch (e) {}
   };
@@ -685,9 +716,14 @@ Earth Breeze Procurement`);
                     ? <span style={{ fontSize: 11.5, color: "#34a853", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         ✓ NDA signed - {r.nda_name}{r.nda_title ? `, ${r.nda_title}` : ""}{r.nda_details?.signer_email ? ` (${r.nda_details.signer_email})` : ""} · {new Date(r.nda_signed_at).toLocaleString()}
                         <button onClick={() => openNDACopy(r)} style={{ ...btnSm, ...btnGhost, fontWeight: 500 }}>NDA copy</button>
+                        <button onClick={() => resetSignature(r)} disabled={busy === r.id} style={{ ...btnSm, ...btnGhost, fontWeight: 500, color: "#e5484d" }} title="Void this signature so the correct signatory can sign from the same link">Void signature</button>
                       </span>
                     : r.status === "approved" && (r.delegate_email
-                      ? <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600 }}>✉ NDA forwarded to {r.delegate_name || r.delegate_email} ({r.delegate_email}) - awaiting signature</span>
+                      ? <span style={{ fontSize: 11.5, color: "#b8860b", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          ✉ NDA forwarded to {r.delegate_name || r.delegate_email} ({r.delegate_email}) - awaiting signature
+                          <button onClick={() => copyLink(r)} style={{ ...btnSm, ...btnGhost, fontWeight: 500 }}>{copied === r.id ? "✓ Copied" : "Copy signing link"}</button>
+                          <a href={signatoryMailto(r)} style={{ ...btnSm, ...btnGhost, fontWeight: 500, textDecoration: "none" }}>Email signatory</a>
+                        </span>
                       : <span style={{ fontSize: 11.5, color: T.text3 }}>NDA not yet signed</span>)}
                   <span style={{ fontSize: 11.5, color: T.text3 }}>{new Date(r.created_at).toLocaleString()}</span>
                 </div>
