@@ -468,6 +468,47 @@ Earth Breeze Procurement`);
     return `mailto:${r.email}?subject=${subject}&body=${body}`;
   };
 
+  const [scen, setScen] = useState([]);
+  const [scenBusy, setScenBusy] = useState(false);
+  const [volume, setVolume] = useState(4279025);
+  const loadScen = useCallback(async () => {
+    const { data } = await supabase.from("rfp_cost_scenarios").select("*").eq("rfp_code", RFP_CODE).order("sort_order").order("created_at");
+    setScen(data || []);
+  }, [RFP_CODE]);
+  useEffect(() => { if (tab === "costs") loadScen(); }, [tab, loadScen]);
+
+  const addScen = async (seed) => {
+    setScenBusy(true);
+    const { data, error } = await supabase.from("rfp_cost_scenarios")
+      .insert({ rfp_code: RFP_CODE, label: seed?.label || "New bidder", kind: seed?.kind || "bidder",
+                submission_id: seed?.submission_id || null, annual_orders: volume, sort_order: scen.length + 1 })
+      .select().maybeSingle();
+    setScenBusy(false);
+    if (error) { setErr("Could not add scenario: " + error.message); return; }
+    if (data) setScen(l => [...l, data]);
+  };
+  const patchScen = async (row, patch) => {
+    setScen(l => l.map(x => x.id === row.id ? { ...x, ...patch } : x));
+    const { data, error } = await supabase.from("rfp_cost_scenarios").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", row.id).select("id");
+    if (error || !data?.length) setErr("Could not save scenario" + (error ? ": " + error.message : " - no rows changed."));
+  };
+  const delScen = async (row) => {
+    if (!window.confirm(`Remove "${row.label}" from the comparison?`)) return;
+    const { error } = await supabase.from("rfp_cost_scenarios").delete().eq("id", row.id);
+    if (error) { setErr("Could not remove: " + error.message); return; }
+    setScen(l => l.filter(x => x.id !== row.id));
+  };
+
+  // Annualised cost of a scenario at the comparison volume.
+  const scenTotals = (r) => {
+    const v = Number(volume) || 0;
+    const per = (Number(r.pick_pack_per_order) || 0) + (Number(r.postage_per_order) || 0);
+    const fixed = (Number(r.storage_annual) || 0) + (Number(r.inbound_annual) || 0) + (Number(r.other_annual) || 0);
+    const amort = (Number(r.one_off_capex) || 0) / Math.max(Number(r.amortise_years) || 5, 1);
+    const annual = per * v + fixed + amort;
+    return { annual, perOrder: v ? annual / v : 0, amort, fixed, per };
+  };
+
   const [questionDraft, setQuestionDraft] = useState({});
   const [jsonMode, setJsonMode] = useState({});
   const [newKey, setNewKey] = useState("");
@@ -811,7 +852,7 @@ Earth Breeze Procurement`);
         {onBack && <button onClick={onBack} style={{ padding: "7px 10px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.text2, border: `1px solid ${T.border}` }}>←</button>}
         <b style={{ fontSize: 13.5, color: T.text }}>{title}</b>
         <div style={{ display: "flex", gap: 2, background: T.surface2, borderRadius: 8, padding: 3 }}>
-          {[["requests", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`], ["submissions", `Submissions${subs.length ? ` (${subs.length})` : ""}`], ...(schema ? [["compare", `Compare${structuredSubs.length ? ` (${structuredSubs.length})` : ""}`]] : []), ["form", "Response Form"], ["content", "Portal Content"]].map(([k, l]) => (
+          {[["requests", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`], ["submissions", `Submissions${subs.length ? ` (${subs.length})` : ""}`], ...(schema ? [["compare", `Compare${structuredSubs.length ? ` (${structuredSubs.length})` : ""}`]] : []), ["form", "Response Form"], ["costs", "Cost Comparison"], ["content", "Portal Content"]].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} style={{ ...btn, background: tab === k ? T.surface : "transparent", color: tab === k ? T.text : T.text3, boxShadow: tab === k ? "0 1px 3px rgba(0,0,0,0.15)" : "none" }}>{l}</button>
           ))}
         </div>
@@ -1269,6 +1310,96 @@ Earth Breeze Procurement`);
       )}
 
       {/* ── PORTAL CONTENT ── */}
+
+      {tab === "costs" && (
+        <div>
+          <div style={{ ...card, padding: 14, marginBottom: 12, fontSize: 12.5, color: T.text2, lineHeight: 1.6 }}>
+            <b style={{ color: T.text }}>Stack every bidder against doing it ourselves.</b> Enter each submission's cost structure on the same basis and compare annualised cost and cost per order at a single volume. The in-house network is pre-loaded from the Helm model: $10.48M capital amortised over 5 years plus $5.37M/yr operating, ex postage.
+            <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ fontSize: 11.5, fontWeight: 700, color: T.text3 }}>Annual order volume</label>
+              <input type="number" value={volume} onChange={e => setVolume(e.target.value)} style={{ ...inputStyle, width: 150 }} />
+              <span style={{ fontSize: 11.5, color: T.text3 }}>2028 plan = 4,279,025</span>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => addScen()} disabled={scenBusy} style={{ ...btnSm, ...btnGhost }}>+ Add scenario</button>
+              {structuredSubs.map(sb => (
+                <button key={sb.id} onClick={() => addScen({ label: sb.company || "Bidder", kind: "bidder", submission_id: sb.id })}
+                        disabled={scenBusy} style={{ ...btnSm, ...btnGhost }}>+ {sb.company || "Bidder"}</button>
+              ))}
+            </div>
+          </div>
+
+          {!scen.length && <div style={{ ...card, padding: 30, textAlign: "center", color: T.text3, fontSize: 13 }}>No scenarios yet. Add one per bidder, plus the in-house model, to compare.</div>}
+
+          {scen.length > 0 && (() => {
+            const rows = scen.map(r => ({ r, t: scenTotals(r) })).sort((a, b) => a.t.annual - b.t.annual);
+            const best = rows[0];
+            const inh = rows.find(x => x.r.kind === "inhouse");
+            return (
+              <>
+                <div style={{ ...card, padding: 0, overflowX: "auto", marginBottom: 14 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 900 }}>
+                    <thead><tr style={{ background: T.surface2 }}>
+                      {["Rank", "Scenario", "$/order (fulfilment)", "$/order (postage)", "Fixed $/yr", "Capex amortised $/yr", "Annual total", "Cost/order", "vs in-house"].map(h => (
+                        <th key={h} style={{ textAlign: h === "Scenario" ? "left" : "right", padding: "9px 12px", fontSize: 10.5, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {rows.map(({ r, t }, i) => {
+                        const delta = inh ? t.annual - inh.t.annual : null;
+                        return (
+                          <tr key={r.id} style={{ borderTop: `1px solid ${T.border}`, background: r.kind === "inhouse" ? "rgba(11,114,133,0.06)" : "transparent" }}>
+                            <td style={{ padding: "9px 12px", textAlign: "right", fontWeight: 700, color: i === 0 ? "#34a853" : T.text3 }}>{i + 1}</td>
+                            <td style={{ padding: "9px 12px", fontWeight: 600, color: T.text }}>{r.label}{r.kind === "inhouse" && <span style={{ fontSize: 10, color: "#0b7285", marginLeft: 6 }}>IN-HOUSE</span>}</td>
+                            <td style={{ padding: "9px 12px", textAlign: "right" }}>{r.pick_pack_per_order != null ? `$${Number(r.pick_pack_per_order).toFixed(3)}` : "-"}</td>
+                            <td style={{ padding: "9px 12px", textAlign: "right" }}>{r.postage_per_order != null ? `$${Number(r.postage_per_order).toFixed(3)}` : "-"}</td>
+                            <td style={{ padding: "9px 12px", textAlign: "right" }}>{t.fixed ? `$${Math.round(t.fixed).toLocaleString()}` : "-"}</td>
+                            <td style={{ padding: "9px 12px", textAlign: "right" }}>{t.amort ? `$${Math.round(t.amort).toLocaleString()}` : "-"}</td>
+                            <td style={{ padding: "9px 12px", textAlign: "right", fontWeight: 700 }}>${Math.round(t.annual).toLocaleString()}</td>
+                            <td style={{ padding: "9px 12px", textAlign: "right", fontWeight: 700 }}>${t.perOrder.toFixed(3)}</td>
+                            <td style={{ padding: "9px 12px", textAlign: "right", color: delta == null ? T.text3 : delta < 0 ? "#34a853" : "#e5484d", fontWeight: 600 }}>
+                              {delta == null || r.kind === "inhouse" ? "-" : `${delta < 0 ? "-" : "+"}$${Math.abs(Math.round(delta)).toLocaleString()}`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ fontSize: 12, color: T.text2, marginBottom: 14 }}>
+                  Lowest annualised cost: <b style={{ color: T.text }}>{best.r.label}</b> at ${best.t.perOrder.toFixed(3)}/order.
+                  {inh && best.r.kind !== "inhouse" && ` That is $${Math.abs(Math.round(inh.t.annual - best.t.annual)).toLocaleString()}/yr ${inh.t.annual > best.t.annual ? "below" : "above"} the in-house model.`}
+                  {" "}Cost per order excludes anything you have not entered - compare like with like before drawing conclusions.
+                </div>
+
+                {scen.map(r => (
+                  <div key={r.id} style={{ ...card, padding: 14, marginBottom: 10 }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+                      <input value={r.label} onChange={e => patchScen(r, { label: e.target.value })} style={{ ...inputStyle, width: 260, fontWeight: 700 }} />
+                      <select value={r.kind} onChange={e => patchScen(r, { kind: e.target.value })} style={{ ...inputStyle, width: 130 }}>
+                        <option value="bidder">Bidder</option><option value="inhouse">In-house</option><option value="incumbent">Incumbent</option>
+                      </select>
+                      <div style={{ flex: 1 }} />
+                      <button onClick={() => delScen(r)} style={{ ...btnSm, ...btnGhost, color: "#e5484d" }}>Remove</button>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {[["pick_pack_per_order", "Fulfilment $/order (ex postage)"], ["postage_per_order", "Postage $/order"],
+                        ["storage_annual", "Storage $/yr"], ["inbound_annual", "Inbound/receiving $/yr"],
+                        ["other_annual", "Other $/yr"], ["one_off_capex", "One-off capex $"], ["amortise_years", "Amortise over (yrs)"]].map(([k, l]) => (
+                        <div key={k} style={{ flex: "1 1 150px", minWidth: 140 }}>
+                          <label style={{ ...label, margin: "0 0 4px" }}>{l}</label>
+                          <input type="number" step="0.001" value={r[k] ?? ""} onChange={e => patchScen(r, { [k]: e.target.value === "" ? null : Number(e.target.value) })} style={inputStyle} />
+                        </div>
+                      ))}
+                    </div>
+                    <label style={{ ...label, margin: "10px 0 4px" }}>Notes / assumptions</label>
+                    <textarea rows={2} value={r.notes ?? ""} onChange={e => patchScen(r, { notes: e.target.value })} style={{ ...inputStyle, resize: "vertical" }} />
+                  </div>
+                ))}
+              </>
+            );
+          })()}
+        </div>
+      )}
       {tab === "content" && (
         <div>
           <div style={{ ...card, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: T.text2, display: "flex", alignItems: "center", gap: 10 }}>
