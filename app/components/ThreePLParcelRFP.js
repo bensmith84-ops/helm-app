@@ -101,6 +101,7 @@ ${row("Counterparty entity type", d.entity)}${row("Counterparty address", d.addr
 ${row("Counterparty signer email", d.signer_email || o.email)}${row("Executed (date and time)", when.toLocaleString())}
 ${row("Agreement reference", o.rfp_code)}
 </table>
+${o.negotiated ? '<div style="font-family:system-ui,sans-serif;font-size:10.5px;color:#0b7285;font-weight:700;margin-top:10px">Negotiated version agreed between the parties.</div>' : ""}
 <div class="att">Executed electronically. Earth Breeze, Inc. pre-executed this agreement through its authorized officer; it became effective upon the counterparty&rsquo;s signature, when the signatory confirmed authority to bind the named entity and accepted these terms by typing their full legal name in the Earth Breeze supplier portal. This copy was generated from the recorded signature on ${new Date().toLocaleString()}.</div>
 </div></body></html>`;
 }
@@ -332,7 +333,8 @@ export default function ThreePLParcelRFP({ rfpCode = "EB-2026-PARCEL-01", rfpTyp
     w.document.write(ndaDocumentHTML({
       name: r.nda_name, title: r.nda_title, company: r.nda_details?.company_legal || r.company,
       email: r.email, signed_at: r.nda_signed_at, details: r.nda_details || {},
-      nda_text: (baseContent && baseContent.nda_text) || "",
+      nda_text: r.nda_text_override || (baseContent && baseContent.nda_text) || "",
+      negotiated: !!r.nda_text_override,
       rfp_code: rfpCode, rfp_title: title,
       eb: {
         name: (baseContent && baseContent.nda_signatory_name) || "Ben Smith",
@@ -511,6 +513,86 @@ Earth Breeze Procurement`);
 
   const [questionDraft, setQuestionDraft] = useState({});
   const [jsonMode, setJsonMode] = useState({});
+  const [revs, setRevs] = useState({});          // request_id -> revisions[]
+  const [revDraft, setRevDraft] = useState({});  // request_id -> counter text
+  const [revNote, setRevNote] = useState({});
+  const [revOpen, setRevOpen] = useState(null);
+
+  const loadRevs = useCallback(async () => {
+    const { data } = await supabase.from("rfp_nda_revisions").select("*").eq("rfp_code", RFP_CODE).order("rev_no");
+    const m = {};
+    (data || []).forEach(r => { (m[r.request_id] = m[r.request_id] || []).push(r); });
+    setRevs(m);
+  }, [RFP_CODE]);
+  useEffect(() => { if (tab === "requests") loadRevs(); }, [tab, loadRevs]);
+
+  // Accept the bidder's proposed version - it becomes the operative text for them.
+  const acceptRev = async (req, rev) => {
+    if (rev.author !== "bidder") { setErr("You can only accept the other side's version."); return; }
+    if (!window.confirm(`Accept ${req.company || "this bidder"}'s revision ${rev.rev_no} as their NDA?\n\nThey will sign this version, and their executed copy will show it.`)) return;
+    setBusy(req.id);
+    const now = new Date().toISOString();
+    const a = await supabase.from("rfp_nda_revisions").update({ status: "accepted", decided_at: now, decided_by: "Earth Breeze" }).eq("id", rev.id).select("id");
+    const b = await supabase.from("rfp_access_requests").update({ nda_text_override: rev.body }).eq("id", req.id).select("id");
+    setBusy(null);
+    if (a.error || b.error || !a.data?.length || !b.data?.length) { setErr("Could not accept revision" + (a.error || b.error ? ": " + (a.error?.message || b.error?.message) : " - no rows changed.")); return; }
+    loadRevs(); loadReqs();
+  };
+
+  // Counter-propose: supersedes the open revision and puts the ball back with them.
+  const counterRev = async (req) => {
+    const body = (revDraft[req.id] || "").trim();
+    if (body.length < 200) { setErr("Paste the full agreement text for your counter-proposal."); return; }
+    setBusy(req.id);
+    const list = revs[req.id] || [];
+    const nextNo = Math.max(0, ...list.map(x => x.rev_no)) + 1;
+    await supabase.from("rfp_nda_revisions").update({ status: "superseded", decided_at: new Date().toISOString() }).eq("request_id", req.id).eq("status", "proposed");
+    const { error } = await supabase.from("rfp_nda_revisions").insert({
+      request_id: req.id, rfp_code: RFP_CODE, rev_no: nextNo, author: "earthbreeze",
+      author_name: "Earth Breeze", body, note: (revNote[req.id] || "").trim() || null, status: "proposed",
+    });
+    setBusy(null);
+    if (error) { setErr("Could not send counter-proposal: " + error.message); return; }
+    setRevDraft(d => ({ ...d, [req.id]: "" })); setRevNote(d => ({ ...d, [req.id]: "" }));
+    loadRevs();
+  };
+
+  const rejectRev = async (req, rev) => {
+    if (!window.confirm("Reject this revision? The bidder will be told no version is open and can propose again.")) return;
+    setBusy(req.id);
+    await supabase.from("rfp_nda_revisions").update({ status: "rejected", decided_at: new Date().toISOString(), decided_by: "Earth Breeze" }).eq("id", rev.id);
+    setBusy(null); loadRevs();
+  };
+
+  // External NDA signed outside the portal.
+  const uploadExternalNDA = async (req, file) => {
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) { setErr("File is larger than 25 MB."); return; }
+    setBusy(req.id);
+    const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, "-");
+    const path = `nda/${RFP_CODE}/${req.id}/${Date.now()}-${safe}`;
+    const up = await supabase.storage.from("rfp-submissions").upload(path, file, { upsert: false });
+    if (up.error) { setBusy(null); setErr("Upload failed: " + up.error.message); return; }
+    const now = new Date().toISOString();
+    const ext = { path, filename: file.name, uploaded_at: now, note: window.prompt("Reference for this executed NDA (optional):", "Executed outside the portal") || null };
+    const { data, error } = await supabase.from("rfp_access_requests").update({
+      nda_external: ext, nda_signed_at: req.nda_signed_at || now,
+      nda_name: req.nda_name || (req.name || req.company), nda_title: req.nda_title || "Executed outside portal",
+      nda_details: { ...(req.nda_details || {}), waiver: true, waiver_ref: ext.note || file.name, external_file: path, waived_by: "admin", waived_at: now },
+      status: "approved",
+    }).eq("id", req.id).select("id");
+    setBusy(null);
+    if (error || !data?.length) { setErr("Uploaded, but the record did not update" + (error ? ": " + error.message : ".")); return; }
+    loadReqs();
+  };
+
+  const openExternalNDA = async (req) => {
+    const p = req.nda_external?.path; if (!p) return;
+    const { data, error } = await supabase.storage.from("rfp-submissions").createSignedUrl(p, 300);
+    if (error || !data?.signedUrl) { setErr("Could not open file: " + (error?.message || "unknown")); return; }
+    window.open(data.signedUrl, "_blank");
+  };
+
   const [newKey, setNewKey] = useState("");
   const [newKind, setNewKind] = useState("text");
   const [extraDraft, setExtraDraft] = useState({});   // generic editors: key -> value (parsed)
@@ -969,6 +1051,22 @@ Earth Breeze Procurement`);
                   <span style={{ fontSize: 11.5, color: T.text3 }}>{new Date(r.created_at).toLocaleString()}</span>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  {!r.nda_signed_at && (
+                    <label style={{ ...btnSm, ...btnGhost, cursor: "pointer" }} title="Upload an NDA executed outside the portal (DocuSign, email, negotiated paper copy)">
+                      📎 Upload signed NDA
+                      <input type="file" style={{ display: "none" }} disabled={busy === r.id}
+                        onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; uploadExternalNDA(r, f); }} />
+                    </label>
+                  )}
+                  {r.nda_external?.path && (
+                    <button onClick={() => openExternalNDA(r)} style={{ ...btnSm, ...btnGhost }}>View executed NDA{r.nda_external.filename ? ` (${r.nda_external.filename.slice(0, 22)})` : ""}</button>
+                  )}
+                  {(revs[r.id] || []).some(x => x.status === "proposed") && (
+                    <button onClick={() => setRevOpen(revOpen === r.id ? null : r.id)}
+                            style={{ ...btnSm, background: "#b8860b", color: "#fff" }}>
+                      {(revs[r.id] || []).find(x => x.status === "proposed")?.author === "bidder" ? "⚖ NDA changes to review" : "⚖ Awaiting their response"}
+                    </button>
+                  )}
                   {!r.nda_signed_at && orgCover && (
                     <button disabled={busy === r.id} onClick={() => admitUnderOrgNDA(r, orgCover)} style={{ ...btnSm, background: "#0b7285", color: "#fff" }} title="Give access under the NDA this organisation has already signed">
                       🔓 Admit under org NDA
@@ -987,6 +1085,45 @@ Earth Breeze Procurement`);
                     <button disabled={busy === r.id} onClick={() => decide(r, "approved")} style={{ ...btnSm, ...btnGhost }}>Approve instead</button>
                   )}
                 </div>
+                {revOpen === r.id && (
+                  <div style={{ borderTop: `1px solid ${T.border}`, padding: 14, background: T.surface2 }}>
+                    <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 10 }}>
+                      NDA negotiation history. Only the other side can accept a version - you accept theirs, they accept yours. Signing is paused for them while a revision is open.
+                    </div>
+                    {(revs[r.id] || []).slice().reverse().map(rev => (
+                      <div key={rev.id} style={{ ...card, padding: 12, marginBottom: 8 }}>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+                          <b style={{ fontSize: 12.5, color: T.text }}>Revision {rev.rev_no} · {rev.author === "bidder" ? (r.company || "Bidder") : "Earth Breeze"}</b>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+                            background: rev.status === "accepted" ? "rgba(52,168,83,.15)" : rev.status === "proposed" ? "rgba(184,134,11,.15)" : "rgba(0,0,0,.07)",
+                            color: rev.status === "accepted" ? "#34a853" : rev.status === "proposed" ? "#b8860b" : T.text3 }}>{rev.status}</span>
+                          <span style={{ fontSize: 11, color: T.text3 }}>{new Date(rev.created_at).toLocaleString()}</span>
+                          <div style={{ flex: 1 }} />
+                          {rev.status === "proposed" && rev.author === "bidder" && (<>
+                            <button disabled={busy === r.id} onClick={() => acceptRev(r, rev)} style={{ ...btnSm, background: "#34a853", color: "#fff" }}>✓ Accept their version</button>
+                            <button disabled={busy === r.id} onClick={() => rejectRev(r, rev)} style={{ ...btnSm, ...btnGhost, color: "#e5484d" }}>Reject</button>
+                          </>)}
+                        </div>
+                        {rev.note && <div style={{ fontSize: 12, color: T.text2, marginBottom: 6 }}><b>Note:</b> {rev.note}</div>}
+                        <details>
+                          <summary style={{ fontSize: 11.5, color: T.accent, cursor: "pointer" }}>View agreement text</summary>
+                          <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, color: T.text2, maxHeight: 280, overflow: "auto", marginTop: 8 }}>{rev.body}</pre>
+                        </details>
+                        {rev.status === "proposed" && rev.author === "bidder" && (
+                          <button onClick={() => setRevDraft(d => ({ ...d, [r.id]: rev.body }))} style={{ ...btnSm, ...btnGhost, marginTop: 8 }}>Edit this into a counter-proposal</button>
+                        )}
+                      </div>
+                    ))}
+                    <div style={{ marginTop: 10 }}>
+                      <label style={label}>Counter-proposal - full agreement text</label>
+                      <textarea rows={8} value={revDraft[r.id] || ""} onChange={e => setRevDraft(d => ({ ...d, [r.id]: e.target.value }))}
+                        placeholder="Paste or edit the full NDA text you are proposing back to them" style={{ ...inputStyle, resize: "vertical", fontFamily: "ui-monospace, monospace", fontSize: 11.5 }} />
+                      <label style={label}>Note to the bidder</label>
+                      <textarea rows={2} value={revNote[r.id] || ""} onChange={e => setRevNote(d => ({ ...d, [r.id]: e.target.value }))} style={{ ...inputStyle, resize: "vertical" }} />
+                      <button disabled={busy === r.id} onClick={() => counterRev(r)} style={{ ...btnSm, background: T.accent, color: "#fff", marginTop: 8 }}>Send counter-proposal</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
               })}

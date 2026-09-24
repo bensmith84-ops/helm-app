@@ -207,6 +207,30 @@ footer{border-top:1px solid var(--line);padding:26px 0;font-size:12.5px;color:va
         <div style="color:var(--ink2);font-size:12px;margin-top:8px">This page stays available at the same link until the NDA is signed - whoever signs it below unlocks access for your team's link.</div>
       </div>
     </div>
+    <div id="nda-negotiate" style="margin:10px 0 12px">
+      <div id="nda-pending" style="display:none;background:#FFF8E6;border:1.5px solid #E8C872;border-radius:10px;padding:13px 15px;margin-bottom:10px;font-size:13px">
+        <b id="nda-pending-title"></b>
+        <div id="nda-pending-note" style="margin:5px 0 0;color:var(--ink2);font-size:12.5px"></div>
+        <div id="nda-pending-actions" style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap"></div>
+      </div>
+      <div id="nda-negotiated" style="display:none;background:#EEF6EE;border:1.5px solid #CFE3CF;border-radius:10px;padding:11px 14px;margin-bottom:10px;font-size:12.5px">
+        \u2713 You are viewing your organisation&rsquo;s <b>negotiated version</b> of this agreement, agreed with Earth Breeze. Signing below executes that version.
+      </div>
+      <a href="#" id="nda-propose-open" onclick="openProposeNDA();return false" style="font-size:12.5px">Need changes? Propose edits to this NDA &rarr;</a>
+      <div id="nda-propose" style="display:none;margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:13px 15px;background:var(--paper)">
+        <div style="font-size:12.5px;color:var(--ink2);margin-bottom:8px">
+          Edit the agreement text below and add a note explaining your changes. Earth Breeze will review and either accept your version or send a counter-proposal back to you. Access to the RFP stays open while this is in progress \u2014 you just can&rsquo;t sign until a version is agreed.
+        </div>
+        <textarea id="nda-propose-body" rows="14" style="width:100%;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.55"></textarea>
+        <label style="display:block;margin-top:8px;font-size:12px">Note to Earth Breeze (what you changed and why)</label>
+        <textarea id="nda-propose-note" rows="3" style="width:100%;font-size:12.5px"></textarea>
+        <div style="display:flex;gap:10px;margin-top:10px;align-items:center;flex-wrap:wrap">
+          <button id="nda-propose-btn" onclick="submitProposeNDA()">Send proposed changes</button>
+          <a href="#" onclick="$('nda-propose').style.display='none';return false" style="font-size:12px">Cancel</a>
+          <span id="nda-propose-msg" style="font-size:12px;color:var(--ink2)"></span>
+        </div>
+      </div>
+    </div>
     <div id="sig-waiting" style="display:none;background:#FFF8E6;border:1.5px solid #E8C872;border-radius:10px;padding:14px 16px;margin:6px 0 10px;font-size:13px">
       <b>Waiting for <span id="sig-waiting-name"></span> to sign.</b> Send them the signing link above. They'll open this same page and sign in their own name.
       <div style="margin-top:8px"><a href="#" onclick="signMyself();return false" style="font-size:12.5px">I'm the authorized signatory after all - sign myself</a></div>
@@ -398,6 +422,7 @@ async function showNDA(t, st){
   window.__ndaText = res.nda_text || '';
   window.__rfpTitle = (res.title_html || '').replace(/<[^>]+>/g, '') || document.title;
   window.__ndaEB = { name: res.nda_signatory_name || 'Ben Smith', title: res.nda_signatory_title || 'Chief Operating Officer', company: res.nda_company_legal || 'EARTH BREEZE, INC.' };
+  renderNDANegotiation(res);
   window.__reqEmail = (res.email || '').toLowerCase();
   window.__delegate = res.delegate_email ? { name: res.delegate_name || '', email: String(res.delegate_email).toLowerCase() } : null;
   if (res.company) $('nda-company').value = res.company;
@@ -502,6 +527,73 @@ function showNDACopyBar() {
   x.onclick = function(e){ e.preventDefault(); b.remove(); };
   b.appendChild(x);
   document.body.insertBefore(b, document.body.firstChild);
+}
+
+// ---- NDA redlining -------------------------------------------------------
+// Either side can propose a version; only the OTHER side can accept it.
+function renderNDANegotiation(res){
+  window.__ndaBase = res.nda_text || '';
+  if (res.negotiated) $('nda-negotiated').style.display = 'block';
+  const p = res.pending;
+  const box = $('nda-pending');
+  if (!p) { box.style.display = 'none'; setSignEnabled(true); return; }
+  box.style.display = 'block';
+  const acts = $('nda-pending-actions'); acts.innerHTML = '';
+  if (p.awaiting === 'bidder') {
+    $('nda-pending-title').textContent = 'Earth Breeze has proposed a revised version (revision ' + p.rev_no + ')';
+    $('nda-pending-note').textContent = p.note ? ('Their note: ' + p.note) : 'Review the text below, then accept it or propose further changes.';
+    $('nda-text').innerHTML = '';
+    $('nda-text').textContent = p.body;
+    const a = document.createElement('button');
+    a.textContent = 'Accept this version';
+    a.onclick = function(){ acceptNDARevision(p.id); };
+    acts.appendChild(a);
+    const b = document.createElement('a');
+    b.href = '#'; b.textContent = 'Propose further changes'; b.style.cssText='font-size:12.5px;align-self:center';
+    b.onclick = function(e){ e.preventDefault(); openProposeNDA(p.body); };
+    acts.appendChild(b);
+    setSignEnabled(false);
+  } else {
+    $('nda-pending-title').textContent = 'Your proposed changes are with Earth Breeze (revision ' + p.rev_no + ')';
+    $('nda-pending-note').textContent = 'We will review and either accept your version or send a counter-proposal here. You can keep reviewing the RFP in the meantime.';
+    setSignEnabled(false);
+  }
+}
+function setSignEnabled(on){
+  const b = $('nda-btn'); if (!b) return;
+  b.disabled = !on;
+  b.title = on ? '' : 'Signing is paused while an NDA revision is open.';
+  b.style.opacity = on ? '1' : '.5';
+}
+function openProposeNDA(seed){
+  $('nda-propose').style.display = 'block';
+  const ta = $('nda-propose-body');
+  if (!ta.value) ta.value = seed || window.__ndaBase || $('nda-text').textContent || '';
+  ta.focus();
+}
+async function submitProposeNDA(){
+  const body = $('nda-propose-body').value.trim();
+  const note = $('nda-propose-note').value.trim();
+  const msg = $('nda-propose-msg');
+  if (body.length < 200) { msg.textContent = 'The agreement text looks too short - please paste or edit the full text.'; return; }
+  $('nda-propose-btn').disabled = true; msg.textContent = 'Sending\u2026';
+  try {
+    const r = await rpc('rfp_propose_nda', {p_token: getTok(), p_body: body, p_note: note, p_name: ($('nda-name') && $('nda-name').value) || null});
+    if (!r.ok) throw new Error(r.error || 'failed');
+    msg.textContent = '';
+    $('nda-propose').style.display = 'none';
+    await showNDA(getTok());
+  } catch(e) {
+    msg.textContent = 'Could not send those changes - please retry.';
+  }
+  $('nda-propose-btn').disabled = false;
+}
+async function acceptNDARevision(id){
+  try {
+    const r = await rpc('rfp_accept_nda', {p_token: getTok(), p_rev_id: id, p_name: ($('nda-name') && $('nda-name').value) || null});
+    if (!r.ok) throw new Error(r.error || 'failed');
+    await showNDA(getTok());
+  } catch(e) { alert('Could not accept that version - please retry.'); }
 }
 
 async function signNDA(){
